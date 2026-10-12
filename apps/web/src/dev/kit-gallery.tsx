@@ -561,27 +561,15 @@ export function KitGallery() {
         <Section title="Overlays">
           <div className="flex items-start gap-8">
             <RoomPanel
+              className="h-110"
               members={[
-                {
-                  id: "alex",
-                  name: "Alex",
-                  detail: "Host · this device",
-                  avatar: ART.alex,
-                  sync: { kind: "in-sync" },
-                },
-                {
-                  id: "maya",
-                  name: "Maya",
-                  detail: "Lisbon · transcode 1080p",
-                  avatar: ART.maya,
-                  sync: { kind: "in-sync" },
-                },
+                { id: "alex", name: "Alex", detail: "Host", avatar: ART.alex },
+                { id: "maya", name: "Maya", detail: "You", avatar: ART.maya },
                 {
                   id: "sam",
                   name: "Sam",
-                  detail: "Buffering · catching up",
                   avatar: ART.sam,
-                  sync: { kind: "drifting", label: "-2.4s" },
+                  status: { kind: "drift", label: "-2.4s" },
                 },
               ]}
               onCopyLink={() => undefined}

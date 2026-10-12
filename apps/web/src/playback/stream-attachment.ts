@@ -99,7 +99,9 @@ const attachHlsJs = async (
   seconds: number,
   onFailure: (failure: StreamFailure) => void,
 ): Promise<AttachedStream> => {
-  const { default: Hls } = await import("hls.js");
+  // The light build leaves out subtitles, DRM, and alternate audio renditions, which these streams
+  // never use: subtitles load as WebVTT `<track>` elements and audio is muxed.
+  const { default: Hls } = await import("hls.js/light");
   let mediaRecoveries = 0;
 
   const hls = new Hls({
