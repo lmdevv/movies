@@ -3,8 +3,6 @@
  * menu are generated from it, so an action added here exists everywhere. The backend tests that
  * each Convex command names an existing public function whose validators match these schemas.
  */
-import type { Schema } from "effect";
-
 import { accountCommands, credentialCommands, userCommands } from "./account";
 import { libraryCommands, maintenanceCommands, metadataCommands } from "./admin";
 import type { AnyCommand } from "./command";
@@ -38,20 +36,16 @@ export type CommandNameOfKind<Kind extends AnyCommand["kind"]> = {
 }[CommandName];
 
 /** Decoded arguments of a command. */
-export type CommandArgs<Name extends CommandName> = Schema.Schema.Type<Commands[Name]["args"]>;
+export type CommandArgs<Name extends CommandName> = Commands[Name]["args"]["Type"];
 
 /** Arguments of a command as they travel on the wire. */
-export type CommandArgsEncoded<Name extends CommandName> = Schema.Codec.Encoded<
-  Commands[Name]["args"]
->;
+export type CommandArgsEncoded<Name extends CommandName> = Commands[Name]["args"]["Encoded"];
 
 /** Decoded result of a command. */
-export type CommandResult<Name extends CommandName> = Schema.Schema.Type<Commands[Name]["result"]>;
+export type CommandResult<Name extends CommandName> = Commands[Name]["result"]["Type"];
 
 /** Result of a command as it travels on the wire. */
-export type CommandResultEncoded<Name extends CommandName> = Schema.Codec.Encoded<
-  Commands[Name]["result"]
->;
+export type CommandResultEncoded<Name extends CommandName> = Commands[Name]["result"]["Encoded"];
 
 const names: ReadonlySet<string> = new Set(Object.keys(commands));
 
