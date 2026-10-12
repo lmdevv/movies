@@ -173,6 +173,10 @@ export const createSession = mutation({
       sessionId,
       titleId: title._id,
       episodeId,
+      episode:
+        playable.episode === null
+          ? null
+          : await presentEpisodeFor(ctx, args.profileId, playable.episode),
       file: presentMediaFile(playable.file),
       token,
       tokenExpiresAt,

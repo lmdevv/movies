@@ -15,6 +15,7 @@ const started = Schema.decodeSync(StartedPlayback)({
   sessionId: "session-1",
   titleId: "title-1",
   episodeId: null,
+  episode: null,
   file: {
     id: "file-1",
     titleId: "title-1",

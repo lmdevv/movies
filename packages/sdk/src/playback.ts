@@ -228,6 +228,7 @@ export const renegotiate = Effect.fn("Playback.renegotiate")(function* (
       sessionId: playback.started.sessionId,
       titleId: playback.started.titleId,
       episodeId: playback.started.episodeId,
+      episode: playback.started.episode,
       file: playback.started.file,
       token,
       tokenExpiresAt,

@@ -516,6 +516,7 @@ export const startedPlayback = v.object({
   sessionId: v.id("playbackSessions"),
   titleId: v.id("titles"),
   episodeId: nullable(v.id("episodes")),
+  episode: nullable(episode),
   file: mediaFile,
   token: v.string(),
   tokenExpiresAt: v.number(),
