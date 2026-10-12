@@ -1,13 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
+import type { ClientCapabilities } from "@movies/contracts/media-playback";
 
 import type { AudioTrack, MediaProbe, VideoStream } from "../media/media-probe.ts";
-import {
-  AudioPlan,
-  type ClientCapabilities,
-  decidePlayback,
-  PlaybackPlan,
-  VideoPlan,
-} from "./playback-decision.ts";
+import { AudioPlan, decidePlayback, PlaybackPlan, VideoPlan } from "./playback-decision.ts";
 
 interface VideoOptions {
   readonly profile?: string;
@@ -154,7 +149,7 @@ describe("decidePlayback", () => {
   it("transcodes HDR HEVC on QSV with tone mapping", () => {
     expect(decidePlayback(probe("mkv", hevcHdr, [aac]), chrome, hardware)).toStrictEqual(
       PlaybackPlan.Hls({
-        mode: "hardware-transcode",
+        mode: "transcode-qsv",
         video: VideoPlan.Encode({
           encoder: "qsv",
           width: 3840,
@@ -178,7 +173,7 @@ describe("decidePlayback", () => {
 
     expect(decidePlayback(probe("ts", sdr4k, [aac]), chrome, software)).toStrictEqual(
       PlaybackPlan.Hls({
-        mode: "software-transcode",
+        mode: "transcode-software",
         video: VideoPlan.Encode({
           encoder: "software",
           width: 1920,
@@ -194,7 +189,7 @@ describe("decidePlayback", () => {
 
     expect(decidePlayback(probe("mp4", h264, [aac]), phone, software)).toStrictEqual(
       PlaybackPlan.Hls({
-        mode: "software-transcode",
+        mode: "transcode-software",
         video: VideoPlan.Encode({
           encoder: "software",
           width: 1280,
@@ -212,7 +207,7 @@ describe("decidePlayback", () => {
 
     expect(decidePlayback(probe("mkv", hi10, [aac]), chrome, software)).toMatchObject({
       _tag: "Hls",
-      mode: "software-transcode",
+      mode: "transcode-software",
     });
   });
 

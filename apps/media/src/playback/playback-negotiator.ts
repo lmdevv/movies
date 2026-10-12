@@ -4,86 +4,35 @@
  * and returns the URLs to play. Clients never send paths or ffmpeg arguments; everything comes
  * from the token's file ID and the server's own records.
  */
-import { Context, Effect, FileSystem, Layer, Path, Redacted, Schema } from "effect";
+import {
+  type FileResolverUnavailable,
+  type MediaFileNotFound,
+  type NegotiateRequest,
+  type NegotiateResponse,
+  type PlaybackSessionEnded,
+  UnsupportedPlayback,
+} from "@movies/contracts/media-playback";
+import type { PlaybackTokenInvalid } from "@movies/contracts/playback-token";
+import { Context, Effect, FileSystem, Layer, Path, Redacted } from "effect";
 
-import { StreamId } from "../ids.ts";
 import * as MediaConfig from "../media-config.ts";
-import { DynamicRange } from "../media/media-probe.ts";
-import { SubtitleTrack, subtitleTracks } from "../subtitles/subtitle-tracks.ts";
+import { subtitleTracks } from "../subtitles/subtitle-tracks.ts";
 import * as FileResolver from "./file-resolver.ts";
 import { resolveInsideRoots } from "./file-resolver.ts";
 import * as HardwareAcceleration from "./hardware-acceleration.ts";
-import type { KeyframeIndexFailed } from "./keyframe-index.ts";
-import {
-  AudioPlan,
-  ClientCapabilities,
-  decidePlayback,
-  PlaybackMode,
-  PlaybackPlan,
-  UnsupportedPlayback,
-  VideoPlan,
-} from "./playback-decision.ts";
+import { AudioPlan, decidePlayback, PlaybackPlan, VideoPlan } from "./playback-decision.ts";
 import * as PlaybackReporter from "./playback-reporter.ts";
 import * as PlaybackToken from "./playback-token.ts";
 import * as StreamSessions from "./stream-sessions.ts";
 
-/** A negotiation request. */
-export const NegotiateRequest = Schema.Struct({
-  /** The playback token Convex issued for this file and device session. */
-  token: Schema.Redacted(Schema.String),
-  capabilities: ClientCapabilities,
-  /** ffmpeg stream index of the audio track to play; the default track when absent. */
-  audioStreamIndex: Schema.optional(Schema.Int),
-  /** Where playback starts, in seconds from the beginning. */
-  startSeconds: Schema.optional(Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))),
-});
-
-/** A negotiation request. */
-export interface NegotiateRequest extends Schema.Schema.Type<typeof NegotiateRequest> {}
-
-/** A subtitle track with its WebVTT URL, or the reason it cannot be shown. */
-const NegotiatedSubtitle = Schema.Struct({
-  ...SubtitleTrack.fields,
-  /** WebVTT URL; absent for bitmap tracks, which are not supported yet. */
-  url: Schema.optional(Schema.String),
-});
-
-/** The negotiated playback. */
-export const NegotiateResponse = Schema.Struct({
-  mode: PlaybackMode,
-  /** The direct file URL (byte ranges) or the HLS playlist URL. */
-  url: Schema.String,
-  /** HLS only: the stream and generation the playlist belongs to. */
-  streamId: Schema.optional(StreamId),
-  generation: Schema.optional(Schema.Int),
-  /** Where playback should start; HLS sessions start producing here. */
-  startSeconds: Schema.Finite,
-  durationSeconds: Schema.Finite,
-  video: Schema.Struct({
-    codec: Schema.String,
-    width: Schema.Int,
-    height: Schema.Int,
-    dynamicRange: DynamicRange,
-  }),
-  audio: Schema.optional(
-    Schema.Struct({ streamIndex: Schema.Int, codec: Schema.String, channels: Schema.Int }),
-  ),
-  subtitles: Schema.Array(NegotiatedSubtitle),
-  /** Token expiry in milliseconds since the epoch; renegotiate before it. */
-  expiresAt: Schema.Finite,
-});
-
-/** The negotiated playback. */
-export interface NegotiateResponse extends Schema.Schema.Type<typeof NegotiateResponse> {}
-
 /** Failures a negotiation can report. */
 type NegotiateError =
-  | PlaybackToken.InvalidPlaybackToken
-  | FileResolver.MediaFileNotFound
-  | FileResolver.FileResolverUnavailable
+  | PlaybackTokenInvalid
+  | PlaybackSessionEnded
+  | MediaFileNotFound
+  | FileResolverUnavailable
   | UnsupportedPlayback
-  | StreamSessions.StartError
-  | KeyframeIndexFailed;
+  | StreamSessions.StartError;
 
 /** Negotiates playback. */
 export interface Interface {

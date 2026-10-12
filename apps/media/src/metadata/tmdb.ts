@@ -60,13 +60,25 @@ const nullable = <S extends Schema.Top>(schema: S) => Schema.optionalKey(Schema.
 
 const SearchMovies = Schema.Struct({
   results: Schema.Array(
-    Schema.Struct({ id: Schema.Int, title: Schema.String, release_date: nullable(Schema.String) }),
+    Schema.Struct({
+      id: Schema.Int,
+      title: Schema.String,
+      release_date: nullable(Schema.String),
+      overview: nullable(Schema.String),
+      poster_path: nullable(Schema.String),
+    }),
   ),
 });
 
 const SearchShows = Schema.Struct({
   results: Schema.Array(
-    Schema.Struct({ id: Schema.Int, name: Schema.String, first_air_date: nullable(Schema.String) }),
+    Schema.Struct({
+      id: Schema.Int,
+      name: Schema.String,
+      first_air_date: nullable(Schema.String),
+      overview: nullable(Schema.String),
+      poster_path: nullable(Schema.String),
+    }),
   ),
 });
 
@@ -289,6 +301,8 @@ const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
         providerId: String(result.id),
         title: result.title,
         year: yearOf(result.release_date),
+        overview: text(result.overview),
+        poster: image("w342", result.poster_path),
       }));
     }
 
@@ -304,6 +318,8 @@ const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
       providerId: String(result.id),
       title: result.name,
       year: yearOf(result.first_air_date),
+      overview: text(result.overview),
+      poster: image("w342", result.poster_path),
     }));
   });
 

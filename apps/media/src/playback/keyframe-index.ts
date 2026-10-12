@@ -4,26 +4,13 @@
  * ffprobe packet scan, which reads the whole file. Results are cached on disk by file ID, size,
  * and modification time, so each file pays the cost once.
  */
+import { KeyframeIndexFailed } from "@movies/contracts/media-playback";
 import { Context, Duration, Effect, FileSystem, Layer, Option, Schema } from "effect";
 
 import * as DiskCache from "../disk-cache.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import type { ResolvedMediaFile } from "./file-resolver.ts";
 import { readMatroskaKeyframes } from "./matroska-cues.ts";
-
-/** Neither the container index nor a packet scan produced keyframes. */
-export class KeyframeIndexFailed extends Schema.TaggedError<KeyframeIndexFailed>()(
-  "KeyframeIndexFailed",
-  {
-    fileId: Schema.String,
-    cause: Schema.Defect(),
-  },
-  { httpApiStatus: 500 },
-) {
-  override get message(): string {
-    return `Keyframe index failed for file ${this.fileId}`;
-  }
-}
 
 /** Keyframe times of media files. */
 export interface Interface {

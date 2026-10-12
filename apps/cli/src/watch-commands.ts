@@ -1,13 +1,14 @@
 /** Shortcuts for finding and playing titles and reading progress. */
 import { commands } from "@movies/contracts/commands";
 import { NotFound } from "@movies/contracts/errors";
-import { EpisodeId } from "@movies/contracts/ids";
+import { EpisodeId, TitleId } from "@movies/contracts/ids";
 import type { ProfileId } from "@movies/contracts/ids";
+import { type ClientCapabilities, PlaybackApiError } from "@movies/contracts/media-playback";
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import { MoviesClient, Playback } from "@movies/sdk/effect";
-import { Effect, Option } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
 
-import { LaunchError } from "./cli-errors";
+import { LaunchError, PlaybackRefused } from "./cli-errors";
 import { runAttached } from "./files";
 import type { ShortcutCommand } from "./invocation";
 import {
@@ -35,6 +36,9 @@ const normalize = (text: string): string =>
     .replaceAll(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 
+/** What a Convex document ID looks like; such a query is tried as a title ID first. */
+const CONVEX_ID = /^[a-z0-9]{32}$/u;
+
 /** The best match for `query`: an exact name, then a name starting with it, then the first result. */
 export const bestTitle = (
   query: string,
@@ -55,6 +59,23 @@ export const findTitle = Effect.fn("Watch.findTitle")(function* (
   profileId: ProfileId,
   query: string,
 ) {
+  if (CONVEX_ID.test(query)) {
+    const byId = yield* connection
+      .withSession(
+        connection.client.query("titles.get", { profileId, titleId: TitleId.make(query) }),
+      )
+      .pipe(
+        Effect.asSome,
+        Effect.catchTags({
+          NotFound: () => Effect.succeedNone,
+          InvalidArgs: () => Effect.succeedNone,
+          Internal: () => Effect.succeedNone,
+        }),
+      );
+
+    if (Option.isSome(byId)) return byId.value;
+  }
+
   const results = yield* connection.withSession(
     connection.client.query("titles.search", { profileId, query, limit: 20 }),
   );
@@ -68,7 +89,7 @@ export const findTitle = Effect.fn("Watch.findTitle")(function* (
 });
 
 /** What mpv, VLC, and similar desktop players can play: everything, so direct play wins. */
-const DESKTOP_PLAYER: Playback.ClientCapabilities = {
+const DESKTOP_PLAYER: ClientCapabilities = {
   containers: ["mp4", "mov", "mkv", "webm", "avi", "ts", "other"],
   videoCodecs: ["h264", "hevc", "av1", "vp9", "vp8", "mpeg4", "mpeg2video", "vc1"].map((codec) => ({
     codec,
@@ -169,7 +190,9 @@ const play: ShortcutCommand = {
               });
             });
 
-      const playback = yield* connection.withSession(
+      // Playback API failures pass through the session wrapper as values, so a refreshed sign-in
+      // retries only the Convex calls, then become the CLI's playback error.
+      const outcome = yield* connection.withSession(
         Playback.start({
           profileId,
           deviceId: connection.deviceId,
@@ -180,8 +203,23 @@ const play: ShortcutCommand = {
           roomId: Option.none(),
           capabilities: DESKTOP_PLAYER,
           startAtMs: from,
-        }).pipe(Effect.provideService(MoviesClient.MoviesClient, connection.client)),
+        }).pipe(
+          Effect.provideService(MoviesClient.MoviesClient, connection.client),
+          Effect.map(Result.succeed),
+          Effect.catchIf(Schema.is(PlaybackApiError), (error) =>
+            Effect.succeed(Result.fail(error)),
+          ),
+        ),
       );
+
+      if (Result.isFailure(outcome)) {
+        return yield* new PlaybackRefused({
+          error: outcome.failure,
+          recovery: Playback.recoveryFor(outcome.failure),
+        });
+      }
+
+      const playback = outcome.success;
 
       const json = {
         sessionId: playback.started.sessionId,

@@ -48,13 +48,17 @@ const SignedClaims = Schema.fromJsonString(
 
 const decodeSignedClaims = Schema.decodeUnknownEffect(SignedClaims);
 
-/** Why a playback token was rejected. Never includes the token itself. */
+/**
+ * Why a playback token was rejected. Never includes the token itself. The media service answers
+ * it with status 401; an `expired` token is renewed with `playback.renewToken`.
+ */
 export class PlaybackTokenInvalid extends Schema.TaggedError<PlaybackTokenInvalid>()(
   "PlaybackTokenInvalid",
   {
     reason: Schema.Literals(["malformed", "bad_signature", "wrong_audience", "expired"]),
     message: Schema.String,
   },
+  { httpApiStatus: 401 },
 ) {}
 
 /** `PLAYBACK_TOKEN_SECRET` is not base64url or is shorter than 32 bytes. Never includes the secret. */
@@ -172,8 +176,9 @@ export const verifyPlaybackToken = Effect.fn("verifyPlaybackToken")(function* (
 
   const presented = Base64Url.decode(signature);
 
-  if (Result.isFailure(presented)) {
-    return yield* invalid("malformed", "Playback token signature is not base64url");
+  // Only the canonical encoding counts: base64url padding bits must not create aliases.
+  if (Result.isFailure(presented) || Base64Url.encode(presented.success) !== signature) {
+    return yield* invalid("malformed", "Playback token signature is not canonical base64url");
   }
 
   const expected = yield* hmacSha256(key, `${version}.${body}`);

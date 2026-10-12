@@ -15,6 +15,9 @@
     "./commands": "./src/commands/registry.ts",
     "./command": "./src/commands/command.ts",
     "./media-service": "./src/media-service.ts",
+    "./media-api": "./src/media-api.ts",
+    "./media-playback": "./src/media-playback.ts",
+    "./artwork": "./src/artwork.ts",
     "./models/*": "./src/models/*.ts"
   },
   "scripts": {

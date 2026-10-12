@@ -38,6 +38,8 @@ state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/movies-dev/${name}"
 data_dir="${state_dir}/data"
 transcode_dir="${TMPDIR:-/tmp}/movies-dev-${name}/transcode"
 backup_dir="${state_dir}/backups"
+# Libraries must lie inside LIBRARY_ROOTS; MOVIES_LIBRARY_ROOTS (comma-separated) overrides it.
+library_roots="${MOVIES_LIBRARY_ROOTS:-${state_dir}/library}"
 
 print_env() {
   cat <<EOF
@@ -50,6 +52,7 @@ web_url=http://localhost:${web_port}
 data_dir=${data_dir}
 transcode_dir=${transcode_dir}
 backup_dir=${backup_dir}
+library_roots=${library_roots}
 EOF
 }
 
@@ -77,7 +80,7 @@ case "${1:-up}" in
     ;;
 esac
 
-mkdir -p "$data_dir" "$transcode_dir" "$backup_dir"
+mkdir -p "$data_dir" "$transcode_dir" "$backup_dir" "${state_dir}/library"
 
 if ! docker inspect "$container" >/dev/null 2>&1; then
   # The backend fetches its own OIDC discovery document from CONVEX_SITE_ORIGIN to verify auth
@@ -131,6 +134,7 @@ PORT=${media_port}
 DATA_DIR=${data_dir}
 TRANSCODE_DIR=${transcode_dir}
 BACKUP_DIR=${backup_dir}
+LIBRARY_ROOTS=${library_roots}
 ${media_env}
 ENV
 

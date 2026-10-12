@@ -13,8 +13,11 @@ pnpm --filter @movies/media start      # node dist/main.js
 pnpm --filter @movies/media fixtures /tmp/movies-fixtures   # generated test library
 ```
 
-Until the Convex integration lands, the service runs in standalone mode: each `LIBRARY_ROOTS`
-entry is scanned into an in-memory store and kept in sync, and playback events are logged.
+With `CONVEX_URL` and `MEDIA_SERVICE_API_KEY` (written by `scripts/dev-stack.sh up`) the service
+signs in to Convex as the restricted service account and works from Convex: libraries, files,
+titles, jobs, and playback sessions live there (see "Convex integration"). Without `CONVEX_URL`
+it runs standalone for development: each `LIBRARY_ROOTS` entry is scanned into memory and
+playback events are logged. `CONVEX_URL` without the key refuses to start.
 
 ## HTTP
 
@@ -29,10 +32,15 @@ entry is scanned into an in-memory store and kept in sync, and playback events a
 | `GET /media/hls/:streamId/:generation/init.mp4?token=`   | fMP4 init segment                                                   |
 | `GET /media/hls/:streamId/:generation/:index.m4s?token=` | fMP4 media segment                                                  |
 | `GET /media/subtitles/:fileId/:track.vtt?token=`         | WebVTT (`e<stream>` embedded, `x<n>` sidecar)                       |
+| `GET /artwork/:key?w=`                                   | Artwork by sealed key, original or resized (185–1280), no token     |
+| `POST /api/metadata/candidates`                          | `metadata.searchCandidates` command (bearer Convex token, `manage`) |
 | `GET /*`                                                 | Built web app from `WEB_DIST_DIR`, with SPA fallback                |
 
-Errors are JSON bodies encoded with their tagged error schema, such as
+The playback API (`/api/playback/*`, `/api/health`) is the Effect HttpApi in
+`@movies/contracts/media-api`, built from the schemas and tagged errors in
+`@movies/contracts/media-playback`. Its errors are JSON bodies encoded with their schema, such as
 `{"_tag":"StreamGenerationGone","streamId":"…","generation":1,"currentGeneration":2}` (410).
+Registry `media` commands answer `{ code, message }` like Convex.
 
 ## Configuration
 
@@ -43,21 +51,56 @@ approves nothing, so every scan is refused), `PORT` (4300),
 `MAX_CONCURRENT_TRANSCODES` (3), `HARDWARE_ACCELERATION` (`auto`, `qsv`, `none`),
 `QSV_DEVICE` (`/dev/dri/renderD128`), `STREAM_IDLE_SECONDS` (60), `MIN_FREE_TRANSCODE_MB`
 (2048), `LIBRARY_RECONCILE_MINUTES` (360), `FFMPEG_PATH`, `FFPROBE_PATH`,
-`OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVEX_URL`, `MEDIA_SERVICE_API_KEY`.
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVEX_URL`, `MEDIA_SERVICE_API_KEY`. The dev stack sets
+`LIBRARY_ROOTS` to its own `library` folder unless `MOVIES_LIBRARY_ROOTS` says otherwise.
 
 QSV needs an ffmpeg built with libvpl; the Nix dev shell uses `ffmpeg-full` for that.
 
-## Integration seams
+## Convex integration
 
-The Convex integration provides these services (`Context.Service` tags):
+`src/convex/` holds the Convex side; `src/main.ts` composes it.
 
-- `LibrarySink` (`src/library/library-sink.ts`): `previousIndex`, `upsertBatch` (≤ 100
-  records), `markMissing`, `reportProgress`.
-- `FileResolver` (`src/playback/file-resolver.ts`): `resolve(fileId)` → path, size, mtime,
-  probe, and sidecar subtitles. Paths are re-checked against `LIBRARY_ROOTS`.
-- `PlaybackReporter` (`src/playback/playback-reporter.ts`): `report(event)` for `ModeChosen`,
-  `ModeChanged` (QSV → software), and `StreamEnded`.
-- `PlaybackToken.Service` is local for now; swap in the shared verifier from contracts later.
+- `MediaBackend` (`media-backend.ts`): the SDK's WebSocket transport and auth, signed in with
+  `MEDIA_SERVICE_API_KEY` through the `apikey` provider, with every `mediaService:*` call typed by
+  `@movies/contracts/media-service`. Sign-in retries with capped exponential backoff, a session
+  that ends (restore, revocation) signs in again, and dropped subscriptions resubscribe.
+  `GET /api/health` reports `backend: connected | connecting | standalone`.
+- `LibrarySink` over `upsertScanned`, `markMissing`, and `fileIndex` (`convex-library-sink.ts`),
+  translating with `catalog-records.ts`: absolute paths, the full probe, sealed artwork keys, and
+  match keys (`movie:tmdb:603`, `show:local:fixture show (2021)`). Extras are not stored.
+- `FileResolver` over `resolveFile` (`convex-file-resolver.ts`): cached 30 s, the path must lie in
+  the library's folders, and `resolveInsideRoots` re-checks the real path against `LIBRARY_ROOTS`.
+- `PlaybackReporter` over `recordPlaybackMode`, written from a queue so negotiation never waits.
+- `LibrarySync` follows `libraries`: the monitor watches and reconciles exactly those libraries.
+- `EndedSessionWatcher` follows `endedSessions`: those sessions' HLS streams stop and their tokens
+  are refused (`PlaybackSessionEnded`, 410).
+- `JobWorker` (`src/jobs/`) claims `pendingJobs` it has a handler for with a 60 s lease renewed
+  every 15 s (with progress), interrupts the handler when the job is cancelled or the lease is
+  lost, and completes or fails the job (`retry` returns it to the queue). Handlers: `scan`
+  (through the library monitor, so scans of one library never overlap; a folder outside
+  `LIBRARY_ROOTS` fails the job for good) and `metadata` (refresh and fix-match through TMDB).
+
+Extension points in `src/main.ts`: `jobHandlers` (one handler per job kind) and `commandRoutes`
+(route groups of registry `media` commands, built with `commandRoute` in
+`src/http/command-routes.ts`, which authorizes the bearer token through `account.viewer`).
+
+The tests use the in-memory `MemoryLibrary` (`LibrarySink` + `FileResolver`) and a recording
+`PlaybackReporter`.
+
+## Tests against a real stack
+
+```sh
+scripts/dev-stack.sh up
+pnpm --filter @movies/media test:stack
+```
+
+Builds the service and the CLI, generates the fixture library, starts the service on the stack's
+media port (stop a `pnpm dev` service first), and proves the slice: an admin adds libraries, the
+scan jobs run, titles carry probe, NFO metadata, and artwork; direct play with byte ranges, HLS
+remux, and software transcode; progress reaches continue watching; an ended session stops its
+stream; metadata commands check scopes; the same through `movies scan --wait`, `search`, `play`
+(the URL is probed with ffprobe), `progress`, and `continue`; and a job whose worker died is
+claimed again after its lease expires (up to a minute, the release cron's interval).
 
 ## Effect unstable modules
 
@@ -65,3 +108,5 @@ Effect 4.0.3 marks its HTTP, platform, process, observability, and some core mod
 `@stability unstable`, and the lint preset rejects unstable APIs. `tsconfig.json` allows exactly
 the modules this service depends on (`allowedUnstableApis`): the architecture chose Effect
 HttpApi and the lint rules require Effect's `FileSystem` and `ChildProcessSpawner`.
+`@movies/contracts` allows only `effect/http-api`, for the HttpApi definition in `media-api.ts`;
+the SDK uses none and decodes the same schemas from `media-playback.ts` over `fetch`.

@@ -236,6 +236,9 @@ importers:
       '@movies/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@movies/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.5

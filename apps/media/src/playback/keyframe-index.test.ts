@@ -3,7 +3,7 @@ import { assert, describe, layer } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path } from "effect";
 
 import * as DiskCache from "../disk-cache.ts";
-import { FileId } from "../ids.ts";
+import { MediaFileId } from "@movies/contracts/ids";
 import { probeFile } from "../media/media-probe.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import { ffmpegAvailable } from "../testing/fixture-library.ts";
@@ -33,7 +33,7 @@ const resolved = Effect.fn(function* (file: string, fileId: string) {
   const probe = yield* probeFile(file);
 
   return {
-    fileId: FileId.make(fileId),
+    fileId: MediaFileId.make(fileId),
     path: file,
     sizeBytes: Number(info.size),
     modifiedAtMs: 1,

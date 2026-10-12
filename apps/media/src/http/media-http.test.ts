@@ -2,11 +2,16 @@ import { assert, describe, layer } from "@effect/vitest";
 import { Effect, FileSystem, Path, Schema } from "effect";
 import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/http";
 
+import { artworkUrl } from "@movies/contracts/artwork";
+import {
+  type ClientCapabilities,
+  HealthResponse,
+  NegotiateResponse,
+} from "@movies/contracts/media-playback";
+
+import * as ArtworkKeys from "../artwork/artwork-keys.ts";
 import * as MediaTools from "../media/media-tools.ts";
-import { HealthResponse } from "./media-api.ts";
 import { parseFfprobeJson } from "../media/media-probe.ts";
-import type { ClientCapabilities } from "../playback/playback-decision.ts";
-import { NegotiateResponse } from "../playback/playback-negotiator.ts";
 import * as PlaybackReporter from "../playback/playback-reporter.ts";
 import { ffmpegAvailable, qsvUsable } from "../testing/fixture-library.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
@@ -130,6 +135,32 @@ const probeBytes = Effect.fn(function* (data: Uint8Array) {
   return yield* parseFfprobeJson(output, file);
 });
 
+/** Width and height of an image, read with ffprobe. */
+const probeImage = Effect.fn(function* (data: Uint8Array) {
+  const fs = yield* FileSystem.FileSystem;
+  const tools = yield* MediaTools.Service;
+  const file = yield* fs.makeTempFileScoped({ suffix: ".jpg" });
+
+  yield* fs.writeFile(file, data);
+
+  const output = yield* tools.ffprobe([
+    "-v",
+    "error",
+    "-print_format",
+    "json",
+    "-show_streams",
+    file,
+  ]);
+
+  return yield* Schema.decodeEffect(
+    Schema.fromJsonString(
+      Schema.Struct({
+        streams: Schema.Tuple([Schema.Struct({ width: Schema.Int, height: Schema.Int })]),
+      }),
+    ),
+  )(output).pipe(Effect.map((probe) => probe.streams[0]));
+});
+
 /** Fetches the init segment and media segment `index` of an HLS playlist URL. */
 const fetchSegment = Effect.fn(function* (playlistUrl: string, index: number) {
   const playlist = new URL(playlistUrl);
@@ -162,7 +193,40 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           status: "ok",
           activeStreams: 0,
           hardwareAcceleration: "none",
+          backend: "standalone",
         });
+      }),
+    );
+
+    it.effect("serves artwork by sealed key, resized on request, and refuses others", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const workspace = yield* FixtureWorkspace.Service;
+        const keys = yield* ArtworkKeys.Service;
+        const path = yield* Path.Path;
+
+        const poster = yield* keys.seal(
+          ArtworkKeys.ArtworkSource.Local({
+            path: path.join(workspace.library.moviesRoot, "Big Buck Fixture (2008)/poster.jpg"),
+          }),
+        );
+
+        const original = yield* get(artworkUrl(server.baseUrl, poster));
+
+        assert.strictEqual(original.status, 200);
+        assert.strictEqual(original.headers["content-type"], "image/jpeg");
+
+        const resized = yield* get(artworkUrl(server.baseUrl, poster, 185));
+        const image = yield* probeImage(new Uint8Array(yield* resized.arrayBuffer));
+
+        assert.strictEqual(resized.status, 200);
+        assert.deepStrictEqual([image.width, image.height], [185, 278]);
+        assert.strictEqual((yield* get(`${server.baseUrl}/artwork/${poster}?w=100`)).status, 400);
+
+        const outside = yield* keys.seal(ArtworkKeys.ArtworkSource.Local({ path: "/etc/passwd" }));
+
+        assert.strictEqual((yield* get(artworkUrl(server.baseUrl, outside))).status, 404);
+        assert.strictEqual((yield* get(`${server.baseUrl}/artwork/a1.forged`)).status, 404);
       }),
     );
 
@@ -239,8 +303,9 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
 
         assert.strictEqual(expired.status, 401);
         assert.deepStrictEqual(yield* json(expired), {
-          _tag: "InvalidPlaybackToken",
+          _tag: "PlaybackTokenInvalid",
           reason: "expired",
+          message: "Playback token has expired",
         });
 
         const valid = signTestToken({ fid: fileId });
@@ -369,7 +434,7 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const token = signTestToken({ fid: fileId, sid: "software" });
         const result = yield* negotiated({ token, capabilities: smallScreen, startSeconds: 8 });
 
-        assert.strictEqual(result.mode, "software-transcode");
+        assert.strictEqual(result.mode, "transcode-software");
         const streamId = result.streamId ?? "";
         assert.deepStrictEqual(result.video, {
           codec: "h264",
@@ -547,7 +612,7 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           capabilities: smallScreen,
         });
 
-        assert.strictEqual(retry.mode, "software-transcode");
+        assert.strictEqual(retry.mode, "transcode-software");
       }),
     );
   });
@@ -573,7 +638,7 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           capabilities: smallScreen,
         });
 
-        assert.strictEqual(result.mode, "software-transcode");
+        assert.strictEqual(result.mode, "transcode-software");
         const { segment } = yield* fetchSegment(local(server.baseUrl, result.url), 0);
 
         assert.strictEqual(segment.status, 200);
@@ -583,8 +648,8 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           events.some(
             (event) =>
               PlaybackReporter.PlaybackEvent.guards.ModeChanged(event) &&
-              event.from === "hardware-transcode" &&
-              event.to === "software-transcode",
+              event.from === "transcode-qsv" &&
+              event.to === "transcode-software",
           ),
         );
 
@@ -616,7 +681,7 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           capabilities: browser,
         });
 
-        assert.strictEqual(result.mode, "hardware-transcode");
+        assert.strictEqual(result.mode, "transcode-qsv");
         assert.deepStrictEqual(result.video, {
           codec: "h264",
           width: 320,

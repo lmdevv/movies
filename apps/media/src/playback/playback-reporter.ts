@@ -3,24 +3,38 @@
  * in, mode changes such as a QSV failure falling back to software, and stream endings. The
  * integration milestone forwards them to Convex; standalone mode logs them, and tests record them.
  */
+import { PlaybackMode } from "@movies/contracts/models/playback";
 import { Context, Effect, Layer, Ref, Schema } from "effect";
 
-import { FileId, PlaybackSessionId, StreamId } from "../ids.ts";
-import { PlaybackMode } from "./playback-decision.ts";
+import { MediaFileId, PlaybackSessionId } from "@movies/contracts/ids";
+import { StreamId } from "@movies/contracts/media-playback";
+
+/** Why an HLS stream closed. `session-ended` follows the playback session ending in Convex. */
+const StreamEndReason = Schema.Literals([
+  "stopped",
+  "idle",
+  "replaced",
+  "failed",
+  "shutdown",
+  "session-ended",
+]);
+
+/** Why an HLS stream closed. */
+export type StreamEndReason = typeof StreamEndReason.Type;
 
 /** Something that happened to a per-device playback session. */
 export const PlaybackEvent = Schema.TaggedUnion({
   /** Negotiation chose a mode. HLS sessions carry their stream ID. */
   ModeChosen: {
     sessionId: PlaybackSessionId,
-    fileId: FileId,
+    fileId: MediaFileId,
     streamId: Schema.optional(StreamId),
     mode: PlaybackMode,
   },
   /** A running session switched modes, for example from QSV to software. */
   ModeChanged: {
     sessionId: PlaybackSessionId,
-    fileId: FileId,
+    fileId: MediaFileId,
     streamId: StreamId,
     from: PlaybackMode,
     to: PlaybackMode,
@@ -29,9 +43,9 @@ export const PlaybackEvent = Schema.TaggedUnion({
   /** An HLS session closed and its temporary segments were deleted. */
   StreamEnded: {
     sessionId: PlaybackSessionId,
-    fileId: FileId,
+    fileId: MediaFileId,
     streamId: StreamId,
-    reason: Schema.Literals(["stopped", "idle", "replaced", "failed", "shutdown"]),
+    reason: StreamEndReason,
   },
 });
 
