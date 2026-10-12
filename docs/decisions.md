@@ -136,6 +136,11 @@ choices made while implementing them. Update it in the same PR that changes a de
   → tell the viewer.
 - Playback modes are one vocabulary everywhere: `direct`, `remux`, `audio-transcode`,
   `transcode-qsv`, `transcode-software`.
+- A stream's ffmpeg pauses (`SIGSTOP`) once its output runs `STREAM_BUFFER_AHEAD_SECONDS` (120)
+  past the furthest segment the player asked for, and continues (`SIGCONT`) when the player is
+  within half of that. A remux copies at disk speed, and without the pause every play wrote most of
+  its file into `TRANSCODE_DIR` within minutes. Segments behind the player stay until the stream
+  closes, so a stream watched to the end still holds about the file's size.
 
 ## Artwork
 
@@ -157,7 +162,8 @@ choices made while implementing them. Update it in the same PR that changes a de
 - `playback.createSession` is a mutation: it authorizes the profile and library, picks the file,
   ends the device's previous session, records the new one, and signs the token in one
   transaction. Each device has its own session; starting one on a device ends that device's
-  previous session.
+  previous session. An account plays on at most eight devices at once: starting a ninth ends the
+  one that reported least recently, so one account cannot hold unbounded streams.
 - A progress report from a session that started before the session owning the item's progress is
   ignored (`applied: false`), so an old tab cannot drag a newer device back. Reaching 90 percent of
   the duration, or reporting `ended`, marks the item watched; watched stays set until someone marks

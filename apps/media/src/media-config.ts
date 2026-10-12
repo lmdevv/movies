@@ -48,6 +48,11 @@ export interface Interface {
   readonly qsvDevice: string;
   /** A stream session with no requests for this long is closed and its segments deleted. */
   readonly streamIdleTimeout: Duration.Duration;
+  /**
+   * How far a stream's ffmpeg may run ahead of the furthest segment its player asked for before it
+   * pauses; it continues once the player is within half of this.
+   */
+  readonly streamBufferAhead: Duration.Duration;
   /** Free space `TRANSCODE_DIR` must keep before a new HLS session starts. */
   readonly minFreeTranscodeBytes: number;
   /** Interval of the authoritative library reconciliation that backs up file watching. */
@@ -120,6 +125,11 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
       Config.withDefault(60),
     );
 
+    const streamBufferAheadSeconds = yield* Config.schema(
+      PositiveInt,
+      "STREAM_BUFFER_AHEAD_SECONDS",
+    ).pipe(Config.withDefault(120));
+
     const minFreeTranscodeMb = yield* Config.schema(PositiveInt, "MIN_FREE_TRANSCODE_MB").pipe(
       Config.withDefault(2048),
     );
@@ -158,6 +168,7 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
       hardwareAcceleration,
       qsvDevice,
       streamIdleTimeout: Duration.seconds(streamIdleSeconds),
+      streamBufferAhead: Duration.seconds(streamBufferAheadSeconds),
       minFreeTranscodeBytes: minFreeTranscodeMb * MEBIBYTE,
       reconcileInterval: Duration.minutes(reconcileMinutes),
       ffmpegPath,

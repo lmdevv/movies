@@ -52,7 +52,7 @@ Required: `MEDIA_BASE_URL`, `DATA_DIR`, `TRANSCODE_DIR`, `PLAYBACK_TOKEN_SECRET`
 approves nothing, so every scan is refused), `PORT` (4300), `HOST` (all interfaces),
 `BACKUP_DIR` (`/data/backups`), `TMDB_API_KEY` (v3 key or v4 read token), `WEB_DIST_DIR`,
 `MAX_CONCURRENT_TRANSCODES` (3), `HARDWARE_ACCELERATION` (`auto`, `qsv`, `none`),
-`QSV_DEVICE` (`/dev/dri/renderD128`), `STREAM_IDLE_SECONDS` (60), `MIN_FREE_TRANSCODE_MB`
+`QSV_DEVICE` (`/dev/dri/renderD128`), `STREAM_IDLE_SECONDS` (60), `STREAM_BUFFER_AHEAD_SECONDS` (120: ffmpeg pauses this far ahead of the player), `MIN_FREE_TRANSCODE_MB`
 (2048), `LIBRARY_RECONCILE_MINUTES` (360), `FFMPEG_PATH`, `FFPROBE_PATH`,
 `OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVEX_URL`, `CONVEX_PUBLIC_URL` (the Convex URL browsers use; it
 narrows the web app's content security policy), `MEDIA_SERVICE_API_KEY`,

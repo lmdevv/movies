@@ -36,6 +36,9 @@ import type { Viewer } from "./lib/viewer";
 import { authorize } from "./lib/viewer";
 import { nextEpisodeAfter, reachedEnd, writeProgress } from "./lib/viewing";
 
+/** Most devices one account plays on at once; starting another ends the quietest. */
+const MAX_ACTIVE_SESSIONS = 8;
+
 const issueToken = async (
   session: Doc<"playbackSessions">,
 ): Promise<{ readonly token: string; readonly tokenExpiresAt: number }> => {
@@ -135,12 +138,21 @@ export const createSession = mutation({
       .withIndex("by_user_status", (q) => q.eq("userId", viewer.userId).eq("status", "active"))
       .collect();
 
-    // One device plays one thing: starting here ends this device's earlier session.
+    // One device plays one thing: starting here ends this device's earlier session. An account
+    // plays on at most `MAX_ACTIVE_SESSIONS` devices; past that, the quietest sessions end, so one
+    // account cannot hold an unbounded number of streams on the media service.
+    const otherDevices = previous
+      .filter((session) => session.deviceId !== args.deviceId)
+      .toSorted((left, right) => right.lastReportAt - left.lastReportAt);
+
+    const ending = [
+      ...previous.filter((session) => session.deviceId === args.deviceId),
+      ...otherDevices.slice(MAX_ACTIVE_SESSIONS - 1),
+    ];
+
     await Promise.all(
-      previous.flatMap((session) =>
-        session.deviceId === args.deviceId
-          ? [ctx.db.patch(session._id, { status: "ended" as const, endedAt: now })]
-          : [],
+      ending.map((session) =>
+        ctx.db.patch(session._id, { status: "ended" as const, endedAt: now }),
       ),
     );
 

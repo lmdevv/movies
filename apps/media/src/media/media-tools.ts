@@ -26,6 +26,11 @@ interface RunningTool {
   readonly exit: Effect.Effect<void, MediaToolFailed>;
   /** The latest standard error output, path-scrubbed. */
   readonly stderrTail: Effect.Effect<string>;
+  /**
+   * Stops (`SIGSTOP`) or continues (`SIGCONT`) the process, so a stream's encoder can wait for its
+   * player instead of filling the disk. A process that already exited is left alone.
+   */
+  readonly suspend: (paused: boolean) => Effect.Effect<void>;
 }
 
 /** ffprobe and ffmpeg. */
@@ -141,7 +146,16 @@ const make = Effect.gen(function* () {
       return yield* Fiber.join(stdout);
     });
 
-    return { exit, stderrTail: Ref.get(stderr).pipe(Effect.map((text) => scrubPaths(text, args))) };
+    const suspend = (paused: boolean) =>
+      Effect.try(() => process.kill(handle.pid, paused ? "SIGSTOP" : "SIGCONT")).pipe(
+        Effect.ignore,
+      );
+
+    return {
+      exit,
+      stderrTail: Ref.get(stderr).pipe(Effect.map((text) => scrubPaths(text, args))),
+      suspend,
+    };
   });
 
   const runToCompletion = (tool: "ffmpeg" | "ffprobe") =>
@@ -157,6 +171,7 @@ const make = Effect.gen(function* () {
     return {
       exit: Effect.asVoid(running.exit),
       stderrTail: running.stderrTail,
+      suspend: running.suspend,
     } satisfies RunningTool;
   });
 

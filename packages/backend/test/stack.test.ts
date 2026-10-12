@@ -8,7 +8,15 @@
  */
 import type { AnyCommand } from "@movies/contracts/command";
 import { commands } from "@movies/contracts/commands";
-import type { DeviceId, JobId, LibraryId, ProfileId, TitleId, UserId } from "@movies/contracts/ids";
+import type {
+  DeviceId,
+  JobId,
+  LibraryId,
+  PlaybackSessionId,
+  ProfileId,
+  TitleId,
+  UserId,
+} from "@movies/contracts/ids";
 import type { CatalogFile, WatchStateImport } from "@movies/contracts/models/migration-service";
 import { DeviceId as DeviceIdSchema } from "@movies/contracts/ids";
 import type { TitleCard } from "@movies/contracts/models/catalog";
@@ -1195,6 +1203,42 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         }),
       ).toMatchObject({ status: "ended" });
       expect(await outcome(run(laptop, "account.viewer", {}))).toBe("unauthenticated");
+    });
+
+    it("keeps an account to eight playing devices, ending the quietest", async () => {
+      const devices = Array.from({ length: 9 }, (_, index) => device(`wall-${index}`));
+
+      // One after another, so the first device is the quietest.
+      const started = await devices.reduce<
+        Promise<ReadonlyArray<{ sessionId: PlaybackSessionId }>>
+      >(
+        async (earlier, deviceId) => [
+          ...(await earlier),
+          await run(fixture.member, "playback.createSession", {
+            profileId: fixture.memberProfile,
+            deviceId,
+            titleId: fixture.titles.allAges,
+          }),
+        ],
+        Promise.resolve([]),
+      );
+
+      const statuses = await Promise.all(
+        started.map(({ sessionId }) =>
+          service(fixture.mediaService, "mediaService.sessionStatus", { sessionId }),
+        ),
+      );
+
+      expect(statuses.map((status) => status.status)).toStrictEqual([
+        "ended",
+        ...Array.from({ length: 8 }, () => "active"),
+      ]);
+
+      await Promise.all(
+        started.map(({ sessionId }) =>
+          run(fixture.member, "playback.endSession", { sessionId, positionMs: ms(0) }),
+        ),
+      );
     });
 
     it("reports every session a sign-out ended, even past a page's limit", async () => {
