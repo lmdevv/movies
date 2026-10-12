@@ -54,6 +54,7 @@ browser bundles.
 
 ```sh
 nix develop          # Node 24, pnpm, ffmpeg
+scripts/dev-stack.sh up  # isolated Convex backend for this worktree
 pnpm install         # also patches tsc and Oxlint with Effect diagnostics, installs lefthook
 pnpm dev             # web on :3001 and Convex dev
 pnpm typecheck       # tsc 7 with the Effect language service
@@ -67,9 +68,15 @@ pnpm knip            # unused files, exports, and dependencies
 `typecheck`, `lint`, `fmt:check`, and `test` run in the lefthook pre-commit hook and in CI. All
 four must pass before every commit.
 
-For local Convex without an account: `CONVEX_AGENT_MODE=anonymous pnpm exec convex dev` in
-`packages/backend`. Commit the regenerated `convex/_generated/`. Each worktree gets its own Convex
-deployment, ports, service credential, and temporary output directory.
+Each worktree gets its own stack: `scripts/dev-stack.sh up` starts a self-hosted Convex backend in
+Docker, deploys the functions, configures auth keys, the playback token secret and the media
+service credential, and writes the `.env.local` files. Ports, the data volume, and the temporary
+output directory derive from the worktree name; `scripts/dev-stack.sh env` prints them, and
+`down` / `destroy` stop or remove the stack. Commit the regenerated `convex/_generated/`.
+
+The Effect reference lives in `.repos/effect-smol`. Effect 4 stable releases are tagged in
+`Effect-TS/effect`, so clone the tag matching the pinned version:
+`git clone --depth 1 --branch effect@4.0.3 https://github.com/Effect-TS/effect .repos/effect-smol`.
 
 ## Design
 
