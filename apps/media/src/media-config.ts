@@ -35,6 +35,8 @@ export interface Interface {
   readonly otlpEndpoint: Option.Option<string>;
   /** Convex deployment URL; used once the service subscribes to Convex. */
   readonly convexUrl: Option.Option<string>;
+  /** The Convex URL browsers use, for the web app's content security policy. */
+  readonly convexPublicUrl: Option.Option<string>;
   /** Restricted Convex login of the media service. */
   readonly mediaServiceApiKey: Option.Option<Redacted.Redacted>;
   /** Folder holding the built web app, served with a single-page-app fallback. */
@@ -96,6 +98,7 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
     const tmdbApiKey = yield* Config.option(Config.Redacted("TMDB_API_KEY"));
     const otlpEndpoint = yield* Config.option(Config.URL("OTEL_EXPORTER_OTLP_ENDPOINT"));
     const convexUrl = yield* Config.option(Config.URL("CONVEX_URL"));
+    const convexPublicUrl = yield* Config.option(Config.URL("CONVEX_PUBLIC_URL"));
     const mediaServiceApiKey = yield* Config.option(Config.Redacted("MEDIA_SERVICE_API_KEY"));
     const webDistDir = yield* Config.option(Config.NonEmptyString("WEB_DIST_DIR"));
 
@@ -148,6 +151,7 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
       tmdbApiKey,
       otlpEndpoint: Option.map(otlpEndpoint, withoutTrailingSlash),
       convexUrl: Option.map(convexUrl, withoutTrailingSlash),
+      convexPublicUrl: Option.map(convexPublicUrl, withoutTrailingSlash),
       mediaServiceApiKey,
       webDistDir: Option.map(webDistDir, absolute),
       maxConcurrentTranscodes,

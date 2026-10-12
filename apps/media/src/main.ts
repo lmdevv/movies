@@ -14,7 +14,6 @@ import { createHash } from "node:crypto";
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { LibraryId } from "@movies/contracts/ids";
 import { Effect, Layer, Option, Schema } from "effect";
-import { FetchHttpClient } from "effect/http";
 
 import * as ArtworkKeys from "./artwork/artwork-keys.ts";
 import * as BackupJob from "./backups/backup-job.ts";
@@ -31,6 +30,7 @@ import * as MediaBackend from "./convex/media-backend.ts";
 import * as ViewerAuth from "./convex/viewer-auth.ts";
 import * as HttpServer from "./http/http-server.ts";
 import * as MetadataRoutes from "./http/metadata-routes.ts";
+import * as Outbound from "./http/outbound.ts";
 import * as JobWorker from "./jobs/job-worker.ts";
 import * as MetadataJob from "./jobs/metadata-job.ts";
 import * as ScanJob from "./jobs/scan-job.ts";
@@ -135,7 +135,7 @@ const application = Layer.unwrap(
 ).pipe(
   Layer.provide(Observability.layer),
   Layer.provide(MediaConfig.layer),
-  Layer.provide(Layer.mergeAll(NodeServices.layer, FetchHttpClient.layer)),
+  Layer.provide(Layer.mergeAll(NodeServices.layer, Outbound.layer)),
 );
 
 Layer.launch(application).pipe(NodeRuntime.runMain);

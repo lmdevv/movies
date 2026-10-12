@@ -331,6 +331,7 @@ in
         PORT = toString cfg.port;
         MEDIA_BASE_URL = cfg.publicUrl;
         CONVEX_URL = convexUrl;
+        CONVEX_PUBLIC_URL = cfg.convexPublicUrl;
         CONVEX_BACKEND_DIR = "${cfg.package}/lib/movies/backend";
         DATA_DIR = mediaDataDir;
         BACKUP_DIR = cfg.backupDir;

@@ -1197,6 +1197,32 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       expect(await outcome(run(laptop, "account.viewer", {}))).toBe("unauthenticated");
     });
 
+    it("reports every session a sign-out ended, even past a page's limit", async () => {
+      const tablet = await signIn(url, password(fixture.memberEmail, "signIn"));
+      const before = Date.now() - 1;
+
+      const started = await Promise.all(
+        ["a", "b", "c"].map((name) =>
+          run(tablet, "playback.createSession", {
+            profileId: fixture.memberProfile,
+            deviceId: device(`tablet-${name}`),
+            titleId: fixture.titles.allAges,
+          }),
+        ),
+      );
+
+      await tablet.client.action(makeFunctionReference<"action">("auth:signOut"), {});
+
+      const reported = await service(fixture.mediaService, "mediaService.endedSessions", {
+        after: EpochMillis.make(before),
+        limit: 2,
+      });
+
+      expect(reported.map((session) => session.sessionId)).toStrictEqual(
+        expect.arrayContaining(started.map((session) => session.sessionId)),
+      );
+    });
+
     it("stops renewing a token once the profile may no longer see the title", async () => {
       await run(fixture.owner, "users.setLibraryAccess", {
         userId: (await run(fixture.member, "account.viewer", {})).user.id,

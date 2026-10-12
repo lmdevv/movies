@@ -128,7 +128,8 @@ export const mediaServiceFunctions = {
     function: "mediaService:sessionStatus",
   }),
   "mediaService.endedSessions": query({
-    summary: "Playback sessions that ended after `after`, oldest first",
+    summary:
+      "Playback sessions that ended after `after`, oldest first, never splitting one endedAt",
     group: "media-service",
     scope: "media-service",
     args: Schema.Struct({

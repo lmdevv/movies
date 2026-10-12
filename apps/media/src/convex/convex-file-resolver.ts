@@ -29,7 +29,7 @@ const make = Effect.gen(function* () {
             NotFound: () => new MediaFileNotFound({ fileId }),
             InvalidArgs: () => new MediaFileNotFound({ fileId }),
           }),
-          Match.orElse((error) => new FileResolverUnavailable({ cause: error })),
+          Match.orElse(() => new FileResolverUnavailable({ cause: "The catalog did not answer" })),
         ),
       ),
     );
@@ -48,16 +48,22 @@ const make = Effect.gen(function* () {
       return yield* new MediaFileNotFound({ fileId });
     }
 
-    // A file that is gone is not found; an unreadable one (an offline share) may come back.
-    const info = yield* fs
-      .stat(resolved.path)
-      .pipe(
-        Effect.mapError((error) =>
-          Predicate.isTagged(error.reason, "NotFound")
-            ? new MediaFileNotFound({ fileId })
-            : new FileResolverUnavailable({ cause: error }),
-        ),
-      );
+    // A file that is gone is not found; an unreadable one (an offline share) may come back. The
+    // error names the absolute path, so it goes to the log and the caller only learns why.
+    const info = yield* fs.stat(resolved.path).pipe(
+      Effect.tapError((error) =>
+        Predicate.isTagged(error.reason, "NotFound")
+          ? Effect.void
+          : Effect.logWarning("ConvexFileResolver.file_unreadable", error).pipe(
+              Effect.annotateLogs({ fileId }),
+            ),
+      ),
+      Effect.mapError((error) =>
+        Predicate.isTagged(error.reason, "NotFound")
+          ? new MediaFileNotFound({ fileId })
+          : new FileResolverUnavailable({ cause: "The file could not be read" }),
+      ),
+    );
 
     return toResolvedMediaFile(
       resolved,

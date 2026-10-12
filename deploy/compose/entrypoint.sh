@@ -102,6 +102,7 @@ setting() { [ -z "$2" ] || printf '%s=%s\n' "$1" "$2" >>"$env_file"; }
 setting PORT 8080
 setting MEDIA_BASE_URL "$public_url"
 setting CONVEX_URL "$convex_url"
+setting CONVEX_PUBLIC_URL "$convex_public_url"
 setting MEDIA_SERVICE_API_KEY "$media_service_api_key"
 setting PLAYBACK_TOKEN_SECRET "$playback_token_secret"
 setting CONVEX_SELF_HOSTED_ADMIN_KEY "$admin_key"
