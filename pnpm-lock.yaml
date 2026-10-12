@@ -361,9 +361,6 @@ importers:
       fast-check:
         specifier: 4.10.2
         version: 4.10.2
-      jose:
-        specifier: ^6.2.12
-        version: 6.2.12
       typescript:
         specifier: 'catalog:'
         version: 7.0.2

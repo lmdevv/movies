@@ -13,11 +13,9 @@
  * whatever deployment the CLI targets (`.env.local`, or `CONVEX_SELF_HOSTED_*` variables).
  */
 import { execFileSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-
-import { exportJWK, exportPKCS8, generateKeyPair } from "jose";
 
 const { values } = parseArgs({
   options: {
@@ -64,9 +62,9 @@ const ensure = (name: string, value: () => string, keep: boolean): string => {
 };
 
 if (!current.has("JWT_PRIVATE_KEY") || !current.has("JWKS")) {
-  const keys = await generateKeyPair("RS256", { extractable: true });
-  const privateKey = await exportPKCS8(keys.privateKey);
-  const publicKey = await exportJWK(keys.publicKey);
+  const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const privateKey = keys.privateKey.export({ type: "pkcs8", format: "pem" });
+  const publicKey = keys.publicKey.export({ format: "jwk" });
 
   ensure("JWT_PRIVATE_KEY", () => privateKey.trimEnd().replaceAll("\n", " "), false);
   ensure("JWKS", () => JSON.stringify({ keys: [{ use: "sig", ...publicKey }] }), false);

@@ -13,13 +13,15 @@ export const list = query({
     await authorize(ctx, "admin");
     const backups = await ctx.db.query("backups").order("desc").take(200);
 
-    return backups.map((doc) => ({
-      id: doc._id,
-      fileName: doc.fileName,
-      sizeBytes: doc.sizeBytes,
-      trigger: doc.trigger,
-      createdAt: createdAt(doc),
-    }));
+    return backups
+      .map((doc) => ({
+        id: doc._id,
+        fileName: doc.fileName,
+        sizeBytes: doc.sizeBytes,
+        trigger: doc.trigger,
+        createdAt: doc.takenAt === undefined ? createdAt(doc) : Math.floor(doc.takenAt),
+      }))
+      .toSorted((left, right) => right.createdAt - left.createdAt);
   },
 });
 

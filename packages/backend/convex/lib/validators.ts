@@ -675,6 +675,14 @@ export const backup = v.object({
 /** Arguments naming a job and the worker that holds its lease; mirrors `LeaseArgs` in contracts. */
 export const leaseArgs = { jobId: v.id("jobs"), workerId: v.string() };
 
+/** Mirrors `BackupArchive` in `@movies/contracts`. */
+export const backupArchive = v.object({
+  fileName: v.string(),
+  sizeBytes: v.number(),
+  trigger: backupTrigger,
+  takenAt: v.number(),
+});
+
 /** Mirrors `MediaLibrary` in `@movies/contracts`. */
 export const mediaLibrary = v.object({
   id: v.id("libraries"),

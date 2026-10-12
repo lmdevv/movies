@@ -373,5 +373,7 @@ export default defineSchema({
     sizeBytes: v.number(),
     trigger: backupTrigger,
     jobId: v.optional(v.id("jobs")),
+    /** When the archive was taken; rows written by `recordBackup` use their creation time. */
+    takenAt: v.optional(v.number()),
   }),
 });
