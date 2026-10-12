@@ -8,28 +8,24 @@ import { Schema } from "effect";
 
 import { mutation, query } from "./commands/command";
 import { BackupId, LibraryId, MediaFileId, PlaybackSessionId, TitleId } from "./ids";
+import { migrationServiceFunctions } from "./migration-service";
 import { NoArgs, Ok, Page, PageArgs } from "./models/common";
-import { Job, JobProgress, QueuedJob } from "./models/jobs";
+import { Job, JobProgress } from "./models/jobs";
 import { PlaybackMode } from "./models/playback";
 import {
   ClaimedJob,
   EndedSession,
-  ImportCounts,
-  ImportedOverride,
-  ImportedWatchState,
   IndexedFile,
   LeaseArgs,
   LeaseMs,
   MediaLibrary,
   MetadataTarget,
-  MigrationTarget,
   ResolvedFile,
   SCAN_BATCH_LIMIT,
   ScannedEpisode,
   ScannedItem,
   ScannedTitle,
   SessionStatus,
-  StartMigrationArgs,
   UpsertedFile,
 } from "./models/scan";
 import { Bytes, EpochMillis } from "./units";
@@ -191,51 +187,7 @@ export const mediaServiceFunctions = {
     result: Ok,
     function: "mediaService:removeBackup",
   }),
-  "mediaService.migrationTargets": query({
-    summary: "Accounts and profiles a migration can map source users to",
-    group: "media-service",
-    scope: "media-service",
-    args: NoArgs,
-    result: Schema.Array(MigrationTarget),
-    function: "mediaService:migrationTargets",
-  }),
-  "mediaService.startMigration": mutation({
-    summary: "Queue a migration job for an admin the media service verified",
-    group: "media-service",
-    scope: "media-service",
-    args: StartMigrationArgs,
-    result: QueuedJob,
-    function: "mediaService:startMigration",
-  }),
-  "mediaService.ensureLibrary": mutation({
-    summary: "Find the library covering these folders, or add one, during a migration",
-    group: "media-service",
-    scope: "media-service",
-    args: Schema.Struct({
-      ...LeaseArgs,
-      name: Schema.String,
-      kind: Schema.Literals(["movies", "shows", "mixed"]),
-      roots: Schema.Array(Schema.String).check(Schema.isMinLength(1)),
-    }),
-    result: Schema.Struct({ libraryId: LibraryId, created: Schema.Boolean }),
-    function: "mediaService:ensureLibrary",
-  }),
-  "mediaService.importWatchState": mutation({
-    summary: "Import up to 100 watched marks, positions, and favorites, matched by file path",
-    group: "media-service",
-    scope: "media-service",
-    args: Schema.Struct({ ...LeaseArgs, items: Batch(ImportedWatchState) }),
-    result: ImportCounts,
-    function: "mediaService:importWatchState",
-  }),
-  "mediaService.importOverrides": mutation({
-    summary: "Import up to 100 metadata overrides, matched by file path",
-    group: "media-service",
-    scope: "media-service",
-    args: Schema.Struct({ ...LeaseArgs, items: Batch(ImportedOverride) }),
-    result: ImportCounts,
-    function: "mediaService:importOverrides",
-  }),
+  ...migrationServiceFunctions,
 };
 
 /** The media service functions' type. */

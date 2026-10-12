@@ -25,6 +25,7 @@ import * as account from "../convex/account";
 import * as apiKeys from "../convex/apiKeys";
 import * as authParams from "../convex/authParams";
 import * as backups from "../convex/backups";
+import * as collections from "../convex/collections";
 import * as deviceAuth from "../convex/deviceAuth";
 import * as history from "../convex/history";
 import * as invites from "../convex/invites";
@@ -34,6 +35,7 @@ import * as maintenance from "../convex/maintenance";
 import * as mediaService from "../convex/mediaService";
 import * as metadata from "../convex/metadata";
 import * as migration from "../convex/migration";
+import * as migrationService from "../convex/migrationService";
 import * as myList from "../convex/myList";
 import * as playback from "../convex/playback";
 import * as profiles from "../convex/profiles";
@@ -57,6 +59,7 @@ const modules = {
   apiKeys,
   authParams,
   backups,
+  collections,
   deviceAuth,
   history,
   invites,
@@ -66,6 +69,7 @@ const modules = {
   mediaService,
   metadata,
   migration,
+  migrationService,
   myList,
   playback,
   profiles,

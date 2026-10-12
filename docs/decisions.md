@@ -168,6 +168,59 @@ choices made while implementing them. Update it in the same PR that changes a de
   `scripts/configure.ts` again. Deployment environment variables are not part of an export. See
   `docs/spikes.md`.
 
+## Migration from Jellyfin and Plex
+
+- Sources are in-repo migration-source plugins in `apps/media/src/migration/` (Jellyfin 10.8 or
+  later, Plex Media Server 1.24 or later), behind one typed contract (`source-plugin.ts`). A
+  plugin's manifest names role `migration-source` and the one host it may reach; the HTTP client
+  it gets refuses other hosts, methods other than GET, and POSTs other than Jellyfin's
+  `/Users/AuthenticateByName`. Plugins never read, move, copy, or link media files: import adds
+  the same folders as [movies] libraries in place (`migrationService:ensureLibrary` queues their
+  scans).
+- Jellyfin signs in with an API key or an administrator's user name and password. Plex takes a
+  local server token (`X-Plex-Token`); plex.tv is never contacted. A Plex server token reads the
+  owner's positions but only the play history of other local accounts, so those import watched
+  marks, play counts, and last-played dates (`history: "plays"`). Plex has no favorites.
+- Flow: `migration.connect` → `migration.dryRun` → `migration.import` (media commands, scope
+  `admin`) → `migration.status` (Convex query). Source failures are results, not command errors:
+  `{ status: "failed", reason, message }` with `unreachable`, `auth_failed`, `not_admin`,
+  `version_unsupported`, or `unexpected_response`, for the "Couldn't connect" screen. A connection
+  lives in the media service's memory for an hour, private to the admin who opened it. An import
+  requires a dry run of the same connection with the same user mappings, and queues exactly that
+  plan.
+- Users are never created. Each source user is suggested a profile of an existing account (same
+  email, then same account name, then same profile name) or `invite`; the admin may choose a
+  profile or `skip` per user.
+- Paths: a source path maps through the longest matching `from` prefix of the path mappings, or
+  stays as is when it already lies inside `LIBRARY_ROOTS`. Without a mapping, connect infers one
+  per library folder when a folder ending in the same one or two names exists under a root
+  (`/data/movies` → `/mnt/nas/movies`). Paths compare after normalizing slashes, trailing slashes,
+  and Unicode (NFC); Windows drive paths compare without case.
+- Matching: the mapped file path first, then provider IDs (TMDB, IMDb, TVDB); episodes match
+  through their show (by folder, IDs, or another episode matched by path) and season and episode
+  numbers. Items in folders the import adds wait for the first scan and match by path then;
+  unmatched items carry a reason (`path_unmapped`, `not_in_catalog`, `no_path`), and the dry run
+  lists up to 25.
+- Writes are idempotent and safe to repeat: progress is replaced only when [movies] has none or
+  the source played the item more recently (otherwise [movies] keeps its own, counted as
+  `keptLocal` and as a dry-run `conflict`); a watched mark is only ever added; play counts only
+  grow; favorites of movies and shows go to My List; a collection is keyed by source, server ID,
+  and collection ID and its members are replaced; source overrides never replace an override made
+  in [movies].
+- The import is a `migration` job on the media service's job worker. Its plan and checkpoint
+  (phase, unit, cursor) live on the job's `migrations` row; it writes batches of at most 100 and
+  checkpoints after each, so a job resumed after a crash rewrites at most one batch. Phases:
+  `libraries`, `scanning` (waits up to six hours for new libraries' first scans), `watchState`,
+  `collections`, `overrides`. Counts are what the job imported, counted as the dry run counts them.
+  One migration per source server runs at a time. Cancelling the job stops it at the next lease
+  renewal.
+- Secrets: connection credentials stay in the media service's memory and are never logged; source
+  requests run without HTTP client tracing because Effect does not redact `X-Plex-Token`. A job
+  must survive a restart, so its stored plan carries the credentials sealed with AES-256-GCM under
+  a key derived (HKDF-SHA256) from `MEDIA_SERVICE_API_KEY`, bound to the server ID and URL. Convex
+  stores only that key's hash, so neither Convex, its dashboard, nor a backup can open them.
+  Rotating the key makes queued plans unreadable; their jobs fail and the admin imports again.
+
 ## Web UI kit
 
 - `@movies/ui` holds presentational components with typed props and no data access; routes wire

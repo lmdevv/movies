@@ -5,9 +5,10 @@ import type { JobId } from "@movies/contracts/ids";
 import { ProfileId } from "@movies/contracts/ids";
 import type { Job } from "@movies/contracts/models/jobs";
 import { MigrationSource } from "@movies/contracts/models/jobs";
+import type { MigrationSourceFailure } from "@movies/contracts/models/migration";
 import { Config, Effect, Option, Redacted, Schema, Struct } from "effect";
 
-import { ConfigFileError } from "./cli-errors";
+import { ConfigFileError, MigrationSourceError } from "./cli-errors";
 import { readStdin } from "./files";
 import type { Invocation, ShortcutCommand } from "./invocation";
 import {
@@ -114,42 +115,60 @@ const scan: ShortcutCommand = {
     }),
 };
 
-/** `sourceUser=profileId,...` pairs for `--map`. */
-const parseMappings = (invocation: Invocation) =>
+/** Comma-separated `left=right` pairs of a flag; the first `=` splits each pair. */
+const parsePairs = (invocation: Invocation, flag: string, expected: string) =>
   Effect.forEach(
-    Option.getOrElse(stringFlag(invocation.tokens, "map"), () => "")
+    Option.getOrElse(stringFlag(invocation.tokens, flag), () => "")
       .split(",")
       .map((pair) => pair.trim())
       .filter((pair) => pair.length > 0),
     (pair) => {
-      const [sourceUserId, profileId, ...rest] = pair.split("=");
+      const separator = pair.indexOf("=");
+      const left = pair.slice(0, separator);
+      const right = pair.slice(separator + 1);
 
-      return sourceUserId === undefined ||
-        profileId === undefined ||
-        rest.length > 0 ||
-        sourceUserId.length === 0
-        ? Effect.fail(
-            usage(invocation, `--map expects <source-user-id>=<profile-id>, got "${pair}"`),
-          )
-        : Effect.succeed({ sourceUserId, profileId: ProfileId.make(profileId) });
+      return separator <= 0 || right.length === 0
+        ? Effect.fail(usage(invocation, `--${flag} expects ${expected}, got "${pair}"`))
+        : Effect.succeed({ left, right });
     },
+  );
+
+/** `--map <source-user-id>=<profile-id>|skip,...`: overrides of the suggested user mappings. */
+const parseMappings = (invocation: Invocation) =>
+  parsePairs(invocation, "map", "<source-user-id>=<profile-id> or <source-user-id>=skip").pipe(
+    Effect.map((pairs) =>
+      pairs.map(({ left, right }) => ({
+        sourceUserId: left,
+        profileId: right === "skip" ? null : ProfileId.make(right),
+      })),
+    ),
+  );
+
+/** `--path-map <source-folder>=<local-folder>,...`: where the source's folders are on this host. */
+const parsePathMappings = (invocation: Invocation) =>
+  parsePairs(invocation, "path-map", "<source-folder>=<local-folder>").pipe(
+    Effect.flatMap((pairs) =>
+      pairs.some(({ right }) => !right.startsWith("/"))
+        ? Effect.fail(usage(invocation, "--path-map needs absolute local folders"))
+        : Effect.succeed(pairs.map(({ left, right }) => ({ from: left, to: right }))),
+    ),
   );
 
 const isMigrationSource = Schema.is(MigrationSource);
 
-/** The source server's token: `MOVIES_IMPORT_TOKEN`, or stdin when piped. */
-const importToken = (invocation: Invocation) =>
+/** A secret from `variable`, or from stdin when piped. */
+const importSecret = (invocation: Invocation, variable: string, what: string) =>
   Effect.gen(function* () {
-    const fromEnv = yield* Config.option(Config.Redacted("MOVIES_IMPORT_TOKEN")).pipe(
+    const fromEnv = yield* Config.option(Config.Redacted(variable)).pipe(
       Effect.orElseSucceed(() => Option.none<Redacted.Redacted>()),
     );
 
-    if (Option.isSome(fromEnv)) return Redacted.value(fromEnv.value);
+    if (Option.isSome(fromEnv)) return fromEnv.value;
 
     if (process.stdin.isTTY) {
       return yield* usage(
         invocation,
-        "Pipe the source server's token on stdin or set MOVIES_IMPORT_TOKEN",
+        `Pipe the source server's ${what} on stdin or set ${variable}`,
       );
     }
 
@@ -159,14 +178,45 @@ const importToken = (invocation: Invocation) =>
         new ConfigFileError({ path: "stdin", message: "Could not read stdin", cause }),
     });
 
-    return text.trim();
+    return Redacted.make(text.trim());
   });
+
+/**
+ * How to sign in to the source: a Jellyfin administrator's password with `--user`, otherwise a
+ * Jellyfin API key or Plex token.
+ */
+const importCredentials = (invocation: Invocation) =>
+  Option.match(stringFlag(invocation.tokens, "user"), {
+    onNone: () =>
+      importSecret(invocation, "MOVIES_IMPORT_TOKEN", "token").pipe(
+        Effect.map((token) => ({ kind: "token" as const, token })),
+      ),
+    onSome: (username) =>
+      importSecret(invocation, "MOVIES_IMPORT_PASSWORD", "password").pipe(
+        Effect.map((password) => ({ kind: "password" as const, username, password })),
+      ),
+  });
+
+/** Whether the source answered; otherwise the result is a `MigrationSourceFailure`. */
+const isReady = <Ready extends { readonly status: "connected" | "ready" | "queued" }>(
+  result: Ready | MigrationSourceFailure,
+): result is Ready => result.status !== "failed";
+
+/** Fails with the source's reason when the result says it could not be used. */
+const sourceReady = <Ready extends { readonly status: "connected" | "ready" | "queued" }>(
+  result: Ready | MigrationSourceFailure,
+): Effect.Effect<Ready, MigrationSourceError> =>
+  isReady(result)
+    ? Effect.succeed(result)
+    : Effect.fail(new MigrationSourceError({ reason: result.reason, message: result.message }));
 
 const migrate: ShortcutCommand = {
   path: "import",
   options: {
     url: { type: "string" },
+    user: { type: "string" },
     map: { type: "string" },
+    "path-map": { type: "string" },
     "dry-run": { type: "boolean" },
     ...waitOptions,
   },
@@ -181,30 +231,45 @@ const migrate: ShortcutCommand = {
 
       if (Option.isNone(url))
         return yield* usage(invocation, "import needs --url <source server URL>");
+
+      if (source === "plex" && Option.isSome(stringFlag(invocation.tokens, "user"))) {
+        return yield* usage(invocation, "Plex signs in with a token; drop --user");
+      }
+
       const users = yield* parseMappings(invocation);
-      const token = yield* importToken(invocation);
+      const pathMappings = yield* parsePathMappings(invocation);
+      const credentials = yield* importCredentials(invocation);
       const connection = yield* connect(invocation.env, invocation.target, "required");
 
-      const connected = yield* connection.withSession(
-        connection.client.media("migration.connect", { source, url: url.value, token }),
-      );
+      const connectArgs =
+        pathMappings.length === 0
+          ? { source, url: url.value, credentials }
+          : { source, url: url.value, credentials, pathMappings };
 
-      const plan = { connectionId: connected.connectionId, users };
+      const connected = yield* connection
+        .withSession(connection.client.media("migration.connect", connectArgs))
+        .pipe(Effect.flatMap(sourceReady));
+
+      const plan =
+        users.length === 0
+          ? { connectionId: connected.connectionId }
+          : { connectionId: connected.connectionId, users };
+
+      // The import queues exactly what this dry run planned; the media service requires one.
+      const report = yield* connection
+        .withSession(connection.client.media("migration.dryRun", plan))
+        .pipe(Effect.flatMap(sourceReady));
 
       if (booleanFlag(invocation.tokens, "dry-run")) {
-        const report = yield* connection.withSession(
-          connection.client.media("migration.dryRun", plan),
-        );
-
         return resultOutcome(
           commands["migration.dryRun"],
           yield* encodeResult("migration.dryRun", commands["migration.dryRun"], report),
         );
       }
 
-      const queued = yield* connection.withSession(
-        connection.client.media("migration.import", plan),
-      );
+      const queued = yield* connection
+        .withSession(connection.client.media("migration.import", plan))
+        .pipe(Effect.flatMap(sourceReady));
 
       const jobs = yield* followJobs(invocation, connection, [queued.jobId]);
 

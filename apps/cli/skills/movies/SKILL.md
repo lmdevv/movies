@@ -115,27 +115,37 @@ Migrate from Jellyfin or Plex, back up, and restore (admin):
 ```sh
 echo "$JELLYFIN_API_KEY" | movies import jellyfin --url http://jellyfin:8096 --dry-run
 echo "$JELLYFIN_API_KEY" | movies import jellyfin --url http://jellyfin:8096 \
-  --map <source-user-id>=<profile-id> --wait
+  --path-map /data/movies=/mnt/nas/movies --map <source-user-id>=<profile-id> --wait
+echo "$PLEX_TOKEN" | movies import plex --url http://plex:32400 --dry-run
 movies backup --wait
 movies backups list
 movies restore movies-2026-10-12.zip        # every session signs in again
 ```
 
+`movies import` connects, dry-runs, and only then imports what that dry run planned. Read the
+dry run's `users`: an `invite` user has no [movies] account yet, so import never creates one;
+invite the person or `--map` them to a profile (`skip` leaves them out). A source folder maps on
+its own when a `LIBRARY_ROOTS` folder ends in the same names (`/data/movies` to
+`/mnt/nas/movies`); pass `--path-map` for the rest.
+Media files are never moved or copied. Running the import again changes nothing already imported,
+and newer [movies] progress is kept unless the source played the item more recently.
+
 ## Exit codes
 
-| Code | Meaning                                                          | What to do                                     |
-| ---- | ---------------------------------------------------------------- | ---------------------------------------------- |
-| 0    | Success                                                          |                                                |
-| 1    | Server or protocol failure, unreadable config, mpv missing       | Read `error.code` and `error.message`          |
-| 2    | Usage: unknown command, missing flag, invalid argument           | Fix the command; see `movies <command> --help` |
-| 3    | Not logged in, session ended, credentials or login refused       | `movies login`, or a new API key               |
-| 4    | Forbidden: missing scope, role, PIN unlock, or not the host      | Use a key with the scope, or ask an admin      |
-| 5    | Not found (hidden titles also report this)                       | Check the ID; list again                       |
-| 6    | Conflict or stale revision                                       | Read the state again and retry                 |
-| 7    | Expired code, invite, or key                                     | Start over with a new one                      |
-| 8    | Rate limited, or the media service is busy                       | Wait and retry                                 |
-| 9    | Server unreachable                                               | Check the URLs; a mutation may still have run  |
-| 10   | A job followed with `--wait` failed, was cancelled, or timed out | `movies jobs get <job-id>`                     |
+| Code | Meaning                                                          | What to do                                      |
+| ---- | ---------------------------------------------------------------- | ----------------------------------------------- |
+| 0    | Success                                                          |                                                 |
+| 1    | Server or protocol failure, unreadable config, mpv missing       | Read `error.code` and `error.message`           |
+| 2    | Usage: unknown command, missing flag, invalid argument           | Fix the command; see `movies <command> --help`  |
+| 3    | Not logged in, session ended, credentials or login refused       | `movies login`, or a new API key                |
+| 4    | Forbidden: missing scope, role, PIN unlock, or not the host      | Use a key with the scope, or ask an admin       |
+| 5    | Not found (hidden titles also report this)                       | Check the ID; list again                        |
+| 6    | Conflict or stale revision                                       | Read the state again and retry                  |
+| 7    | Expired code, invite, or key                                     | Start over with a new one                       |
+| 8    | Rate limited, or the media service is busy                       | Wait and retry                                  |
+| 9    | Server unreachable                                               | Check the URLs; a mutation may still have run   |
+| 10   | A job followed with `--wait` failed, was cancelled, or timed out | `movies jobs get <job-id>`                      |
+| 11   | `movies import` could not use the Jellyfin or Plex server        | Read `error.code`, such as `source_auth_failed` |
 
 ## Troubleshooting
 
@@ -179,7 +189,7 @@ movies restore movies-2026-10-12.zip        # every session signs in again
 - `movies rooms leave [<room-id>]`: Leave the room; a host leaving ends it.
 - `movies rooms status [<room-id>] [--watch]`: Show the room's clock, live position, and members; --watch prints every change.
 - `movies scan [<library-id-or-name>] [--mode quick|full] [--wait [--timeout <seconds>]]`: Scan one library, or every library, for new, changed, and missing files.
-- `movies import jellyfin|plex --url <server-url> [--map <source-user-id>=<profile-id>,...] [--dry-run] [--wait]`: Migrate libraries, watch history, and favorites; the source token is read from stdin or MOVIES_IMPORT_TOKEN.
+- `movies import jellyfin|plex --url <server-url> [--user <jellyfin-admin>] [--path-map <source-folder>=<local-folder>,...] [--map <source-user-id>=<profile-id>|skip,...] [--dry-run] [--wait]`: Migrate libraries, watch history, favorites, collections, and metadata overrides; the token (or --user's password) is read from stdin, MOVIES_IMPORT_TOKEN, or MOVIES_IMPORT_PASSWORD.
 - `movies backup [--wait [--timeout <seconds>]]`: Back up the database now.
 - `movies restore <backup-file-or-id>`: Restore the database from a backup; every session signs in again.
 - `movies commands [--markdown]`: List every command with its flags and argument JSON Schema.
@@ -245,6 +255,7 @@ movies restore movies-2026-10-12.zip        # every session signs in again
 - `movies titles get [--profile-id <id>] <title-id>`: Show a movie or show. (scope read)
 - `movies titles episodes [--profile-id <id>] --title-id <id> --season-number <int>`: List a season's episodes. (scope read)
 - `movies libraries list`: List the libraries this account can see. (scope read)
+- `movies collections list [--profile-id <id>]`: Show collections and the titles a profile may see in each. (scope read)
 
 ### history
 
@@ -313,9 +324,9 @@ movies restore movies-2026-10-12.zip        # every session signs in again
 
 ### migration
 
-- `movies migration connect --source <jellyfin|plex> --url <text> --token <text>`: Connect to a Jellyfin or Plex server to migrate from. (scope admin)
-- `movies migration dry-run <connection-id> --users <json>`: Preview what a migration would import without writing anything. (scope admin)
-- `movies migration import <connection-id> --users <json> [--wait [--timeout <seconds>]]`: Import libraries, watch history, and favorites. (scope admin; job: add `--wait`)
-- `movies migration status`: Show migration jobs and their progress. (scope admin)
+- `movies migration connect --source <jellyfin|plex> --url <text> --credentials <json> [--path-mappings <json>]`: Connect to a Jellyfin or Plex server to migrate from. (scope admin)
+- `movies migration dry-run <connection-id> [--users <json>]`: Preview what a migration would import without writing anything. (scope admin)
+- `movies migration import <connection-id> [--users <json>]`: Import libraries, watch history, favorites, collections, and metadata overrides. (scope admin)
+- `movies migration status`: Show migration jobs, their phase, and what they imported. (scope admin)
 
 <!-- END:commands -->
