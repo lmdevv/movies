@@ -1,8 +1,8 @@
 /**
- * What the web player does about each way playback can fail: pure decisions over the SDK's tagged
- * errors and the stream failures `stream-attachment` reports, so the controller only carries them
- * out. Media service failures follow `Playback.recoveryFor`; a file that is gone shows its own
- * calm state.
+ * What the web player decides without side effects: whether to offer resuming, and what to do
+ * about each way playback can fail, over the SDK's tagged errors and the stream failures
+ * `stream-attachment` reports, so the controller only carries them out. Media service failures
+ * follow `Playback.recoveryFor`; a file that is gone shows its own calm state.
  */
 import { PlaybackApiError } from "@movies/contracts/media-playback";
 import type { CallError, PlaybackCallError } from "@movies/sdk/effect";
@@ -10,6 +10,16 @@ import { Playback } from "@movies/sdk/effect";
 import { Data, Match, Schema } from "effect";
 
 import type { StreamFailure } from "./stream-attachment";
+
+/** Saved positions shorter than this start from the beginning instead of asking to resume. */
+const MIN_RESUME_MS = 10_000;
+
+/**
+ * Whether to ask "Resume or start over?" for a saved position. A few seconds in (a peek, or a
+ * session that ended before its first progress report) is nothing worth resuming.
+ */
+export const offersResume = (resumePositionMs: number): boolean =>
+  resumePositionMs >= MIN_RESUME_MS;
 
 /** Where playback ends up when it cannot continue. */
 export type PlaybackStop = Data.TaggedEnum<{

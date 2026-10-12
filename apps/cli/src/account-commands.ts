@@ -316,8 +316,23 @@ const profilesUse: ShortcutCommand = {
         );
       }
 
+      // An install that runs on environment variables alone has no stored profile yet; it gets
+      // one with the server, its device, and the choice, but never the key from the environment.
       yield* updateProfile(invocation.env.configPath, invocation.target.name, (stored) =>
-        Option.map(stored, (current) => Struct.assign(current, { viewingProfileId: profile.id })),
+        Option.some(
+          Option.match(stored, {
+            onSome: (current) => Struct.assign(current, { viewingProfileId: profile.id }),
+            onNone: (): StoredProfile => ({
+              convexUrl: connection.convexUrl,
+              deviceId: connection.deviceId,
+              viewingProfileId: profile.id,
+              ...Option.match(connection.target.mediaUrl, {
+                onNone: () => ({}),
+                onSome: (mediaUrl) => ({ mediaUrl }),
+              }),
+            }),
+          }),
+        ),
       );
 
       return textOutcome(
