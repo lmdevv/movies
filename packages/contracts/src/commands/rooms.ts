@@ -94,6 +94,8 @@ export const roomCommands = {
       ...OnDevice.fields,
       positionMs: Schema.optionalKey(Milliseconds),
       revision: Schema.optionalKey(Schema.Int),
+      /** A guest's distance from the shared position, shown to the room; omit while buffering. */
+      driftMs: Schema.optionalKey(Schema.Finite),
     }),
     result: RoomClock,
     function: "rooms:heartbeat",

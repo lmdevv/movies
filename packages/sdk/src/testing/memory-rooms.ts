@@ -1,7 +1,8 @@
 /**
  * An in-memory Convex backend for one watch room, at the `ConvexTransport` seam. It follows the
  * room rules of `packages/backend/convex/rooms.ts` (host-only controls at the current revision,
- * seek keeping the status, host heartbeats re-anchoring drift beyond the contracts' threshold),
+ * seek keeping the status, host heartbeats re-anchoring drift beyond the contracts' threshold,
+ * guest heartbeats recording the drift they report),
  * decodes arguments and encodes results with the registry schemas, keeps its own server clock at
  * a fixed offset from the test clock, delays every call and update by a one-way latency, and can
  * drop the connection. Everything runs on Effect's `Clock`, so `TestClock` drives it.
@@ -135,6 +136,21 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
     Effect.gen(function* () {
       const now = yield* serverNow;
       const room = yield* Ref.get(committed);
+
+      if (args.deviceId !== room.hostDeviceId) {
+        yield* commit(
+          Struct.evolve(room, {
+            members: (members) =>
+              members.map((member) =>
+                member.deviceId === args.deviceId
+                  ? { ...member, driftMs: args.driftMs ?? null }
+                  : member,
+              ),
+          }),
+        );
+
+        return room.clock;
+      }
 
       if (
         args.positionMs === undefined ||

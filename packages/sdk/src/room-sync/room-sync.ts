@@ -12,13 +12,14 @@
  *   saw. A stall freezes the room, and recovery publishes a fresh playing anchor. Only a command
  *   rejected as stale, or a reconnect, moves the host's player onto the committed clock.
  * - **Presence.** Heartbeats every few seconds; the host's carry its position so the server can
- *   re-anchor drift. An unanswered heartbeat marks the connection lost and disables host controls
+ *   re-anchor drift, and a following guest's carry its measured drift so the room can show it. An unanswered heartbeat marks the connection lost and disables host controls
  *   until the room has been read again.
  *
  * Host commands, heartbeats, and corrections run one at a time, so every command carries the
  * newest revision this device has applied.
  */
 import type { ClockOffset, ClockSample } from "@movies/contracts/clock";
+import type { CommandArgs } from "@movies/contracts/commands";
 import { estimateClockOffset, isNewerRevision, toServerTime } from "@movies/contracts/clock";
 import type { DeviceId, RoomId } from "@movies/contracts/ids";
 import type { Room, RoomClock } from "@movies/contracts/models/rooms";
@@ -343,25 +344,31 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
       if (event === "playing" || event === "seeked") yield* correct;
     });
 
+  /** The host reports its position; a following guest reports its drift. */
+  const heartbeatArgs = (current: RoomSyncState): CommandArgs<"rooms.heartbeat"> => {
+    if (current.role === "host") {
+      return {
+        roomId,
+        deviceId,
+        positionMs: Milliseconds.make(Math.max(0, player.positionMs())),
+        revision: current.clock.revision,
+      };
+    }
+
+    if (current.follow === "following" && current.driftMs !== null) {
+      return { roomId, deviceId, driftMs: current.driftMs };
+    }
+
+    return { roomId, deviceId };
+  };
+
   const heartbeat = Effect.gen(function* () {
     const current = yield* SubscriptionRef.get(state);
 
     if (current.clock.status === "ended") return;
 
     const beat = serial.withPermits(1)(
-      Effect.suspend(() =>
-        client.mutate(
-          "rooms.heartbeat",
-          current.role === "host"
-            ? {
-                roomId,
-                deviceId,
-                positionMs: Milliseconds.make(Math.max(0, player.positionMs())),
-                revision: current.clock.revision,
-              }
-            : { roomId, deviceId },
-        ),
-      ),
+      Effect.suspend(() => client.mutate("rooms.heartbeat", heartbeatArgs(current))),
     );
 
     const answered = yield* beat.pipe(

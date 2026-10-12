@@ -18,6 +18,8 @@ export interface HlsCommand {
   readonly videoBitDepth: number;
   readonly video: VideoPlan;
   readonly audio: AudioPlan;
+  /** ffprobe's name for the source audio track's codec, such as `aac`; empty without audio. */
+  readonly audioCodec: string;
   /** Planned segment starts at or after `from`; transcodes force keyframes there. */
   readonly segmentStarts: ReadonlyArray<number>;
   readonly outputDirectory: string;
@@ -87,10 +89,23 @@ const videoArgs = (command: HlsCommand): ReadonlyArray<string> =>
     },
   });
 
-const audioArgs = (audio: AudioPlan): ReadonlyArray<string> =>
-  AudioPlan.$match(audio, {
+/**
+ * Copied AAC from MPEG-TS (and other ADTS sources) carries ADTS headers that MP4 refuses; the
+ * filter rewrites them and passes AAC that has none through unchanged.
+ */
+const copyBitstreamFilter = (codec: string): ReadonlyArray<string> =>
+  codec === "aac" ? ["-bsf:a", "aac_adtstoasc"] : [];
+
+const audioArgs = (command: HlsCommand): ReadonlyArray<string> =>
+  AudioPlan.$match(command.audio, {
     None: () => ["-an"],
-    Copy: ({ index }) => ["-map", `0:${index}`, "-c:a", "copy"],
+    Copy: ({ index }) => [
+      "-map",
+      `0:${index}`,
+      "-c:a",
+      "copy",
+      ...copyBitstreamFilter(command.audioCodec),
+    ],
     Aac: ({ index }) => ["-map", `0:${index}`, "-c:a", "aac", "-ac", "2", "-b:a", "192k"],
   });
 
@@ -122,7 +137,7 @@ export const hlsCommandArgs = (command: HlsCommand): ReadonlyArray<string> => {
     command.input,
     "-map",
     `0:${command.videoIndex}`,
-    ...audioArgs(command.audio),
+    ...audioArgs(command),
     ...videoArgs(command),
     "-map_metadata",
     "-1",
