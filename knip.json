@@ -14,6 +14,7 @@
         "config": ["convex/tsconfig.json"]
       }
     },
-    "packages/ui": {}
+    "packages/ui": {},
+    "packages/sdk": {}
   }
 }

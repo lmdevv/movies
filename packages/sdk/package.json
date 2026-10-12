@@ -3,5 +3,36 @@
   "version": "0.0.0",
   "private": true,
   "description": "Effect core SDK with effect, react, and promise entry points, shared by every client.",
-  "type": "module"
+  "type": "module",
+  "exports": {
+    "./effect": "./src/effect.ts",
+    "./react": "./src/react.tsx",
+    "./promise": "./src/promise.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:stack": "MOVIES_STACK_TESTS=1 vitest run --root ../.. packages/sdk/src/stack"
+  },
+  "dependencies": {
+    "@movies/contracts": "workspace:*",
+    "convex": "catalog:",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@movies/config": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "fast-check": "4.10.2",
+    "react": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "5.0.3"
+  },
+  "peerDependencies": {
+    "react": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
 }
