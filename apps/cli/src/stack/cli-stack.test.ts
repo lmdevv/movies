@@ -1,0 +1,223 @@
+/**
+ * The built `movies` binary against a real self-hosted backend:
+ *
+ *   scripts/dev-stack.sh up && pnpm --filter @movies/cli test:stack
+ *
+ * Skipped unless `MOVIES_STACK_TESTS=1`. Shares the owner accounts of the backend's stack suite.
+ */
+import { join } from "node:path";
+
+import { Schema } from "effect";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import { ExitCode } from "../cli-errors";
+import { buildCli, makeTempDir, removeDir, runMovies, startMovies } from "../testing/process";
+import { scanMovie, signUp } from "../testing/stack-seed";
+import { findStack } from "../testing/stack-env";
+
+const stack = findStack();
+
+const url = stack?.convexUrl ?? "";
+
+const PASSWORD = "stack-test-password";
+
+const id = Math.random().toString(36).slice(2, 8);
+
+const homes: Array<string> = [];
+
+/** A fresh config home: one CLI install. */
+const install = async (): Promise<Readonly<Record<string, string>>> => {
+  const home = await makeTempDir("movies-cli-stack-");
+
+  homes.push(home);
+
+  return { XDG_CONFIG_HOME: home, HOME: home };
+};
+
+/** Decodes a command's JSON output with `schema`; unlisted fields are ignored. */
+const parse =
+  <A>(schema: Schema.Codec<A, unknown>) =>
+  (stdout: string): A =>
+    Schema.decodeSync(Schema.fromJsonString(schema))(stdout);
+
+const Who = parse(
+  Schema.Struct({
+    viewingProfileId: Schema.NullOr(Schema.String),
+    viewer: Schema.Struct({ sessionKind: Schema.String, scopes: Schema.Array(Schema.String) }),
+  }),
+);
+
+const Secret = parse(Schema.Struct({ secret: Schema.String }));
+
+const DeviceCode = parse(
+  Schema.Struct({ event: Schema.Literal("device_code"), userCode: Schema.String }),
+);
+
+const Created = parse(Schema.Struct({ libraryId: Schema.String }));
+
+const InviteCode = parse(Schema.Struct({ code: Schema.String }));
+
+const RoomCreated = parse(Schema.Struct({ id: Schema.String }));
+
+const Clock = parse(Schema.Struct({ status: Schema.String, positionAtAnchorMs: Schema.Finite }));
+
+const SetupStatus = parse(Schema.Struct({ hasOwner: Schema.Boolean }));
+
+let owner: Readonly<Record<string, string>>;
+
+const loginOwner = async (env: Readonly<Record<string, string>>): Promise<void> => {
+  const login = (email: string) =>
+    runMovies(["login", "--server", url, "--email", email, "--password"], env, PASSWORD);
+
+  // The backend suite races two sign-ups for the owner; either may have won.
+  if ((await login("owner-a@movies.test")).code === 0) return;
+
+  if ((await login("owner-b@movies.test")).code === 0) return;
+
+  throw new Error("Could not sign in as the stack owner; use a fresh stack");
+};
+
+describe.skipIf(stack === undefined)("the movies CLI against a real stack", () => {
+  beforeAll(async () => {
+    buildCli();
+    owner = await install();
+
+    const status = await runMovies(["setup", "status"], {
+      ...(await install()),
+      MOVIES_CONVEX_URL: url,
+    });
+
+    if (!SetupStatus(status.stdout).hasOwner) {
+      await signUp(url, "owner-a@movies.test", PASSWORD, null);
+    }
+
+    await loginOwner(owner);
+  }, 120_000);
+
+  afterAll(async () => {
+    await Promise.all(homes.map(removeDir));
+  });
+
+  it("logs in with a password, stores the config privately, and answers whoami", async () => {
+    const who = await runMovies(["whoami"], owner);
+
+    expect(who.code).toBe(ExitCode.ok);
+    expect(Who(who.stdout).viewer.sessionKind).toBe("password");
+    expect(Who(who.stdout).viewingProfileId).not.toBeNull();
+
+    const profiles = await runMovies(["profiles", "list", "--human"], owner);
+
+    expect(profiles.stdout.split("\n")[0]).toMatch(/^ID\s+NAME/u);
+  });
+
+  it("logs in with an API key until the key is revoked", async () => {
+    const created = await runMovies(
+      ["keys", "create", `agent-${id}`, "--scopes", "read,play"],
+      owner,
+    );
+
+    expect(created.code).toBe(ExitCode.ok);
+    const { secret } = Secret(created.stdout);
+    const agent = await install();
+
+    expect((await runMovies(["login", "--server", url, "--api-key", secret], agent)).code).toBe(
+      ExitCode.ok,
+    );
+    expect(Who((await runMovies(["whoami"], agent)).stdout).viewer).toStrictEqual({
+      sessionKind: "apikey",
+      scopes: ["read", "play"],
+    });
+    expect((await runMovies(["users", "list"], agent)).code).toBe(ExitCode.forbidden);
+
+    expect((await runMovies(["keys", "revoke", `agent-${id}`], owner)).code).toBe(ExitCode.ok);
+
+    const after = await runMovies(["whoami"], agent);
+
+    expect(after.code).toBe(ExitCode.unauthenticated);
+    expect(after.stderr).toContain('"code":"unauthenticated"');
+
+    const fromEnv = await runMovies(["whoami"], {
+      ...(await install()),
+      MOVIES_CONVEX_URL: url,
+      MOVIES_API_KEY: secret,
+    });
+
+    expect(fromEnv.code).toBe(ExitCode.unauthenticated);
+  });
+
+  it("completes a device login approved from another session", async () => {
+    const device = await install();
+    const login = startMovies(["login", "--server", url], device);
+    const event = DeviceCode(await login.nextErrorLine());
+
+    const approve = await runMovies(
+      ["device-auth", "approve", "--user-code", event.userCode, "--scopes", "read,play"],
+      owner,
+    );
+
+    expect(approve.code).toBe(ExitCode.ok);
+    expect((await login.done).code).toBe(ExitCode.ok);
+    expect(Who((await runMovies(["whoami"], device)).stdout).viewer.sessionKind).toBe("device");
+  });
+
+  it("creates a library on a folder, scans a movie in, and runs a room for host and guest", async () => {
+    const folder = await makeTempDir("movies-cli-library-");
+
+    homes.push(folder);
+
+    const library = await runMovies(
+      ["libraries", "create", "--name", `CLI ${id}`, "--kind", "movies", "--roots", folder],
+      owner,
+    );
+
+    expect(library.code).toBe(ExitCode.ok);
+    const name = `CLI Room Movie ${id}`;
+
+    await scanMovie(
+      url,
+      stack?.mediaServiceKey ?? "",
+      Created(library.stdout).libraryId,
+      join(folder, "movie.mp4"),
+      name,
+    );
+    expect((await runMovies(["search", name], owner)).stdout).toContain(name);
+
+    const email = `cli-guest-${id}@movies.test`;
+
+    const invite = await runMovies(
+      ["invites", "create", "--role", "member", "--email", email],
+      owner,
+    );
+
+    await signUp(url, email, PASSWORD, InviteCode(invite.stdout).code);
+    const guest = await install();
+
+    expect(
+      (await runMovies(["login", "--server", url, "--email", email, "--password"], guest, PASSWORD))
+        .code,
+    ).toBe(ExitCode.ok);
+
+    const room = await runMovies(["rooms", "create", name], owner);
+
+    expect(room.code).toBe(ExitCode.ok);
+    const roomId = RoomCreated(room.stdout).id;
+
+    expect((await runMovies(["rooms", "join", roomId], guest)).code).toBe(ExitCode.ok);
+
+    const play = await runMovies(["rooms", "play", "--position", "30"], owner);
+
+    expect(Clock(play.stdout)).toStrictEqual({ status: "playing", positionAtAnchorMs: 30_000 });
+
+    const guestPause = await runMovies(["rooms", "pause", roomId], guest);
+
+    expect(guestPause.code).toBe(ExitCode.forbidden);
+    expect(guestPause.stderr).toContain('"code":"forbidden"');
+
+    expect(Clock((await runMovies(["rooms", "pause"], owner)).stdout).status).toBe("paused");
+    expect((await runMovies(["rooms", "status", roomId, "--human"], guest)).stdout).toContain(
+      "paused",
+    );
+    expect((await runMovies(["rooms", "leave"], guest)).code).toBe(ExitCode.ok);
+    expect((await runMovies(["rooms", "leave"], owner)).code).toBe(ExitCode.ok);
+  });
+});
