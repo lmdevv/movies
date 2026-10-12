@@ -1,0 +1,84 @@
+import { v } from "convex/values";
+
+import type { Doc } from "./_generated/dataModel";
+import { mutation } from "./_generated/server";
+import { searchTextOf } from "./lib/catalog";
+import { fail } from "./lib/errors";
+import { enqueueJob } from "./lib/jobs";
+import { metadataField, metadataOverrides, ok, queuedJob } from "./lib/validators";
+import { authorize } from "./lib/viewer";
+
+/**
+ * Matches a title to a TMDB entry. The media service's metadata job fetches it, writes it, and
+ * marks the match manual so rescans keep it.
+ */
+export const fixMatch = mutation({
+  args: { titleId: v.id("titles"), provider: v.literal("tmdb"), providerId: v.string() },
+  returns: queuedJob,
+  handler: async (ctx, { titleId, provider, providerId }) => {
+    const viewer = await authorize(ctx, "manage");
+
+    if ((await ctx.db.get(titleId)) === null) return fail("not_found", "No such title");
+
+    if (providerId.trim().length === 0) return fail("invalid_args", "Choose a match");
+
+    const jobId = await enqueueJob(
+      ctx,
+      { kind: "metadata", titleId, match: { provider, providerId: providerId.trim() } },
+      viewer.userId,
+    );
+
+    return { jobId };
+  },
+});
+
+export const refresh = mutation({
+  args: { titleId: v.id("titles") },
+  returns: queuedJob,
+  handler: async (ctx, { titleId }) => {
+    const viewer = await authorize(ctx, "manage");
+
+    if ((await ctx.db.get(titleId)) === null) return fail("not_found", "No such title");
+
+    return {
+      jobId: await enqueueJob(ctx, { kind: "metadata", titleId, match: null }, viewer.userId),
+    };
+  },
+});
+
+type Overrides = NonNullable<Doc<"titles">["overrides"]>;
+
+/** Sets and clears a title's overrides. Scans never overwrite them. */
+export const edit = mutation({
+  args: {
+    titleId: v.id("titles"),
+    set: metadataOverrides,
+    clear: v.optional(v.array(metadataField)),
+  },
+  returns: ok,
+  handler: async (ctx, { titleId, set, clear }) => {
+    await authorize(ctx, "manage");
+    const title = await ctx.db.get(titleId);
+
+    if (title === null) return fail("not_found", "No such title");
+
+    if (
+      set.ageRating !== undefined &&
+      (!Number.isInteger(set.ageRating) || set.ageRating < 0 || set.ageRating > 21)
+    ) {
+      return fail("invalid_args", "Age ratings run from 0 to 21");
+    }
+
+    const merged: Overrides = { ...title.overrides, ...set };
+
+    for (const field of clear ?? []) delete merged[field];
+
+    await ctx.db.patch(titleId, {
+      overrides: merged,
+      searchText: searchTextOf({ ...title, overrides: merged }),
+      updatedAt: Date.now(),
+    });
+
+    return { ok: true as const };
+  },
+});

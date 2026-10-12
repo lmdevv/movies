@@ -261,6 +261,9 @@ importers:
       convex:
         specifier: 'catalog:'
         version: 1.46.0(react@19.3.0)
+      lucia:
+        specifier: ^3.2.2
+        version: 3.2.2
     devDependencies:
       '@movies/config':
         specifier: workspace:*
