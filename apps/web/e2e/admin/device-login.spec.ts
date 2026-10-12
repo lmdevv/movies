@@ -1,13 +1,15 @@
 import { expect, test } from "@playwright/test";
 
-import { NO_STACK, openClient, signInOwner, stack, useSession } from "./stack";
+import { NO_STACK, openClient, ownedStack, signInOwner, useSession } from "./session";
 
-test.skip(stack === undefined, NO_STACK);
+const stack = await ownedStack();
+
+test.skip(stack === null, NO_STACK);
 
 test("a device's code is approved in the browser, the device signs in, and the code works once", async ({
   page,
 }) => {
-  if (stack === undefined) return;
+  if (stack === null) return;
 
   const owner = await signInOwner(stack);
   const device = openClient(stack);
@@ -59,7 +61,7 @@ test("a device's code is approved in the browser, the device signs in, and the c
 });
 
 test("a device can be denied", async ({ page }) => {
-  if (stack === undefined) return;
+  if (stack === null) return;
 
   const owner = await signInOwner(stack);
   const device = openClient(stack);
@@ -70,15 +72,21 @@ test("a device can be denied", async ({ page }) => {
     (cause: unknown) => (cause instanceof Error ? cause.message : "refused"),
   );
 
+  // The code typed into the command menu opens its approval.
   await useSession(page, owner);
-  await page.goto(new URL(login.verificationUrl).pathname + new URL(login.verificationUrl).search);
+  await page.goto("/settings/devices");
+  await expect(page.getByRole("button", { name: "Search", exact: true })).toBeVisible();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+k" : "Control+k");
+  await page.getByRole("combobox").fill(login.userCode.toLowerCase());
+  await page.getByRole("option", { name: `Approve device code ${login.userCode}` }).click();
+  await expect(page).toHaveURL(new RegExp(`/device\\?code=${login.userCode}`, "u"));
   await page.getByRole("button", { name: "Deny" }).click();
   await expect(page.getByRole("heading", { name: "Unknown laptop was denied" })).toBeVisible();
   await expect(refused).resolves.toBe("Device sign-in denied: start a new sign-in");
 });
 
 test("an unknown code says so and lets the person type another", async ({ page }) => {
-  if (stack === undefined) return;
+  if (stack === null) return;
 
   await useSession(page, await signInOwner(stack));
   await page.goto("/device?code=ZZZZ-ZZZZ");

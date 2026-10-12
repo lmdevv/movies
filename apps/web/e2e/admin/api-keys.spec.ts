@@ -1,24 +1,30 @@
 import { expect, test } from "@playwright/test";
 
-import { NO_STACK, openClient, signInOwner, stack, useSession } from "./stack";
+import { NO_STACK, openClient, ownedStack, signInOwner, useSession } from "./session";
 
-test.skip(stack === undefined, NO_STACK);
+const stack = await ownedStack();
+
+test.skip(stack === null, NO_STACK);
 
 test("an API key is shown once, signs in, appears in the list, and stops working when revoked", async ({
   page,
   context,
 }) => {
-  if (stack === undefined) return;
+  if (stack === null) return;
 
   const owner = await signInOwner(stack);
   const name = `e2e key ${Date.now().toString(36)}`;
 
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await useSession(page, owner);
-  await page.goto("/settings/api-keys");
-  await expect(page.getByRole("heading", { name: "API keys" })).toBeVisible();
+  await page.goto("/settings/account");
+  await expect(page.getByRole("heading", { name: "Account" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Create key" }).click();
+  // The command menu opens Create key on the API keys page.
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+k" : "Control+k");
+  await page.getByRole("combobox").fill("create api key");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/settings\/api-keys\?dialog=create$/u);
   const create = page.getByRole("dialog", { name: "Create API key" });
   await create.getByLabel("Name").fill(name);
   await create.getByRole("button", { name: "Create key" }).click();
