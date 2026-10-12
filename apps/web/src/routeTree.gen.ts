@@ -30,6 +30,7 @@ import { Route as SetupScanRouteImport } from './routes/setup.scan'
 import { Route as WatchTitleIdRouteImport } from './routes/watch.$titleId'
 import { Route as AppAdminIndexRouteImport } from './routes/_app/admin/index'
 import { Route as AppAdminBackupsRouteImport } from './routes/_app/admin/backups'
+import { Route as AppAdminMigrationRouteImport } from './routes/_app/admin/migration'
 import { Route as AppAdminServerRouteImport } from './routes/_app/admin/server'
 import { Route as AppAdminUsersRouteImport } from './routes/_app/admin/users'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
@@ -147,6 +148,11 @@ const AppAdminBackupsRoute = AppAdminBackupsRouteImport.update({
   path: '/backups',
   getParentRoute: () => AppAdminRoute,
 } as any)
+const AppAdminMigrationRoute = AppAdminMigrationRouteImport.update({
+  id: '/migration',
+  path: '/migration',
+  getParentRoute: () => AppAdminRoute,
+} as any)
 const AppAdminServerRoute = AppAdminServerRouteImport.update({
   id: '/server',
   path: '/server',
@@ -230,6 +236,7 @@ export interface FileRoutesByFullPath {
   '/watch/$titleId': typeof WatchTitleIdRoute
   '/profiles/': typeof ProfilesIndexRoute
   '/admin/backups': typeof AppAdminBackupsRoute
+  '/admin/migration': typeof AppAdminMigrationRoute
   '/admin/server': typeof AppAdminServerRoute
   '/admin/users': typeof AppAdminUsersRoute
   '/settings/account': typeof AppSettingsAccountRoute
@@ -262,6 +269,7 @@ export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
   '/profiles': typeof ProfilesIndexRoute
   '/admin/backups': typeof AppAdminBackupsRoute
+  '/admin/migration': typeof AppAdminMigrationRoute
   '/admin/server': typeof AppAdminServerRoute
   '/admin/users': typeof AppAdminUsersRoute
   '/settings/account': typeof AppSettingsAccountRoute
@@ -298,6 +306,7 @@ export interface FileRoutesById {
   '/_app/': typeof AppIndexRoute
   '/profiles/': typeof ProfilesIndexRoute
   '/_app/admin/backups': typeof AppAdminBackupsRoute
+  '/_app/admin/migration': typeof AppAdminMigrationRoute
   '/_app/admin/server': typeof AppAdminServerRoute
   '/_app/admin/users': typeof AppAdminUsersRoute
   '/_app/settings/account': typeof AppSettingsAccountRoute
@@ -334,6 +343,7 @@ export interface FileRouteTypes {
     | '/watch/$titleId'
     | '/profiles/'
     | '/admin/backups'
+    | '/admin/migration'
     | '/admin/server'
     | '/admin/users'
     | '/settings/account'
@@ -366,6 +376,7 @@ export interface FileRouteTypes {
     | '/'
     | '/profiles'
     | '/admin/backups'
+    | '/admin/migration'
     | '/admin/server'
     | '/admin/users'
     | '/settings/account'
@@ -401,6 +412,7 @@ export interface FileRouteTypes {
     | '/_app/'
     | '/profiles/'
     | '/_app/admin/backups'
+    | '/_app/admin/migration'
     | '/_app/admin/server'
     | '/_app/admin/users'
     | '/_app/settings/account'
@@ -582,6 +594,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminBackupsRouteImport
       parentRoute: typeof AppAdminRoute
     }
+    '/_app/admin/migration': {
+      id: '/_app/admin/migration'
+      path: '/migration'
+      fullPath: '/admin/migration'
+      preLoaderRoute: typeof AppAdminMigrationRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
     '/_app/admin/server': {
       id: '/_app/admin/server'
       path: '/server'
@@ -671,6 +690,7 @@ declare module '@tanstack/react-router' {
 
 interface AppAdminRouteChildren {
   AppAdminBackupsRoute: typeof AppAdminBackupsRoute
+  AppAdminMigrationRoute: typeof AppAdminMigrationRoute
   AppAdminServerRoute: typeof AppAdminServerRoute
   AppAdminUsersRoute: typeof AppAdminUsersRoute
   AppAdminIndexRoute: typeof AppAdminIndexRoute
@@ -681,6 +701,7 @@ interface AppAdminRouteChildren {
 
 const AppAdminRouteChildren: AppAdminRouteChildren = {
   AppAdminBackupsRoute: AppAdminBackupsRoute,
+  AppAdminMigrationRoute: AppAdminMigrationRoute,
   AppAdminServerRoute: AppAdminServerRoute,
   AppAdminUsersRoute: AppAdminUsersRoute,
   AppAdminIndexRoute: AppAdminIndexRoute,
