@@ -203,3 +203,8 @@ export const fileInfo = (
     (info) => ({ size: info.size, mode: info.mode & 0o777 }),
     () => undefined,
   );
+
+/** Runs `docker` with `args`, such as a Compose restart, and waits for it. */
+export const runDocker = (args: ReadonlyArray<string>): void => {
+  execFileSync("docker", args, { stdio: "ignore" });
+};
