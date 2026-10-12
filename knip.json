@@ -15,6 +15,9 @@
       }
     },
     "packages/ui": {},
-    "packages/sdk": {}
+    "packages/sdk": {},
+    "apps/cli": {
+      "entry": ["src/main.ts", "scripts/*.ts"]
+    }
   }
 }
