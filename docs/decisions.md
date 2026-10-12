@@ -154,3 +154,19 @@ choices made while implementing them. Update it in the same PR that changes a de
   raw player events, so the engine's own corrections never echo back as commands. The host moves
   its player onto the committed clock only after a stale or rejected command or a reconnect; its
   own commands reach the subscription before their results do.
+
+## Account and admin screens
+
+- Settings, admin, and migration screens share one frame: the account's own sections, then the
+  server sections its scopes open (`manage` for libraries, `admin` for users, migration, and
+  backups). Routes also check scopes and show a calm state to sessions without them; the server
+  still refuses every call it should, so the check only spares people broken screens.
+- A new API key's secret lives only in the open "Copy your new key" dialog's state. Closing the
+  dialog drops it; it is never logged, stored, or put in the URL.
+- The library detail screen lists files with `libraries.files` (paged by path, or only missing
+  files, or the files of unmatched titles) and counts problems with `libraries.fileSummary`, which
+  reads the `by_library_missing` and `by_library_status` indexes instead of scanning the library.
+- A scan that fails with the scanner's "Library root unavailable" or "Library folder unreadable"
+  error shows the NAS-offline state. Other failures show as Failed on the libraries list.
+- The device approval page grants `read` and `play` unless the approver changes it; it offers only
+  scopes the approving session holds.
