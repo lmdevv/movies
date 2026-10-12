@@ -422,6 +422,37 @@ const make = Effect.gen(function* () {
   });
 
   /**
+   * Handles an ffmpeg run that exited before producing segment `index`: a QSV run falls back to
+   * software and restarts there (`StreamGenerationGone`); any other mode fails the stream.
+   */
+  const encoderFailed = Effect.fn("StreamSessions.encoderFailed")(function* (
+    session: Session,
+    generation: Generation,
+    index: number,
+    detail: string,
+  ) {
+    const mode = yield* Ref.get(session.mode);
+
+    yield* Effect.annotateCurrentSpan({ streamId: session.streamId, mode, segmentIndex: index });
+    yield* Effect.logWarning("StreamSessions.encoder_failed", detail).pipe(
+      Effect.annotateLogs({ streamId: session.streamId, mode, generation: generation.number }),
+    );
+
+    if (mode !== "transcode-qsv") {
+      return yield* new TranscodeFailed({ streamId: session.streamId, mode, detail });
+    }
+
+    yield* fallBackToSoftware(session, detail);
+    const restarted = yield* startGeneration(session, generation.number + 1, index);
+
+    return yield* new StreamGenerationGone({
+      streamId: session.streamId,
+      generation: generation.number,
+      currentGeneration: restarted.number,
+    });
+  });
+
+  /**
    * Waits until segment `index` of `generation` is complete. A failed QSV run falls back to
    * software and starts a new generation, reported as `StreamGenerationGone`.
    */
@@ -458,25 +489,12 @@ const make = Effect.gen(function* () {
         const result = yield* Deferred.await(generation.exit).pipe(Effect.exit);
 
         if (Exit.isFailure(result) && !pastEnd) {
-          const mode = yield* Ref.get(session.mode);
-
           const detail = Exit.match(result, {
             onSuccess: () => "",
             onFailure: (cause) => String(cause),
           }).slice(-300);
 
-          if (mode !== "transcode-qsv") {
-            return yield* new TranscodeFailed({ streamId: session.streamId, mode, detail });
-          }
-
-          yield* fallBackToSoftware(session, detail);
-          const restarted = yield* startGeneration(session, generation.number + 1, index);
-
-          return yield* new StreamGenerationGone({
-            streamId: session.streamId,
-            generation: generation.number,
-            currentGeneration: restarted.number,
-          });
+          return yield* encoderFailed(session, generation, index, detail);
         }
       }
 
@@ -550,6 +568,36 @@ const make = Effect.gen(function* () {
         return yield* startGeneration(session, current.number + 1, index);
       }),
     );
+  });
+
+  /**
+   * Starts the first generation at `segmentIndex` and waits for that segment, so the client can
+   * start at once; a QSV failure falls back to software here. Returns the generation serving it.
+   */
+  const firstSegment = Effect.fn("StreamSessions.firstSegment")(function* (
+    session: Session,
+    segmentIndex: number,
+  ) {
+    yield* Effect.annotateCurrentSpan({ streamId: session.streamId, segmentIndex });
+    let generation = yield* startGeneration(session, 1, segmentIndex);
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const ready = yield* awaitSegment(session, generation, segmentIndex, START_WAIT).pipe(
+        Effect.as(true),
+        Effect.catchTags({
+          StreamGenerationGone: () => Effect.succeed(false),
+          SegmentNotReady: () => Effect.succeed(true),
+        }),
+        Effect.tapError(() => closeSession(session, "failed")),
+      );
+
+      if (ready) break;
+      generation = yield* Ref.get(session.generation);
+    }
+
+    yield* Effect.annotateCurrentSpan({ mode: yield* Ref.get(session.mode) });
+
+    return generation;
   });
 
   const start = Effect.fn("StreamSessions.start")(function* (request: StartRequest) {
@@ -660,22 +708,7 @@ const make = Effect.gen(function* () {
     }
 
     const segmentIndex = segmentAt(segmentPlan, file.probe.startSeconds + request.startSeconds);
-    let generation = yield* startGeneration(session, 1, segmentIndex);
-
-    // Wait for the first segment so the client can start at once; a QSV failure falls back here.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const ready = yield* awaitSegment(session, generation, segmentIndex, START_WAIT).pipe(
-        Effect.as(true),
-        Effect.catchTags({
-          StreamGenerationGone: () => Effect.succeed(false),
-          SegmentNotReady: () => Effect.succeed(true),
-        }),
-        Effect.tapError(() => closeSession(session, "failed")),
-      );
-
-      if (ready) break;
-      generation = yield* Ref.get(session.generation);
-    }
+    const generation = yield* firstSegment(session, segmentIndex);
 
     const mode = yield* Ref.get(session.mode);
 
@@ -753,6 +786,11 @@ const make = Effect.gen(function* () {
     const session = yield* lookup(streamId, grant);
     const index = segmentAt(session.plan, session.file.probe.startSeconds + seconds);
     const covering = yield* ensureCovers(session, index);
+    yield* Effect.annotateCurrentSpan({
+      streamId,
+      segmentIndex: index,
+      generation: covering.number,
+    });
 
     return { streamId, generation: covering.number, plan: session.plan } satisfies StreamView;
   });
