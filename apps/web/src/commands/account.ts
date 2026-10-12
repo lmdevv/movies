@@ -27,7 +27,7 @@ export const useAccountCommands = (context: CommandContext): CommandContribution
         kind: "action",
         id: "go:/settings/account",
         title: "Account",
-        keywords: ["settings", "email", "sign out"],
+        keywords: ["settings", "email", "role"],
         leading: { kind: "icon", icon: UserRoundCogIcon },
         perform: () => navigate({ to: "/settings/account" }),
       },

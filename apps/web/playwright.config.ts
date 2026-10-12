@@ -28,13 +28,13 @@ export default defineConfig({
     },
     {
       name: "stack",
-      testMatch: /stack\/.*\.spec\.ts$/u,
+      testMatch: /e2e\/stack\/.*\.spec\.ts$/u,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {
       // Signs in as the owner the core flows create, so it runs after them.
       name: "admin",
-      testMatch: /admin\/.*\.spec\.ts$/u,
+      testMatch: /e2e\/admin\/.*\.spec\.ts$/u,
       dependencies: ["stack"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
