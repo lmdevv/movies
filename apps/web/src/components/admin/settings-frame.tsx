@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import type { LinkProps } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
-import { hasScope, useViewer } from "./viewer";
+import { useScopes } from "@/session/viewer";
 
 interface NavEntry {
   readonly to: NonNullable<LinkProps["to"]>;
@@ -62,10 +62,9 @@ function NavLink({ entry }: { readonly entry: NavEntry }) {
 
 /** The settings sections: the account's own, then the server sections its scopes open. */
 function SettingsNav({ className }: { readonly className?: string }) {
-  const viewer = useViewer();
-  const scopes = viewer.status === "success" ? viewer.data : null;
-  const manage = scopes !== null && hasScope(scopes, "manage");
-  const admin = scopes !== null && hasScope(scopes, "admin");
+  const scopes = useScopes();
+  const manage = scopes.has("manage");
+  const admin = scopes.has("admin");
 
   const server: ReadonlyArray<NavEntry> = [
     ...(manage ? MANAGE : []),

@@ -4,8 +4,12 @@ import { createServer } from "node:http";
 import { Effect, Option, Predicate, Redacted, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { StreamGenerationGone } from "@movies/contracts/media-playback";
+import { PlaybackTokenInvalid } from "@movies/contracts/playback-token";
+
 import type { MediaRequest } from "./media-http";
-import { requestJson } from "./media-http";
+import { requestJson, requestPlayback } from "./media-http";
+import { recoveryFor } from "./playback";
 
 const received: Array<{
   readonly url: string;
@@ -26,6 +30,25 @@ const route = (path: string, response: ServerResponse): void => {
       return respond(response, 403, JSON.stringify({ code: "forbidden", message: "Admins only" }));
     case "/tagged":
       return respond(response, 422, JSON.stringify({ _tag: "UnsupportedPlayback", reason: "x" }));
+    case "/gone":
+      return respond(
+        response,
+        410,
+        JSON.stringify({
+          _tag: "StreamGenerationGone",
+          streamId: "abc",
+          generation: 1,
+          currentGeneration: 2,
+        }),
+      );
+    case "/expired":
+      return respond(
+        response,
+        401,
+        JSON.stringify({ _tag: "PlaybackTokenInvalid", reason: "expired", message: "expired" }),
+      );
+    case "/gateway":
+      return respond(response, 502, "<html>Bad gateway</html>");
     case "/garbage":
       return respond(response, 200, "<html>");
     case "/wrong":
@@ -110,5 +133,47 @@ describe("media service requests", () => {
     );
 
     expect(result).toMatchObject({ failure: { _tag: "TransportError" } });
+  });
+});
+
+const playbackOutcome = (path: string) =>
+  Effect.runPromise(Effect.result(requestPlayback(request(path), Ok)));
+
+describe("playback API requests", () => {
+  it("decodes the playback API's tagged failures into their errors", async () => {
+    const gone = await playbackOutcome("/gone");
+
+    expect(gone).toMatchObject({
+      failure: new StreamGenerationGone({ streamId: "abc", generation: 1, currentGeneration: 2 }),
+    });
+
+    const expired = await playbackOutcome("/expired");
+
+    expect(expired).toMatchObject({
+      failure: new PlaybackTokenInvalid({ reason: "expired", message: "expired" }),
+    });
+  });
+
+  it("reports a gateway failure as an unreachable service and unknown bodies as protocol errors", async () => {
+    expect(await playbackOutcome("/gateway")).toMatchObject({
+      failure: { _tag: "TransportError" },
+    });
+    expect(await playbackOutcome("/failure")).toMatchObject({
+      failure: { _tag: "ProtocolError" },
+    });
+  });
+
+  it("says how a player recovers from each failure", () => {
+    expect(
+      recoveryFor(
+        new StreamGenerationGone({ streamId: "abc", generation: 1, currentGeneration: 2 }),
+      ),
+    ).toBe("reload-playlist");
+    expect(recoveryFor(new PlaybackTokenInvalid({ reason: "expired", message: "x" }))).toBe(
+      "renew-token",
+    );
+    expect(recoveryFor(new PlaybackTokenInvalid({ reason: "bad_signature", message: "x" }))).toBe(
+      "fail",
+    );
   });
 });

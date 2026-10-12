@@ -30,8 +30,8 @@ import { formatDate, formatUntil } from "./format";
 import { PageHeader } from "./page-header";
 import { SelectField } from "./select-field";
 import { Cell, Column, StatusDot, Table, TableHead, TableRow } from "./table";
-import { useNow } from "./use-now";
-import { useViewer } from "./viewer";
+import { useNow } from "@/lib/use-now";
+import { useViewer } from "@/session/viewer";
 import { QueryView } from "./query-view";
 
 const ROLE_LABELS: Readonly<Record<User["role"], string>> = {
@@ -65,8 +65,8 @@ export function UsersScreen() {
   const users = useCommandQuery("users.list", {});
   const libraries = useCommandQuery("libraries.listDetails", {});
   const viewer = useViewer();
-  const now = useNow();
-  const selfId = viewer.status === "success" ? viewer.data.user.id : null;
+  const now = useNow(30_000);
+  const selfId = viewer?.user.id ?? null;
   const allLibraries = libraries.status === "success" ? libraries.data : [];
 
   return (

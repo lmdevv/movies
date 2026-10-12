@@ -4,11 +4,18 @@
  */
 import { Context, type Effect, Schema } from "effect";
 
-import type { LibraryId } from "../ids.ts";
+import type { LibraryId } from "@movies/contracts/ids";
 import { MediaProbe } from "../media/media-probe.ts";
 import { EpisodeMetadata, TitleMetadata } from "../metadata/title-metadata.ts";
 import { MediaName } from "./media-naming.ts";
 import { SidecarSubtitle } from "./sidecar-subtitles.ts";
+
+/** One folder of a library, as a scan walks it. A library may have several. */
+export interface LibraryFolder {
+  readonly libraryId: LibraryId;
+  /** Absolute path of the folder, as the library records it. */
+  readonly root: string;
+}
 
 /** What the store already knows about a file; unchanged files are skipped. */
 const IndexedFile = Schema.Struct({
@@ -70,21 +77,21 @@ export class LibrarySinkFailed extends Schema.TaggedError<LibrarySinkFailed>()(
 
 /** Receives scan results. Batches hold at most 100 records. */
 export interface Interface {
-  /** Files the store holds for the library, present or not. */
+  /** Present files the store holds under the folder, relative to it. */
   readonly previousIndex: (
-    libraryId: LibraryId,
+    folder: LibraryFolder,
   ) => Effect.Effect<ReadonlyArray<IndexedFile>, LibrarySinkFailed>;
   readonly upsertBatch: (
-    libraryId: LibraryId,
+    folder: LibraryFolder,
     files: ReadonlyArray<ScannedFile>,
   ) => Effect.Effect<void, LibrarySinkFailed>;
   /** Marks files missing. The store keeps their watch history until an administrator purges them. */
   readonly markMissing: (
-    libraryId: LibraryId,
+    folder: LibraryFolder,
     relativePaths: ReadonlyArray<string>,
   ) => Effect.Effect<void, LibrarySinkFailed>;
   readonly reportProgress: (
-    libraryId: LibraryId,
+    folder: LibraryFolder,
     progress: ScanProgress,
   ) => Effect.Effect<void, LibrarySinkFailed>;
 }

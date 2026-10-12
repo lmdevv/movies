@@ -1,24 +1,7 @@
-import { Predicate } from "effect";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
-/**
- * The sentence to show for a failed command. Server failures carry wording written for people;
- * connection and contract failures get a fixed sentence instead of their diagnostic text.
- */
-export const describeFailure = (cause: unknown): string => {
-  if (Predicate.isTagged(cause, "TransportError")) return "Can’t reach the server. Try again.";
-
-  if (Predicate.isTagged(cause, "ProtocolError")) {
-    return "The server answered in a way this page doesn’t understand. Reload and try again.";
-  }
-
-  if (Predicate.hasProperty(cause, "message") && Predicate.isString(cause.message)) {
-    return cause.message;
-  }
-
-  return "Something went wrong. Try again.";
-};
+import { describeFailure } from "@/lib/failure";
 
 /** Options for {@link useAction}. */
 export interface ActionOptions<Result> {

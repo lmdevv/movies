@@ -16,7 +16,7 @@ import { KIND_LABELS, LibraryDialog } from "./library-dialog";
 import { PageHeader } from "./page-header";
 import { isActive, useLatestScans } from "./scan-jobs";
 import { Cell, Column, StatusDot, Table, TableHead } from "./table";
-import { useNow } from "./use-now";
+import { useNow } from "@/lib/use-now";
 import { QueryView } from "./query-view";
 
 /** Libraries and scans: every library with its folders, size, last scan, and live scan progress. */

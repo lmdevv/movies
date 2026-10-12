@@ -11,9 +11,14 @@ choices made while implementing them. Update it in the same PR that changes a de
   `PLAYBACK_TOKEN_SECRET` (a base64url string of at least 32 random bytes, decoded before use).
 - Payload fields: `aud` (`"media"`), `sub` (user ID), `pid` (profile ID), `fid` (file ID), `sid`
   (playback session ID), `iat` and `exp` (milliseconds since the epoch). Lifetime six hours.
-- Convex signs with WebCrypto in plain TypeScript. The media service verifies with Effect in
-  constant time and rejects a wrong audience, a bad signature, or `exp <= now`. Shared test vectors
-  in `packages/contracts` keep both sides honest.
+- Convex signs with WebCrypto in plain TypeScript. The media service verifies with the shared
+  verifier in `@movies/contracts/playback-token` (constant time; a wrong audience, a bad or
+  non-canonically encoded signature, or `exp <= now` is refused). Shared test vectors in
+  `packages/contracts` keep both sides honest.
+- A token whose playback session has ended is refused with `PlaybackSessionEnded` (410) even
+  before it expires: the media service follows `mediaService:endedSessions`, stops the session's
+  HLS streams, and remembers ended sessions for a token's lifetime (catching up on the last six
+  hours at startup).
 - Tokens never appear in logs. Media URLs carry the token in the `token` query parameter because
   `<video>` and HLS segment fetches cannot set headers.
 
@@ -65,7 +70,9 @@ choices made while implementing them. Update it in the same PR that changes a de
 - Expected failures travel as `ConvexError({ code, message })` with the codes in
   `@movies/contracts/errors`; the media service answers `media` commands with the same body.
 - For `media` commands the SDK sends the caller's Convex auth token as a bearer token; the media
-  service calls `account.viewer` with it and checks the command's scope.
+  service calls `account.viewer` with it (a one-shot HTTP call, so revoked sessions are refused at
+  once) and checks the command's scope. Route groups register through `commandRoute` in
+  `apps/media/src/http/command-routes.ts` and are listed once in `apps/media/src/main.ts`.
 - The SDK, CLI, and command menu are generated from the registry.
 
 ## Media service and Convex
@@ -73,7 +80,22 @@ choices made while implementing them. Update it in the same PR that changes a de
 - Convex never calls the media service. The media service subscribes to its job and ended-session
   queries and calls `media-service` scoped mutations.
 - Scan jobs use leases: a claim writes `leaseOwner` and `leaseExpiresAt`; the worker renews it, and
-  an expired lease can be reclaimed after a restart.
+  an expired lease can be reclaimed after a restart. The media service claims with a 60 second
+  lease, renews every 15 seconds with the scanner's counters as progress, and stops the job's work
+  when a renewal reports it cancelled or the lease lost. Failures say whether to retry: a folder
+  outside `LIBRARY_ROOTS` fails for good (`Library root not approved: …` on the job), an
+  unreadable folder or an unreachable Convex returns the job to the queue. Scans and metadata
+  writes are idempotent, so a job that runs twice is harmless.
+- The media service signs in with `MEDIA_SERVICE_API_KEY` over the SDK's WebSocket transport and
+  keeps retrying with capped exponential backoff (0.5 to 30 seconds, jittered) while Convex is
+  down or refuses the key; a session that ends signs in again, and a call refused as
+  `unauthenticated` is retried once after that.
+- Scans: a `full` scan job re-reads every file; a `quick` one skips files whose size and
+  modification time did not change; watchers and the periodic reconciliation are quick. Convex
+  stores absolute paths. A title's match key is its kind plus a provider ID (`movie:tmdb:603`),
+  else its normalized name and year (`show:local:fixture show (2021)`). Extras (trailers,
+  featurettes) belong to no title and are not stored. A multi-episode file is stored under its
+  first episode.
 - The media service's functions are listed with their schemas in
   `@movies/contracts/media-service` (`mediaService:*`). It subscribes to `pendingJobs`,
   `libraries`, and `endedSessions`, resolves a token's file with `resolveFile`, and writes scans
@@ -84,6 +106,37 @@ choices made while implementing them. Update it in the same PR that changes a de
   `cancelled` when an admin cancelled the job. A cron returns expired leases to the queue every
   minute and fails a job after five attempts. A nightly cron at 03:00 UTC queues a backup job; the
   media service runs `convex export` and records the archive with `recordBackup`.
+
+## Media playback API
+
+- The media service's HttpApi lives in `@movies/contracts/media-api`; its routes, request and
+  response schemas, and tagged errors live in `@movies/contracts/media-playback`, which uses only
+  stable Effect modules. Contracts allow the unstable `effect/http-api` module for the definition
+  alone. The SDK does not import the HttpApi: it posts with `fetch` and decodes the shared schemas
+  (with their JSON codecs: absent optional fields arrive as `null`) and tagged errors.
+- `Playback.recoveryFor` maps each failure to what a player does: `StreamGenerationGone` → load
+  the current playlist (`seekStream`), `StreamNotFound` → `renegotiate`, `PlaybackTokenInvalid`
+  with `expired` → `renegotiate` (renews the token first), `PlaybackSessionEnded` → start a new
+  session, busy or briefly unavailable (`TranscodeCapacityReached`, `InsufficientTranscodeSpace`,
+  `FileResolverUnavailable`, `SegmentNotReady`, transport) → retry later, `UnsupportedPlayback`
+  → tell the viewer.
+- Playback modes are one vocabulary everywhere: `direct`, `remux`, `audio-transcode`,
+  `transcode-qsv`, `transcode-software`.
+
+## Artwork
+
+- Titles, seasons, and episodes carry artwork keys: `a1.<base64url(iv ‖ ciphertext ‖ tag)>`, an
+  AES-256-GCM sealing of where the image lives (an absolute path inside a library folder, or a
+  TMDB image URL). The IV is an HMAC of the reference, so sealing is deterministic and rescans do
+  not churn. Both keys derive from `PLAYBACK_TOKEN_SECRET` with their own labels; rotating it
+  invalidates artwork keys until the next full scan.
+- Clients load `${mediaBaseUrl}/artwork/${key}`, optionally `?w=` one of 185, 342, 500, 780,
+  1280 (`artworkUrl` in `@movies/contracts/artwork`). No token: `<img>` cannot send one, artwork
+  is low sensitivity, and a key can only name an image the service sealed itself, so the route
+  cannot be pointed at other files and URLs reveal no folder names. Local images are re-checked
+  against `LIBRARY_ROOTS`; remote images are fetched only from `image.tmdb.org` and cached under
+  `DATA_DIR/artwork`; resized copies are JPEGs made with ffmpeg and cached by source, size, and
+  modification time.
 
 ## Playback and progress
 
@@ -139,6 +192,42 @@ choices made while implementing them. Update it in the same PR that changes a de
 - The component gallery at `/dev/kit` is development-only; production builds replace it with an
   empty route and do not bundle it.
 
+## Web app
+
+- Every screen reads and writes through `@movies/sdk/react` (`useCommandQuery`, `useCommand`,
+  `useAuth`); components never name Convex functions.
+- Guards are components, not router `beforeLoad`, because the session lives in the SDK:
+  `RequireSignedIn` sends people to `/welcome` before the owner exists and to `/sign-in?redirect=`
+  after; `RequireProfile` sends them to "Who's watching?" or the profile's PIN and provides
+  `useActiveProfile()` (the profile and its account's profiles). Pass `profile.id` to every
+  profile-scoped command.
+- The chosen profile is per browser (`localStorage` key `movies.profile`, through
+  `useProfileChoice`); signing out forgets it. PIN unlocks stay per session on the server, so a
+  remembered PIN profile asks for its PIN again in a new session. PINs set from the web have four
+  digits, as Paper draws the boxes.
+- The command menu's root list is collected from `src/commands/`: each feature exports a
+  `use<Feature>Commands(context): CommandContribution` hook (groups and "No results" fallbacks),
+  and `src/commands/index.ts` calls them in menu order. Groups with the same id merge, so features
+  add rows to "Actions" or "Go to". `mod+shift+p` opens the menu on its "Switch profile" submenu.
+- Title search lives in the menu (results while typing) and on `/search` (the full page Paper
+  draws; the phone tab bar's search circle opens it). Kids filtering is server-side; the web app
+  shows no notice. The menu keeps earlier results on screen only while the same query is typed
+  further or shortened; a replaced query clears them, so Enter never opens a stale result.
+- Artwork loads through `artworkUrl` from `@movies/contracts/artwork` against `VITE_MEDIA_BASE_URL`
+  (this origin when unset), resized per use (`?w=185` thumbnails, `500` posters, `780` cards,
+  stills, and logos, `1280` backdrops), as lazy images over a fixed-aspect raised placeholder; a
+  missing or failing image leaves the placeholder.
+  Avatars are app assets in `public/avatars/<key>.svg`; the profile stores the key.
+- Play and Resume link to `/watch/$titleId?episodeId=&start=0`, which the playback milestone fills.
+- Signing out navigates to sign-in itself; `RequireSignedIn` stays blank while the location is
+  already `/sign-in` rather than racing that navigation with its own redirect.
+- The stack E2E suite (`apps/web/e2e/stack`) runs the real media service: it generates a fixture
+  library (ffmpeg clips, NFO files with certifications, artwork drawn in the browser), bundles
+  `apps/media`, and starts it against the dev stack. A scan of a folder outside `LIBRARY_ROOTS`
+  is the real failure path; the suite then restarts the service with that folder approved and
+  retries. Fixture names are plain: Convex search matches any query term, so a shared run token in
+  every name made every title match every search.
+
 ## SDK
 
 - `@movies/sdk` runs on three Convex clients through one transport: the WebSocket `ConvexClient`
@@ -148,6 +237,8 @@ choices made while implementing them. Update it in the same PR that changes a de
   requests use the platform `fetch`, and tests use plain Vitest with `TestClock`.
 - Sign-in and token refresh go through a private `ConvexHttpClient`: the WebSocket client waits
   for its token before running calls, so refreshing through it would wait on itself.
+- `MoviesProvider` creates and disposes its runtime in one effect, so React's development double
+  mount never leaves a disposed runtime in use; children render once the runtime exists.
 - The Promise facade and React commands reject with the same tagged errors the Effect API fails
   with; React queries return a `loading | success | error` state instead of throwing.
 - The room engine's host publishes the difference between its player and the committed clock, not

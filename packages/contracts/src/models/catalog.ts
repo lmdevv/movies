@@ -69,8 +69,8 @@ export const ExternalIds = Schema.Struct({
 export interface ExternalIds extends Schema.Schema.Type<typeof ExternalIds> {}
 
 /**
- * Artwork references. Each is an opaque key the media service resolves; clients load it from
- * `${mediaBaseUrl}/artwork/${key}`.
+ * Artwork references. Each is an opaque key the media service minted; clients load it from
+ * `${mediaBaseUrl}/artwork/${key}` (see `artworkUrl` in `@movies/contracts/artwork`).
  */
 export const Artwork = Schema.Struct({
   poster: Schema.NullOr(Schema.String),
@@ -111,6 +111,8 @@ export const VideoStream = Schema.Struct({
   index: Schema.Int,
   codec: Schema.String,
   profile: Schema.NullOr(Schema.String),
+  /** Codec level in ffprobe units (41 for H.264 4.1, 153 for HEVC 5.1), when known. */
+  level: Schema.optionalKey(Schema.Int),
   width: Schema.Int,
   height: Schema.Int,
   frameRate: Schema.NullOr(Schema.Finite),
@@ -130,6 +132,7 @@ export const AudioStream = Schema.Struct({
   profile: Schema.NullOr(Schema.String),
   channels: Schema.Int,
   channelLayout: Schema.NullOr(Schema.String),
+  sampleRate: Schema.optionalKey(Schema.Int),
   language: Schema.NullOr(Schema.String),
   title: Schema.NullOr(Schema.String),
   default: Schema.Boolean,
@@ -151,6 +154,7 @@ export const SubtitleStream = Schema.Struct({
   title: Schema.NullOr(Schema.String),
   default: Schema.Boolean,
   forced: Schema.Boolean,
+  hearingImpaired: Schema.optionalKey(Schema.Boolean),
 });
 
 /** An embedded subtitle stream. */
@@ -158,8 +162,13 @@ export interface SubtitleStream extends Schema.Schema.Type<typeof SubtitleStream
 
 /** What ffprobe reported about a file. */
 export const Probe = Schema.Struct({
+  /** Container family: `mp4`, `mov`, `mkv`, `webm`, `avi`, `ts`, or `other`. */
   container: Schema.String,
+  /** ffprobe's `format_name`, such as `matroska,webm`. */
+  formatName: Schema.optionalKey(Schema.String),
   durationMs: Milliseconds,
+  /** Timestamp of the first frame in milliseconds; usually zero, sometimes slightly negative. */
+  startMs: Schema.optionalKey(Schema.Finite),
   bitRate: Schema.NullOr(Schema.Int),
   video: Schema.Array(VideoStream),
   audio: Schema.Array(AudioStream),
@@ -175,7 +184,11 @@ export const ExternalSubtitle = Schema.Struct({
   fileName: Schema.String,
   codec: Schema.String,
   language: Schema.NullOr(Schema.String),
+  /** Name parts that were not a language or a flag, such as `Commentary`. */
+  title: Schema.optionalKey(Schema.String),
   forced: Schema.Boolean,
+  hearingImpaired: Schema.optionalKey(Schema.Boolean),
+  default: Schema.optionalKey(Schema.Boolean),
 });
 
 /** A sidecar subtitle file. */

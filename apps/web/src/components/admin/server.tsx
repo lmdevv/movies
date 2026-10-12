@@ -1,28 +1,21 @@
+import { HealthResponse, MEDIA_ROUTES } from "@movies/contracts/media-playback";
 import { Skeleton } from "@movies/ui/components/skeleton";
 import { cn } from "@movies/ui/lib/utils";
 import { Option, Schema } from "effect";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
-import { ENV } from "@/env";
-import { MEDIA_URL } from "@/movies-sdk";
+import { ENV, MEDIA_BASE_URL } from "@/env";
 
 import { PageHeader } from "./page-header";
 
-/** `GET /api/health` on the media service; mirrors `HealthResponse` in `apps/media`. */
-const MediaHealth = Schema.Struct({
-  status: Schema.Literal("ok"),
-  activeStreams: Schema.Int,
-  hardwareAcceleration: Schema.Literals(["qsv", "none"]),
-});
-
-const decodeHealth = Schema.decodeUnknownOption(MediaHealth);
+const decodeHealth = Schema.decodeUnknownOption(HealthResponse);
 
 const POLL_MS = 10_000;
 
 type Health =
   | { readonly status: "loading" }
-  | { readonly status: "up"; readonly health: typeof MediaHealth.Type }
+  | { readonly status: "up"; readonly health: HealthResponse }
   | { readonly status: "down" };
 
 /** The media service's health, polled while mounted. It is public, so no session is sent. */
@@ -34,7 +27,7 @@ const useMediaHealth = (): Health => {
 
     const check = async (): Promise<void> => {
       try {
-        const response = await fetch(`${MEDIA_URL.replace(/\/+$/u, "")}/api/health`, {
+        const response = await fetch(`${MEDIA_BASE_URL}${MEDIA_ROUTES.health}`, {
           signal: controller.signal,
           headers: { accept: "application/json" },
         });
@@ -89,7 +82,7 @@ export function ServerScreen() {
         title="Server"
         facts={
           <span className="font-sans text-label/label">
-            {hostOf(MEDIA_URL)} · {HEALTH_LABELS[health.status]}
+            {hostOf(MEDIA_BASE_URL)} · {HEALTH_LABELS[health.status]}
           </span>
         }
       />
@@ -114,7 +107,7 @@ export function ServerScreen() {
             <Setting label="Playing now">
               {health.status === "up" ? String(health.health.activeStreams) : "—"}
             </Setting>
-            <Setting label="Media service">{MEDIA_URL}</Setting>
+            <Setting label="Media service">{MEDIA_BASE_URL}</Setting>
             <Setting label="Database">{ENV.VITE_CONVEX_URL}</Setting>
           </dl>
         </>

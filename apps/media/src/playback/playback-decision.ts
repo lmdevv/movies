@@ -3,83 +3,14 @@
  * hardware (QSV) video transcode with tone mapping when needed, then a software transcode capped
  * at 1080p. Pure: it reads a probe, what the client says it can decode, and whether QSV works.
  */
-import { Data, Schema } from "effect";
+import type { ClientCapabilities, UnsupportedReason } from "@movies/contracts/media-playback";
+import type { PlaybackMode } from "@movies/contracts/models/playback";
+import { Data } from "effect";
 
-import {
-  type AudioTrack,
-  Container,
-  DynamicRange,
-  type MediaProbe,
-  type VideoStream,
-} from "../media/media-probe.ts";
+import type { AudioTrack, MediaProbe, VideoStream } from "../media/media-probe.ts";
 
-/** A video codec the client decodes, with optional limits. Names follow ffmpeg (`h264`, `hevc`, `av1`, `vp9`). */
-const VideoCodecSupport = Schema.Struct({
-  codec: Schema.String,
-  /** Accepted ffprobe profile names, such as `High` or `Main 10`; absent accepts any profile. */
-  profiles: Schema.optional(Schema.Array(Schema.String)),
-  /** Highest level in ffprobe units (41 for H.264 4.1, 153 for HEVC 5.1); absent accepts any level. */
-  maxLevel: Schema.optional(Schema.Int),
-  /** Highest bit depth; 8 when absent. */
-  maxBitDepth: Schema.optional(Schema.Int),
-  /** HDR formats the client decodes and displays; SDR is always accepted. */
-  dynamicRanges: Schema.optional(Schema.Array(DynamicRange)),
-});
-
-/** A video codec the client decodes. */
-interface VideoCodecSupport extends Schema.Schema.Type<typeof VideoCodecSupport> {}
-
-/** An audio codec the client decodes. Names follow ffmpeg (`aac`, `ac3`, `eac3`, `opus`, `flac`, `mp3`). */
-const AudioCodecSupport = Schema.Struct({
-  codec: Schema.String,
-  /** Most channels the client plays; 8 when absent. */
-  maxChannels: Schema.optional(Schema.Int),
-});
-
-/** An audio codec the client decodes. */
-interface AudioCodecSupport extends Schema.Schema.Type<typeof AudioCodecSupport> {}
-
-/** What a client can play. Browser checks are hints; a failed direct path renegotiates. */
-export const ClientCapabilities = Schema.Struct({
-  /** Containers the client plays progressively over byte ranges. */
-  containers: Schema.Array(Container),
-  videoCodecs: Schema.Array(VideoCodecSupport),
-  audioCodecs: Schema.Array(AudioCodecSupport),
-  maxWidth: Schema.Int,
-  maxHeight: Schema.Int,
-  /** Plays HLS natively (Safari, TVs). */
-  hls: Schema.Boolean,
-  /** Has Media Source Extensions, so a script player (hls.js) can play fMP4 HLS. */
-  mse: Schema.Boolean,
-});
-
-/** What a client can play. */
-export interface ClientCapabilities extends Schema.Schema.Type<typeof ClientCapabilities> {}
-
-/** How a file is delivered. */
-export const PlaybackMode = Schema.Literals([
-  "direct",
-  "remux",
-  "audio-transcode",
-  "hardware-transcode",
-  "software-transcode",
-]);
-
-/** How a file is delivered. */
-export type PlaybackMode = typeof PlaybackMode.Type;
-
-/** Why no rung of the ladder fits. */
-const UnsupportedReason = Schema.Literals([
-  "no-video-stream",
-  "audio-track-not-found",
-  "no-adaptive-streaming",
-  "no-transcode-target",
-  "hdr-tone-mapping-requires-hardware",
-  "unknown-duration",
-]);
-
-/** Why no rung of the ladder fits. */
-type UnsupportedReason = typeof UnsupportedReason.Type;
+/** A video codec the client decodes, with optional limits. */
+type VideoCodecSupport = ClientCapabilities["videoCodecs"][number];
 
 /** What happens to the video stream. */
 export type VideoPlan = Data.TaggedEnum<{
@@ -284,7 +215,7 @@ export const decidePlayback = (
     const size = fit(video, clientBounds);
 
     return PlaybackPlan.Hls({
-      mode: "hardware-transcode",
+      mode: "transcode-qsv",
       video: VideoPlan.Encode({
         encoder: "qsv",
         ...size,
@@ -303,7 +234,7 @@ export const decidePlayback = (
   });
 
   return PlaybackPlan.Hls({
-    mode: "software-transcode",
+    mode: "transcode-software",
     video: VideoPlan.Encode({
       encoder: "software",
       ...size,
@@ -313,14 +244,3 @@ export const decidePlayback = (
     audio: audioPlan,
   });
 };
-
-/** No rung of the playback ladder fits this file and client. */
-export class UnsupportedPlayback extends Schema.TaggedError<UnsupportedPlayback>()(
-  "UnsupportedPlayback",
-  { reason: UnsupportedReason },
-  { httpApiStatus: 422 },
-) {
-  override get message(): string {
-    return `Unsupported playback: ${this.reason}`;
-  }
-}

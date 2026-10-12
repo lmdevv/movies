@@ -1,11 +1,13 @@
 import type { Backup } from "@movies/contracts/models/jobs";
-import { useAuth, useCommand, useCommandQuery } from "@movies/sdk/react";
+import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { Skeleton } from "@movies/ui/components/skeleton";
 import { cn } from "@movies/ui/lib/utils";
-import { useNavigate } from "@tanstack/react-router";
 import { UploadIcon } from "lucide-react";
 import { useState } from "react";
+
+import { useNow } from "@/lib/use-now";
+import { useSignOut } from "@/session/viewer";
 
 import { useAction } from "./action";
 import { formatBytes, formatDate, formatDateTime } from "./format";
@@ -13,7 +15,6 @@ import { PageHeader } from "./page-header";
 import { QueryView } from "./query-view";
 import { isActive } from "./scan-jobs";
 import { Cell, Column, StatusDot, Table, TableHead } from "./table";
-import { useNow } from "./use-now";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -38,7 +39,7 @@ export function BackupsScreen() {
   const jobs = useCommandQuery("jobs.list", { kind: "backup", limit: 5 });
   const run = useCommand("backups.run");
   const [selected, setSelected] = useState<Backup | null>(null);
-  const now = useNow();
+  const now = useNow(30_000);
   const running = jobs.status === "success" && jobs.data.some((job) => isActive(job));
   const list = backups.status === "success" ? backups.data : [];
   const oldest = list.at(-1);
@@ -162,14 +163,12 @@ function RestoreConfirm({
   readonly onCancel: () => void;
 }) {
   const restore = useCommand("backups.restore");
-  const auth = useAuth();
-  const navigate = useNavigate();
+  const signOut = useSignOut();
 
   const action = useAction(async () => {
     await restore({ backupId: backup.id });
     // The restore ends every session, this one included.
-    await auth.signOut();
-    await navigate({ to: "/" });
+    await signOut();
   });
 
   return (

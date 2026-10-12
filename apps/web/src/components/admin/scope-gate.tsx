@@ -5,7 +5,7 @@ import { Spinner } from "@movies/ui/components/spinner";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
-import { hasScope, useViewer } from "./viewer";
+import { useViewer } from "@/session/viewer";
 
 /**
  * Renders `children` only for sessions that hold one of `scopes`. Others see a calm “not for this
@@ -20,7 +20,7 @@ export function ScopeGate({
 }) {
   const viewer = useViewer();
 
-  if (viewer.status === "loading") {
+  if (viewer === null) {
     return (
       <div className="flex justify-center py-24">
         <Spinner className="size-8 text-text" label="Loading" />
@@ -28,7 +28,7 @@ export function ScopeGate({
     );
   }
 
-  if (viewer.status === "success" && scopes.some((scope) => hasScope(viewer.data, scope))) {
+  if (scopes.some((scope) => viewer.scopes.includes(scope))) {
     return children;
   }
 
@@ -36,7 +36,6 @@ export function ScopeGate({
     <CalmState
       className="py-24"
       title="Only admins can open this"
-      description={viewer.status === "error" ? viewer.error.message : undefined}
       actions={
         <Link to="/" className={buttonVariants({ variant: "raised", size: "sm" })}>
           Go to Home

@@ -43,7 +43,7 @@ import { Notice } from "./notice";
 import { PageHeader, crumbLinkClass } from "./page-header";
 import { isActive, isUnreachable, useLatestScans } from "./scan-jobs";
 import { Cell, Column, StatusDot, Table, TableHead, TableRow } from "./table";
-import { useNow } from "./use-now";
+import { useNow } from "@/lib/use-now";
 
 const PAGE_SIZE = 50;
 
@@ -66,7 +66,7 @@ export function LibraryDetailScreen({ libraryId }: { readonly libraryId: Library
   const job = useLatestScans().get(libraryId);
   const [editing, setEditing] = useState(false);
   const [filter, setFilter] = useState<LibraryFileFilter>("all");
-  const now = useNow();
+  const now = useNow(30_000);
 
   if (library.status === "loading") return <Skeleton className="h-60 w-full rounded-control" />;
 

@@ -4,21 +4,10 @@
  */
 import { extname } from "node:path";
 
+import { Container, DynamicRange } from "@movies/contracts/media-playback";
 import { Effect, Schema } from "effect";
 
 import * as MediaTools from "./media-tools.ts";
-
-/** Dynamic range of a video stream. */
-export const DynamicRange = Schema.Literals(["sdr", "hdr10", "hlg", "dolby-vision"]);
-
-/** Dynamic range of a video stream. */
-export type DynamicRange = typeof DynamicRange.Type;
-
-/** Container families negotiation distinguishes. */
-export const Container = Schema.Literals(["mp4", "mov", "mkv", "webm", "avi", "ts", "other"]);
-
-/** Container families negotiation distinguishes. */
-export type Container = typeof Container.Type;
 
 /** The main video stream of a file. */
 export const VideoStream = Schema.Struct({

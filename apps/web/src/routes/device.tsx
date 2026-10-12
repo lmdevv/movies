@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Schema } from "effect";
 
 import { DeviceApproval } from "@/components/device/device-approval";
+import { RequireSignedIn } from "@/session/guards";
 
 const DeviceSearch = Schema.Struct({ code: Schema.optionalKey(Schema.String) });
 
@@ -14,5 +15,9 @@ export const Route = createFileRoute("/device")({
 function DevicePage() {
   const { code } = Route.useSearch();
 
-  return <DeviceApproval code={code} />;
+  return (
+    <RequireSignedIn>
+      <DeviceApproval code={code} />
+    </RequireSignedIn>
+  );
 }

@@ -4,31 +4,31 @@
  * `token` query parameter; the file comes from the token, never from the URL path alone.
  * Expected failures become JSON bodies encoded with their error schema and status.
  */
-import { Effect, FileSystem, Layer, Match, Option, Path, Redacted, Schema, Stream } from "effect";
-import { HttpPlatform, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
-
-import { type FileId, StreamId } from "../ids.ts";
-import * as MediaConfig from "../media-config.ts";
-import type { Container } from "../media/media-probe.ts";
-import * as FileResolver from "../playback/file-resolver.ts";
+import type { MediaFileId } from "@movies/contracts/ids";
 import {
+  type Container,
   FileResolverUnavailable,
   MediaFileNotFound,
-  resolveInsideRoots,
-} from "../playback/file-resolver.ts";
-import { renderPlaylist } from "../playback/hls-plan.ts";
-import { UnsupportedPlayback } from "../playback/playback-decision.ts";
-import * as PlaybackToken from "../playback/playback-token.ts";
-import { InvalidPlaybackToken } from "../playback/playback-token.ts";
-import * as StreamSessions from "../playback/stream-sessions.ts";
-import {
+  PlaybackSessionEnded,
   SegmentNotFound,
   SegmentNotReady,
   StreamAccessDenied,
   StreamGenerationGone,
+  StreamId,
   StreamNotFound,
   TranscodeFailed,
-} from "../playback/stream-sessions.ts";
+  UnsupportedPlayback,
+} from "@movies/contracts/media-playback";
+import { PlaybackTokenInvalid } from "@movies/contracts/playback-token";
+import { Effect, FileSystem, Layer, Match, Option, Path, Redacted, Schema, Stream } from "effect";
+import { HttpPlatform, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
+
+import * as MediaConfig from "../media-config.ts";
+import * as FileResolver from "../playback/file-resolver.ts";
+import { resolveInsideRoots } from "../playback/file-resolver.ts";
+import { renderPlaylist } from "../playback/hls-plan.ts";
+import * as PlaybackToken from "../playback/playback-token.ts";
+import * as StreamSessions from "../playback/stream-sessions.ts";
 import * as SubtitleConverter from "../subtitles/subtitle-tracks.ts";
 import {
   SubtitleConversionFailed,
@@ -61,7 +61,8 @@ class MediaFileUnreadable extends Schema.TaggedError<MediaFileUnreadable>()(
 
 /** Every failure a media route can answer with. */
 const RouteError = Schema.Union([
-  InvalidPlaybackToken,
+  PlaybackTokenInvalid,
+  PlaybackSessionEnded,
   MediaAccessDenied,
   MediaFileNotFound,
   MediaFileUnreadable,
@@ -83,7 +84,8 @@ type RouteError = typeof RouteError.Type;
 const encodeRouteError = Schema.encodeEffect(Schema.toCodecJson(RouteError));
 
 const statusOf = Match.valueTags<RouteError, Record<RouteError["_tag"], () => number>>({
-  InvalidPlaybackToken: () => 401,
+  PlaybackTokenInvalid: () => 401,
+  PlaybackSessionEnded: () => 410,
   MediaAccessDenied: () => 403,
   MediaFileNotFound: () => 404,
   MediaFileUnreadable: () => 503,
@@ -128,7 +130,9 @@ const tokenOf = (request: HttpServerRequest.HttpServerRequest) => {
   const token = new URL(request.url, "http://media.invalid").searchParams.get("token");
 
   return token === null || token === ""
-    ? Effect.fail(new InvalidPlaybackToken({ reason: "malformed" }))
+    ? Effect.fail(
+        new PlaybackTokenInvalid({ reason: "malformed", message: "Playback token is missing" }),
+      )
     : Effect.succeed(Redacted.make(token));
 };
 
@@ -161,7 +165,7 @@ export const layer: Layer.Layer<
     const resolver = yield* FileResolver.Service;
     const platform = yield* HttpPlatform.HttpPlatform;
 
-    const resolve = (fileId: FileId) =>
+    const resolve = (fileId: MediaFileId) =>
       resolveInsideRoots(fileId).pipe(
         Effect.provideService(FileResolver.Service, resolver),
         Effect.provideService(MediaConfig.Service, config),

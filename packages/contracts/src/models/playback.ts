@@ -5,10 +5,16 @@ import { DeviceId, EpisodeId, MediaFileId, PlaybackSessionId, ProfileId, TitleId
 import { EpochMillis, Milliseconds } from "../units";
 import { MediaFile } from "./catalog";
 
-/** How the media service delivers a session's file to its device. */
+/**
+ * How the media service delivers a session's file to its device: the original file over byte
+ * ranges (`direct`), or fMP4 HLS with the video copied (`remux`), only the audio converted
+ * (`audio-transcode`), or the video encoded on Intel Quick Sync (`transcode-qsv`) or in software
+ * (`transcode-software`).
+ */
 export const PlaybackMode = Schema.Literals([
   "direct",
   "remux",
+  "audio-transcode",
   "transcode-qsv",
   "transcode-software",
 ]);

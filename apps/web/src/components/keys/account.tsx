@@ -1,13 +1,12 @@
-import { useAuth } from "@movies/sdk/react";
+import { useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { Skeleton } from "@movies/ui/components/skeleton";
-import { useNavigate } from "@tanstack/react-router";
 
 import { useAction } from "@/components/admin/action";
 import { formatFullDate } from "@/components/admin/format";
 import { PageHeader } from "@/components/admin/page-header";
 import { QueryView } from "@/components/admin/query-view";
-import { useViewer } from "@/components/admin/viewer";
+import { useSignOut } from "@/session/viewer";
 
 const ROLE_LABELS = {
   owner: "Owner",
@@ -18,14 +17,8 @@ const ROLE_LABELS = {
 
 /** Account: who is signed in, their role, and sign-out. */
 export function AccountScreen() {
-  const viewer = useViewer();
-  const auth = useAuth();
-  const navigate = useNavigate();
-
-  const signOut = useAction(async () => {
-    await auth.signOut();
-    await navigate({ to: "/" });
-  });
+  const viewer = useCommandQuery("account.viewer", {});
+  const signOut = useAction(useSignOut());
 
   return (
     <>

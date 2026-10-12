@@ -20,6 +20,7 @@ export const cn = createCn({
         "wordmark",
         "lead",
         "subtitle",
+        "search",
         "large-title",
         "hero-card",
         "hero",

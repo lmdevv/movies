@@ -1,0 +1,65 @@
+/**
+ * Follows `mediaService:endedSessions`: when a playback session ends in Convex (the viewer
+ * stopped, signed out, or another device took over), its HLS streams stop at once and its token
+ * is refused from then on, even though it has not expired. At startup it catches up on sessions
+ * that ended within a token's lifetime, since their tokens may still be presented.
+ */
+import { EpochMillis } from "@movies/contracts/units";
+import { PLAYBACK_TOKEN_LIFETIME_MS } from "@movies/contracts/playback-token";
+import { Clock, Effect, Layer, Option, Stream } from "effect";
+
+import * as EndedSessions from "../playback/ended-sessions.ts";
+import * as StreamSessions from "../playback/stream-sessions.ts";
+import * as MediaBackend from "./media-backend.ts";
+
+/** Most sessions one query returns; the watcher resubscribes after each batch. */
+const BATCH = 200;
+
+/** Watches ended sessions for the lifetime of the layer. */
+export const layer: Layer.Layer<
+  never,
+  never,
+  MediaBackend.Service | EndedSessions.Service | StreamSessions.Service
+> = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const backend = yield* MediaBackend.Service;
+    const ended = yield* EndedSessions.Service;
+    const streams = yield* StreamSessions.Service;
+
+    /** Waits for sessions that end after `after`, handles them, and continues after the last. */
+    const follow = (after: number): Effect.Effect<never> =>
+      backend
+        .subscribe("mediaService.endedSessions", { after: EpochMillis.make(after), limit: BATCH })
+        .pipe(
+          Stream.filter((sessions) => sessions.length > 0),
+          Stream.runHead,
+          Effect.flatMap(
+            Option.match({
+              onNone: () => follow(after),
+              onSome: (sessions) =>
+                Effect.gen(function* () {
+                  yield* ended.record(sessions);
+
+                  const closed = yield* Effect.forEach(sessions, (session) =>
+                    streams.endSession(session.sessionId),
+                  );
+
+                  const stopped = closed.reduce((total, count) => total + count, 0);
+
+                  if (stopped > 0) {
+                    yield* Effect.logInfo("EndedSessionWatcher.streams_stopped").pipe(
+                      Effect.annotateLogs({ streams: stopped }),
+                    );
+                  }
+
+                  return yield* follow(Math.max(after, ...sessions.map((s) => s.endedAt)));
+                }),
+            }),
+          ),
+        );
+
+    const now = yield* Clock.currentTimeMillis;
+
+    yield* Effect.forkScoped(follow(Math.max(0, now - PLAYBACK_TOKEN_LIFETIME_MS)));
+  }),
+);

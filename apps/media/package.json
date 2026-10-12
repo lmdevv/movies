@@ -9,7 +9,8 @@
     "build": "node scripts/build.ts",
     "start": "node --enable-source-maps dist/main.js",
     "typecheck": "tsc --noEmit",
-    "fixtures": "node scripts/generate-fixtures.ts"
+    "fixtures": "node scripts/generate-fixtures.ts",
+    "test:stack": "MOVIES_STACK_TESTS=1 vitest run --root ../.. apps/media/src/stack"
   },
   "dependencies": {
     "@effect/platform-node": "4.0.3",
@@ -19,6 +20,7 @@
     "@effect/vitest": "4.0.3",
     "@movies/config": "workspace:*",
     "@movies/contracts": "workspace:*",
+    "@movies/sdk": "workspace:*",
     "@types/node": "catalog:",
     "esbuild": "0.27.0",
     "typescript": "catalog:",

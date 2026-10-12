@@ -20,6 +20,8 @@ export * as RoomSync from "./room-sync/room-sync";
 
 export * as RoomSyncPolicy from "./room-sync/sync-policy";
 
+export type { PlaybackCallError } from "./media-http";
+
 export type { CallError } from "./sdk-errors";
 
 export { ProtocolError, TransportError } from "./sdk-errors";

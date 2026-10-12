@@ -23,8 +23,8 @@ import { formatAgo, formatDate, formatFullDate } from "@/components/admin/format
 import { Notice } from "@/components/admin/notice";
 import { PageHeader } from "@/components/admin/page-header";
 import { Cell, Column, Table, TableHead, TableRow } from "@/components/admin/table";
-import { useNow } from "@/components/admin/use-now";
-import { useViewer } from "@/components/admin/viewer";
+import { useNow } from "@/lib/use-now";
+import { useScopes } from "@/session/viewer";
 
 import { ScopeBadges } from "./scope-badge";
 import { SCOPE_DESCRIPTIONS, sortScopes } from "./scopes";
@@ -49,7 +49,7 @@ export function ApiKeysScreen() {
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<CreatedApiKey | null>(null);
   const [revoking, setRevoking] = useState<ApiKey | null>(null);
-  const now = useNow();
+  const now = useNow(30_000);
 
   return (
     <>
@@ -184,14 +184,13 @@ function CreateKeyDialog({
   readonly onOpenChange: (open: boolean) => void;
   readonly onCreated: (created: CreatedApiKey) => void;
 }) {
-  const viewer = useViewer();
+  const held = useScopes();
   const create = useCommand("apiKeys.create");
-  const now = useNow();
+  const now = useNow(30_000);
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<ReadonlyArray<ApiKeyScope>>(["read", "play"]);
   const [expiry, setExpiry] = useState<ExpiryChoice>(EXPIRY_CHOICES[1]);
-  const held = viewer.status === "success" ? viewer.data.scopes : [];
-  const grantable = API_KEY_SCOPES.filter((scope) => held.includes(scope));
+  const grantable = API_KEY_SCOPES.filter((scope) => held.has(scope));
   const chosen = scopes.filter((scope) => grantable.includes(scope));
 
   const action = useAction(

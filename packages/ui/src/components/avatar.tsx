@@ -31,6 +31,7 @@ export type AvatarSize = keyof typeof SIZES;
  *
  * @param image - Picture URL; omit for a plain raised tile.
  * @param round - Draw a circle, as on phones; otherwise a square with 4px corners, as on desktop.
+ * @param monogramClassName - Extra classes for the letter, such as hiding it on phones.
  */
 export function Avatar({
   name,
@@ -39,6 +40,7 @@ export function Avatar({
   round = false,
   monogram = false,
   className,
+  monogramClassName,
 }: {
   readonly name: string;
   readonly image?: string | undefined;
@@ -46,6 +48,7 @@ export function Avatar({
   readonly round?: boolean;
   readonly monogram?: boolean;
   readonly className?: string;
+  readonly monogramClassName?: string | undefined;
 }) {
   const showMonogram = monogram || image === undefined;
 
@@ -69,6 +72,7 @@ export function Avatar({
             "font-sans font-heavy tracking-display",
             image === undefined ? "text-text-muted" : "text-dark-text/85",
             MONOGRAMS[size],
+            monogramClassName,
           )}
         >
           {name.slice(0, 1).toUpperCase()}

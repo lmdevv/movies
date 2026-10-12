@@ -37,7 +37,11 @@ const titles = Effect.flatMap(MoviesClient.MoviesClient, (client) =>
   any implementation (the CLI stores a file).
 - `Playback`: `start` (create the session, negotiate a stream), `reportProgress` (every ten
   seconds and on pause, resume, seek, and end; ends the session when its scope closes),
-  `nextEpisode`, `autoplayCountdown`, `seekStream`.
+  `nextEpisode`, `autoplayCountdown`, `seekStream`, `renegotiate` (renews the playback token when
+  it expires within five minutes, then negotiates again), and `recoveryFor`, which maps each
+  playback API failure (`@movies/contracts/media-playback`) to what the player does next:
+  `reload-playlist`, `renegotiate`, `renew-token`, `new-session`, `retry-later`, `unsupported`,
+  or `fail`. Media URLs carry the token, so after renewing load the new `stream.url`.
 - `RoomSync.run({ roomId, deviceId, player, tunables })`: the watch room engine (below).
 - `ConvexTransport`: `layerWebSocket` for apps, `layerHttp` for short-lived processes.
 

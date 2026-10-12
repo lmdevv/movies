@@ -3,6 +3,7 @@
  * Agents branch on exit codes and codes, never on message text.
  */
 import type { CommandError } from "@movies/contracts/errors";
+import { PlaybackApiError } from "@movies/contracts/media-playback";
 import type { CallError } from "@movies/sdk/effect";
 import { Match, Schema } from "effect";
 
@@ -44,9 +45,31 @@ export class LaunchError extends Schema.TaggedError<LaunchError>()("LaunchError"
   cause: Schema.Defect(),
 }) {}
 
+/**
+ * The media service refused to play. `error` is the playback API's tagged error, such as
+ * `UnsupportedPlayback`; `recovery` is what a player does about it (`Playback.recoveryFor`).
+ */
+export class PlaybackRefused extends Schema.TaggedError<PlaybackRefused>()("PlaybackRefused", {
+  error: PlaybackApiError,
+  recovery: Schema.Literals([
+    "reload-playlist",
+    "renegotiate",
+    "renew-token",
+    "new-session",
+    "retry-later",
+    "unsupported",
+    "fail",
+  ]),
+}) {
+  override get message(): string {
+    return `The media service refused to play: ${this.error.message}`;
+  }
+}
+
 /** Every expected failure the CLI reports. */
 export type CliError =
   | CallError
+  | PlaybackRefused
   | UsageError
   | ConfigFileError
   | JobError
@@ -112,6 +135,8 @@ export const exitCodeOf: (error: CliError) => ExitCode = Match.type<CliError>().
     ProtocolError: () => ExitCode.failed,
     ConfigFileError: () => ExitCode.failed,
     LaunchError: () => ExitCode.failed,
+    PlaybackRefused: (error) =>
+      error.recovery === "retry-later" ? ExitCode.unavailable : ExitCode.failed,
   }),
 );
 
@@ -135,5 +160,9 @@ export const reportOf: (error: CliError) => ErrorReport = Match.type<CliError>()
     NotLoggedIn: (error) => ({ code: "not_logged_in", message: error.message }),
     LoginRefused: (error) => ({ code: "login_refused", message: error.message }),
     LaunchError: (error) => ({ code: "launch_failed", message: error.message }),
+    PlaybackRefused: (error) => ({
+      code: `playback_${error.recovery.replaceAll("-", "_")}`,
+      message: error.message,
+    }),
   }),
 );

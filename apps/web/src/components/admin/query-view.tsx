@@ -2,7 +2,7 @@ import type { QueryState } from "@movies/sdk/react";
 import { Match } from "effect";
 import type { ReactNode } from "react";
 
-import { describeFailure } from "./action";
+import { describeFailure } from "@/lib/failure";
 
 /**
  * Renders a live query: `loading` until the first result, its failure as one muted line, then

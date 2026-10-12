@@ -1,6 +1,6 @@
 import type { DeviceCodeLookup } from "@movies/contracts/models/account";
 import { DeviceScope } from "@movies/contracts/scopes";
-import { useAuth, useCommand, useCommandQuery } from "@movies/sdk/react";
+import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Button, buttonVariants } from "@movies/ui/components/button";
 import { CodeInput } from "@movies/ui/components/code-input";
 import { Spinner } from "@movies/ui/components/spinner";
@@ -9,20 +9,17 @@ import { cn } from "@movies/ui/lib/utils";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Predicate } from "effect";
 import { CircleAlertIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 
 import { useAction } from "@/components/admin/action";
 import { formatAgo, formatUntil } from "@/components/admin/format";
-import { useNow } from "@/components/admin/use-now";
-import { useViewer } from "@/components/admin/viewer";
+import { useNow } from "@/lib/use-now";
+import { useViewer } from "@/session/viewer";
 import { ScopeBadges } from "@/components/keys/scope-badge";
 import { SCOPE_DESCRIPTIONS, sortScopes } from "@/components/keys/scopes";
 
 import { USER_CODE_LENGTH, codeLetters, formatUserCode } from "./user-code";
-
-/** Where signed-out people go first; they come back here after signing in. */
-const SIGN_IN_PATH = "/sign-in";
 
 /** Scopes a new device gets unless the approver changes them: enough to browse and watch. */
 const DEFAULT_SCOPES: ReadonlyArray<DeviceScope> = ["read", "play"];
@@ -33,20 +30,6 @@ const DEFAULT_SCOPES: ReadonlyArray<DeviceScope> = ["read", "play"];
  * minutes; the page says so instead of failing quietly.
  */
 export function DeviceApproval({ code }: { readonly code: string | undefined }) {
-  const auth = useAuth();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (auth.status !== "signedOut") return;
-
-    const back = `${window.location.pathname}${window.location.search}`;
-
-    void navigate({
-      href: `${SIGN_IN_PATH}?redirect=${encodeURIComponent(back)}`,
-      replace: true,
-    });
-  }, [auth.status, navigate]);
-
   const letters = code === undefined ? "" : codeLetters(code);
   const userCode = formatUserCode(letters);
 
@@ -55,16 +38,10 @@ export function DeviceApproval({ code }: { readonly code: string | undefined }) 
       <Link to="/" aria-label="[movies] home" className="rounded-xs">
         <Wordmark className="text-wordmark/8.5" />
       </Link>
-      {auth.status === "signedIn" ? (
-        userCode === null ? (
-          <EnterCode initial={letters} />
-        ) : (
-          <ApproveCode key={userCode} userCode={userCode} />
-        )
+      {userCode === null ? (
+        <EnterCode initial={letters} />
       ) : (
-        <div className="pt-28">
-          <Spinner className="size-8 text-text" label="Loading" />
-        </div>
+        <ApproveCode key={userCode} userCode={userCode} />
       )}
     </main>
   );
@@ -318,11 +295,11 @@ function Decide({
   const viewer = useViewer();
   const approve = useCommand("deviceAuth.approve");
   const deny = useCommand("deviceAuth.deny");
-  const held = viewer.status === "success" ? viewer.data.scopes : [];
+  const held = viewer?.scopes ?? [];
   const grantable = DeviceScope.literals.filter((scope) => held.includes(scope));
   const [chosen, setChosen] = useState<ReadonlyArray<DeviceScope>>(DEFAULT_SCOPES);
   const scopes = sortScopes(chosen.filter((scope) => grantable.includes(scope)));
-  const name = viewer.status === "success" ? viewer.data.user.name : "you";
+  const name = viewer?.user.name ?? "you";
 
   const approval = useAction(
     async () => {
@@ -421,7 +398,7 @@ function Approved({
   readonly scopes: ReadonlyArray<DeviceScope>;
 }) {
   const viewer = useViewer();
-  const name = viewer.status === "success" ? viewer.data.user.name : null;
+  const name = viewer?.user.name ?? null;
 
   return (
     <Stage

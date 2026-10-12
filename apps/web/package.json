@@ -12,6 +12,7 @@
     "test:e2e": "playwright test --pass-with-no-tests"
   },
   "dependencies": {
+    "@base-ui/react": "^1.8.0",
     "@movies/contracts": "workspace:*",
     "@movies/sdk": "workspace:*",
     "@movies/ui": "workspace:*",
@@ -34,7 +35,9 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "^6.1.1",
+    "fast-check": "4.10.2",
     "typescript": "catalog:",
-    "vite": "^8.2.2"
+    "vite": "^8.2.2",
+    "vitest": "5.0.3"
   }
 }

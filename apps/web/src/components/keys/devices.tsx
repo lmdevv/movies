@@ -15,7 +15,7 @@ import { useAction } from "@/components/admin/action";
 import { formatDate, formatUntil } from "@/components/admin/format";
 import { PageHeader } from "@/components/admin/page-header";
 import { Cell, Column, Table, TableHead, TableRow } from "@/components/admin/table";
-import { useNow } from "@/components/admin/use-now";
+import { useNow } from "@/lib/use-now";
 
 import { ScopeBadges } from "./scope-badge";
 import { sortScopes } from "./scopes";
@@ -34,7 +34,7 @@ const sessionName = (session: SessionInfo): string =>
 export function DevicesScreen() {
   const sessions = useCommandQuery("sessions.list", {});
   const [revoking, setRevoking] = useState<SessionInfo | null>(null);
-  const now = useNow();
+  const now = useNow(30_000);
 
   return (
     <>

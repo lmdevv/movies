@@ -38,6 +38,7 @@ import type { AuthStatus } from "./auth";
 import * as ConvexTransport from "./convex-transport";
 import type { AuthTokenSource, ClientAdapter, WireArgs } from "./convex-transport";
 import * as DeviceLogin from "./device-login";
+import type { PlaybackCallError } from "./media-http";
 import * as Movies from "./movies";
 import type { QueryName } from "./movies-client";
 import { MoviesClient } from "./movies-client";
@@ -108,35 +109,37 @@ export interface MoviesProviderProps {
   readonly children: ReactNode;
 }
 
-/** Provides the SDK and the Convex client to the tree. */
+/**
+ * Provides the SDK and the Convex client to the tree. The runtime is created and disposed by one
+ * effect, so React's development double mount (StrictMode) never leaves a disposed runtime in
+ * use; children render once it exists.
+ */
 export const MoviesProvider = (props: MoviesProviderProps): ReactNode => {
   const { client, mediaUrl, storage, storageKey } = props;
+  const [runtime, setRuntime] = useState<Runtime | null>(null);
 
-  const runtime = useMemo(
-    () =>
-      ManagedRuntime.make(
-        Movies.layerWithTransport({
-          convexUrl: client.url,
-          mediaUrl: Option.fromNullishOr(mediaUrl),
-        }).pipe(
-          Layer.provide(
-            Layer.effect(
-              ConvexTransport.ConvexTransport,
-              ConvexTransport.make(reactAdapter(client)),
-            ),
-          ),
-          Layer.provide(TokenStorage.layerKeyValue(storage, storageKey ?? "movies.session")),
+  useEffect(() => {
+    const created = ManagedRuntime.make(
+      Movies.layerWithTransport({
+        convexUrl: client.url,
+        mediaUrl: Option.fromNullishOr(mediaUrl),
+      }).pipe(
+        Layer.provide(
+          Layer.effect(ConvexTransport.ConvexTransport, ConvexTransport.make(reactAdapter(client))),
         ),
+        Layer.provide(TokenStorage.layerKeyValue(storage, storageKey ?? "movies.session")),
       ),
-    [client, mediaUrl, storage, storageKey],
-  );
+    );
 
-  useEffect(
-    () => () => {
-      void runtime.dispose();
-    },
-    [runtime],
-  );
+    setRuntime(created);
+
+    return () => {
+      setRuntime(null);
+      void created.dispose();
+    };
+  }, [client, mediaUrl, storage, storageKey]);
+
+  if (runtime === null) return null;
 
   return (
     <ConvexProvider client={client}>
@@ -386,7 +389,7 @@ export const useRoomSync = (
 export const usePlaybackSession = (
   request: Playback.PlaybackRequest | null,
   player: PlayerPort | null,
-): Result.Result<Playback.Playback, CallError> | null => {
+): Result.Result<Playback.Playback, CallError | PlaybackCallError> | null => {
   const key =
     request === null || player === null
       ? null

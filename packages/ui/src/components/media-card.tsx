@@ -1,6 +1,7 @@
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { cn } from "@movies/ui/lib/utils";
+import { useState } from "react";
 import type { ReactNode } from "react";
 
 import { Badge } from "./badge";
@@ -14,7 +15,11 @@ type CardProps = useRender.ComponentProps<"a"> & {
   readonly badge?: string | undefined;
 };
 
-const Artwork = ({
+/**
+ * The artwork box: a fixed-aspect raised placeholder with the image lazily loaded on top. A missing
+ * or broken image leaves the placeholder, never a broken-image icon.
+ */
+function Artwork({
   image,
   className,
   children,
@@ -22,17 +27,32 @@ const Artwork = ({
   readonly image: string | undefined;
   readonly className: string;
   readonly children?: ReactNode;
-}) => (
-  <span
-    className={cn(
-      "relative flex w-full shrink-0 overflow-hidden bg-surface-raised bg-cover bg-center transition-[filter] group-hover/card:brightness-110",
-      className,
-    )}
-    style={image === undefined ? undefined : { backgroundImage: `url("${image}")` }}
-  >
-    {children}
-  </span>
-);
+}) {
+  const [failed, setFailed] = useState<string | null>(null);
+  const shown = image !== undefined && failed !== image;
+
+  return (
+    <span
+      className={cn(
+        "relative isolate flex w-full shrink-0 overflow-hidden bg-surface-raised transition-[filter] group-hover/card:brightness-110",
+        className,
+      )}
+    >
+      {shown ? (
+        <img
+          src={image}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          onError={() => setFailed(image)}
+          className="absolute inset-0 -z-10 size-full object-cover"
+        />
+      ) : null}
+      {children}
+    </span>
+  );
+}
 
 /**
  * A 16:9 card for rows of things to resume or recommendations: artwork with an optional watched
@@ -99,15 +119,27 @@ export function LandscapeCard({
   });
 }
 
-/** A 2:3 poster card for browsing rows and grids: artwork with an optional red flag, then the title. */
-export function PosterCard({ title, image, badge, className, render, ...props }: CardProps) {
+/**
+ * A 2:3 poster card for browsing rows and grids: artwork with an optional red flag, then the title
+ * and, in grids, a muted line such as `2024 · 2h 46m`.
+ */
+export function PosterCard({
+  title,
+  subtitle,
+  image,
+  badge,
+  className,
+  render,
+  ...props
+}: CardProps & { readonly subtitle?: string | undefined }) {
   return useRender({
     defaultTagName: "a",
     render,
     props: mergeProps<"a">(
       {
         className: cn(
-          "group/card flex w-42 shrink-0 snap-start flex-col gap-2 rounded-poster",
+          "group/card flex w-42 shrink-0 snap-start flex-col rounded-poster",
+          subtitle === undefined ? "gap-2" : "gap-1.5",
           className,
         ),
         children: (
@@ -118,7 +150,17 @@ export function PosterCard({ title, image, badge, className, render, ...props }:
             >
               {badge === undefined ? null : <Badge variant="accent">{badge}</Badge>}
             </Artwork>
-            <span className="font-sans text-label/4 font-semibold text-text">{title}</span>
+            <span
+              className={cn(
+                "font-sans text-label/4 font-semibold text-text",
+                subtitle !== undefined && "pt-1",
+              )}
+            >
+              {title}
+            </span>
+            {subtitle === undefined ? null : (
+              <span className="font-sans text-caption/4 text-text-muted">{subtitle}</span>
+            )}
           </>
         ),
       },

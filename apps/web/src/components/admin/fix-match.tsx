@@ -18,8 +18,10 @@ import { CheckIcon, SearchIcon } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import type { ReactNode } from "react";
 
-import { describeFailure, useAction } from "./action";
-import { artworkUrl } from "./artwork";
+import { artworkUrl } from "@/lib/artwork";
+import { describeFailure, isFailure } from "@/lib/failure";
+
+import { useAction } from "./action";
 import { Eyebrow } from "./settings-frame";
 import { formatRuntime, qualityLabel, titleWithYear } from "./media-quality";
 import { PageHeader, crumbLinkClass } from "./page-header";
@@ -31,7 +33,25 @@ type SearchResults =
   | { readonly status: "idle" }
   | { readonly status: "searching" }
   | { readonly status: "done"; readonly candidates: ReadonlyArray<MetadataCandidate> }
-  | { readonly status: "failed"; readonly message: string };
+  | { readonly status: "failed"; readonly message: string }
+  /** The server has no metadata provider, or cannot reach it; hand edits still work. */
+  | { readonly status: "unavailable" };
+
+/**
+ * How a failed search reads: a missing or unreachable provider (the media service answers
+ * `Internal`, or cannot be reached) leaves search unavailable rather than broken.
+ */
+const searchFailure = (cause: unknown): SearchResults => {
+  if (isFailure(cause, "RateLimited")) {
+    return { status: "failed", message: "TMDB is busy. Try again in a moment." };
+  }
+
+  if (isFailure(cause, "Internal") || Predicate.isTagged(cause, "TransportError")) {
+    return { status: "unavailable" };
+  }
+
+  return { status: "failed", message: describeFailure(cause) };
+};
 
 const OVERVIEW_PREVIEW = 90;
 
@@ -152,7 +172,7 @@ function MatchEditor({
 
         if (live) setResults({ status: "done", candidates });
       } catch (cause) {
-        if (live) setResults({ status: "failed", message: describeFailure(cause) });
+        if (live) setResults(searchFailure(cause));
       }
     };
 
@@ -308,7 +328,7 @@ function Poster({
   readonly label: string;
   readonly className: string;
 }) {
-  const source = url ?? (artwork === null || artwork === undefined ? null : artworkUrl(artwork));
+  const source = url ?? artworkUrl(artwork ?? null, "poster") ?? null;
 
   return source === null ? (
     <span aria-hidden className={cn("shrink-0 rounded-poster bg-text/10", className)} />
@@ -340,6 +360,19 @@ function Candidates({
       <div className="flex h-17 items-center gap-3 px-3.5 font-sans text-label/label text-text-muted">
         <Spinner className="text-text" />
         Searching TMDB…
+      </div>
+    );
+  }
+
+  if (results.status === "unavailable") {
+    return (
+      <div role="status" className="flex flex-col gap-1 px-3.5 py-4">
+        <p className="font-sans text-body/body font-semibold text-text">
+          TMDB search isn’t available on this server
+        </p>
+        <p className="font-sans text-label/label text-text-muted">
+          Edit the title, year, or TMDB ID by hand below.
+        </p>
       </div>
     );
   }
