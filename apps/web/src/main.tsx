@@ -1,9 +1,8 @@
+import { Spinner } from "@movies/ui/components/spinner";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
-import { ConvexReactClient } from "convex/react";
-import { ConvexProvider } from "convex/react";
+import { ConvexProvider, ConvexReactClient } from "convex/react";
 import ReactDOM from "react-dom/client";
 
-import Loader from "./components/loader";
 import { ENV } from "./env";
 import { routeTree } from "./routeTree.gen";
 
@@ -13,7 +12,11 @@ const router = createRouter({
   routeTree,
   defaultPreload: "intent",
   scrollRestoration: true,
-  defaultPendingComponent: () => <Loader />,
+  defaultPendingComponent: () => (
+    <div className="flex min-h-svh items-center justify-center bg-page">
+      <Spinner className="size-12 text-text" label="Loading" />
+    </div>
+  ),
   context: {},
   Wrap: function WrapComponent({ children }: { children: React.ReactNode }) {
     return <ConvexProvider client={convex}>{children}</ConvexProvider>;

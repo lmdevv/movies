@@ -1,55 +1,66 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cn } from "@movies/ui/lib/utils";
-import { cva, type VariantProps } from "class-variance-authority";
+import { cva } from "class-variance-authority";
+import type { VariantProps } from "class-variance-authority";
 
-const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-none border border-transparent bg-clip-padding text-xs font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/**
+ * Class names for the Paper buttons, for elements that only look like a button (such as a router
+ * link). Prefer {@link Button}.
+ */
+export const buttonVariants = cva(
+  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-control font-sans whitespace-nowrap transition-colors select-none disabled:pointer-events-none disabled:opacity-(--opacity-disabled) [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/80",
-        outline:
-          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
-        secondary:
-          "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
-        ghost:
-          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
-        destructive:
-          "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
-        link: "text-primary underline-offset-4 hover:underline",
+        /** Netflix red, for the one main action: Play, Continue, Sign in. */
+        primary:
+          "bg-accent font-bold text-on-accent hover:bg-accent-pressed active:bg-accent-pressed",
+        /** Translucent gray over artwork, such as More info on the hero. */
+        secondary: "on-media bg-media-secondary font-semibold hover:bg-media-secondary/50",
+        /** A soft fill for secondary actions on surfaces, such as Copy invite link. */
+        subtle: "bg-text/10 font-semibold text-text hover:bg-text/15",
+        /** Hairline outline, such as Cancel and End room. */
+        ghost: "border border-hairline font-semibold text-text hover:bg-text/6",
+        /** Outlined danger color for destructive actions, placed beside a plain Cancel. */
+        destructive: "border border-danger font-semibold text-danger hover:bg-danger/10",
+        /** Frosted white fill over artwork on phones, such as My List on the hero card. */
+        glass: "on-media bg-text/18 font-semibold hover:bg-text/25",
+        /** A round outlined icon over artwork, such as Add to My List. */
+        icon: "on-media rounded-pill border-[1.5px] border-text/50 hover:border-text hover:bg-text/10",
       },
       size: {
-        default:
-          "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        xs: "h-6 gap-1 rounded-none px-2 text-xs has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1 rounded-none px-2.5 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        icon: "size-8",
-        "icon-xs": "size-6 rounded-none [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm": "size-7 rounded-none",
-        "icon-lg": "size-9",
+        sm: "h-9 px-3.5 text-label/4 [&_svg]:size-4",
+        md: "h-11 px-5 text-body/4.5 [&_svg]:size-4.5",
+        lg: "h-12 px-6 text-body/4.5 [&_svg]:size-4.5",
+        icon: "size-11 [&_svg]:size-4.5",
+        /** The full-width phone pill, such as Resume on the hero card. */
+        pill: "h-12 rounded-pill px-6 text-base/5 [&_svg]:size-4.5",
       },
     },
-    defaultVariants: {
-      variant: "default",
-      size: "default",
-    },
+    compoundVariants: [
+      { variant: "primary", size: "md", className: "pr-5.5 pl-4.5 [&_svg]:size-4" },
+      { variant: "primary", size: "lg", className: "pr-7.5 pl-6 [&_svg]:size-4" },
+      { variant: "secondary", size: "lg", className: "pr-7 pl-6" },
+    ],
+    defaultVariants: { variant: "primary", size: "md" },
   },
 );
 
-function Button({
+/**
+ * A Paper button. Pick the `variant` by role and the `size` by context: `lg` on the hero, `md` in
+ * forms and rows, `sm` in panels, `pill` on phones, `icon` for the round icon button (give it an `aria-label`).
+ */
+export function Button({
   className,
-  variant = "default",
-  size = "default",
+  variant,
+  size,
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
   return (
     <ButtonPrimitive
       data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(buttonVariants({ variant, size }), className)}
       {...props}
     />
   );
 }
-
-export { Button, buttonVariants };
