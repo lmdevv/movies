@@ -1,0 +1,35 @@
+{
+  "adult": false,
+  "backdrop_path": "/remux-backdrop.jpg",
+  "budget": 0,
+  "genres": [
+    { "id": 28, "name": "Action" },
+    { "id": 878, "name": "Science Fiction" }
+  ],
+  "homepage": "",
+  "id": 500001,
+  "imdb_id": "tt5000001",
+  "original_language": "en",
+  "original_title": "Remux Fixture",
+  "overview": "Codecs collide.",
+  "popularity": 21.4,
+  "poster_path": "/remux-poster.jpg",
+  "production_companies": [
+    { "id": 1, "logo_path": null, "name": "Fixture Pictures", "origin_country": "US" }
+  ],
+  "release_date": "2015-06-12",
+  "revenue": 0,
+  "runtime": 98,
+  "status": "Released",
+  "tagline": "Every stream has a ladder.",
+  "title": "Remux Fixture",
+  "video": false,
+  "vote_average": 6.8,
+  "vote_count": 340,
+  "release_dates": {
+    "results": [
+      { "iso_3166_1": "GB", "release_dates": [{ "certification": "12A", "type": 3 }] },
+      { "iso_3166_1": "US", "release_dates": [{ "certification": "PG-13", "type": 3 }] }
+    ]
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "page": 1,
+  "results": [
+    {
+      "adult": false,
+      "backdrop_path": "/remux-sequel-backdrop.jpg",
+      "genre_ids": [28],
+      "id": 500002,
+      "original_language": "en",
+      "original_title": "Remux Fixture 2",
+      "overview": "The sequel.",
+      "popularity": 9.1,
+      "poster_path": "/remux-sequel-poster.jpg",
+      "release_date": "2017-03-03",
+      "title": "Remux Fixture 2",
+      "video": false,
+      "vote_average": 5.5,
+      "vote_count": 12
+    },
+    {
+      "adult": false,
+      "backdrop_path": "/remux-backdrop.jpg",
+      "genre_ids": [28, 878],
+      "id": 500001,
+      "original_language": "en",
+      "original_title": "Remux Fixture",
+      "overview": "Codecs collide.",
+      "popularity": 21.4,
+      "poster_path": "/remux-poster.jpg",
+      "release_date": "2015-06-12",
+      "title": "Remux Fixture",
+      "video": false,
+      "vote_average": 6.8,
+      "vote_count": 340
+    }
+  ],
+  "total_pages": 1,
+  "total_results": 2
+}

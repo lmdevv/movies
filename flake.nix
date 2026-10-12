@@ -20,7 +20,8 @@
           packages = [
             pkgs.nodejs_24
             pkgs.pnpm
-            pkgs.ffmpeg
+            # ffmpeg-full carries libvpl (Intel QSV); the default ffmpeg does not.
+            pkgs.ffmpeg-full
           ];
         };
       });

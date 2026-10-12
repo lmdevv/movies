@@ -1,0 +1,33 @@
+{
+  "_id": "season-1",
+  "air_date": "2021-01-01",
+  "episodes": [
+    {
+      "air_date": "2021-01-01",
+      "episode_number": 1,
+      "id": 1001,
+      "name": "Pilot",
+      "overview": "Provider episode plot.",
+      "runtime": 24,
+      "season_number": 1,
+      "still_path": "/s01e01.jpg",
+      "vote_average": 8.1
+    },
+    {
+      "air_date": "2021-01-08",
+      "episode_number": 2,
+      "id": 1002,
+      "name": "Second",
+      "overview": "The second one.",
+      "runtime": null,
+      "season_number": 1,
+      "still_path": null,
+      "vote_average": 0
+    }
+  ],
+  "id": 2001,
+  "name": "Season 1",
+  "overview": "",
+  "poster_path": "/season-1.jpg",
+  "season_number": 1
+}

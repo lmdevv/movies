@@ -4,9 +4,15 @@
   "ignoreDependencies": ["@effect/language-service"],
   "workspaces": {
     ".": {},
+    "apps/media": {
+      "entry": ["src/main.ts", "scripts/*.ts"],
+      "project": ["src/**/*.ts", "scripts/**/*.ts"]
+    },
     "apps/web": {},
     "packages/backend": {
-      "typescript": { "config": ["convex/tsconfig.json"] }
+      "typescript": {
+        "config": ["convex/tsconfig.json"]
+      }
     },
     "packages/ui": {}
   }

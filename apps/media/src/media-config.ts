@@ -1,0 +1,144 @@
+/** Runtime configuration of the media service, read once from the environment at startup. */
+import { isAbsolute, resolve } from "node:path";
+
+import { Config, Context, Duration, Effect, Layer, Option, type Redacted, Schema } from "effect";
+
+/** How the service may use the GPU for video transcoding. */
+type HardwareAccelerationMode = "auto" | "qsv" | "none";
+
+/** Typed media service settings. */
+export interface Interface {
+  readonly port: number;
+  /** Origin and path prefix clients use to reach this service, without a trailing slash. */
+  readonly mediaBaseUrl: string;
+  /** Absolute, approved library mounts. Scans and playback never leave them. */
+  readonly libraryRoots: ReadonlyArray<string>;
+  /** Absolute folder for service state, such as the metadata and keyframe caches. */
+  readonly dataDir: string;
+  /** Absolute folder for disposable HLS output. Each stream session owns a subfolder. */
+  readonly transcodeDir: string;
+  /** Absolute folder for nightly backups. */
+  readonly backupDir: string;
+  /** Shared HMAC secret Convex signs playback tokens with: base64url of at least 32 bytes. */
+  readonly playbackTokenSecret: Redacted.Redacted;
+  /** TMDB API key or read access token. Without it the TMDB plugin reports itself unavailable. */
+  readonly tmdbApiKey: Option.Option<Redacted.Redacted>;
+  /** OTLP/HTTP collector base URL. Telemetry export is off without it. */
+  readonly otlpEndpoint: Option.Option<string>;
+  /** Convex deployment URL; used once the service subscribes to Convex. */
+  readonly convexUrl: Option.Option<string>;
+  /** Restricted Convex login of the media service. */
+  readonly mediaServiceApiKey: Option.Option<Redacted.Redacted>;
+  /** Folder holding the built web app, served with a single-page-app fallback. */
+  readonly webDistDir: Option.Option<string>;
+  /** Upper bound on simultaneous video transcodes (hardware and software). */
+  readonly maxConcurrentTranscodes: number;
+  readonly hardwareAcceleration: HardwareAccelerationMode;
+  /** DRM render node used for Intel Quick Sync. */
+  readonly qsvDevice: string;
+  /** A stream session with no requests for this long is closed and its segments deleted. */
+  readonly streamIdleTimeout: Duration.Duration;
+  /** Free space `TRANSCODE_DIR` must keep before a new HLS session starts. */
+  readonly minFreeTranscodeBytes: number;
+  /** Interval of the authoritative library reconciliation that backs up file watching. */
+  readonly reconcileInterval: Duration.Duration;
+  readonly ffmpegPath: string;
+  readonly ffprobePath: string;
+}
+
+/** The media service configuration. */
+export class Service extends Context.Service<Service, Interface>()("@movies/media/MediaConfig") {}
+
+const MEBIBYTE = 1024 * 1024;
+
+const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0));
+
+const absolute = (path: string): string => (isAbsolute(path) ? path : resolve(path));
+
+const withoutTrailingSlash = (url: URL): string =>
+  `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+
+/** Reads the configuration from the active `ConfigProvider` (environment variables by default). */
+export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
+  Service,
+  Effect.gen(function* () {
+    const port = yield* Config.Port("PORT").pipe(Config.withDefault(4300));
+    const mediaBaseUrl = yield* Config.URL("MEDIA_BASE_URL");
+
+    // No approved roots means every library scan is refused; the service still starts.
+    const libraryRoots = yield* Config.Array(Schema.NonEmptyString, "LIBRARY_ROOTS").pipe(
+      Config.withDefault([]),
+    );
+
+    const dataDir = yield* Config.NonEmptyString("DATA_DIR");
+    const transcodeDir = yield* Config.NonEmptyString("TRANSCODE_DIR");
+
+    const backupDir = yield* Config.NonEmptyString("BACKUP_DIR").pipe(
+      Config.withDefault("/data/backups"),
+    );
+
+    const playbackTokenSecret = yield* Config.Redacted("PLAYBACK_TOKEN_SECRET");
+    const tmdbApiKey = yield* Config.option(Config.Redacted("TMDB_API_KEY"));
+    const otlpEndpoint = yield* Config.option(Config.URL("OTEL_EXPORTER_OTLP_ENDPOINT"));
+    const convexUrl = yield* Config.option(Config.URL("CONVEX_URL"));
+    const mediaServiceApiKey = yield* Config.option(Config.Redacted("MEDIA_SERVICE_API_KEY"));
+    const webDistDir = yield* Config.option(Config.NonEmptyString("WEB_DIST_DIR"));
+
+    const maxConcurrentTranscodes = yield* Config.schema(
+      PositiveInt,
+      "MAX_CONCURRENT_TRANSCODES",
+    ).pipe(Config.withDefault(3));
+
+    const hardwareAcceleration = yield* Config.Literals(
+      ["auto", "qsv", "none"],
+      "HARDWARE_ACCELERATION",
+    ).pipe(Config.withDefault("auto"));
+
+    const qsvDevice = yield* Config.NonEmptyString("QSV_DEVICE").pipe(
+      Config.withDefault("/dev/dri/renderD128"),
+    );
+
+    const streamIdleSeconds = yield* Config.schema(PositiveInt, "STREAM_IDLE_SECONDS").pipe(
+      Config.withDefault(60),
+    );
+
+    const minFreeTranscodeMb = yield* Config.schema(PositiveInt, "MIN_FREE_TRANSCODE_MB").pipe(
+      Config.withDefault(2048),
+    );
+
+    const reconcileMinutes = yield* Config.schema(PositiveInt, "LIBRARY_RECONCILE_MINUTES").pipe(
+      Config.withDefault(360),
+    );
+
+    const ffmpegPath = yield* Config.NonEmptyString("FFMPEG_PATH").pipe(
+      Config.withDefault("ffmpeg"),
+    );
+
+    const ffprobePath = yield* Config.NonEmptyString("FFPROBE_PATH").pipe(
+      Config.withDefault("ffprobe"),
+    );
+
+    return Service.of({
+      port,
+      mediaBaseUrl: withoutTrailingSlash(mediaBaseUrl),
+      libraryRoots: libraryRoots.map(absolute),
+      dataDir: absolute(dataDir),
+      transcodeDir: absolute(transcodeDir),
+      backupDir: absolute(backupDir),
+      playbackTokenSecret,
+      tmdbApiKey,
+      otlpEndpoint: Option.map(otlpEndpoint, withoutTrailingSlash),
+      convexUrl: Option.map(convexUrl, withoutTrailingSlash),
+      mediaServiceApiKey,
+      webDistDir: Option.map(webDistDir, absolute),
+      maxConcurrentTranscodes,
+      hardwareAcceleration,
+      qsvDevice,
+      streamIdleTimeout: Duration.seconds(streamIdleSeconds),
+      minFreeTranscodeBytes: minFreeTranscodeMb * MEBIBYTE,
+      reconcileInterval: Duration.minutes(reconcileMinutes),
+      ffmpegPath,
+      ffprobePath,
+    });
+  }),
+);
