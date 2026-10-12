@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import type { LaunchOptions } from "@playwright/test";
 
 import { stackEnv } from "./e2e/stack/stack-env";
 
@@ -6,6 +7,16 @@ const stack = stackEnv();
 
 /** The worktree's web port when it has a stack, so worktrees running suites at once never share a server. */
 const port = Number(process.env["E2E_PORT"] ?? stack?.webPort ?? 3011);
+
+/**
+ * A Chromium to run instead of Playwright's download, for hosts that cannot run that build (NixOS
+ * without nix-ld). It must decode H.264 and AAC, as the playback suites expect.
+ */
+const chromium = process.env["E2E_CHROMIUM"];
+
+const launchOptions: LaunchOptions = {};
+
+if (chromium !== undefined && chromium !== "") launchOptions.executablePath = chromium;
 
 /**
  * Browser tests against the Vite dev server. `kit` checks the UI kit gallery and needs no backend.
@@ -20,7 +31,11 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env["CI"]),
   timeout: 60_000,
-  use: { baseURL: `http://localhost:${port}`, trace: "retain-on-failure" },
+  use: {
+    baseURL: `http://localhost:${port}`,
+    trace: "retain-on-failure",
+    launchOptions,
+  },
   projects: [
     {
       name: "kit",

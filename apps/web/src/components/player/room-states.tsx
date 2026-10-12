@@ -30,6 +30,7 @@ export function StartRoomDialog({
   readonly open: boolean;
   /** The invite link, or null while the room is being created. */
   readonly link: string | null;
+  /** Where the dialog renders, such as the player while it is full screen; the body when null. */
   readonly container: HTMLElement | null;
   readonly onCopy: () => void;
   readonly onCancel: () => void;
@@ -42,7 +43,8 @@ export function StartRoomDialog({
         if (!next) onCancel();
       }}
     >
-      <DialogPrimitive.Portal container={container}>
+      {/* A null container renders nothing; undefined renders into the body. */}
+      <DialogPrimitive.Portal container={container ?? undefined}>
         <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-scrim transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
         <DialogPrimitive.Popup className="on-media fixed top-1/2 left-1/2 z-50 flex w-dialog max-w-[calc(100vw-2rem)] -translate-1/2 flex-col gap-7 rounded-card border border-hairline bg-dark-surface p-8 font-sans text-text shadow-overlay transition-[opacity,scale] duration-150 outline-none data-ending-style:scale-98 data-ending-style:opacity-0 data-starting-style:scale-98 data-starting-style:opacity-0">
           <DialogPrimitive.Title className="text-title/title font-heavy tracking-tight">

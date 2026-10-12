@@ -5,8 +5,9 @@
  * into a temporary folder.
  */
 import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 import type { LibraryId, TitleId } from "@movies/contracts/ids";
@@ -124,6 +125,13 @@ export const episodeNfo = (season: number, episode: number, title: string): stri
   <episode>${String(episode)}</episode>
 </episodedetails>
 `;
+
+/** Makes a temporary folder for a suite's clips. */
+export const makeWorkspace = (prefix: string): Promise<string> => mkdtemp(join(tmpdir(), prefix));
+
+/** Removes a suite's folder, or a file in it. */
+export const removePath = (path: string): Promise<void> =>
+  rm(path, { recursive: true, force: true });
 
 /** Writes `text` to `path`, creating its folder. */
 export const writeText = async (path: string, text: string): Promise<void> => {

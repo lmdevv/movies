@@ -179,8 +179,10 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
 
   roomRef.current = watch?.room ?? null;
 
-  const joined = openedRoom === null || watch?.join.status === "joined";
-  const roomReady = openedRoom === null || (joined && watch?.room !== null);
+  // Leaving the room the stream belongs to drops it from the URL; the stream plays on alone.
+  const leftRoom = openedRoom !== null && roomId === undefined;
+  const joined = openedRoom === null || leftRoom || watch?.join.status === "joined";
+  const roomReady = openedRoom === null || leftRoom || (joined && watch?.room !== null);
   const roomRecord = watch?.room ?? null;
 
   const request = useMemo((): PlaybackRequest | null => {
@@ -707,7 +709,11 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
         <HostLeft
           hostName={hostName}
           positionMs={room.clock.positionAtAnchorMs}
-          onKeepWatching={leaveAndStay}
+          onKeepWatching={() => {
+            leaveAndStay();
+            // The room paused this player; the click lets it play again on its own.
+            controller?.resumeWithGesture();
+          }}
           onLeave={leaveAndExit}
         />
       );
