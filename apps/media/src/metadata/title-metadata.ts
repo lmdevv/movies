@@ -18,14 +18,14 @@ import {
 } from "./metadata-plugin.ts";
 
 /** An image stored beside the media or hosted by a provider. */
-const ImageRef = Schema.TaggedUnion({
+export const ImageRef = Schema.TaggedUnion({
   /** Path relative to the library root. */
   Local: { path: Schema.String },
   Remote: { url: Schema.String },
 });
 
 /** An image stored beside the media or hosted by a provider. */
-type ImageRef = typeof ImageRef.Type;
+export type ImageRef = typeof ImageRef.Type;
 
 /** Where merged values came from. */
 const MetadataSource = Schema.Literals(["name", "nfo", "provider"]);

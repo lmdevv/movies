@@ -202,7 +202,9 @@ export const requestPlayback = <A>(
   Effect.gen(function* () {
     const response = yield* send(request);
 
-    if (response.ok) return yield* decodeSuccess(request, result, response.body);
+    // The playback API encodes with each schema's JSON codec (absent optional fields as null).
+    if (response.ok)
+      return yield* decodeSuccess(request, Schema.toCodecJson(result), response.body);
 
     const failure = decodePlaybackFailure(response.body);
 

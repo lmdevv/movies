@@ -43,7 +43,11 @@ const monitorLayer = Layer.unwrap(
       Layer.provide(MediaTools.layer),
     );
 
-    return LibraryMonitor.layer([{ libraryId, root: copy.movies }], Duration.millis(200)).pipe(
+    const monitor = LibraryMonitor.layerTracking([{ libraryId, roots: [copy.movies] }]).pipe(
+      Layer.provideMerge(LibraryMonitor.layer(Duration.millis(200))),
+    );
+
+    return monitor.pipe(
       Layer.merge(Layer.succeed(Watched, Watched.of({ root: copy.movies }))),
       Layer.provideMerge(scanner),
       Layer.provideMerge(config),

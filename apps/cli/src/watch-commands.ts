@@ -1,7 +1,7 @@
 /** Shortcuts for finding and playing titles and reading progress. */
 import { commands } from "@movies/contracts/commands";
 import { NotFound } from "@movies/contracts/errors";
-import { EpisodeId } from "@movies/contracts/ids";
+import { EpisodeId, TitleId } from "@movies/contracts/ids";
 import type { ProfileId } from "@movies/contracts/ids";
 import { type ClientCapabilities, PlaybackApiError } from "@movies/contracts/media-playback";
 import type { TitleCard } from "@movies/contracts/models/catalog";
@@ -36,6 +36,9 @@ const normalize = (text: string): string =>
     .replaceAll(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 
+/** What a Convex document ID looks like; such a query is tried as a title ID first. */
+const CONVEX_ID = /^[a-z0-9]{32}$/u;
+
 /** The best match for `query`: an exact name, then a name starting with it, then the first result. */
 export const bestTitle = (
   query: string,
@@ -56,6 +59,23 @@ export const findTitle = Effect.fn("Watch.findTitle")(function* (
   profileId: ProfileId,
   query: string,
 ) {
+  if (CONVEX_ID.test(query)) {
+    const byId = yield* connection
+      .withSession(
+        connection.client.query("titles.get", { profileId, titleId: TitleId.make(query) }),
+      )
+      .pipe(
+        Effect.asSome,
+        Effect.catchTags({
+          NotFound: () => Effect.succeedNone,
+          InvalidArgs: () => Effect.succeedNone,
+          Internal: () => Effect.succeedNone,
+        }),
+      );
+
+    if (Option.isSome(byId)) return byId.value;
+  }
+
   const results = yield* connection.withSession(
     connection.client.query("titles.search", { profileId, query, limit: 20 }),
   );

@@ -79,13 +79,11 @@ export const layer = (overrides: Readonly<Record<string, string>> = {}) =>
         Service,
         Effect.gen(function* () {
           const scanner = yield* LibraryScanner.Service;
-          const library = yield* MemoryLibrary.Service;
 
           for (const [libraryId, root] of [
             [MOVIES, workspace.library.moviesRoot],
             [SHOWS, workspace.library.showsRoot],
           ] as const) {
-            yield* library.addLibrary(libraryId, root);
             yield* scanner.scan({ libraryId, root, mode: "incremental" }).pipe(Effect.orDie);
           }
 

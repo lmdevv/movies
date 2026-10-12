@@ -2,12 +2,14 @@ import { assert, describe, layer } from "@effect/vitest";
 import { Effect, FileSystem, Path, Schema } from "effect";
 import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/http";
 
+import { artworkUrl } from "@movies/contracts/artwork";
 import {
   type ClientCapabilities,
   HealthResponse,
   NegotiateResponse,
 } from "@movies/contracts/media-playback";
 
+import * as ArtworkKeys from "../artwork/artwork-keys.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import { parseFfprobeJson } from "../media/media-probe.ts";
 import * as PlaybackReporter from "../playback/playback-reporter.ts";
@@ -133,6 +135,32 @@ const probeBytes = Effect.fn(function* (data: Uint8Array) {
   return yield* parseFfprobeJson(output, file);
 });
 
+/** Width and height of an image, read with ffprobe. */
+const probeImage = Effect.fn(function* (data: Uint8Array) {
+  const fs = yield* FileSystem.FileSystem;
+  const tools = yield* MediaTools.Service;
+  const file = yield* fs.makeTempFileScoped({ suffix: ".jpg" });
+
+  yield* fs.writeFile(file, data);
+
+  const output = yield* tools.ffprobe([
+    "-v",
+    "error",
+    "-print_format",
+    "json",
+    "-show_streams",
+    file,
+  ]);
+
+  return yield* Schema.decodeEffect(
+    Schema.fromJsonString(
+      Schema.Struct({
+        streams: Schema.Tuple([Schema.Struct({ width: Schema.Int, height: Schema.Int })]),
+      }),
+    ),
+  )(output).pipe(Effect.map((probe) => probe.streams[0]));
+});
+
 /** Fetches the init segment and media segment `index` of an HLS playlist URL. */
 const fetchSegment = Effect.fn(function* (playlistUrl: string, index: number) {
   const playlist = new URL(playlistUrl);
@@ -167,6 +195,38 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           hardwareAcceleration: "none",
           backend: "standalone",
         });
+      }),
+    );
+
+    it.effect("serves artwork by sealed key, resized on request, and refuses others", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const workspace = yield* FixtureWorkspace.Service;
+        const keys = yield* ArtworkKeys.Service;
+        const path = yield* Path.Path;
+
+        const poster = yield* keys.seal(
+          ArtworkKeys.ArtworkSource.Local({
+            path: path.join(workspace.library.moviesRoot, "Big Buck Fixture (2008)/poster.jpg"),
+          }),
+        );
+
+        const original = yield* get(artworkUrl(server.baseUrl, poster));
+
+        assert.strictEqual(original.status, 200);
+        assert.strictEqual(original.headers["content-type"], "image/jpeg");
+
+        const resized = yield* get(artworkUrl(server.baseUrl, poster, 185));
+        const image = yield* probeImage(new Uint8Array(yield* resized.arrayBuffer));
+
+        assert.strictEqual(resized.status, 200);
+        assert.deepStrictEqual([image.width, image.height], [185, 278]);
+        assert.strictEqual((yield* get(`${server.baseUrl}/artwork/${poster}?w=100`)).status, 400);
+
+        const outside = yield* keys.seal(ArtworkKeys.ArtworkSource.Local({ path: "/etc/passwd" }));
+
+        assert.strictEqual((yield* get(artworkUrl(server.baseUrl, outside))).status, 404);
+        assert.strictEqual((yield* get(`${server.baseUrl}/artwork/a1.forged`)).status, 404);
       }),
     );
 

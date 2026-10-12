@@ -50,7 +50,7 @@ import { type LocalMetadata, type NfoKind, parseNfo } from "./nfo.ts";
 import { sidecarSubtitles } from "./sidecar-subtitles.ts";
 
 /** How much of a library a scan re-reads. */
-type ScanMode = "incremental" | "full";
+export type ScanMode = "incremental" | "full";
 
 /** One scan of one library folder. */
 interface ScanRequest {
@@ -68,7 +68,7 @@ interface ScanFailure {
 }
 
 /** What a finished scan did. */
-interface ScanSummary {
+export interface ScanSummary {
   readonly libraryId: LibraryId;
   readonly discovered: number;
   readonly unchanged: number;
@@ -121,7 +121,7 @@ class LibraryFolderUnreadable extends Schema.TaggedError<LibraryFolderUnreadable
 }
 
 /** Failures that stop a scan. */
-type ScanError =
+export type ScanError =
   | LibraryRootNotApproved
   | LibraryRootUnavailable
   | LibraryFolderUnreadable
@@ -363,10 +363,11 @@ const make = Effect.gen(function* () {
   const scan = Effect.fn("LibraryScanner.scan")(
     function* (request: ScanRequest) {
       const { libraryId, root } = request;
+      const libraryFolder = { libraryId, root };
       const realRoot = yield* openRoot(root);
 
       const previous = new Map(
-        (yield* sink.previousIndex(libraryId)).map((file) => [file.relativePath, file]),
+        (yield* sink.previousIndex(libraryFolder)).map((file) => [file.relativePath, file]),
       );
 
       const counters: Counters = {
@@ -380,7 +381,7 @@ const make = Effect.gen(function* () {
       const failures: Array<ScanFailure> = [];
 
       const report = (phase: LibrarySink.ScanProgress["phase"]) =>
-        sink.reportProgress(libraryId, {
+        sink.reportProgress(libraryFolder, {
           phase,
           discovered: counters.discovered,
           unchanged: counters.unchanged,
@@ -631,7 +632,7 @@ const make = Effect.gen(function* () {
         Stream.grouped(BATCH_SIZE),
         Stream.runForEach((batch) =>
           Effect.gen(function* () {
-            yield* sink.upsertBatch(libraryId, batch);
+            yield* sink.upsertBatch(libraryFolder, batch);
             counters.processed += batch.length;
             yield* report("processing");
           }),
@@ -648,7 +649,7 @@ const make = Effect.gen(function* () {
         Array.from({ length: Math.ceil(missing.length / BATCH_SIZE) }, (_, index) =>
           missing.slice(index * BATCH_SIZE, (index + 1) * BATCH_SIZE),
         ),
-        (batch) => sink.markMissing(libraryId, batch),
+        (batch) => sink.markMissing(libraryFolder, batch),
         { discard: true },
       );
 

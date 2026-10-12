@@ -1,0 +1,193 @@
+/**
+ * Processes for the real-stack suite: the built media service, started against the worktree's
+ * dev stack (`scripts/dev-stack.sh up`), and the built `movies` CLI. Imports nothing from Effect:
+ * the repo's lint keeps raw Node process and file APIs out of Effect modules.
+ */
+import { execFileSync, spawn } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const repoRoot = join(import.meta.dirname, "..", "..", "..", "..");
+
+const mediaRoot = join(repoRoot, "apps", "media");
+
+const cliRoot = join(repoRoot, "apps", "cli");
+
+const readEnvFile = (path: string): ReadonlyMap<string, string> => {
+  if (!existsSync(path)) return new Map();
+
+  return new Map(
+    readFileSync(path, "utf8")
+      .split("\n")
+      .flatMap((line) => {
+        const separator = line.indexOf("=");
+
+        return separator > 0
+          ? [[line.slice(0, separator), line.slice(separator + 1)] as const]
+          : [];
+      }),
+  );
+};
+
+/** What the suite needs from the dev stack. */
+export interface MediaStack {
+  readonly convexUrl: string;
+  /** Where the stack's Convex deployment tells clients the media service is. */
+  readonly mediaUrl: string;
+  readonly mediaServiceKey: string;
+  /** The media service's environment as `scripts/dev-stack.sh` wrote it. */
+  readonly mediaEnv: Readonly<Record<string, string>>;
+}
+
+/**
+ * The stack to test, or undefined unless `MOVIES_STACK_TESTS=1`, so `pnpm test` stays green
+ * without Docker.
+ *
+ * @throws When `MOVIES_STACK_TESTS=1` but no stack is configured, a setup mistake.
+ */
+export const findMediaStack = (): MediaStack | undefined => {
+  if (process.env["MOVIES_STACK_TESTS"] !== "1") return undefined;
+
+  const media = readEnvFile(join(mediaRoot, ".env.local"));
+  const convexUrl = media.get("CONVEX_URL");
+  const mediaUrl = media.get("MEDIA_BASE_URL");
+  const mediaServiceKey = media.get("MEDIA_SERVICE_API_KEY");
+
+  if (convexUrl === undefined || mediaUrl === undefined || mediaServiceKey === undefined) {
+    throw new Error("MOVIES_STACK_TESTS=1 but no stack is configured; run scripts/dev-stack.sh up");
+  }
+
+  return { convexUrl, mediaUrl, mediaServiceKey, mediaEnv: Object.fromEntries(media) };
+};
+
+/** Bundles the media service and the CLI so the suite runs the files that ship. */
+export const buildServiceAndCli = (): void => {
+  execFileSync(process.execPath, [join(mediaRoot, "scripts", "build.ts")]);
+  execFileSync(process.execPath, [join(cliRoot, "scripts", "build.ts")]);
+};
+
+/** A running media service process. */
+export interface MediaProcess {
+  readonly child: ChildProcessWithoutNullStreams;
+  /** Everything it logged so far, one JSON line per entry. */
+  readonly logs: () => string;
+  /** Stops it with `signal` and resolves when it exited. */
+  readonly stop: (signal: NodeJS.Signals) => Promise<void>;
+}
+
+/** Starts the built media service with the stack's environment plus `env`. */
+export const startMedia = (env: Readonly<Record<string, string>>): MediaProcess => {
+  const child = spawn(
+    process.execPath,
+    ["--enable-source-maps", join(mediaRoot, "dist", "main.js")],
+    { env: { PATH: process.env["PATH"] ?? "", ...env } },
+  );
+
+  let output = "";
+
+  child.stdout.on("data", (chunk: Buffer) => {
+    output += chunk.toString("utf8");
+  });
+
+  child.stderr.on("data", (chunk: Buffer) => {
+    output += chunk.toString("utf8");
+  });
+
+  const exited = new Promise<void>((resolve) => {
+    child.on("close", () => {
+      resolve();
+    });
+  });
+
+  return {
+    child,
+    logs: () => output,
+    stop: async (signal) => {
+      if (child.exitCode === null && child.signalCode === null) child.kill(signal);
+      await exited;
+    },
+  };
+};
+
+/**
+ * Polls `url` until `parse` accepts its body text, for up to `timeoutMs`, and returns what
+ * `parse` made of it.
+ */
+export const waitForBody = async <A>(
+  url: string,
+  parse: (text: string) => A | undefined,
+  timeoutMs: number,
+): Promise<A> => {
+  const deadline = Date.now() + timeoutMs;
+
+  const attempt = async (): Promise<A> => {
+    const text = await fetch(url)
+      .then((response) => response.text())
+      .catch(() => "");
+
+    const parsed = parse(text);
+
+    if (parsed !== undefined) return parsed;
+
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${url}`);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    return attempt();
+  };
+
+  return attempt();
+};
+
+/** The outcome of one `movies` invocation. */
+export interface CliRun {
+  readonly code: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+/** Runs the built CLI with only PATH plus `env` in its environment, feeding `stdin`. */
+export const runMovies = (
+  args: ReadonlyArray<string>,
+  env: Readonly<Record<string, string>>,
+  stdin = "",
+): Promise<CliRun> =>
+  new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [join(cliRoot, "dist", "movies.js"), ...args], {
+      env: { PATH: process.env["PATH"] ?? "", ...env },
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    child.stdin.end(stdin);
+    child.on("error", reject);
+    child.on("close", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+/** Runs ffprobe on `url` and returns its JSON description. */
+export const ffprobeUrl = (url: string): string =>
+  execFileSync(
+    process.env["FFPROBE_PATH"] ?? "ffprobe",
+    ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", url],
+    { encoding: "utf8" },
+  );
+
+/** Creates an empty temporary directory. */
+export const makeTempDir = (prefix: string): Promise<string> => mkdtemp(join(tmpdir(), prefix));
+
+/** Removes a directory tree. */
+export const removeDir = (path: string): Promise<void> =>
+  rm(path, { recursive: true, force: true });

@@ -278,6 +278,7 @@ export const videoStream = v.object({
   index: v.number(),
   codec: v.string(),
   profile: nullable(v.string()),
+  level: v.optional(v.number()),
   width: v.number(),
   height: v.number(),
   frameRate: nullable(v.number()),
@@ -294,6 +295,7 @@ export const audioStream = v.object({
   profile: nullable(v.string()),
   channels: v.number(),
   channelLayout: nullable(v.string()),
+  sampleRate: v.optional(v.number()),
   language: nullable(v.string()),
   title: nullable(v.string()),
   default: v.boolean(),
@@ -309,12 +311,15 @@ export const subtitleStream = v.object({
   title: nullable(v.string()),
   default: v.boolean(),
   forced: v.boolean(),
+  hearingImpaired: v.optional(v.boolean()),
 });
 
 /** Mirrors `Probe` in `@movies/contracts`. */
 export const probe = v.object({
   container: v.string(),
+  formatName: v.optional(v.string()),
   durationMs: v.number(),
+  startMs: v.optional(v.number()),
   bitRate: nullable(v.number()),
   video: v.array(videoStream),
   audio: v.array(audioStream),
@@ -326,7 +331,10 @@ export const externalSubtitle = v.object({
   fileName: v.string(),
   codec: v.string(),
   language: nullable(v.string()),
+  title: v.optional(v.string()),
   forced: v.boolean(),
+  hearingImpaired: v.optional(v.boolean()),
+  default: v.optional(v.boolean()),
 });
 
 /** Mirrors `MediaFile` in `@movies/contracts`. */
@@ -740,6 +748,7 @@ export const metadataTarget = v.object({
   name: v.string(),
   year: nullable(v.number()),
   externalIds,
+  artwork,
   episodes: v.array(v.object({ seasonNumber: v.number(), episodeNumber: v.number() })),
 });
 

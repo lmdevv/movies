@@ -173,6 +173,8 @@ export const MetadataTarget = Schema.Struct({
   name: Schema.String,
   year: Schema.NullOr(Schema.Int),
   externalIds: ExternalIds,
+  /** The title's current artwork, kept where the provider has none. */
+  artwork: Artwork,
   episodes: Schema.Array(Schema.Struct({ seasonNumber: Schema.Int, episodeNumber: Schema.Int })),
 });
 

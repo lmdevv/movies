@@ -6,6 +6,8 @@
  */
 import { Layer } from "effect";
 
+import * as ArtworkKeys from "./artwork/artwork-keys.ts";
+import * as ArtworkStore from "./artwork/artwork-store.ts";
 import * as DiskCache from "./disk-cache.ts";
 import * as LibraryScanner from "./library/library-scanner.ts";
 import * as MediaTools from "./media/media-tools.ts";
@@ -29,6 +31,8 @@ export const servicesLayer = Layer.mergeAll(
   Layer.provideMerge(KeyframeIndex.layer),
   Layer.provideMerge(HardwareAcceleration.layer),
   Layer.provideMerge(MetadataResolver.layer),
+  Layer.provideMerge(ArtworkStore.layer),
+  Layer.provideMerge(ArtworkKeys.layer),
   Layer.provideMerge(Tmdb.layer),
   Layer.provideMerge(PlaybackToken.layer),
   Layer.provideMerge(EndedSessions.layer),

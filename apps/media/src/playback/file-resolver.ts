@@ -52,6 +52,27 @@ const isWithin = (root: string, candidate: string, separator: string): boolean =
   candidate.startsWith(root.endsWith(separator) ? root : `${root}${separator}`);
 
 /**
+ * Whether `candidate`, after following symbolic links, lies inside an approved library root
+ * (`LIBRARY_ROOTS`). A path that does not exist is not inside.
+ */
+export const isInsideApprovedRoots = Effect.fn("FileResolver.isInsideApprovedRoots")(function* (
+  candidate: string,
+) {
+  const config = yield* MediaConfig.Service;
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+
+  const roots = (yield* Effect.forEach(config.libraryRoots, (root) =>
+    fs.realPath(root).pipe(Effect.option),
+  )).flatMap((root) => (Option.isSome(root) ? [root.value] : []));
+
+  return yield* fs.realPath(candidate).pipe(
+    Effect.map((real) => roots.some((root) => isWithin(root, real, path.sep))),
+    Effect.orElseSucceed(() => false),
+  );
+});
+
+/**
  * Resolves `fileId` and checks that the media file and its sidecars, after following symbolic
  * links, lie inside an approved library root. A file outside the roots is reported as not found
  * and logged; its path is never returned to the client.
@@ -60,28 +81,17 @@ export const resolveInsideRoots = Effect.fn("FileResolver.resolveInsideRoots")(f
   fileId: MediaFileId,
 ) {
   const resolver = yield* Service;
-  const config = yield* MediaConfig.Service;
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
   const file = yield* resolver.resolve(fileId);
 
-  const roots = (yield* Effect.forEach(config.libraryRoots, (root) =>
-    fs.realPath(root).pipe(Effect.option),
-  )).flatMap((root) => (Option.isSome(root) ? [root.value] : []));
-
-  const inside = (candidate: string) =>
-    fs.realPath(candidate).pipe(
-      Effect.map((real) => roots.some((root) => isWithin(root, real, path.sep))),
-      Effect.orElseSucceed(() => false),
-    );
-
-  if (!(yield* inside(file.path))) {
+  if (!(yield* isInsideApprovedRoots(file.path))) {
     yield* Effect.logError("FileResolver.path_rejected").pipe(Effect.annotateLogs({ fileId }));
 
     return yield* new MediaFileNotFound({ fileId });
   }
 
-  const subtitles = yield* Effect.filter(file.subtitles, (subtitle) => inside(subtitle.path));
+  const subtitles = yield* Effect.filter(file.subtitles, (subtitle) =>
+    isInsideApprovedRoots(subtitle.path),
+  );
 
   return { ...file, subtitles } satisfies ResolvedMediaFile;
 });
