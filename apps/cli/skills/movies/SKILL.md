@@ -146,6 +146,12 @@ movies restore movies-2026-10-12.zip        # every session signs in again
 - `No viewing profile`: run `movies profiles list` and `movies profiles use <name>`.
 - `forbidden` on a PIN profile: `movies profiles unlock --pin <pin>` for this session first.
 - A job stuck in `pending` means the media service is not running.
+- A scan job that fails with `Library root not approved` names a folder outside the media
+  service's `LIBRARY_ROOTS`; point the library at an approved folder (`movies libraries update`).
+- `movies play` failures from the media service print `playback_<recovery>` codes:
+  `playback_unsupported` (this player cannot play the file in any mode), `playback_retry_later`
+  (exit 9: transcoders busy or the media service cannot reach its files right now),
+  `playback_new_session` (the session ended; run `movies play` again), and `playback_fail`.
 
 ## Command reference
 
@@ -162,7 +168,7 @@ movies restore movies-2026-10-12.zip        # every session signs in again
 - `movies keys list`: List this account's API keys.
 - `movies keys revoke <api-key-id-or-name>`: Revoke an API key and end every session it signed in.
 - `movies search <query> [--limit <int>]`: Search titles on the default viewing profile.
-- `movies play <title> [--episode-id <id>] [--from <seconds>] [--open]`: Start playback of the best match (a show resumes its next episode) and print the stream URL for mpv or VLC; --open launches mpv.
+- `movies play <title> [--episode-id <id>] [--from <seconds>] [--open]`: Start playback of a title ID or the best name match (a show resumes its next episode) and print the stream URL for mpv or VLC; --open launches mpv.
 - `movies progress [<title>]`: Show a title's progress, or the recent watch history.
 - `movies continue`: List what to resume and which episodes come next.
 - `movies rooms create <title> [--episode-id <id>] [--position <seconds>]`: Start a watch room hosted by this device, paused at the position.

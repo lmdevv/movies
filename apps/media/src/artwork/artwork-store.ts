@@ -30,23 +30,22 @@ import * as ArtworkKeys from "./artwork-keys.ts";
 import { ArtworkSource } from "./artwork-keys.ts";
 
 /** An image file ready to serve. */
-export interface ArtworkImage {
+interface ArtworkImage {
   readonly path: string;
   readonly contentType: string;
 }
 
 /** No image behind this key: unknown, outside the libraries, or gone from disk. */
-export class ArtworkNotFound extends Schema.TaggedError<ArtworkNotFound>()("ArtworkNotFound", {}) {
+class ArtworkNotFound extends Schema.TaggedError<ArtworkNotFound>()("ArtworkNotFound", {}) {
   override get message(): string {
     return "Artwork not found";
   }
 }
 
 /** The image exists but could not be fetched or resized right now. */
-export class ArtworkUnavailable extends Schema.TaggedError<ArtworkUnavailable>()(
-  "ArtworkUnavailable",
-  { cause: Schema.Defect() },
-) {
+class ArtworkUnavailable extends Schema.TaggedError<ArtworkUnavailable>()("ArtworkUnavailable", {
+  cause: Schema.Defect(),
+}) {
   override get message(): string {
     return "Artwork unavailable: the image could not be fetched or resized";
   }

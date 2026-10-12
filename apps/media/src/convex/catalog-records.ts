@@ -122,7 +122,7 @@ const decodeContainer = Schema.decodeUnknownOption(Container);
 const decodeSidecarFormat = Schema.decodeUnknownOption(SidecarFormat);
 
 /** The playback probe of a catalog file. Records written before probes kept every field use defaults. */
-export const toMediaProbe = (probe: Probe): MediaProbe => {
+const toMediaProbe = (probe: Probe): MediaProbe => {
   const [video] = probe.video;
 
   return {

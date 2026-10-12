@@ -41,17 +41,17 @@ import {
 import * as BackendHealth from "../backend-health.ts";
 
 /** A media service function by its registry name, such as `mediaService.claimJob`. */
-export type FunctionName = keyof MediaServiceFunctions;
+type FunctionName = keyof MediaServiceFunctions;
 
 /** Media service functions served by a Convex query; only these can be subscribed to. */
-export type QueryName = {
+type QueryName = {
   readonly [Name in FunctionName]: MediaServiceFunctions[Name]["kind"] extends "query"
     ? Name
     : never;
 }[FunctionName];
 
 /** Decoded arguments of a media service function. */
-export type FunctionArgs<Name extends FunctionName> = MediaServiceFunctions[Name]["args"]["Type"];
+type FunctionArgs<Name extends FunctionName> = MediaServiceFunctions[Name]["args"]["Type"];
 
 /** Decoded result of a media service function. */
 export type FunctionResult<Name extends FunctionName> =
@@ -119,7 +119,7 @@ const decodeResult = <Name extends FunctionName>(
   );
 
 /** Opens the connection for the lifetime of the scope and signs in in the background. */
-export const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
+const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
   const sdk = yield* Layer.build(
     Auth.layer({ convexUrl: options.convexUrl }).pipe(
       Layer.provideMerge(ConvexTransport.layerWebSocket(options.convexUrl)),

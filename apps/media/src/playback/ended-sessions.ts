@@ -9,7 +9,7 @@ import { PLAYBACK_TOKEN_LIFETIME_MS } from "@movies/contracts/playback-token";
 import { Clock, Context, Effect, Layer, Ref } from "effect";
 
 /** A session that ended, and when. */
-export interface EndedSession {
+interface EndedSession {
   readonly sessionId: PlaybackSessionId;
   /** Milliseconds since the epoch. */
   readonly endedAt: number;

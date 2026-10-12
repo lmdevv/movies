@@ -5,7 +5,7 @@
  * key or a signed-out session is refused at once. The token is used for that one call only.
  */
 import { commands } from "@movies/contracts/commands";
-import { Forbidden, Internal } from "@movies/contracts/errors";
+import { Forbidden } from "@movies/contracts/errors";
 import type { Viewer } from "@movies/contracts/models/account";
 import type { CommandAccess } from "@movies/contracts/scopes";
 import { ConvexTransport, ProtocolError } from "@movies/sdk/effect";
@@ -72,12 +72,3 @@ export const layer = (convexUrl: string): Layer.Layer<Service> =>
       }),
     }),
   );
-
-/** Standalone mode has no accounts, so every command that needs one is refused. */
-export const layerStandalone: Layer.Layer<Service> = Layer.succeed(
-  Service,
-  Service.of({
-    authorize: () =>
-      Effect.fail(new Internal({ message: "This media service runs without Convex" })),
-  }),
-);
