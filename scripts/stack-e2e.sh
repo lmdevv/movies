@@ -6,6 +6,7 @@
 #
 #   scripts/stack-e2e.sh
 #   IMAGE=ghcr.io/lmdevv/movies:main scripts/stack-e2e.sh   # skip the build
+#   QSV=1 scripts/stack-e2e.sh   # with compose.qsv.yaml: Quick Sync on the host's Intel GPU
 #
 # Env: IMAGE, PROJECT (compose project, default movies-e2e), MOVIES_PORT (18080), CONVEX_PORT
 # (18210), KEEP=1 to leave the stack running afterwards.
@@ -36,6 +37,9 @@ export MOVIES_PUBLIC_URL="http://127.0.0.1:${movies_port}"
 export CONVEX_PUBLIC_URL="http://127.0.0.1:${convex_port}"
 export PUID="$(id -u)" PGID="$(id -g)"
 compose_args=(-p "$project" -f "$root/deploy/compose/compose.yaml")
+if [[ "${QSV:-0}" == 1 ]]; then
+  compose_args+=(-f "$root/deploy/compose/compose.qsv.yaml")
+fi
 compose() { docker compose "${compose_args[@]}" "$@"; }
 
 cleanup() {
@@ -107,3 +111,13 @@ for _ in $(seq 1 60); do
 done
 check "an upgrade backs up first" '[[ "$(archives)" -gt "$before" ]]'
 check "the restarted service keeps its secrets" 'healthy'
+
+if [[ "${QSV:-0}" == 1 ]]; then
+  check "the media user encodes with Quick Sync in the container" \
+    'in_movies setpriv --reuid=movies --regid=movies --init-groups ffmpeg -hide_banner -nostdin \
+      -v error -init_hw_device qsv=hw:/dev/dri/renderD128 -filter_hw_device hw -f lavfi \
+      -i testsrc2=size=320x240:rate=10:duration=1 -vf hwupload=extra_hw_frames=16,format=qsv \
+      -c:v h264_qsv -f null -'
+  check "no transcode fell back from Quick Sync" \
+    '! compose logs movies | grep -q "qsv_disabled\|encoder_failed"'
+fi

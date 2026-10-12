@@ -81,3 +81,14 @@ jobs:
           retention-days: 7
       - if: always()
         run: scripts/dev-stack.sh destroy
+
+  nix:
+    name: Nix package and NixOS module
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@v31
+      # Builds the package, shellchecks the startup script, and evaluates the module.
+      - run: nix flake check -L
