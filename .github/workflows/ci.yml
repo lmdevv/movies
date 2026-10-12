@@ -50,3 +50,22 @@ jobs:
       - run: pnpm --filter @movies/media test:stack
       - if: always()
         run: scripts/dev-stack.sh destroy
+
+  web-stack:
+    name: web app against a local Convex
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter web exec playwright install --with-deps chromium
+      - run: scripts/dev-stack.sh up
+      - run: pnpm --filter web exec playwright test
+      - if: always()
+        run: scripts/dev-stack.sh destroy

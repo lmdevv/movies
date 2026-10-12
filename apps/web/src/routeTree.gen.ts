@@ -10,15 +10,37 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as SignInRouteImport } from './routes/sign-in'
+import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppMoviesRouteImport } from './routes/_app/movies'
 import { Route as AppMyListRouteImport } from './routes/_app/my-list'
+import { Route as AppSearchRouteImport } from './routes/_app/search'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppShowsRouteImport } from './routes/_app/shows'
 import { Route as DevKitRouteImport } from './routes/dev/kit'
+import { Route as InviteCodeRouteImport } from './routes/invite.$code'
+import { Route as ProfilesIndexRouteImport } from './routes/profiles.index'
+import { Route as ProfilesNewRouteImport } from './routes/profiles.new'
+import { Route as SetupLibraryRouteImport } from './routes/setup.library'
+import { Route as SetupScanRouteImport } from './routes/setup.scan'
+import { Route as WatchTitleIdRouteImport } from './routes/watch.$titleId'
+import { Route as AppTitleTitleIdRouteImport } from './routes/_app/title.$titleId'
+import { Route as ProfilesProfileIdEditRouteImport } from './routes/profiles.$profileId.edit'
+import { Route as ProfilesProfileIdPinRouteImport } from './routes/profiles.$profileId.pin'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignInRoute = SignInRouteImport.update({
+  id: '/sign-in',
+  path: '/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WelcomeRoute = WelcomeRouteImport.update({
+  id: '/welcome',
+  path: '/welcome',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
@@ -36,6 +58,11 @@ const AppMyListRoute = AppMyListRouteImport.update({
   path: '/my-list',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSearchRoute = AppSearchRouteImport.update({
+  id: '/search',
+  path: '/search',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -51,52 +78,191 @@ const DevKitRoute = DevKitRouteImport.update({
   path: '/dev/kit',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InviteCodeRoute = InviteCodeRouteImport.update({
+  id: '/invite/$code',
+  path: '/invite/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfilesIndexRoute = ProfilesIndexRouteImport.update({
+  id: '/profiles/',
+  path: '/profiles/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfilesNewRoute = ProfilesNewRouteImport.update({
+  id: '/profiles/new',
+  path: '/profiles/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SetupLibraryRoute = SetupLibraryRouteImport.update({
+  id: '/setup/library',
+  path: '/setup/library',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SetupScanRoute = SetupScanRouteImport.update({
+  id: '/setup/scan',
+  path: '/setup/scan',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WatchTitleIdRoute = WatchTitleIdRouteImport.update({
+  id: '/watch/$titleId',
+  path: '/watch/$titleId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppTitleTitleIdRoute = AppTitleTitleIdRouteImport.update({
+  id: '/title/$titleId',
+  path: '/title/$titleId',
+  getParentRoute: () => AppRoute,
+} as any)
+const ProfilesProfileIdEditRoute = ProfilesProfileIdEditRouteImport.update({
+  id: '/profiles/$profileId/edit',
+  path: '/profiles/$profileId/edit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfilesProfileIdPinRoute = ProfilesProfileIdPinRouteImport.update({
+  id: '/profiles/$profileId/pin',
+  path: '/profiles/$profileId/pin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/sign-in': typeof SignInRoute
+  '/welcome': typeof WelcomeRoute
   '/movies': typeof AppMoviesRoute
   '/my-list': typeof AppMyListRoute
+  '/search': typeof AppSearchRoute
   '/settings': typeof AppSettingsRoute
   '/shows': typeof AppShowsRoute
   '/dev/kit': typeof DevKitRoute
+  '/invite/$code': typeof InviteCodeRoute
+  '/profiles/new': typeof ProfilesNewRoute
+  '/setup/library': typeof SetupLibraryRoute
+  '/setup/scan': typeof SetupScanRoute
+  '/watch/$titleId': typeof WatchTitleIdRoute
+  '/profiles/': typeof ProfilesIndexRoute
+  '/title/$titleId': typeof AppTitleTitleIdRoute
+  '/profiles/$profileId/edit': typeof ProfilesProfileIdEditRoute
+  '/profiles/$profileId/pin': typeof ProfilesProfileIdPinRoute
 }
 export interface FileRoutesByTo {
+  '/sign-in': typeof SignInRoute
+  '/welcome': typeof WelcomeRoute
   '/movies': typeof AppMoviesRoute
   '/my-list': typeof AppMyListRoute
+  '/search': typeof AppSearchRoute
   '/settings': typeof AppSettingsRoute
   '/shows': typeof AppShowsRoute
   '/dev/kit': typeof DevKitRoute
+  '/invite/$code': typeof InviteCodeRoute
+  '/profiles/new': typeof ProfilesNewRoute
+  '/setup/library': typeof SetupLibraryRoute
+  '/setup/scan': typeof SetupScanRoute
+  '/watch/$titleId': typeof WatchTitleIdRoute
   '/': typeof AppIndexRoute
+  '/profiles': typeof ProfilesIndexRoute
+  '/title/$titleId': typeof AppTitleTitleIdRoute
+  '/profiles/$profileId/edit': typeof ProfilesProfileIdEditRoute
+  '/profiles/$profileId/pin': typeof ProfilesProfileIdPinRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/sign-in': typeof SignInRoute
+  '/welcome': typeof WelcomeRoute
   '/_app/movies': typeof AppMoviesRoute
   '/_app/my-list': typeof AppMyListRoute
+  '/_app/search': typeof AppSearchRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/shows': typeof AppShowsRoute
   '/dev/kit': typeof DevKitRoute
+  '/invite/$code': typeof InviteCodeRoute
+  '/profiles/new': typeof ProfilesNewRoute
+  '/setup/library': typeof SetupLibraryRoute
+  '/setup/scan': typeof SetupScanRoute
+  '/watch/$titleId': typeof WatchTitleIdRoute
   '/_app/': typeof AppIndexRoute
+  '/profiles/': typeof ProfilesIndexRoute
+  '/_app/title/$titleId': typeof AppTitleTitleIdRoute
+  '/profiles/$profileId/edit': typeof ProfilesProfileIdEditRoute
+  '/profiles/$profileId/pin': typeof ProfilesProfileIdPinRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/movies' | '/my-list' | '/settings' | '/shows' | '/dev/kit'
+  fullPaths:
+    | '/'
+    | '/sign-in'
+    | '/welcome'
+    | '/movies'
+    | '/my-list'
+    | '/search'
+    | '/settings'
+    | '/shows'
+    | '/dev/kit'
+    | '/invite/$code'
+    | '/profiles/new'
+    | '/setup/library'
+    | '/setup/scan'
+    | '/watch/$titleId'
+    | '/profiles/'
+    | '/title/$titleId'
+    | '/profiles/$profileId/edit'
+    | '/profiles/$profileId/pin'
   fileRoutesByTo: FileRoutesByTo
-  to: '/movies' | '/my-list' | '/settings' | '/shows' | '/dev/kit' | '/'
+  to:
+    | '/sign-in'
+    | '/welcome'
+    | '/movies'
+    | '/my-list'
+    | '/search'
+    | '/settings'
+    | '/shows'
+    | '/dev/kit'
+    | '/invite/$code'
+    | '/profiles/new'
+    | '/setup/library'
+    | '/setup/scan'
+    | '/watch/$titleId'
+    | '/'
+    | '/profiles'
+    | '/title/$titleId'
+    | '/profiles/$profileId/edit'
+    | '/profiles/$profileId/pin'
   id:
     | '__root__'
     | '/_app'
+    | '/sign-in'
+    | '/welcome'
     | '/_app/movies'
     | '/_app/my-list'
+    | '/_app/search'
     | '/_app/settings'
     | '/_app/shows'
     | '/dev/kit'
+    | '/invite/$code'
+    | '/profiles/new'
+    | '/setup/library'
+    | '/setup/scan'
+    | '/watch/$titleId'
     | '/_app/'
+    | '/profiles/'
+    | '/_app/title/$titleId'
+    | '/profiles/$profileId/edit'
+    | '/profiles/$profileId/pin'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  SignInRoute: typeof SignInRoute
+  WelcomeRoute: typeof WelcomeRoute
   DevKitRoute: typeof DevKitRoute
+  InviteCodeRoute: typeof InviteCodeRoute
+  ProfilesNewRoute: typeof ProfilesNewRoute
+  SetupLibraryRoute: typeof SetupLibraryRoute
+  SetupScanRoute: typeof SetupScanRoute
+  WatchTitleIdRoute: typeof WatchTitleIdRoute
+  ProfilesIndexRoute: typeof ProfilesIndexRoute
+  ProfilesProfileIdEditRoute: typeof ProfilesProfileIdEditRoute
+  ProfilesProfileIdPinRoute: typeof ProfilesProfileIdPinRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -106,6 +272,20 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sign-in': {
+      id: '/sign-in'
+      path: '/sign-in'
+      fullPath: '/sign-in'
+      preLoaderRoute: typeof SignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/welcome': {
+      id: '/welcome'
+      path: '/welcome'
+      fullPath: '/welcome'
+      preLoaderRoute: typeof WelcomeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/': {
@@ -129,6 +309,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppMyListRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/search': {
+      id: '/_app/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof AppSearchRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings': {
       id: '/_app/settings'
       path: '/settings'
@@ -150,30 +337,107 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DevKitRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/invite/$code': {
+      id: '/invite/$code'
+      path: '/invite/$code'
+      fullPath: '/invite/$code'
+      preLoaderRoute: typeof InviteCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profiles/': {
+      id: '/profiles/'
+      path: '/profiles'
+      fullPath: '/profiles/'
+      preLoaderRoute: typeof ProfilesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profiles/new': {
+      id: '/profiles/new'
+      path: '/profiles/new'
+      fullPath: '/profiles/new'
+      preLoaderRoute: typeof ProfilesNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/setup/library': {
+      id: '/setup/library'
+      path: '/setup/library'
+      fullPath: '/setup/library'
+      preLoaderRoute: typeof SetupLibraryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/setup/scan': {
+      id: '/setup/scan'
+      path: '/setup/scan'
+      fullPath: '/setup/scan'
+      preLoaderRoute: typeof SetupScanRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/watch/$titleId': {
+      id: '/watch/$titleId'
+      path: '/watch/$titleId'
+      fullPath: '/watch/$titleId'
+      preLoaderRoute: typeof WatchTitleIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/title/$titleId': {
+      id: '/_app/title/$titleId'
+      path: '/title/$titleId'
+      fullPath: '/title/$titleId'
+      preLoaderRoute: typeof AppTitleTitleIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/profiles/$profileId/edit': {
+      id: '/profiles/$profileId/edit'
+      path: '/profiles/$profileId/edit'
+      fullPath: '/profiles/$profileId/edit'
+      preLoaderRoute: typeof ProfilesProfileIdEditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profiles/$profileId/pin': {
+      id: '/profiles/$profileId/pin'
+      path: '/profiles/$profileId/pin'
+      fullPath: '/profiles/$profileId/pin'
+      preLoaderRoute: typeof ProfilesProfileIdPinRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 interface AppRouteChildren {
   AppMoviesRoute: typeof AppMoviesRoute
   AppMyListRoute: typeof AppMyListRoute
+  AppSearchRoute: typeof AppSearchRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppShowsRoute: typeof AppShowsRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppTitleTitleIdRoute: typeof AppTitleTitleIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppMoviesRoute: AppMoviesRoute,
   AppMyListRoute: AppMyListRoute,
+  AppSearchRoute: AppSearchRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppShowsRoute: AppShowsRoute,
   AppIndexRoute: AppIndexRoute,
+  AppTitleTitleIdRoute: AppTitleTitleIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  SignInRoute: SignInRoute,
+  WelcomeRoute: WelcomeRoute,
   DevKitRoute: DevKitRoute,
+  InviteCodeRoute: InviteCodeRoute,
+  ProfilesNewRoute: ProfilesNewRoute,
+  SetupLibraryRoute: SetupLibraryRoute,
+  SetupScanRoute: SetupScanRoute,
+  WatchTitleIdRoute: WatchTitleIdRoute,
+  ProfilesIndexRoute: ProfilesIndexRoute,
+  ProfilesProfileIdEditRoute: ProfilesProfileIdEditRoute,
+  ProfilesProfileIdPinRoute: ProfilesProfileIdPinRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

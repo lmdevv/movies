@@ -1,10 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-// Rows arrive with the data milestone; until then the shell renders an empty page.
-export const Route = createFileRoute("/_app/shows")({
-  component: ShowsPage,
-});
+import { TitleGridPage } from "@/components/browse/title-grid-page";
 
-function ShowsPage() {
-  return null;
-}
+export const Route = createFileRoute("/_app/shows")({
+  head: () => ({ meta: [{ title: "Shows · [movies]" }] }),
+  component: () => <TitleGridPage kind="show" />,
+});
