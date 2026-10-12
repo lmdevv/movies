@@ -18,7 +18,7 @@ import { MOVIE_COUNT, generateFixtureLibrary } from "./fixture-library";
 import { freshStack } from "./fresh-stack";
 import { buildMediaService, startMediaService } from "./media-service";
 import type { MediaService } from "./media-service";
-import { createInvite } from "./owner";
+import { OWNER, createInvite } from "./owner";
 
 const stack = await freshStack();
 
@@ -28,8 +28,7 @@ test.describe.configure({ mode: "serial" });
 
 const run = Date.now().toString(36);
 
-/** The suite runs on a fresh stack, so the owner can have fixed credentials to sign in with after. */
-const owner = { name: "Alex", email: "owner@movies.test", password: "correct-horse-1" };
+const owner = OWNER;
 
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 

@@ -84,6 +84,8 @@
   --color-glass: rgb(44 44 46 / 62%);
   --text-tab: 10px;
   --text-micro: 11px;
+  /* The centered wordmark over the device, sign-in, and setup pages. */
+  --text-wordmark: 28px;
   --text-lead: 17px;
   --text-subtitle: 22px;
   --text-search: 28px;
@@ -93,6 +95,8 @@
   --tracking-snug: -0.02em;
   --tracking-hero: -0.04em;
   --tracking-spread: 0.32em;
+  /* Small-caps column and section labels on 10 Admin. */
+  --tracking-eyebrow: 0.08em;
   --shadow-overlay: 0 32px 80px var(--color-scrim);
   --shadow-glass: inset 0 1px 0 rgb(255 255 255 / 14%), 0 10px 30px rgb(0 0 0 / 45%);
   --radius-thumb: 10px;

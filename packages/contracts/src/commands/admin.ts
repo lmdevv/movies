@@ -5,13 +5,16 @@ import { BackupId, JobId, LibraryId, TitleId } from "../ids";
 import {
   LibraryAccess,
   LibraryDetail,
+  LibraryFile,
+  LibraryFileFilter,
+  LibraryFileSummary,
   LibraryKind,
   LibraryRoot,
   MetadataCandidate,
   MetadataField,
   MetadataOverrides,
 } from "../models/catalog";
-import { DisplayName, NoArgs, Ok } from "../models/common";
+import { DisplayName, NoArgs, Ok, Page, PageArgs } from "../models/common";
 import { Backup, Job, JobKind, JobStatus, QueuedJob, ScanMode } from "../models/jobs";
 import {
   MigrationConnectArgs,
@@ -74,6 +77,28 @@ export const libraryCommands = {
     args: Schema.Struct({ libraryId: LibraryId }),
     result: Ok,
     function: "libraries:remove",
+  }),
+  "libraries.files": query({
+    summary: "List a library's files with their titles, or only missing or unmatched ones",
+    group: "libraries",
+    scope: "manage",
+    args: Schema.Struct({
+      libraryId: LibraryId,
+      ...PageArgs,
+      filter: Schema.optionalKey(LibraryFileFilter),
+      /** Only this title's files; the filter is ignored. */
+      titleId: Schema.optionalKey(TitleId),
+    }),
+    result: Page(LibraryFile),
+    function: "libraries:files",
+  }),
+  "libraries.fileSummary": query({
+    summary: "Count a library's missing files and unmatched titles",
+    group: "libraries",
+    scope: "manage",
+    args: Schema.Struct({ libraryId: LibraryId }),
+    result: LibraryFileSummary,
+    function: "libraries:fileSummary",
   }),
   "libraries.scan": mutation({
     summary: "Scan a library for new, changed, and missing files",

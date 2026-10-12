@@ -7,6 +7,12 @@ import { createMovies } from "@movies/sdk/promise";
 
 import type { StackEnv } from "./stack-env";
 
+/**
+ * The owner every stack suite signs in as. The suites run on a fresh stack, so the owner can have
+ * fixed credentials: the core flows create it, and the admin suites sign in with it after.
+ */
+export const OWNER = { name: "Alex", email: "owner@movies.test", password: "correct-horse-1" };
+
 /** A member invite and the id of the owner who made it. */
 export interface OwnerInvite {
   readonly invite: CreatedInvite;

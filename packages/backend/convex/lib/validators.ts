@@ -288,6 +288,43 @@ export const videoStream = v.object({
   bitRate: nullable(v.number()),
 });
 
+/** Mirrors `LibraryFileFilter` in `@movies/contracts`. */
+export const libraryFileFilter = v.union(
+  v.literal("all"),
+  v.literal("missing"),
+  v.literal("unmatched"),
+);
+
+/** Mirrors `LibraryFile` in `@movies/contracts`. */
+export const libraryFile = v.object({
+  id: v.id("mediaFiles"),
+  path: v.string(),
+  sizeBytes: v.number(),
+  durationMs: v.number(),
+  video: nullable(
+    v.object({ codec: v.string(), width: v.number(), height: v.number(), hdr: hdrFormat }),
+  ),
+  missing: v.boolean(),
+  missingSince: nullable(v.number()),
+  title: v.object({
+    id: v.id("titles"),
+    kind: titleKind,
+    name: v.string(),
+    year: nullable(v.number()),
+    matchStatus,
+    externalIds,
+    poster: nullable(v.string()),
+  }),
+  episode: nullable(v.object({ seasonNumber: v.number(), episodeNumber: v.number() })),
+});
+
+/** Mirrors `LibraryFileSummary` in `@movies/contracts`. */
+export const libraryFileSummary = v.object({
+  missingFiles: v.number(),
+  missingSince: nullable(v.number()),
+  unmatchedTitles: v.number(),
+});
+
 /** Mirrors `AudioStream` in `@movies/contracts`. */
 export const audioStream = v.object({
   index: v.number(),

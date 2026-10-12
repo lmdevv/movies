@@ -9,6 +9,8 @@
 import type { CommandPage } from "@movies/ui/lib/command-menu";
 import { useMemo } from "react";
 
+import { useAccountCommands } from "./account";
+import { useAdminCommands } from "./admin";
 import { useBrowseCommands } from "./browse";
 import type { CommandContext } from "./contribution";
 import { mergeContributions } from "./contribution";
@@ -28,6 +30,8 @@ export const useCommandRoot = (context: CommandContext): CommandPage => {
   const profiles = useProfileCommands(context);
   const preferences = usePreferenceCommands();
   const library = useLibraryCommands(context);
+  const account = useAccountCommands(context);
+  const admin = useAdminCommands(context);
 
   return useMemo((): CommandPage => {
     const { groups, fallback } = mergeContributions([
@@ -35,9 +39,11 @@ export const useCommandRoot = (context: CommandContext): CommandPage => {
       navigation,
       profiles,
       library,
+      account,
+      admin,
       preferences,
     ]);
 
     return { id: "root", placeholder: "Search or jump to…", groups, fallback: () => fallback };
-  }, [browse, navigation, profiles, preferences, library]);
+  }, [browse, navigation, profiles, preferences, library, account, admin]);
 };
