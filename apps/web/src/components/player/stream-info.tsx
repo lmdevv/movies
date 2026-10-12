@@ -63,7 +63,7 @@ const CONTAINER_LABELS = new Map([
 ]);
 
 /** The rows of the panel as label and value lines. */
-export const streamInfoRows = (
+const streamInfoRows = (
   file: MediaFile,
   stream: NegotiateResponse,
   bufferedAheadSeconds: number,

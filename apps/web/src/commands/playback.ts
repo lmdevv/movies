@@ -23,7 +23,7 @@ import { playerKeymap } from "@/lib/keymap";
 import type { CommandContribution } from "./contribution";
 
 /** Room actions the player offers while it is in a room. */
-export interface PlayerRoomCommands {
+interface PlayerRoomCommands {
   readonly copyLink: () => void;
   readonly leave: () => void;
   /** Ends the room for everyone; null for guests. */

@@ -99,7 +99,7 @@ const RENEW_BEFORE_MS = 5 * 60 * 1000;
 const MAX_RECOVERIES = 3;
 
 /** User Timing marks for first-frame measurements. */
-export const PLAYBACK_MARKS = {
+const PLAYBACK_MARKS = {
   start: "movies:playback-start",
   firstFrame: "movies:first-frame",
 } as const;
@@ -623,8 +623,9 @@ export class PlaybackController {
     this.#disposed = true;
     this.#element.removeEventListener("playing", this.#onPlaying);
     this.#element.removeEventListener("loadeddata", this.#onFirstFrame);
-    this.#detach();
+    // Before detaching, which rewinds the element: the exit report reads the player afterwards.
     this.player.dispose();
+    this.#detach();
     this.#listeners.clear();
   }
 }

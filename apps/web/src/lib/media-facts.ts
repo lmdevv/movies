@@ -54,7 +54,7 @@ export const channelLabel = (channels: number): string | null => {
 const displayNames = new Intl.DisplayNames(["en"], { type: "language" });
 
 /** `English` for `eng` or `en`; null for unknown or undetermined languages. */
-export const languageName = (code: string | null): string | null => {
+const languageName = (code: string | null): string | null => {
   if (code === null || code === "" || code === "und") return null;
 
   try {

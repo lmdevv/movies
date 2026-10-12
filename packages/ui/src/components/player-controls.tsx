@@ -93,6 +93,7 @@ export function Scrubber({
       className={cn("flex-1", className)}
     >
       <Slider.Control
+        data-slot="scrubber"
         onPointerMove={track}
         onPointerLeave={() => setHover(null)}
         className="relative flex h-3.5 w-full cursor-pointer touch-none items-center"

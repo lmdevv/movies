@@ -53,10 +53,6 @@ export type PlayerShortcutId = (typeof PLAYER_SHORTCUTS)[number]["id"];
 /** The player's shortcut registry resolved for this browser's keyboard. */
 export const playerKeymap = createKeymap<PlayerShortcutId>(PLAYER_SHORTCUTS, platform);
 
-/** A player shortcut written as one label, such as `Space` or `F`. */
-export const playerShortcutLabel = (id: PlayerShortcutId): string =>
-  playerKeymap.keycaps(id).join(platform === "mac" ? "" : " ");
-
 /** A shortcut written as one label, such as `⌘K` on Apple devices or `Ctrl K` elsewhere. */
 export const shortcutLabel = (id: ShortcutId): string =>
   keymap.keycaps(id).join(platform === "mac" ? "" : " ");

@@ -78,6 +78,8 @@ export class MediaElementPlayer implements PlayerPort {
   /** The target of a stream seek in progress. */
   #pending: number | null = null;
   #move: AbortController | null = null;
+  /** Where the element was when the player was disposed; the element is reused after that. */
+  #final: number | null = null;
   readonly #listeners = new Set<(event: PlayerEvent) => void>();
 
   /** Wraps `element`; call `dispose` when the element goes away. */
@@ -92,8 +94,12 @@ export class MediaElementPlayer implements PlayerPort {
     this.#seeker = seeker;
   }
 
-  /** Stops listening to the element. */
+  /**
+   * Stops listening to the element and keeps reporting the position it had, paused, so a report
+   * made after the element moved on (such as the session's exit report) says where it stopped.
+   */
   dispose(): void {
+    this.#final = this.positionMs();
     this.#move?.abort();
 
     for (const [type] of EVENTS) this.#element.removeEventListener(type, this.#onElementEvent);
@@ -117,12 +123,15 @@ export class MediaElementPlayer implements PlayerPort {
     for (const listener of this.#listeners) listener(event);
   }
 
-  readonly positionMs = (): number => this.#pending ?? this.#element.currentTime * 1000;
+  readonly positionMs = (): number =>
+    this.#final ?? this.#pending ?? this.#element.currentTime * 1000;
 
-  readonly isPaused = (): boolean => this.#element.paused;
+  readonly isPaused = (): boolean => this.#final !== null || this.#element.paused;
 
   readonly isBuffering = (): boolean => {
     const element = this.#element;
+
+    if (this.#final !== null) return false;
 
     if (element.paused || element.ended) return false;
 

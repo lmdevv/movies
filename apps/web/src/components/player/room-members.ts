@@ -10,7 +10,7 @@ import type { RoomMember, RoomMemberStatus } from "@movies/ui/components/room-pa
 import { avatarImage } from "@/lib/avatars";
 
 /** A guest further than this from the shared position shows its drift. */
-export const SHOWN_DRIFT_MS = 1_000;
+const SHOWN_DRIFT_MS = 1_000;
 
 /** `-2.4s` or `+1.2s`. */
 export const driftLabel = (driftMs: number): string =>

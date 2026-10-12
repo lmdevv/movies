@@ -193,6 +193,21 @@ describe("MediaElementPlayer", () => {
 
     expect(events).toStrictEqual([]);
   });
+
+  it("keeps reporting where it stopped, paused, after the element is reused", async () => {
+    const element = new FakeMediaElement();
+    const player = new MediaElementPlayer(element);
+
+    await player.play();
+    element.currentTime = 1_234.5;
+    player.dispose();
+    // Detaching the stream rewinds the element.
+    element.currentTime = 0;
+
+    expect(player.positionMs()).toBe(1_234_500);
+    expect(player.isPaused()).toBe(true);
+    expect(player.isBuffering()).toBe(false);
+  });
 });
 
 describe("isBuffered", () => {

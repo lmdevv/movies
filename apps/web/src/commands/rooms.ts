@@ -19,7 +19,7 @@ import { usePlayerCommands } from "./playback";
 const decodeRoomId = Schema.decodeUnknownOption(RoomId);
 
 /** The room a pasted room link (`…/r/<id>`) names, or none. */
-export const typedRoomId = (query: string): Option.Option<RoomId> => {
+const typedRoomId = (query: string): Option.Option<RoomId> => {
   const match = /\/r\/([a-z0-9]{16,})\/?$/iu.exec(query.trim());
 
   return match?.[1] === undefined ? Option.none() : decodeRoomId(match[1]);

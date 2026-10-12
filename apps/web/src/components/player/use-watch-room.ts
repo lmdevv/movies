@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import type { RoomDenial } from "./room-states";
 
 /** Where joining stands. */
-export type RoomJoin =
+type RoomJoin =
   | { readonly status: "joining" }
   | { readonly status: "joined" }
   | { readonly status: "denied"; readonly denial: RoomDenial };

@@ -12,7 +12,8 @@ const port = Number(process.env["E2E_PORT"] ?? stack?.webPort ?? 3011);
  * `stack` runs the core flows against the worktree's dev stack (`scripts/dev-stack.sh up`) and the
  * real media service, which the suite starts itself; it skips without a fresh stack. `admin` then
  * runs the account and admin screens on the same stack as the owner `stack` created; it skips
- * without a stack.
+ * without a stack. `player` and then `rooms` play generated clips through the real media service
+ * as that owner. The suites that run a media service take turns, as it owns the stack's port.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -36,6 +37,18 @@ export default defineConfig({
       name: "admin",
       testMatch: /e2e\/admin\/.*\.spec\.ts$/u,
       dependencies: ["stack"],
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: "player",
+      testMatch: /e2e\/playback\/player\.spec\.ts$/u,
+      dependencies: ["admin"],
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: "rooms",
+      testMatch: /e2e\/playback\/rooms\.spec\.ts$/u,
+      dependencies: ["player"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
   ],
