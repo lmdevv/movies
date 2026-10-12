@@ -36,6 +36,11 @@ export const RoomMember = Schema.Struct({
   role: Schema.Literals(["host", "guest"]),
   joinedAt: EpochMillis,
   lastSeenAt: EpochMillis,
+  /**
+   * A guest's last reported distance from the shared position, in milliseconds; positive means
+   * ahead. Null for the host, and for a guest that is buffering or has not reported yet.
+   */
+  driftMs: Schema.NullOr(Schema.Finite),
 });
 
 /** A room member. */
@@ -50,6 +55,8 @@ export const Room = Schema.Struct({
   hostUserId: UserId,
   hostProfileId: ProfileId,
   hostDeviceId: DeviceId,
+  /** The host profile's name, also once the host has left the room. */
+  hostProfileName: Schema.String,
   /** The host stopped sending heartbeats; the server paused the room until the host returns. */
   hostAway: Schema.Boolean,
   clock: RoomClock,

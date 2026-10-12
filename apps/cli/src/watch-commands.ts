@@ -203,6 +203,7 @@ const play: ShortcutCommand = {
           roomId: Option.none(),
           capabilities: DESKTOP_PLAYER,
           startAtMs: from,
+          audioStreamIndex: Option.none(),
         }).pipe(
           Effect.provideService(MoviesClient.MoviesClient, connection.client),
           Effect.map(Result.succeed),

@@ -276,7 +276,7 @@ movies restore movies-2026-10-12.zip        # every session signs in again
 - `movies call rooms.pause --json <object>`: Pause the room at the host's position. (scope play)
 - `movies call rooms.seek --json <object>`: Move the room to a position. (scope play)
 - `movies rooms buffering --room-id <id> [--device-id <id>] --revision <int> --position-ms <number>`: Freeze the room while the host buffers. (scope play)
-- `movies rooms heartbeat <room-id> [--device-id <id>] [--position-ms <number>] [--revision <int>]`: Report this device is still in the room; the host also reports its position. (scope play)
+- `movies rooms heartbeat <room-id> [--device-id <id>] [--position-ms <number>] [--revision <int>] [--drift-ms <number>]`: Report this device is still in the room; the host also reports its position. (scope play)
 - `movies rooms set-media --room-id <id> [--device-id <id>] --revision <int> --title-id <id> [--episode-id <id>] [--file-id <id>]`: Switch the room to another title or episode, paused at the start. (scope play)
 - `movies rooms end <room-id> [--device-id <id>]`: End the room for everyone. (scope play)
 - `movies rooms time`: Read the server clock to estimate this device's offset. (scope play)

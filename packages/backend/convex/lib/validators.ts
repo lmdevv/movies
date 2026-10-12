@@ -567,6 +567,7 @@ export const roomMember = v.object({
   role: v.union(v.literal("host"), v.literal("guest")),
   joinedAt: v.number(),
   lastSeenAt: v.number(),
+  driftMs: nullable(v.number()),
 });
 
 /** Mirrors `Room` in `@movies/contracts`. */
@@ -578,6 +579,7 @@ export const room = v.object({
   hostUserId: v.id("users"),
   hostProfileId: v.id("profiles"),
   hostDeviceId: v.string(),
+  hostProfileName: v.string(),
   hostAway: v.boolean(),
   clock: roomClock,
   members: v.array(roomMember),
