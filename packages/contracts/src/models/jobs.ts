@@ -53,8 +53,6 @@ export const JobPayload = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("migration"),
     source: MigrationSource,
-    /** The media service's handle for the stored source connection. */
-    connectionId: Schema.String,
     serverName: Schema.String,
   }),
 ]);

@@ -23,6 +23,7 @@ import {
   TitleKind,
   TitleSort,
 } from "../models/catalog";
+import { Collection } from "../models/collections";
 import { DisplayName, NoArgs, Ok, Page, PageArgs } from "../models/common";
 import {
   PlaybackSession,
@@ -171,6 +172,14 @@ export const browseCommands = {
     args: NoArgs,
     result: Schema.Array(Library),
     function: "libraries:list",
+  }),
+  "collections.list": query({
+    summary: "Show collections and the titles a profile may see in each",
+    group: "browse",
+    scope: "read",
+    args: Schema.Struct(OnProfile),
+    result: Schema.Array(Collection),
+    function: "collections:list",
   }),
 };
 

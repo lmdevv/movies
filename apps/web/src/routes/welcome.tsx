@@ -20,9 +20,13 @@ export const Route = createFileRoute("/welcome")({
 function WelcomePage() {
   const { status } = useAuth();
   const setup = useCommandQuery("setup.status", {});
-  const [submitted, setSubmitted] = useState(false);
+  const [creating, setCreating] = useState(false);
 
-  if (submitted) return <OwnerForm onCreated={() => undefined} />;
+  // From submit on, the form stays: Convex reports the new owner before the sign-up resolves,
+  // while the session still reads signed out, and redirecting then would land on sign-in.
+  if (creating) {
+    return <OwnerForm onCreating={() => undefined} onFailed={() => setCreating(false)} />;
+  }
 
   if (status === "loading" || setup.status === "loading") return <BlankPage />;
 
@@ -32,10 +36,16 @@ function WelcomePage() {
     return <Redirect href={setup.data.hasLibraries ? "/" : "/setup/library"} />;
   }
 
-  return <OwnerForm onCreated={() => setSubmitted(true)} />;
+  return <OwnerForm onCreating={() => setCreating(true)} onFailed={() => undefined} />;
 }
 
-function OwnerForm({ onCreated }: { readonly onCreated: () => void }) {
+function OwnerForm({
+  onCreating,
+  onFailed,
+}: {
+  readonly onCreating: () => void;
+  readonly onFailed: () => void;
+}) {
   const { signInWithPassword } = useAuth();
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -55,6 +65,7 @@ function OwnerForm({ onCreated }: { readonly onCreated: () => void }) {
 
     setPending(true);
     setError(null);
+    onCreating();
 
     try {
       await signInWithPassword({
@@ -63,11 +74,11 @@ function OwnerForm({ onCreated }: { readonly onCreated: () => void }) {
         email: email.trim(),
         password,
       });
-      onCreated();
       await navigate({ to: "/setup/library", replace: true });
     } catch (cause) {
       setError(describeFailure(cause));
       setPending(false);
+      onFailed();
     }
   };
 
