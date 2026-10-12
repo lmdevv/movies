@@ -59,6 +59,9 @@ export const TitleMatch = Schema.Struct({
   providerId: Schema.String,
   title: Schema.String,
   year: Schema.optional(Schema.Int),
+  overview: Schema.optional(Schema.String),
+  /** A small poster URL at the provider, for choosing between hits. */
+  poster: Schema.optional(Schema.String),
 });
 
 /** One search hit. */

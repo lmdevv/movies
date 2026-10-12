@@ -49,7 +49,7 @@ export const handler: Effect.Effect<
 
   return {
     kind: "scan",
-    run: Effect.fn("ScanJob.run")(function* (claim, reportProgress) {
+    run: Effect.fn("ScanJob.run")(function* (claim, _workerId, reportProgress) {
       const { library } = claim;
       const { payload } = claim.job;
 

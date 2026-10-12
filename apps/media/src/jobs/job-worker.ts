@@ -45,11 +45,13 @@ export class JobFailed extends Schema.TaggedError<JobFailed>()("JobFailed", {
 export interface JobHandler {
   readonly kind: JobKind;
   /**
-   * Runs a claimed job and returns the message recorded when it succeeds. `reportProgress`
-   * replaces what the next lease renewal reports.
+   * Runs a claimed job and returns the message recorded when it succeeds. `workerId` holds the
+   * lease, for functions that require it; `reportProgress` replaces what the next lease renewal
+   * reports.
    */
   readonly run: (
     claim: ClaimedJob,
+    workerId: string,
     reportProgress: (progress: JobProgress) => Effect.Effect<void>,
   ) => Effect.Effect<string, JobFailed>;
 }
@@ -170,7 +172,7 @@ const make = Effect.fn("JobWorker.make")(function* (handlers: ReadonlyArray<JobH
       const progress = yield* Ref.make(EMPTY_PROGRESS);
 
       const work = handler
-        .run(claimed, (next) => Ref.set(progress, next))
+        .run(claimed, workerId, (next) => Ref.set(progress, next))
         .pipe(
           Effect.map((message) => JobEnd.Finished({ message })),
           Effect.catchTag("JobFailed", (error) => Effect.succeed(JobEnd.Failed({ error }))),

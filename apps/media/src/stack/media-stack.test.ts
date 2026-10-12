@@ -538,6 +538,62 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
       expect(media.logs()).toContain("EndedSessionWatcher.streams_stopped");
     });
 
+    it("serves metadata commands only to manage sessions and reports a missing provider", async () => {
+      const movie = await asOwner(titleIn(moviesLibrary, "Big Buck Fixture"));
+      const args = { titleId: movie.id, query: "Big Buck Bunny" };
+
+      const anonymous = await fetch(`${mediaUrl}/api/metadata/candidates`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(args),
+      });
+
+      expect(anonymous.status).toBe(401);
+      expect(await anonymous.json()).toMatchObject({ code: "unauthenticated" });
+
+      const asAdmin = await asOwner(
+        Effect.flatMap(client, (movies) =>
+          movies.media("metadata.searchCandidates", args).pipe(Effect.flip),
+        ),
+      );
+
+      expect(asAdmin.message).toContain("TMDB_API_KEY");
+      expect(asAdmin).toMatchObject({ _tag: "Internal" });
+
+      const reader = await asOwner(
+        Effect.flatMap(client, (movies) =>
+          movies.action("apiKeys.create", { name: `Reader ${id}`, scopes: ["read"] }),
+        ),
+      );
+
+      const asReader = await Effect.runPromise(
+        Effect.gen(function* () {
+          const session = yield* open();
+
+          yield* Context.get(session, Auth.Auth).signIn(
+            Auth.Credentials.ApiKey({ key: Redacted.make(reader.secret) }),
+          );
+
+          return yield* Context.get(session, MoviesClient.MoviesClient)
+            .media("metadata.searchCandidates", args)
+            .pipe(Effect.flip);
+        }),
+      );
+
+      expect(asReader).toMatchObject({ _tag: "Forbidden" });
+
+      const refresh = await asOwner(
+        Effect.flatMap(client, (movies) =>
+          movies.mutate("metadata.refresh", { titleId: movie.id }),
+        ),
+      );
+
+      const job = await asOwner(finished(refresh.jobId, "30 seconds"));
+
+      expect(job.status).toBe("failed");
+      expect(job.error).toContain("Metadata provider unavailable");
+    });
+
     it("does the same through the movies CLI", async () => {
       const home = await makeTempDir("movies-media-cli-");
       const env = { XDG_CONFIG_HOME: home, HOME: home };

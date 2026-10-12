@@ -24,8 +24,11 @@ import * as ConvexPlaybackReporter from "./convex/convex-playback-reporter.ts";
 import * as EndedSessionWatcher from "./convex/ended-session-watcher.ts";
 import * as LibrarySync from "./convex/library-sync.ts";
 import * as MediaBackend from "./convex/media-backend.ts";
+import * as ViewerAuth from "./convex/viewer-auth.ts";
 import * as HttpServer from "./http/http-server.ts";
+import * as MetadataRoutes from "./http/metadata-routes.ts";
 import * as JobWorker from "./jobs/job-worker.ts";
+import * as MetadataJob from "./jobs/metadata-job.ts";
 import * as ScanJob from "./jobs/scan-job.ts";
 import * as LibraryMonitor from "./library/library-monitor.ts";
 import * as MemoryLibrary from "./library/memory-library.ts";
@@ -45,12 +48,15 @@ class MediaServiceKeyMissing extends Schema.TaggedError<MediaServiceKeyMissing>(
 }
 
 /** The job kinds this service runs. Add a kind's handler here. */
-const jobHandlers = Effect.all([ScanJob.handler]);
+const jobHandlers = Effect.all([ScanJob.handler, MetadataJob.handler]);
+
+/** Route groups of registry `media` commands. Add a group's layer here. */
+const commandRoutes = Layer.mergeAll(MetadataRoutes.layer);
 
 /** Signed in to Convex: Convex libraries, scan jobs, ended sessions, and file records. */
 const convexMode = (options: MediaBackend.Options) =>
   Layer.mergeAll(
-    HttpServer.layer,
+    HttpServer.layer(commandRoutes),
     JobWorker.layer(jobHandlers),
     LibrarySync.layer,
     EndedSessionWatcher.layer,
@@ -65,13 +71,14 @@ const convexMode = (options: MediaBackend.Options) =>
       ),
     ),
     Layer.provide(ArtworkKeys.layer),
+    Layer.provide(ViewerAuth.layer(options.convexUrl)),
     Layer.provideMerge(MediaBackend.layer(options)),
   );
 
 /** Standalone: one in-memory library per approved root, kept in sync by the monitor. */
 const standaloneMode = (roots: ReadonlyArray<string>) =>
   Layer.mergeAll(
-    HttpServer.layer,
+    HttpServer.layer(Layer.empty),
     LibraryMonitor.layerTracking(
       roots.map((root) => ({
         libraryId: LibraryId.make(

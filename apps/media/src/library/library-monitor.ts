@@ -14,6 +14,7 @@ import {
   Context,
   Duration,
   Effect,
+  Fiber,
   FiberMap,
   FileSystem,
   Layer,
@@ -128,14 +129,6 @@ const make = Effect.fn("LibraryMonitor.make")(function* (debounce: Duration.Dura
   /** Watches and reconciles one library until interrupted. */
   const monitor = Effect.fn("LibraryMonitor.monitor")(
     function* (library: MonitoredLibrary) {
-      const approved = yield* scan(library, "incremental", "startup").pipe(
-        Effect.as(true),
-        Effect.catchTag("LibraryRootNotApproved", () => Effect.succeed(false)),
-        Effect.orElseSucceed(() => true),
-      );
-
-      if (!approved) return;
-
       const rescan = (reason: "change" | "reconcile") =>
         scan(library, "incremental", reason).pipe(Effect.ignore);
 
@@ -148,12 +141,22 @@ const make = Effect.fn("LibraryMonitor.make")(function* (debounce: Duration.Dura
           Effect.ignore,
         );
 
-      yield* Effect.all(
-        [
-          ...library.roots.map(watch),
-          rescan("reconcile").pipe(Effect.delay(timing.reconcileInterval), Effect.forever),
-        ],
-        { concurrency: "unbounded", discard: true },
+      // Watch before the startup scan, so a change made while it runs is not missed.
+      const watching = yield* Effect.forkChild(
+        Effect.forEach(library.roots, watch, { concurrency: "unbounded", discard: true }),
+      );
+
+      const approved = yield* scan(library, "incremental", "startup").pipe(
+        Effect.as(true),
+        Effect.catchTag("LibraryRootNotApproved", () => Effect.succeed(false)),
+        Effect.orElseSucceed(() => true),
+      );
+
+      if (!approved) return yield* Fiber.interrupt(watching);
+
+      return yield* rescan("reconcile").pipe(
+        Effect.delay(timing.reconcileInterval),
+        Effect.forever,
       );
     },
     (effect, library) => effect.pipe(Effect.annotateLogs({ libraryId: library.libraryId })),

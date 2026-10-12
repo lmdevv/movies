@@ -34,14 +34,18 @@ export const tokenSafeTracing = Layer.succeed(HttpMiddleware.TracerDisabledWhen)
   request.url.startsWith("/media/"),
 );
 
-/** Serves the routes on `PORT`. */
-export const layer = Layer.unwrap(
-  Effect.gen(function* () {
-    const config = yield* MediaConfig.Service;
+/**
+ * Serves the common routes plus `commandRoutes` (route groups of registry `media` commands, which
+ * need Convex) on `PORT`.
+ */
+export const layer = <E, R>(commandRoutes: Layer.Layer<never, E, R>) =>
+  Layer.unwrap(
+    Effect.gen(function* () {
+      const config = yield* MediaConfig.Service;
 
-    return HttpRouter.serve(routesLayer).pipe(
-      Layer.provide(tokenSafeTracing),
-      Layer.provide(NodeHttpServer.layer(createServer, { port: config.port })),
-    );
-  }),
-);
+      return HttpRouter.serve(Layer.mergeAll(routesLayer, commandRoutes)).pipe(
+        Layer.provide(tokenSafeTracing),
+        Layer.provide(NodeHttpServer.layer(createServer, { port: config.port })),
+      );
+    }),
+  );
