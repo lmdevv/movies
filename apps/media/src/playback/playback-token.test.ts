@@ -1,11 +1,18 @@
 import { createHmac } from "node:crypto";
 
-import { assert, describe, it } from "@effect/vitest";
-import { Effect, Redacted } from "effect";
+import { assert, layer } from "@effect/vitest";
+import { Effect, Match, Redacted } from "effect";
 import { TestClock } from "effect/testing";
 
-import { PLAYBACK_TOKEN_TEST_VECTORS } from "@movies/contracts/playback-token";
+import { PlaybackSessionId } from "@movies/contracts/ids";
+import { PlaybackSessionEnded } from "@movies/contracts/media-playback";
+import {
+  PLAYBACK_TOKEN_TEST_VECTORS,
+  type PlaybackTokenInvalid,
+  PlaybackTokenSecretInvalid,
+} from "@movies/contracts/playback-token";
 
+import * as EndedSessions from "./ended-sessions.ts";
 import * as PlaybackToken from "./playback-token.ts";
 
 // A fixed 32-byte secret, base64url encoded the way `PLAYBACK_TOKEN_SECRET` is configured.
@@ -41,13 +48,17 @@ const verify = (token: string) =>
     return yield* verifier.verify(Redacted.make(token));
   });
 
-const rejection = (token: string) =>
-  verify(token).pipe(
-    Effect.flip,
-    Effect.map((error) => error.reason),
-  );
+/** Why verification failed: the token's rejection reason, or `session-ended`. */
+const reasonOf = Match.type<PlaybackTokenInvalid | PlaybackSessionEnded>().pipe(
+  Match.tagsExhaustive({
+    PlaybackTokenInvalid: (error) => error.reason,
+    PlaybackSessionEnded: () => "session-ended" as const,
+  }),
+);
 
-describe("PlaybackToken", () => {
+const rejection = (token: string) => verify(token).pipe(Effect.flip, Effect.map(reasonOf));
+
+layer(EndedSessions.layer)("PlaybackToken", (it) => {
   it.effect("accepts a token signed with the shared secret before it expires", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(5_000);
@@ -149,7 +160,7 @@ describe("PlaybackToken", () => {
         Redacted.make(Buffer.alloc(16).toString("base64url")),
       ).pipe(Effect.flip);
 
-      assert.strictEqual(error.decodedBytes, 16);
+      assert.instanceOf(error, PlaybackTokenSecretInvalid);
     }),
   );
 
@@ -182,8 +193,25 @@ describe("PlaybackToken", () => {
         yield* TestClock.setTime(rejected.verifyAt);
         const error = yield* verifier.verify(Redacted.make(rejected.token)).pipe(Effect.flip);
 
-        assert.strictEqual(error.reason, rejected.reason, rejected.description);
+        assert.strictEqual(reasonOf(error), rejected.reason, rejected.description);
       }
+    }),
+  );
+
+  it.effect("refuses a valid token once its playback session ended", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(5_000);
+      const ended = yield* EndedSessions.Service;
+      const verifier = yield* PlaybackToken.make(secret).pipe(Effect.orDie);
+      const token = Redacted.make(sign(JSON.stringify(claims)));
+      const sessionId = PlaybackSessionId.make("session_1");
+
+      assert.strictEqual((yield* verifier.verify(token)).sessionId, "session_1");
+      yield* ended.record([{ sessionId, endedAt: 4_000 }]);
+
+      const error = yield* verifier.verify(token).pipe(Effect.flip);
+
+      assert.deepStrictEqual(error, new PlaybackSessionEnded({ sessionId }));
     }),
   );
 });

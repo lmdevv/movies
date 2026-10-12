@@ -106,7 +106,7 @@ export const shortcuts: ReadonlyArray<Shortcut> = [
     path: "play",
     synopsis: "play <title> [--episode-id <id>] [--from <seconds>] [--open]",
     summary:
-      "Start playback of the best match (a show resumes its next episode) and print the stream URL for mpv or VLC; --open launches mpv",
+      "Start playback of a title ID or the best name match (a show resumes its next episode) and print the stream URL for mpv or VLC; --open launches mpv",
     section: "Watching",
   },
   {

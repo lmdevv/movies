@@ -12,6 +12,20 @@
  * answers old IDs with `StreamNotFound` and clients renegotiate.
  */
 import {
+  type ClientCapabilities,
+  InsufficientTranscodeSpace,
+  type KeyframeIndexFailed,
+  SegmentNotFound,
+  SegmentNotReady,
+  StreamAccessDenied,
+  StreamGenerationGone,
+  StreamNotFound,
+  TranscodeCapacityReached,
+  TranscodeFailed,
+  UnsupportedPlayback,
+} from "@movies/contracts/media-playback";
+import type { PlaybackMode } from "@movies/contracts/models/playback";
+import {
   Clock,
   Context,
   Crypto,
@@ -25,12 +39,12 @@ import {
   Path,
   Ref,
   Schedule,
-  Schema,
   Scope,
   Semaphore,
 } from "effect";
 
-import { type FileId, type PlaybackSessionId, StreamId } from "../ids.ts";
+import type { MediaFileId, PlaybackSessionId } from "@movies/contracts/ids";
+import { StreamId } from "@movies/contracts/media-playback";
 import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import { errorCode, freeBytes } from "../platform/node-directories.ts";
@@ -39,106 +53,10 @@ import { FRAGMENT_HEAD_BYTES, fragmentStartSeconds } from "./fmp4-fragments.ts";
 import * as HardwareAcceleration from "./hardware-acceleration.ts";
 import { planGridSegments, planKeyframeSegments, type SegmentPlan, segmentAt } from "./hls-plan.ts";
 import * as KeyframeIndex from "./keyframe-index.ts";
-import {
-  type AudioPlan,
-  type ClientCapabilities,
-  decidePlayback,
-  type PlaybackMode,
-  PlaybackPlan,
-  UnsupportedPlayback,
-  VideoPlan,
-} from "./playback-decision.ts";
+import { type AudioPlan, decidePlayback, PlaybackPlan, VideoPlan } from "./playback-decision.ts";
 import * as PlaybackReporter from "./playback-reporter.ts";
 import type { PlaybackGrant } from "./playback-token.ts";
 import { hlsCommandArgs } from "./transcode-command.ts";
-
-/** The stream ID is unknown, for example after a restart. Renegotiate to get a new one. */
-export class StreamNotFound extends Schema.TaggedError<StreamNotFound>()(
-  "StreamNotFound",
-  { streamId: Schema.String },
-  { httpApiStatus: 404 },
-) {
-  override get message(): string {
-    return "Stream not found: renegotiate playback";
-  }
-}
-
-/** The request names an old generation; load the current playlist instead. */
-export class StreamGenerationGone extends Schema.TaggedError<StreamGenerationGone>()(
-  "StreamGenerationGone",
-  { streamId: Schema.String, generation: Schema.Int, currentGeneration: Schema.Int },
-  { httpApiStatus: 410 },
-) {
-  override get message(): string {
-    return `Stream generation gone: ${this.generation} was replaced by ${this.currentGeneration}`;
-  }
-}
-
-/** The token belongs to another playback session or file. */
-export class StreamAccessDenied extends Schema.TaggedError<StreamAccessDenied>()(
-  "StreamAccessDenied",
-  { streamId: Schema.String },
-  { httpApiStatus: 403 },
-) {
-  override get message(): string {
-    return "Stream access denied: the token does not match this stream";
-  }
-}
-
-/** All transcode slots are busy. */
-export class TranscodeCapacityReached extends Schema.TaggedError<TranscodeCapacityReached>()(
-  "TranscodeCapacityReached",
-  { limit: Schema.Int },
-  { httpApiStatus: 503 },
-) {
-  override get message(): string {
-    return `Transcode capacity reached: ${this.limit} transcodes are running`;
-  }
-}
-
-/** `TRANSCODE_DIR` is too full to start another stream. */
-export class InsufficientTranscodeSpace extends Schema.TaggedError<InsufficientTranscodeSpace>()(
-  "InsufficientTranscodeSpace",
-  { freeBytes: Schema.Finite, requiredBytes: Schema.Finite },
-  { httpApiStatus: 507 },
-) {
-  override get message(): string {
-    return `Insufficient transcode space: ${this.freeBytes} bytes free, ${this.requiredBytes} required`;
-  }
-}
-
-/** The segment index is outside the stream. */
-export class SegmentNotFound extends Schema.TaggedError<SegmentNotFound>()(
-  "SegmentNotFound",
-  { index: Schema.Int },
-  { httpApiStatus: 404 },
-) {
-  override get message(): string {
-    return `Segment not found: ${this.index}`;
-  }
-}
-
-/** The segment was not produced in time; the client should retry. */
-export class SegmentNotReady extends Schema.TaggedError<SegmentNotReady>()(
-  "SegmentNotReady",
-  { index: Schema.Int },
-  { httpApiStatus: 503 },
-) {
-  override get message(): string {
-    return `Segment not ready: ${this.index}`;
-  }
-}
-
-/** ffmpeg failed and no fallback applies. */
-export class TranscodeFailed extends Schema.TaggedError<TranscodeFailed>()(
-  "TranscodeFailed",
-  { streamId: Schema.String, mode: Schema.String, detail: Schema.String },
-  { httpApiStatus: 500 },
-) {
-  override get message(): string {
-    return `Transcode failed in ${this.mode}: ${this.detail}`;
-  }
-}
 
 /** What negotiation hands to a new session. */
 interface StartRequest {
@@ -187,7 +105,7 @@ export type StartError =
   | InsufficientTranscodeSpace
   | UnsupportedPlayback
   | TranscodeFailed
-  | KeyframeIndex.KeyframeIndexFailed;
+  | KeyframeIndexFailed;
 
 /** HLS stream sessions. */
 export interface Interface {
@@ -218,6 +136,11 @@ export interface Interface {
     streamId: StreamId,
     grant: PlaybackGrant,
   ) => Effect.Effect<void, StreamNotFound | StreamAccessDenied>;
+  /**
+   * Closes every stream of a playback session that ended elsewhere, such as a sign-out or a newer
+   * session on the same device. Returns how many streams it closed.
+   */
+  readonly endSession: (sessionId: PlaybackSessionId) => Effect.Effect<number>;
   /** Number of open sessions. */
   readonly activeCount: Effect.Effect<number>;
 }
@@ -257,7 +180,7 @@ interface Generation {
 interface Session {
   readonly streamId: StreamId;
   readonly sessionId: PlaybackSessionId;
-  readonly fileId: FileId;
+  readonly fileId: MediaFileId;
   readonly file: ResolvedMediaFile;
   readonly client: ClientCapabilities;
   readonly audioIndex: number | undefined;
@@ -313,7 +236,7 @@ const make = Effect.gen(function* () {
 
   const closeSession = Effect.fn("StreamSessions.close")(function* (
     session: Session,
-    reason: "stopped" | "idle" | "replaced" | "failed" | "shutdown",
+    reason: PlaybackReporter.StreamEndReason,
   ) {
     const removed = yield* Ref.modify(sessions, (current) => {
       if (current.get(session.streamId) !== session) return [false, current] as const;
@@ -542,7 +465,7 @@ const make = Effect.gen(function* () {
             onFailure: (cause) => String(cause),
           }).slice(-300);
 
-          if (mode !== "hardware-transcode") {
+          if (mode !== "transcode-qsv") {
             return yield* new TranscodeFailed({ streamId: session.streamId, mode, detail });
           }
 
@@ -842,6 +765,20 @@ const make = Effect.gen(function* () {
     yield* closeSession(session, "stopped");
   });
 
+  const endSession = Effect.fn("StreamSessions.endSession")(function* (
+    sessionId: PlaybackSessionId,
+  ) {
+    const ended = [...(yield* Ref.get(sessions)).values()].filter(
+      (session) => session.sessionId === sessionId,
+    );
+
+    yield* Effect.forEach(ended, (session) => closeSession(session, "session-ended"), {
+      discard: true,
+    });
+
+    return ended.length;
+  });
+
   // Close idle sessions; the check runs several times per idle period.
   const idleMillis = Duration.toMillis(config.streamIdleTimeout);
 
@@ -871,6 +808,7 @@ const make = Effect.gen(function* () {
     segment,
     seek,
     stop,
+    endSession,
     activeCount: Ref.get(sessions).pipe(Effect.map((current) => current.size)),
   });
 });

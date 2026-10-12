@@ -12,6 +12,7 @@ import { HttpMiddleware, HttpRouter } from "effect/http";
 
 import * as MediaConfig from "../media-config.ts";
 import { apiLayer } from "./api-handlers.ts";
+import * as ArtworkRoutes from "./artwork-routes.ts";
 import * as MediaRoutes from "./media-routes.ts";
 import * as WebApp from "./web-app.ts";
 
@@ -19,10 +20,11 @@ import * as WebApp from "./web-app.ts";
 export const routesLayer = Layer.mergeAll(
   apiLayer,
   MediaRoutes.layer,
+  ArtworkRoutes.layer,
   WebApp.layer,
   HttpRouter.cors({
     allowedOrigins: ["*"],
-    allowedHeaders: ["content-type", "range"],
+    allowedHeaders: ["authorization", "content-type", "range"],
     exposedHeaders: ["content-range", "content-length", "accept-ranges"],
   }),
 );
@@ -32,14 +34,18 @@ export const tokenSafeTracing = Layer.succeed(HttpMiddleware.TracerDisabledWhen)
   request.url.startsWith("/media/"),
 );
 
-/** Serves the routes on `PORT`. */
-export const layer = Layer.unwrap(
-  Effect.gen(function* () {
-    const config = yield* MediaConfig.Service;
+/**
+ * Serves the common routes plus `commandRoutes` (route groups of registry `media` commands, which
+ * need Convex) on `PORT`.
+ */
+export const layer = <E, R>(commandRoutes: Layer.Layer<never, E, R>) =>
+  Layer.unwrap(
+    Effect.gen(function* () {
+      const config = yield* MediaConfig.Service;
 
-    return HttpRouter.serve(routesLayer).pipe(
-      Layer.provide(tokenSafeTracing),
-      Layer.provide(NodeHttpServer.layer(createServer, { port: config.port })),
-    );
-  }),
-);
+      return HttpRouter.serve(Layer.mergeAll(routesLayer, commandRoutes)).pipe(
+        Layer.provide(tokenSafeTracing),
+        Layer.provide(NodeHttpServer.layer(createServer, { port: config.port })),
+      );
+    }),
+  );

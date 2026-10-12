@@ -4,7 +4,7 @@ import { Context, Duration, Effect, FileSystem, Layer, Option, Path, Schedule } 
 import { FetchHttpClient } from "effect/http";
 
 import * as DiskCache from "../disk-cache.ts";
-import { LibraryId } from "../ids.ts";
+import { LibraryId } from "@movies/contracts/ids";
 import * as MediaTools from "../media/media-tools.ts";
 import * as MetadataResolver from "../metadata/title-metadata.ts";
 import * as Tmdb from "../metadata/tmdb.ts";
@@ -43,7 +43,11 @@ const monitorLayer = Layer.unwrap(
       Layer.provide(MediaTools.layer),
     );
 
-    return LibraryMonitor.layer([{ libraryId, root: copy.movies }], Duration.millis(200)).pipe(
+    const monitor = LibraryMonitor.layerTracking([{ libraryId, roots: [copy.movies] }]).pipe(
+      Layer.provideMerge(LibraryMonitor.layer(Duration.millis(200))),
+    );
+
+    return monitor.pipe(
       Layer.merge(Layer.succeed(Watched, Watched.of({ root: copy.movies }))),
       Layer.provideMerge(scanner),
       Layer.provideMerge(config),

@@ -38,6 +38,7 @@ import type { AuthStatus } from "./auth";
 import * as ConvexTransport from "./convex-transport";
 import type { AuthTokenSource, ClientAdapter, WireArgs } from "./convex-transport";
 import * as DeviceLogin from "./device-login";
+import type { PlaybackCallError } from "./media-http";
 import * as Movies from "./movies";
 import type { QueryName } from "./movies-client";
 import { MoviesClient } from "./movies-client";
@@ -386,7 +387,7 @@ export const useRoomSync = (
 export const usePlaybackSession = (
   request: Playback.PlaybackRequest | null,
   player: PlayerPort | null,
-): Result.Result<Playback.Playback, CallError> | null => {
+): Result.Result<Playback.Playback, CallError | PlaybackCallError> | null => {
   const key =
     request === null || player === null
       ? null

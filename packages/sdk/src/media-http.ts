@@ -1,14 +1,17 @@
 /**
  * JSON requests to the media service. Effect's HttpClient is an unstable module, which the repo's
- * lint rejects, so this boundary uses the platform's `fetch`, available in browsers, Node, and
- * React Native alike. It owns status classification, body decoding, and failure translation.
+ * lint rejects in the SDK, so this boundary uses the platform's `fetch`, available in browsers,
+ * Node, and React Native alike. It owns status classification, body decoding, and failure
+ * translation for both kinds of media service routes:
  *
- * Registry `media` commands answer failures with the same `{ code, message }` body as Convex. The
- * playback routes are an Effect HttpApi whose failures carry a `_tag`; those map onto the closest
- * command error by status until the HttpApi's errors move into the contracts.
+ * - registry `media` commands answer failures with the same `{ code, message }` body as Convex
+ *   (`requestJson`);
+ * - the playback API answers with the tagged errors of `@movies/contracts/media-playback`
+ *   (`requestPlayback`), so clients can tell a stale playlist from an expired token.
  */
 import { CommandFailure, commandError } from "@movies/contracts/errors";
 import type { CommandError, ErrorCode } from "@movies/contracts/errors";
+import { PlaybackApiError } from "@movies/contracts/media-playback";
 import { Effect, Option, Redacted, Schema } from "effect";
 
 import type { CallError } from "./sdk-errors";
@@ -26,7 +29,7 @@ export interface MediaRequest {
   readonly bearer: Option.Option<Redacted.Redacted>;
 }
 
-/** An HttpApi failure body: the error's tag, read into `tag`. */
+/** A failure body that carries a tag but no command code: the tag, read into `tag`. */
 const TaggedFailure = Schema.Struct({ tag: Schema.String }).pipe(
   Schema.encodeKeys({ tag: "_tag" }),
 );
@@ -34,6 +37,8 @@ const TaggedFailure = Schema.Struct({ tag: Schema.String }).pipe(
 const decodeCommandFailure = Schema.decodeUnknownOption(CommandFailure);
 
 const decodeTaggedFailure = Schema.decodeUnknownOption(TaggedFailure);
+
+const decodePlaybackFailure = Schema.decodeUnknownOption(Schema.toCodecJson(PlaybackApiError));
 
 const decodeJsonText = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Json));
 
@@ -51,27 +56,20 @@ const STATUS_CODES: ReadonlyMap<number, ErrorCode> = new Map([
   [507, "rate_limited"],
 ]);
 
-/** Classifies a failed response from its status and decoded body. */
-const failureOf = (request: MediaRequest, status: number, body: Schema.Json): CommandError => {
-  const known = decodeCommandFailure(body);
+/** Statuses a reverse proxy answers when the media service itself is down. */
+const GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 504]);
 
-  if (Option.isSome(known)) return commandError(known.value);
-
-  const reason = Option.match(decodeTaggedFailure(body), {
-    onNone: () => `HTTP ${String(status)}`,
-    onSome: (tagged) => tagged.tag,
-  });
-
-  return commandError({
-    code: STATUS_CODES.get(status) ?? "internal",
-    message: `The media service refused ${request.operation}: ${reason}`,
-  });
-};
+/** An answered request: its status and decoded JSON body (null when empty). */
+interface MediaResponse {
+  readonly status: number;
+  readonly ok: boolean;
+  readonly body: Schema.Json;
+}
 
 const readJson = (
   request: MediaRequest,
   response: Response,
-): Effect.Effect<Schema.Json, CallError> =>
+): Effect.Effect<Schema.Json, TransportError | ProtocolError> =>
   Effect.tryPromise({
     try: () => response.text(),
     catch: (cause) =>
@@ -97,15 +95,10 @@ const readJson = (
     ),
   );
 
-/**
- * Sends `request` and decodes a successful body with `result`. Non-2xx answers become command
- * errors; network failures become `TransportError`; bodies that do not match become
- * `ProtocolError`.
- */
-export const requestJson = <A>(
+/** Sends `request` and reads its JSON body. Network failures become `TransportError`. */
+const send = (
   request: MediaRequest,
-  result: Schema.Codec<A, unknown>,
-): Effect.Effect<A, CallError> =>
+): Effect.Effect<MediaResponse, TransportError | ProtocolError> =>
   Effect.gen(function* () {
     const headers = new Headers({ accept: "application/json" });
 
@@ -134,18 +127,92 @@ export const requestJson = <A>(
         }),
     });
 
-    const body = yield* readJson(request, response);
+    if (GATEWAY_STATUSES.has(response.status)) {
+      return yield* new TransportError({
+        operation: request.operation,
+        message: `Transport failed during ${request.operation}: the media service is unreachable (HTTP ${String(response.status)})`,
+        cause: null,
+      });
+    }
 
-    if (!response.ok) return yield* failureOf(request, response.status, body);
+    return { status: response.status, ok: response.ok, body: yield* readJson(request, response) };
+  });
 
-    return yield* Schema.decodeEffect(result)(body).pipe(
-      Effect.mapError(
-        (cause) =>
-          new ProtocolError({
-            operation: request.operation,
-            message: `Protocol error in ${request.operation}: unexpected media service response`,
-            cause,
-          }),
-      ),
-    );
+/** Classifies a failed command response from its status and decoded body. */
+const commandFailureOf = (request: MediaRequest, response: MediaResponse): CommandError => {
+  const known = decodeCommandFailure(response.body);
+
+  if (Option.isSome(known)) return commandError(known.value);
+
+  const reason = Option.match(decodeTaggedFailure(response.body), {
+    onNone: () => `HTTP ${String(response.status)}`,
+    onSome: (tagged) => tagged.tag,
+  });
+
+  return commandError({
+    code: STATUS_CODES.get(response.status) ?? "internal",
+    message: `The media service refused ${request.operation}: ${reason}`,
+  });
+};
+
+const decodeSuccess = <A>(
+  request: MediaRequest,
+  result: Schema.Codec<A, unknown>,
+  body: Schema.Json,
+): Effect.Effect<A, ProtocolError> =>
+  Schema.decodeEffect(result)(body).pipe(
+    Effect.mapError(
+      (cause) =>
+        new ProtocolError({
+          operation: request.operation,
+          message: `Protocol error in ${request.operation}: unexpected media service response`,
+          cause,
+        }),
+    ),
+  );
+
+/**
+ * Sends a registry `media` command and decodes a successful body with `result`. Non-2xx answers
+ * become command errors; network failures become `TransportError`; bodies that do not match
+ * become `ProtocolError`.
+ */
+export const requestJson = <A>(
+  request: MediaRequest,
+  result: Schema.Codec<A, unknown>,
+): Effect.Effect<A, CallError> =>
+  Effect.gen(function* () {
+    const response = yield* send(request);
+
+    if (!response.ok) return yield* commandFailureOf(request, response);
+
+    return yield* decodeSuccess(request, result, response.body);
   }).pipe(Effect.withSpan("MediaHttp.request", { attributes: { operation: request.operation } }));
+
+/** Any failure of a playback API call. */
+export type PlaybackCallError = PlaybackApiError | TransportError | ProtocolError;
+
+/**
+ * Sends a playback API request and decodes a successful body with `result`. Failures decode into
+ * the playback API's tagged errors; a failure body outside that contract is a `ProtocolError`.
+ */
+export const requestPlayback = <A>(
+  request: MediaRequest,
+  result: Schema.Codec<A, unknown>,
+): Effect.Effect<A, PlaybackCallError> =>
+  Effect.gen(function* () {
+    const response = yield* send(request);
+
+    // The playback API encodes with each schema's JSON codec (absent optional fields as null).
+    if (response.ok)
+      return yield* decodeSuccess(request, Schema.toCodecJson(result), response.body);
+
+    const failure = decodePlaybackFailure(response.body);
+
+    if (Option.isSome(failure)) return yield* failure.value;
+
+    return yield* new ProtocolError({
+      operation: request.operation,
+      message: `Protocol error in ${request.operation}: the media service failed with HTTP ${String(response.status)} and an unknown body`,
+      cause: response.body,
+    });
+  }).pipe(Effect.withSpan("MediaHttp.playback", { attributes: { operation: request.operation } }));

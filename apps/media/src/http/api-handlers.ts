@@ -1,14 +1,15 @@
 /** Handlers of the media HttpApi. */
+import { MediaApi } from "@movies/contracts/media-api";
 import { Effect, Layer } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 
+import * as BackendHealth from "../backend-health.ts";
 import * as MediaConfig from "../media-config.ts";
 import * as HardwareAcceleration from "../playback/hardware-acceleration.ts";
 import * as PlaybackNegotiator from "../playback/playback-negotiator.ts";
 import { withToken } from "../playback/playback-negotiator.ts";
 import * as PlaybackToken from "../playback/playback-token.ts";
 import * as StreamSessions from "../playback/stream-sessions.ts";
-import { MediaApi } from "./media-api.ts";
 
 /** Playback endpoints. */
 const playbackHandlers = HttpApiBuilder.group(
@@ -50,6 +51,7 @@ const systemHandlers = HttpApiBuilder.group(
   Effect.fn(function* (handlers) {
     const sessions = yield* StreamSessions.Service;
     const hardware = yield* HardwareAcceleration.Service;
+    const backend = yield* BackendHealth.Service;
 
     return handlers.handleAll({
       health: Effect.fn("Api.health")(function* () {
@@ -59,6 +61,7 @@ const systemHandlers = HttpApiBuilder.group(
           hardwareAcceleration: (yield* hardware.qsvAvailable)
             ? ("qsv" as const)
             : ("none" as const),
+          backend: yield* backend.status,
         };
       }),
     });

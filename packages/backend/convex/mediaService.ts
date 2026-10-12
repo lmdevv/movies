@@ -365,6 +365,7 @@ export const metadataTarget = query({
       name: title.overrides?.name ?? title.name,
       year: title.overrides?.year ?? title.year,
       externalIds: title.externalIds,
+      artwork: title.artwork,
       episodes: episodes.map((episode) => ({
         seasonNumber: episode.seasonNumber,
         episodeNumber: episode.episodeNumber,
