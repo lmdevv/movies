@@ -172,9 +172,9 @@ export const shortcuts: ReadonlyArray<Shortcut> = [
   {
     path: "import",
     synopsis:
-      "import jellyfin|plex --url <server-url> [--map <source-user-id>=<profile-id>,...] [--dry-run] [--wait]",
+      "import jellyfin|plex --url <server-url> [--user <jellyfin-admin>] [--path-map <source-folder>=<local-folder>,...] [--map <source-user-id>=<profile-id>|skip,...] [--dry-run] [--wait]",
     summary:
-      "Migrate libraries, watch history, and favorites; the source token is read from stdin or MOVIES_IMPORT_TOKEN",
+      "Migrate libraries, watch history, favorites, collections, and metadata overrides; the token (or --user's password) is read from stdin, MOVIES_IMPORT_TOKEN, or MOVIES_IMPORT_PASSWORD",
     section: "Administration",
   },
   {

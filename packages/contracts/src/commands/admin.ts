@@ -15,9 +15,11 @@ import { DisplayName, NoArgs, Ok } from "../models/common";
 import { Backup, Job, JobKind, JobStatus, QueuedJob, ScanMode } from "../models/jobs";
 import {
   MigrationConnectArgs,
-  MigrationConnection,
+  MigrationConnectResult,
+  MigrationDryRunResult,
+  MigrationImportResult,
   MigrationPlanArgs,
-  MigrationReport,
+  MigrationRun,
 } from "../models/migration";
 import { media, mutation, query } from "./command";
 
@@ -192,7 +194,7 @@ export const maintenanceCommands = {
     group: "migration",
     scope: "admin",
     args: MigrationConnectArgs,
-    result: MigrationConnection,
+    result: MigrationConnectResult,
     route: { method: "POST", path: "/api/migration/connect" },
   }),
   "migration.dryRun": media({
@@ -200,23 +202,23 @@ export const maintenanceCommands = {
     group: "migration",
     scope: "admin",
     args: MigrationPlanArgs,
-    result: MigrationReport,
+    result: MigrationDryRunResult,
     route: { method: "POST", path: "/api/migration/dry-run" },
   }),
   "migration.import": media({
-    summary: "Import libraries, watch history, and favorites",
+    summary: "Import libraries, watch history, favorites, collections, and metadata overrides",
     group: "migration",
     scope: "admin",
     args: MigrationPlanArgs,
-    result: QueuedJob,
+    result: MigrationImportResult,
     route: { method: "POST", path: "/api/migration/import" },
   }),
   "migration.status": query({
-    summary: "Show migration jobs and their progress",
+    summary: "Show migration jobs, their phase, and what they imported",
     group: "migration",
     scope: "admin",
     args: NoArgs,
-    result: Schema.Array(Job),
+    result: Schema.Array(MigrationRun),
     function: "migration:status",
   }),
 };

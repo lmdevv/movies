@@ -122,6 +122,14 @@ export const BackupId = Schema.NonEmptyString.pipe(Schema.brand("BackupId")).ann
 /** A backup ID. */
 export type BackupId = typeof BackupId.Type;
 
+/** A collection of titles, such as one imported from Jellyfin or Plex. */
+export const CollectionId = Schema.NonEmptyString.pipe(Schema.brand("CollectionId")).annotate({
+  [CONVEX_TABLE_ANNOTATION]: "collections",
+});
+
+/** A collection ID. */
+export type CollectionId = typeof CollectionId.Type;
+
 /**
  * A client-generated identifier, stable per browser profile, CLI install, or TV app. It separates
  * concurrent devices on one profile; it is not a Convex document ID.
