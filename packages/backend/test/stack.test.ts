@@ -6,7 +6,17 @@
  * Skipped unless `MOVIES_STACK_TESTS=1` (the `test:stack` script sets it). On an empty backend the
  * first test races two sign-ups for the owner account; later runs sign in as whichever won.
  */
-import type { DeviceId, JobId, LibraryId, ProfileId, TitleId, UserId } from "@movies/contracts/ids";
+import type { AnyCommand } from "@movies/contracts/command";
+import { commands } from "@movies/contracts/commands";
+import type {
+  DeviceId,
+  JobId,
+  LibraryId,
+  PlaybackSessionId,
+  ProfileId,
+  TitleId,
+  UserId,
+} from "@movies/contracts/ids";
 import type { CatalogFile, WatchStateImport } from "@movies/contracts/models/migration-service";
 import { DeviceId as DeviceIdSchema } from "@movies/contracts/ids";
 import type { TitleCard } from "@movies/contracts/models/catalog";
@@ -16,13 +26,18 @@ import {
   PLAYBACK_TOKEN_LIFETIME_MS,
   verifyPlaybackToken,
 } from "@movies/contracts/playback-token";
-import { EpochMillis, Milliseconds } from "@movies/contracts/units";
-import { Effect, Redacted, Schema } from "effect";
+import { mediaServiceFunctions } from "@movies/contracts/media-service";
+import type { CommandAccess } from "@movies/contracts/scopes";
+import { Bytes, EpochMillis, Milliseconds } from "@movies/contracts/units";
+import { makeFunctionReference } from "convex/server";
+import { Effect, Match, Redacted, Schema } from "effect";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import type { Session, SignInParams } from "./harness";
 import { anonymous, outcome, run, runId, service, signIn, trySignIn } from "./harness";
-import { findStack, importDocuments } from "./stack-env";
+import type { PublicFunction } from "./public-functions";
+import { publicFunctions, sampleValue, tablesIn } from "./public-functions";
+import { findStack, importDocuments, sampleIds } from "./stack-env";
 
 const stack = findStack();
 
@@ -38,6 +53,9 @@ const id = runId();
 const TOKEN = `run${id}`;
 
 const decodeItem = Schema.decodeUnknownSync(ScannedItem);
+
+/** Generated arguments are always an object; this checks it and gives Convex its argument type. */
+const toArgs = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown));
 
 const ms = (value: number): Milliseconds => Milliseconds.make(value);
 
@@ -130,6 +148,8 @@ interface Fixture {
   readonly member: Session;
   readonly memberEmail: string;
   readonly mediaService: Session;
+  /** An API key session of the owner's that holds `read` only. */
+  readonly readKey: Session;
   readonly memberProfile: ProfileId;
   readonly ownerProfile: ProfileId;
   readonly kidsProfile: ProfileId;
@@ -214,6 +234,9 @@ const setUp = async (): Promise<Fixture> => {
     params: { key: stack.mediaServiceKey },
   });
 
+  const readOnly = await run(owner, "apiKeys.create", { name: `Read ${id}`, scopes: ["read"] });
+  const readKey = await signIn(url, { provider: "apikey", params: { key: readOnly.secret } });
+
   const open = await run(owner, "libraries.create", {
     name: `Open ${id}`,
     kind: "mixed",
@@ -284,6 +307,7 @@ const setUp = async (): Promise<Fixture> => {
     member,
     memberEmail,
     mediaService,
+    readKey,
     memberProfile,
     ownerProfile,
     kidsProfile: kids.id,
@@ -1038,6 +1062,47 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       expect(await outcome(run(other, "titles.home", { profileId: profile.id }))).toBe("forbidden");
     });
 
+    it("keeps a kids profile from lifting its limits once every adult profile has a PIN", async () => {
+      const email = `parent-${id}@movies.test`;
+      const parent = await inviteMember(fixture.owner, email);
+      const adult = await firstProfile(parent);
+
+      const kids = await run(parent, "profiles.create", {
+        name: `Little ${id}`,
+        avatar: "fox",
+        kids: true,
+      });
+
+      // Without a PIN on the adult profile, anyone could pick it, so nothing is withheld.
+      expect((await run(parent, "account.viewer", {})).scopes).toContain("account");
+      await run(parent, "profiles.setPin", { profileId: adult, pin: "2468" });
+
+      // The session that set the PIN stays unlocked; a new browser session starts locked.
+      expect((await run(parent, "account.viewer", {})).scopes).toContain("account");
+      const shared = await signIn(url, password(email, "signIn"));
+
+      expect((await run(shared, "account.viewer", {})).scopes).toStrictEqual(["read", "play"]);
+      expect(
+        await outcome(
+          run(shared, "profiles.update", { profileId: kids.id, kids: false, maxAgeRating: null }),
+        ),
+      ).toBe("forbidden");
+      expect(
+        await outcome(
+          run(shared, "profiles.create", { name: `Open ${id}`, avatar: "owl", kids: false }),
+        ),
+      ).toBe("forbidden");
+      expect(
+        await outcome(run(shared, "apiKeys.create", { name: `Key ${id}`, scopes: ["read"] })),
+      ).toBe("forbidden");
+      expect(await outcome(run(shared, "titles.home", { profileId: kids.id }))).toBe("succeeded");
+
+      await run(shared, "profiles.unlock", { profileId: adult, pin: "2468" });
+      expect((await run(shared, "account.viewer", {})).scopes).toContain("account");
+      await run(shared, "profiles.lock", { profileId: adult });
+      expect((await run(shared, "account.viewer", {})).scopes).not.toContain("account");
+    });
+
     it("hides titles above a kids profile's age, and unrated ones, without saying so", async () => {
       const seen = await run(fixture.member, "titles.search", {
         profileId: fixture.kidsProfile,
@@ -1119,6 +1184,122 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       expect(resolved.path).toBe(`/stack-${id}/open/all-ages.mp4`);
       expect(resolved.roots).toStrictEqual([`/stack-${id}/open`]);
+    });
+
+    it("ends a session's playback when it signs out", async () => {
+      const laptop = await signIn(url, password(fixture.memberEmail, "signIn"));
+
+      const started = await run(laptop, "playback.createSession", {
+        profileId: fixture.memberProfile,
+        deviceId: device("signout"),
+        titleId: fixture.titles.allAges,
+      });
+
+      await laptop.client.action(makeFunctionReference<"action">("auth:signOut"), {});
+
+      expect(
+        await service(fixture.mediaService, "mediaService.sessionStatus", {
+          sessionId: started.sessionId,
+        }),
+      ).toMatchObject({ status: "ended" });
+      expect(await outcome(run(laptop, "account.viewer", {}))).toBe("unauthenticated");
+    });
+
+    it("keeps an account to eight playing devices, ending the quietest", async () => {
+      // Earlier tests may leave this account playing somewhere; start from none.
+      await Promise.all(
+        (await run(fixture.member, "playback.active", {})).map((session) =>
+          run(fixture.member, "playback.endSession", { sessionId: session.id, positionMs: ms(0) }),
+        ),
+      );
+
+      const devices = Array.from({ length: 9 }, (_, index) => device(`wall-${index}`));
+
+      // One after another, so the first device is the quietest.
+      const started = await devices.reduce<
+        Promise<ReadonlyArray<{ sessionId: PlaybackSessionId }>>
+      >(
+        async (earlier, deviceId) => [
+          ...(await earlier),
+          await run(fixture.member, "playback.createSession", {
+            profileId: fixture.memberProfile,
+            deviceId,
+            titleId: fixture.titles.allAges,
+          }),
+        ],
+        Promise.resolve([]),
+      );
+
+      const statuses = await Promise.all(
+        started.map(({ sessionId }) =>
+          service(fixture.mediaService, "mediaService.sessionStatus", { sessionId }),
+        ),
+      );
+
+      expect(statuses.map((status) => status.status)).toStrictEqual([
+        "ended",
+        ...Array.from({ length: 8 }, () => "active"),
+      ]);
+
+      await Promise.all(
+        started.map(({ sessionId }) =>
+          run(fixture.member, "playback.endSession", { sessionId, positionMs: ms(0) }),
+        ),
+      );
+    });
+
+    it("reports every session a sign-out ended, even past a page's limit", async () => {
+      const tablet = await signIn(url, password(fixture.memberEmail, "signIn"));
+      const before = Date.now() - 1;
+
+      const started = await Promise.all(
+        ["a", "b", "c"].map((name) =>
+          run(tablet, "playback.createSession", {
+            profileId: fixture.memberProfile,
+            deviceId: device(`tablet-${name}`),
+            titleId: fixture.titles.allAges,
+          }),
+        ),
+      );
+
+      await tablet.client.action(makeFunctionReference<"action">("auth:signOut"), {});
+
+      const reported = await service(fixture.mediaService, "mediaService.endedSessions", {
+        after: EpochMillis.make(before),
+        limit: 2,
+      });
+
+      expect(reported.map((session) => session.sessionId)).toStrictEqual(
+        expect.arrayContaining(started.map((session) => session.sessionId)),
+      );
+    });
+
+    it("stops renewing a token once the profile may no longer see the title", async () => {
+      await run(fixture.owner, "users.setLibraryAccess", {
+        userId: (await run(fixture.member, "account.viewer", {})).user.id,
+        libraryIds: [fixture.restrictedLibrary],
+      });
+
+      const started = await run(fixture.member, "playback.createSession", {
+        profileId: fixture.memberProfile,
+        deviceId: device("renew"),
+        titleId: fixture.titles.hidden,
+      });
+
+      expect(
+        await outcome(run(fixture.member, "playback.renewToken", { sessionId: started.sessionId })),
+      ).toBe("succeeded");
+      await run(fixture.owner, "users.setLibraryAccess", {
+        userId: (await run(fixture.member, "account.viewer", {})).user.id,
+        libraryIds: [],
+      });
+      expect(
+        await outcome(run(fixture.member, "playback.renewToken", { sessionId: started.sessionId })),
+      ).toBe("not_found");
+      await run(fixture.owner, "users.setLibraryAccess", {
+        userId: (await run(fixture.member, "account.viewer", {})).user.id,
+        libraryIds: [fixture.restrictedLibrary],
+      });
     });
 
     it("keeps an older session from overwriting a newer one and marks watched at 90%", async () => {
@@ -1342,6 +1523,112 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           }),
         ),
       ).toBe("not_found");
+    });
+  });
+
+  describe("every public function", () => {
+    /** Convex Auth's own entry points; they sign in, sign out, and report a boolean. */
+    const CONVEX_AUTH: ReadonlySet<string> = new Set([
+      "auth:signIn",
+      "auth:signOut",
+      "auth:isAuthenticated",
+    ]);
+
+    const scopeOf = new Map<string, CommandAccess>(
+      [...Object.values(commands), ...Object.values(mediaServiceFunctions)].flatMap(
+        (command: AnyCommand) =>
+          command.kind === "media" ? [] : [[command.function, command.scope] as const],
+      ),
+    );
+
+    let functions: ReadonlyArray<PublicFunction>;
+    let ids: ReadonlyMap<string, string>;
+
+    beforeAll(async () => {
+      // Every table an argument names needs one document; a fresh stack has no backups yet.
+      if ((await run(fixture.owner, "backups.list", {})).length === 0) {
+        await service(fixture.mediaService, "mediaService.syncBackups", {
+          archives: [
+            {
+              fileName: `movies-manual-${id}.zip`,
+              sizeBytes: Bytes.make(1),
+              trigger: "manual",
+              takenAt: EpochMillis.make(Date.now()),
+            },
+          ],
+        });
+      }
+
+      functions = await publicFunctions();
+      ids = sampleIds(functions.flatMap((fn) => tablesIn(fn.args)));
+    });
+
+    /** Calls the function with generated arguments; only how the call ends matters here. */
+    const call = async (session: Session, fn: PublicFunction): Promise<void> => {
+      const args = fn.args === null ? {} : toArgs(sampleValue(fn.args, ids));
+
+      await Match.value(fn.kind).pipe(
+        Match.when("query", () =>
+          session.client.query(makeFunctionReference<"query">(fn.path), args),
+        ),
+        Match.when("mutation", () =>
+          session.client.mutation(makeFunctionReference<"mutation">(fn.path), args),
+        ),
+        Match.when("action", () =>
+          session.client.action(makeFunctionReference<"action">(fn.path), args),
+        ),
+        Match.exhaustive,
+      );
+    };
+
+    /** The functions a session must be refused, with the code each call actually ended with. */
+    const outcomesFor = async (session: Session, refused: (access: CommandAccess) => boolean) =>
+      Promise.all(
+        functions.flatMap((fn) => {
+          const access = scopeOf.get(fn.path);
+
+          return access === undefined || !refused(access)
+            ? []
+            : [outcome(call(session, fn)).then((code) => ({ path: fn.path, code }))];
+        }),
+      );
+
+    it("finds every public function in the registry, except Convex Auth's", () => {
+      expect(functions.length).toBeGreaterThan(100);
+      expect(
+        functions.flatMap((fn) =>
+          scopeOf.has(fn.path) || CONVEX_AUTH.has(fn.path) ? [] : [fn.path],
+        ),
+      ).toStrictEqual([]);
+    });
+
+    it("lets anonymous callers reach only the public allowlist", async () => {
+      expect(
+        functions.flatMap((fn) => (scopeOf.get(fn.path) === "public" ? [fn.path] : [])).toSorted(),
+      ).toStrictEqual([
+        "deviceAuth:request",
+        "deviceAuth:status",
+        "invites:lookup",
+        "setup:status",
+      ]);
+
+      const results = await outcomesFor(anonymous(url), (access) => access !== "public");
+
+      expect(results.filter((result) => result.code !== "unauthenticated")).toStrictEqual([]);
+    });
+
+    it.each([
+      { who: "the media service", session: (set: Fixture) => set.mediaService },
+      { who: "a member", session: (set: Fixture) => set.member },
+      { who: "a read-only key", session: (set: Fixture) => set.readKey },
+    ])("refuses $who every scope its session lacks", async ({ session }) => {
+      const caller = session(fixture);
+      const viewer = await run(caller, "account.viewer", {});
+      const held = new Set<CommandAccess>(["public", "authenticated", ...viewer.scopes]);
+      const results = await outcomesFor(caller, (access) => !held.has(access));
+
+      expect(results.length).toBeGreaterThan(10);
+      expect(results.filter((result) => result.code !== "forbidden")).toStrictEqual([]);
     });
   });
 });

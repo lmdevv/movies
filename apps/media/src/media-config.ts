@@ -35,6 +35,8 @@ export interface Interface {
   readonly otlpEndpoint: Option.Option<string>;
   /** Convex deployment URL; used once the service subscribes to Convex. */
   readonly convexUrl: Option.Option<string>;
+  /** The Convex URL browsers use, for the web app's content security policy. */
+  readonly convexPublicUrl: Option.Option<string>;
   /** Restricted Convex login of the media service. */
   readonly mediaServiceApiKey: Option.Option<Redacted.Redacted>;
   /** Folder holding the built web app, served with a single-page-app fallback. */
@@ -46,6 +48,11 @@ export interface Interface {
   readonly qsvDevice: string;
   /** A stream session with no requests for this long is closed and its segments deleted. */
   readonly streamIdleTimeout: Duration.Duration;
+  /**
+   * How far a stream's ffmpeg may run ahead of the furthest segment its player asked for before it
+   * pauses; it continues once the player is within half of this.
+   */
+  readonly streamBufferAhead: Duration.Duration;
   /** Free space `TRANSCODE_DIR` must keep before a new HLS session starts. */
   readonly minFreeTranscodeBytes: number;
   /** Interval of the authoritative library reconciliation that backs up file watching. */
@@ -96,6 +103,7 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
     const tmdbApiKey = yield* Config.option(Config.Redacted("TMDB_API_KEY"));
     const otlpEndpoint = yield* Config.option(Config.URL("OTEL_EXPORTER_OTLP_ENDPOINT"));
     const convexUrl = yield* Config.option(Config.URL("CONVEX_URL"));
+    const convexPublicUrl = yield* Config.option(Config.URL("CONVEX_PUBLIC_URL"));
     const mediaServiceApiKey = yield* Config.option(Config.Redacted("MEDIA_SERVICE_API_KEY"));
     const webDistDir = yield* Config.option(Config.NonEmptyString("WEB_DIST_DIR"));
 
@@ -116,6 +124,11 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
     const streamIdleSeconds = yield* Config.schema(PositiveInt, "STREAM_IDLE_SECONDS").pipe(
       Config.withDefault(60),
     );
+
+    const streamBufferAheadSeconds = yield* Config.schema(
+      PositiveInt,
+      "STREAM_BUFFER_AHEAD_SECONDS",
+    ).pipe(Config.withDefault(120));
 
     const minFreeTranscodeMb = yield* Config.schema(PositiveInt, "MIN_FREE_TRANSCODE_MB").pipe(
       Config.withDefault(2048),
@@ -148,12 +161,14 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
       tmdbApiKey,
       otlpEndpoint: Option.map(otlpEndpoint, withoutTrailingSlash),
       convexUrl: Option.map(convexUrl, withoutTrailingSlash),
+      convexPublicUrl: Option.map(convexPublicUrl, withoutTrailingSlash),
       mediaServiceApiKey,
       webDistDir: Option.map(webDistDir, absolute),
       maxConcurrentTranscodes,
       hardwareAcceleration,
       qsvDevice,
       streamIdleTimeout: Duration.seconds(streamIdleSeconds),
+      streamBufferAhead: Duration.seconds(streamBufferAheadSeconds),
       minFreeTranscodeBytes: minFreeTranscodeMb * MEBIBYTE,
       reconcileInterval: Duration.minutes(reconcileMinutes),
       ffmpegPath,

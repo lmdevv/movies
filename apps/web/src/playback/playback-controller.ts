@@ -30,6 +30,7 @@ import {
   afterPlaybackFailure,
   afterSessionFailure,
   afterStreamFailure,
+  offersResume,
 } from "./playback-policy";
 import type { AttachedStream, StreamFailure } from "./stream-attachment";
 import { attachStream } from "./stream-attachment";
@@ -222,7 +223,7 @@ export class PlaybackController {
       Beginning: () => this.#negotiate(started, 0),
       Resume: () => this.#negotiate(started, started.resumePositionMs),
       Ask: () => {
-        if (started.resumePositionMs <= 0) return this.#negotiate(started, 0);
+        if (!offersResume(started.resumePositionMs)) return this.#negotiate(started, 0);
 
         this.#update({ phase: PlaybackPhase.Choosing({ resumeAtMs: started.resumePositionMs }) });
 

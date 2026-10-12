@@ -52,13 +52,19 @@ Required: `MEDIA_BASE_URL`, `DATA_DIR`, `TRANSCODE_DIR`, `PLAYBACK_TOKEN_SECRET`
 approves nothing, so every scan is refused), `PORT` (4300), `HOST` (all interfaces),
 `BACKUP_DIR` (`/data/backups`), `TMDB_API_KEY` (v3 key or v4 read token), `WEB_DIST_DIR`,
 `MAX_CONCURRENT_TRANSCODES` (3), `HARDWARE_ACCELERATION` (`auto`, `qsv`, `none`),
-`QSV_DEVICE` (`/dev/dri/renderD128`), `STREAM_IDLE_SECONDS` (60), `MIN_FREE_TRANSCODE_MB`
+`QSV_DEVICE` (`/dev/dri/renderD128`), `STREAM_IDLE_SECONDS` (60), `STREAM_BUFFER_AHEAD_SECONDS` (120: ffmpeg pauses this far ahead of the player), `MIN_FREE_TRANSCODE_MB`
 (2048), `LIBRARY_RECONCILE_MINUTES` (360), `FFMPEG_PATH`, `FFPROBE_PATH`,
-`OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVEX_URL`, `MEDIA_SERVICE_API_KEY`,
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVEX_URL`, `CONVEX_PUBLIC_URL` (the Convex URL browsers use; it
+narrows the web app's content security policy), `MEDIA_SERVICE_API_KEY`,
 `CONVEX_SELF_HOSTED_ADMIN_KEY` and `CONVEX_BACKEND_DIR` (backups), `BACKUP_RETENTION_DAYS` (14). The dev stack sets
 `LIBRARY_ROOTS` to its own `library` folder unless `MOVIES_LIBRARY_ROOTS` says otherwise.
 
 QSV needs an ffmpeg built with libvpl; the Nix dev shell uses `ffmpeg-full` for that.
+
+Every response carries a content security policy (scripts from this origin only), `nosniff`,
+`Referrer-Policy: no-referrer` (media URLs carry tokens), and `frame-ancestors 'none'`. Request
+bodies must declare a `Content-Length` of at most 128 KiB. ffmpeg and ffprobe run with a minimal
+environment, so a crafted file that exploits them finds no credentials.
 
 ## Convex integration
 

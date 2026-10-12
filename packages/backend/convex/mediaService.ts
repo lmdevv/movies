@@ -306,19 +306,37 @@ export const sessionStatus = query({
   },
 });
 
-/** Sessions that ended after `after`, oldest first; the media service stops their streams. */
+/**
+ * Sessions that ended after `after`, oldest first; the media service stops their streams and asks
+ * again after the latest `endedAt` it saw. A page never splits one `endedAt`: a sign-out or a
+ * restore ends many sessions in the same millisecond, and the ones past the limit would otherwise
+ * be skipped by the next page.
+ */
 export const endedSessions = query({
   args: { after: v.number(), limit: v.optional(v.number()) },
   returns: v.array(endedSession),
   handler: async (ctx, { after, limit }) => {
     await authorize(ctx, "media-service");
+    const wanted = Math.min(Math.max(1, Math.floor(limit ?? 100)), 200);
 
     const ended = await ctx.db
       .query("playbackSessions")
       .withIndex("by_status_ended", (q) => q.eq("status", "ended").gt("endedAt", after))
-      .take(Math.min(Math.max(1, Math.floor(limit ?? 100)), 200));
+      .take(wanted);
 
-    return ended.flatMap((session) =>
+    const last = ended.at(-1)?.endedAt ?? null;
+
+    const ties =
+      ended.length < wanted || last === null
+        ? []
+        : await ctx.db
+            .query("playbackSessions")
+            .withIndex("by_status_ended", (q) => q.eq("status", "ended").eq("endedAt", last))
+            .collect();
+
+    const unique = new Map([...ended, ...ties].map((session) => [session._id, session]));
+
+    return [...unique.values()].flatMap((session) =>
       session.endedAt === null ? [] : [{ sessionId: session._id, endedAt: session.endedAt }],
     );
   },

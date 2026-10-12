@@ -19,7 +19,45 @@ export interface Viewer {
   readonly user: Doc<"users">;
   readonly session: Doc<"authSessions">;
   readonly scopes: ReadonlySet<Scope>;
+  /** Whether `GUARDED_SCOPES` were withheld until a PIN profile is unlocked (`guardianLocked`). */
+  readonly guardianLocked: boolean;
 }
+
+/** Scopes a shared browser keeps only while an adult's PIN profile is unlocked on it. */
+const GUARDED_SCOPES: ReadonlySet<Scope> = new Set(["account", "manage", "admin"]);
+
+const isRestricted = (profile: Doc<"profiles">): boolean =>
+  profile.kids || profile.maxAgeRating !== null;
+
+/**
+ * Whether a password session must unlock an adult's PIN profile before it may change the account
+ * or the server. That holds when the account has a kids or rated profile and every unrestricted
+ * profile has a PIN: only then do PINs keep someone in the limited profile, and only then could
+ * that profile otherwise lift its own limits, create an open profile, or re-rate titles. API key
+ * and device sessions are exempt: whoever minted them already held these scopes.
+ */
+const guardianLocked = async (
+  ctx: ReadCtx,
+  userId: Id<"users">,
+  session: Doc<"authSessions">,
+): Promise<boolean> => {
+  if (session.grant !== undefined) return false;
+
+  const profiles = await ctx.db
+    .query("profiles")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+
+  const adults = profiles.filter((profile) => !isRestricted(profile));
+
+  if (adults.length === profiles.length || adults.some((adult) => adult.pinHash === undefined)) {
+    return false;
+  }
+
+  const unlocked = new Set(session.unlockedProfiles ?? []);
+
+  return !adults.some((adult) => unlocked.has(adult._id));
+};
 
 /**
  * Loads the viewer or fails with `unauthenticated`. Convex Auth's JWTs live an hour, so the session
@@ -43,7 +81,16 @@ export const loadViewer = async (ctx: ReadCtx): Promise<Viewer> => {
 
   if (user.disabledAt !== undefined) return fail("unauthenticated", "This account is disabled");
 
-  return { userId, user, session, scopes: new Set(sessionScopes(session, user.role)) };
+  const locked = await guardianLocked(ctx, userId, session);
+  const held = sessionScopes(session, user.role);
+
+  return {
+    userId,
+    user,
+    session,
+    scopes: new Set(locked ? held.filter((granted) => !GUARDED_SCOPES.has(granted)) : held),
+    guardianLocked: locked && held.some((granted) => GUARDED_SCOPES.has(granted)),
+  };
 };
 
 /** Loads the viewer and requires a scope, or just a session for `authenticated`. */
@@ -51,7 +98,12 @@ export const authorize = async (ctx: ReadCtx, access: Scope | "authenticated"): 
   const viewer = await loadViewer(ctx);
 
   if (access !== "authenticated" && !viewer.scopes.has(access)) {
-    return fail("forbidden", `This session lacks the ${access} scope`);
+    return viewer.guardianLocked && GUARDED_SCOPES.has(access)
+      ? fail(
+          "forbidden",
+          "Choose an adult profile and enter its PIN to change the account or the server",
+        )
+      : fail("forbidden", `This session lacks the ${access} scope`);
   }
 
   return viewer;

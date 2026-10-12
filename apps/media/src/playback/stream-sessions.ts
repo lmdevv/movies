@@ -153,6 +153,9 @@ export class Service extends Context.Service<Service, Interface>()(
 /** Segments past the produced range that a request may still wait for instead of seeking. */
 const LOOKAHEAD_SEGMENTS = 3;
 
+/** How often each stream compares its encoder's progress with its player's. */
+const THROTTLE_INTERVAL = Duration.seconds(1);
+
 /** Tolerance when comparing fragment start times with planned boundaries. */
 const TIME_EPSILON = 0.005;
 
@@ -175,6 +178,9 @@ interface Generation {
   readonly scope: Scope.Closeable;
   readonly exit: Deferred.Deferred<void, MediaTools.MediaToolFailed>;
   readonly fragments: Ref.Ref<ReadonlyArray<Fragment>>;
+  /** Pauses or continues this run's ffmpeg; nothing for a run that never started. */
+  readonly suspend: (paused: boolean) => Effect.Effect<void>;
+  readonly paused: Ref.Ref<boolean>;
 }
 
 interface Session {
@@ -192,6 +198,8 @@ interface Session {
   readonly generation: Ref.Ref<Generation>;
   readonly lock: Semaphore.Semaphore;
   readonly lastActivity: Ref.Ref<number>;
+  /** The furthest segment the player asked for, which the encoder may run ahead of. */
+  readonly requested: Ref.Ref<number>;
 }
 
 /** The produced range of a generation, in planned segment indexes. */
@@ -378,7 +386,12 @@ const make = Effect.gen(function* () {
       scope,
       exit,
       fragments: yield* Ref.make<ReadonlyArray<Fragment>>([]),
+      suspend: running === undefined ? () => Effect.void : running.suspend,
+      paused: yield* Ref.make(false),
     };
+
+    // A seek starts here; the encoder may run ahead of this point until the player asks further.
+    yield* Ref.set(session.requested, startSegment);
 
     const previous = yield* Ref.getAndSet(session.generation, generation);
 
@@ -526,6 +539,37 @@ const make = Effect.gen(function* () {
     }
   });
 
+  const pauseAhead = Duration.toSeconds(config.streamBufferAhead);
+
+  /**
+   * Pauses the current generation's ffmpeg once its output runs `STREAM_BUFFER_AHEAD_SECONDS` past
+   * the furthest segment the player asked for, and continues it once the player is within half of
+   * that. A remux copies at disk speed, so without this every stream would write most of its file
+   * into `TRANSCODE_DIR` within minutes. A finished run is left alone.
+   */
+  const throttle = Effect.fnUntraced(function* (session: Session) {
+    const generation = yield* Ref.get(session.generation);
+
+    if (generation.number === 0 || (yield* Deferred.isDone(generation.exit))) return;
+    yield* refreshFragments(generation);
+    const produced = producedRange(session, generation, yield* Ref.get(generation.fragments));
+
+    // Nothing written yet: a slow first segment must never be mistaken for a finished file.
+    if (produced.head < generation.startSegment) return;
+    const requested = yield* Ref.get(session.requested);
+    const startOf = (index: number) => session.plan.starts[index] ?? session.plan.end;
+    const ahead = startOf(produced.head) - startOf(requested);
+    const paused = yield* Ref.get(generation.paused);
+
+    if (!paused && ahead > pauseAhead) {
+      yield* generation.suspend(true);
+      yield* Ref.set(generation.paused, true);
+    } else if (paused && ahead < pauseAhead / 2) {
+      yield* generation.suspend(false);
+      yield* Ref.set(generation.paused, false);
+    }
+  });
+
   const lookup = Effect.fn("StreamSessions.lookup")(function* (
     streamId: StreamId,
     grant: PlaybackGrant,
@@ -665,6 +709,8 @@ const make = Effect.gen(function* () {
       scope: yield* Scope.fork(scope, "sequential"),
       exit: yield* Deferred.make<void, MediaTools.MediaToolFailed>(),
       fragments: yield* Ref.make<ReadonlyArray<Fragment>>([]),
+      suspend: () => Effect.void,
+      paused: yield* Ref.make(false),
     };
 
     const session: Session = {
@@ -682,7 +728,13 @@ const make = Effect.gen(function* () {
       generation: yield* Ref.make(placeholder),
       lock: yield* Semaphore.make(1),
       lastActivity: yield* Ref.make(yield* Clock.currentTimeMillis),
+      requested: yield* Ref.make(0),
     };
+
+    yield* throttle(session).pipe(
+      Effect.repeat(Schedule.spaced(THROTTLE_INTERVAL)),
+      Effect.forkIn(scope),
+    );
 
     // One stream per device session: a newer negotiation replaces the older stream.
     const replaced = yield* registry.withPermits(1)(
@@ -771,6 +823,7 @@ const make = Effect.gen(function* () {
     }
 
     yield* currentGeneration(session, generation);
+    yield* Ref.update(session.requested, (furthest) => Math.max(furthest, index));
     const covering = yield* ensureCovers(session, index);
 
     if (covering.number !== generation) {

@@ -1,8 +1,10 @@
 import type { ProfileId } from "@movies/contracts/ids";
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { useCommand } from "@movies/sdk/react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { loadProfileChoice, saveProfileChoice } from "@/lib/device-storage";
+import { toastFailure } from "@/lib/failure";
 
 /** The profile chosen on this browser and the way to change it. */
 export interface ProfileChoice {
@@ -14,14 +16,45 @@ export interface ProfileChoice {
 
 const ProfileChoiceContext = createContext<ProfileChoice | null>(null);
 
-/** Holds the per-browser profile choice, starting from what `localStorage` remembers. */
+/**
+ * Holds the per-browser profile choice, starting from what `localStorage` remembers. Switching to
+ * another profile locks the one left behind on this session, so a PIN keeps guarding it: unlocks
+ * live on the server session, which every profile on this browser shares.
+ */
 export function ProfileChoiceProvider({ children }: { readonly children: ReactNode }) {
   const [profileId, setProfileId] = useState<ProfileId | null>(loadProfileChoice);
+  const current = useRef(profileId);
+  const lock = useCommand("profiles.lock");
 
-  const choose = useCallback((next: ProfileId | null) => {
+  const commit = useCallback((next: ProfileId | null) => {
+    current.current = next;
     saveProfileChoice(next);
     setProfileId(next);
   }, []);
+
+  const choose = useCallback(
+    (next: ProfileId | null) => {
+      const previous = current.current;
+
+      // Signing out (null) ends the session and every unlock with it. Leaving one profile for
+      // another completes only once the one left behind is locked, so a failed lock keeps its PIN.
+      if (previous === null || next === null || previous === next) {
+        commit(next);
+
+        return;
+      }
+
+      void (async () => {
+        try {
+          await lock({ profileId: previous });
+          commit(next);
+        } catch (cause) {
+          toastFailure(cause);
+        }
+      })();
+    },
+    [commit, lock],
+  );
 
   const value = useMemo(() => ({ profileId, choose }), [profileId, choose]);
 

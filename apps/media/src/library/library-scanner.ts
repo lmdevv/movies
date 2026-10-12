@@ -408,10 +408,13 @@ const make = Effect.gen(function* () {
       const absolute = (relativePath: string): string =>
         path.join(root, ...relativePath.split("/"));
 
+      // An NFO may be a link like any other entry; it is read only when it stays inside the root.
       const nfoCache = yield* Cache.make({
         capacity: 10_000,
         lookup: ([relativePath, kind, episode]: readonly [string, NfoKind, number | undefined]) =>
-          fs.readFileString(absolute(relativePath)).pipe(
+          fs.realPath(absolute(relativePath)).pipe(
+            Effect.filterOrFail((real) => isWithin(realRoot, real, path.sep)),
+            Effect.flatMap((real) => fs.readFileString(real)),
             Effect.map((text) => Option.fromNullishOr(parseNfo(text, kind, episode))),
             Effect.orElseSucceed(() => Option.none<LocalMetadata>()),
           ),

@@ -13,6 +13,7 @@ import { HttpMiddleware, HttpRouter } from "effect/http";
 import * as MediaConfig from "../media-config.ts";
 import { apiLayer } from "./api-handlers.ts";
 import * as ArtworkRoutes from "./artwork-routes.ts";
+import * as Hardening from "./hardening.ts";
 import * as MediaRoutes from "./media-routes.ts";
 import * as WebApp from "./web-app.ts";
 
@@ -22,6 +23,7 @@ export const routesLayer = Layer.mergeAll(
   MediaRoutes.layer,
   ArtworkRoutes.layer,
   WebApp.layer,
+  Hardening.layer,
   HttpRouter.cors({
     allowedOrigins: ["*"],
     allowedHeaders: ["authorization", "content-type", "range"],
