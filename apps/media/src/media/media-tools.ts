@@ -26,6 +26,11 @@ interface RunningTool {
   readonly exit: Effect.Effect<void, MediaToolFailed>;
   /** The latest standard error output, path-scrubbed. */
   readonly stderrTail: Effect.Effect<string>;
+  /**
+   * Stops (`SIGSTOP`) or continues (`SIGCONT`) the process, so a stream's encoder can wait for its
+   * player instead of filling the disk. A process that already exited is left alone.
+   */
+  readonly suspend: (paused: boolean) => Effect.Effect<void>;
 }
 
 /** ffprobe and ffmpeg. */
@@ -55,10 +60,40 @@ const scrubPaths = (text: string, args: ReadonlyArray<string>): string =>
     .toSorted((left, right) => right.length - left.length)
     .reduce((scrubbed, path) => scrubbed.replaceAll(path, "<path>"), text);
 
+/**
+ * Variables ffmpeg and ffprobe may see: where programs live, time and locale, and where VA-API
+ * drivers and the oneVPL runtime are (Quick Sync). Everything else stays out, above all the
+ * Convex admin key and the service's credentials, so a crafted file that exploits a decoder finds
+ * nothing to steal.
+ */
+const TOOL_ENVIRONMENT = [
+  "PATH",
+  "TZ",
+  "LANG",
+  "LC_ALL",
+  "LD_LIBRARY_PATH",
+  "LIBVA_DRIVERS_PATH",
+  "LIBVA_DRIVER_NAME",
+  "ONEVPL_SEARCH_PATH",
+] as const;
+
+/** The environment the tools run with, picked from the service's own. */
+export const toolEnvironment = (
+  environment: Readonly<Record<string, string | undefined>>,
+): Record<string, string> =>
+  Object.fromEntries(
+    TOOL_ENVIRONMENT.flatMap((name) => {
+      const value = environment[name];
+
+      return value === undefined ? [] : [[name, value]];
+    }),
+  );
+
 /** Builds the media tools over a child process spawner. */
 const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const env = toolEnvironment(process.env);
 
   const spawn = Effect.fnUntraced(function* (
     tool: "ffmpeg" | "ffprobe",
@@ -72,6 +107,7 @@ const make = Effect.gen(function* () {
       tool === "ffmpeg" ? config.ffmpegPath : config.ffprobePath,
       args,
       {
+        env,
         stdin: "ignore",
         killSignal,
         forceKillAfter: "2 seconds",
@@ -110,7 +146,16 @@ const make = Effect.gen(function* () {
       return yield* Fiber.join(stdout);
     });
 
-    return { exit, stderrTail: Ref.get(stderr).pipe(Effect.map((text) => scrubPaths(text, args))) };
+    const suspend = (paused: boolean) =>
+      Effect.try(() => process.kill(handle.pid, paused ? "SIGSTOP" : "SIGCONT")).pipe(
+        Effect.ignore,
+      );
+
+    return {
+      exit,
+      stderrTail: Ref.get(stderr).pipe(Effect.map((text) => scrubPaths(text, args))),
+      suspend,
+    };
   });
 
   const runToCompletion = (tool: "ffmpeg" | "ffprobe") =>
@@ -126,6 +171,7 @@ const make = Effect.gen(function* () {
     return {
       exit: Effect.asVoid(running.exit),
       stderrTail: running.stderrTail,
+      suspend: running.suspend,
     } satisfies RunningTool;
   });
 

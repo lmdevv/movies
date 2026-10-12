@@ -15,10 +15,12 @@ import { ConvexCredentials } from "@convex-dev/auth/providers/ConvexCredentials"
 import { convexAuth, createAccount, retrieveAccount } from "@convex-dev/auth/server";
 import type { ConvexAuthConfig } from "@convex-dev/auth/server";
 import { makeFunctionReference } from "convex/server";
+import { v } from "convex/values";
 import type { Value } from "convex/values";
 import { Scrypt } from "lucia";
 
 import { internal } from "./_generated/api";
+import { action } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { fail } from "./lib/errors";
 
@@ -98,7 +100,7 @@ const signInFailure = (cause: unknown): never => {
   return fail("unauthenticated", "Wrong email or password");
 };
 
-export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
+const convexAuthFunctions = convexAuth({
   providers: [
     ConvexCredentials({
       id: "password",
@@ -152,5 +154,22 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
     beforeSessionCreation: async (ctx, { userId }) => {
       await ctx.runQuery(internal.users.assertCanSignIn, { userId });
     },
+  },
+});
+
+export const { auth, signIn, store, isAuthenticated } = convexAuthFunctions;
+
+/**
+ * Signs out as Convex Auth's own `signOut` does (the session and its refresh tokens go), and also
+ * ends the playback sessions it started, so the media service stops their streams at once instead
+ * of when the idle sweep notices.
+ */
+export const signOut = action({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    await ctx.runMutation(internal.sessions.endCurrent, {});
+
+    return null;
   },
 });

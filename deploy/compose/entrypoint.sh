@@ -102,6 +102,7 @@ setting() { [ -z "$2" ] || printf '%s=%s\n' "$1" "$2" >>"$env_file"; }
 setting PORT 8080
 setting MEDIA_BASE_URL "$public_url"
 setting CONVEX_URL "$convex_url"
+setting CONVEX_PUBLIC_URL "$convex_public_url"
 setting MEDIA_SERVICE_API_KEY "$media_service_api_key"
 setting PLAYBACK_TOKEN_SECRET "$playback_token_secret"
 setting CONVEX_SELF_HOSTED_ADMIN_KEY "$admin_key"
@@ -112,7 +113,7 @@ setting TRANSCODE_DIR /transcode
 setting WEB_DIST_DIR /run/movies/web
 setting LIBRARY_ROOTS "${LIBRARY_ROOTS:-/media}"
 for name in BACKUP_RETENTION_DAYS TMDB_API_KEY OTEL_EXPORTER_OTLP_ENDPOINT HARDWARE_ACCELERATION \
-  QSV_DEVICE MAX_CONCURRENT_TRANSCODES STREAM_IDLE_SECONDS MIN_FREE_TRANSCODE_MB \
+  QSV_DEVICE MAX_CONCURRENT_TRANSCODES STREAM_IDLE_SECONDS STREAM_BUFFER_AHEAD_SECONDS MIN_FREE_TRANSCODE_MB \
   LIBRARY_RECONCILE_MINUTES; do
   setting "$name" "${!name:-}"
 done

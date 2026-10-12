@@ -4,17 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>[movies]</title>
-    <script>
-      // The saved theme (dark by default) before first paint, so the page never flashes light.
-      try {
-        const saved = localStorage.getItem("movies-theme") ?? "dark";
-        const dark =
-          saved === "dark" ||
-          (saved === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-        document.documentElement.classList.add(dark ? "dark" : "light");
-        document.documentElement.style.colorScheme = dark ? "dark" : "light";
-      } catch {}
-    </script>
+    <!-- A file, not inline, so the content security policy can refuse inline scripts. -->
+    <script src="/theme.js"></script>
   </head>
 
   <body>

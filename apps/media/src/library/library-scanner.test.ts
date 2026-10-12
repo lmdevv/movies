@@ -241,6 +241,19 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
             path.join(target.movies, "Remux Fixture (2015)", "loop"),
           );
 
+          // An NFO beside a movie that links out of the root is not read either.
+          const leakedNfo = path.join(target.root, "leaked.nfo");
+
+          yield* fs.writeFileString(
+            leakedNfo,
+            "<movie><title>Leaked Title</title><year>2012</year></movie>",
+          );
+
+          yield* fs.symlink(
+            leakedNfo,
+            path.join(target.movies, library.messyMovie.replace(/\.mkv$/u, ".nfo")),
+          );
+
           const scanner = yield* LibraryScanner.Service;
           const libraryId = LibraryId.make("links");
 
@@ -252,8 +265,12 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
 
           const files = yield* scanned(libraryId);
 
-          assert.strictEqual(summary.rejectedLinks, 1);
+          assert.strictEqual(summary.rejectedLinks, 2);
           assert.isFalse(files.has("Escaped (2000).mkv"));
+          assert.strictEqual(
+            files.get(library.messyMovie)?.record.title?.title,
+            "Messy Release Name",
+          );
           assert.strictEqual(summary.discovered, 4);
         }),
     );

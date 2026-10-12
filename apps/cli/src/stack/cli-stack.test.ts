@@ -49,6 +49,8 @@ const Who = parse(
 
 const Secret = parse(Schema.Struct({ secret: Schema.String }));
 
+const Profiles = parse(Schema.Array(Schema.Struct({ id: Schema.String })));
+
 const DeviceCode = parse(
   Schema.Struct({ event: Schema.Literal("device_code"), userCode: Schema.String }),
 );
@@ -143,6 +145,28 @@ describe.skipIf(stack === undefined)("the movies CLI against a real stack", () =
     });
 
     expect(fromEnv.code).toBe(ExitCode.unauthenticated);
+  });
+
+  it("lets an agent on environment variables alone choose its profile once", async () => {
+    const created = await runMovies(["keys", "create", `env-${id}`, "--scopes", "read"], owner);
+
+    const agent = {
+      ...(await install()),
+      MOVIES_CONVEX_URL: url,
+      MOVIES_API_KEY: Secret(created.stdout).secret,
+    };
+
+    expect((await runMovies(["search", "anything"], agent)).code).toBe(ExitCode.usage);
+
+    const [first] = Profiles((await runMovies(["profiles", "list"], agent)).stdout);
+
+    expect((await runMovies(["profiles", "use", first?.id ?? ""], agent)).code).toBe(ExitCode.ok);
+    expect((await runMovies(["search", "anything"], agent)).code).toBe(ExitCode.ok);
+    expect(Who((await runMovies(["whoami"], agent)).stdout).viewingProfileId).toBe(first?.id);
+
+    const stored = await runMovies(["whoami"], { ...agent, MOVIES_API_KEY: "" });
+
+    expect(stored.code).toBe(ExitCode.unauthenticated);
   });
 
   it("completes a device login approved from another session", async () => {

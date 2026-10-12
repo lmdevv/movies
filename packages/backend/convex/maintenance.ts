@@ -287,3 +287,27 @@ export const settleRestoredJobs = internalMutation({
     return { settled: running.length };
   },
 });
+
+/**
+ * Removes a forgotten profile PIN, for the operator: `convex run maintenance:clearProfilePin
+ * '{"profileId":"..."}'` with the deployment's admin key. No signed-in session can do this, since
+ * changing a PIN profile needs it unlocked.
+ */
+export const clearProfilePin = internalMutation({
+  args: { profileId: v.id("profiles") },
+  returns: v.object({ cleared: v.boolean() }),
+  handler: async (ctx, { profileId }) => {
+    const profile = await ctx.db.get(profileId);
+
+    if (profile?.pinHash === undefined) return { cleared: false };
+
+    await ctx.db.patch(profileId, {
+      pinHash: undefined,
+      pinSalt: undefined,
+      pinFailures: 0,
+      pinLockedUntil: undefined,
+    });
+
+    return { cleared: true };
+  },
+});

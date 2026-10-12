@@ -18,6 +18,7 @@ import {
   afterPlaybackFailure,
   afterSessionFailure,
   afterStreamFailure,
+  offersResume,
 } from "./playback-policy";
 
 const transport = new TransportError({
@@ -100,5 +101,17 @@ describe("afterStreamFailure", () => {
     expect(afterStreamFailure({ kind: "network" })).toStrictEqual(
       PlaybackStep.Renegotiate({ afterMs: RETRY_LATER_MS }),
     );
+  });
+});
+
+describe("offersResume", () => {
+  it("asks only when the saved position is worth resuming", () => {
+    expect([0, 450, 9_999, 10_000, 1_500_000].map(offersResume)).toStrictEqual([
+      false,
+      false,
+      false,
+      true,
+      true,
+    ]);
   });
 });
