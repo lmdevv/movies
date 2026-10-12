@@ -211,11 +211,22 @@ choices made while implementing them. Update it in the same PR that changes a de
   add rows to "Actions" or "Go to". `mod+shift+p` opens the menu on its "Switch profile" submenu.
 - Title search lives in the menu (results while typing) and on `/search` (the full page Paper
   draws; the phone tab bar's search circle opens it). Kids filtering is server-side; the web app
-  shows no notice.
-- Artwork loads from `${VITE_MEDIA_BASE_URL}/artwork/<key>` (this origin when unset) as lazy images
-  over a fixed-aspect raised placeholder; a missing or failing image leaves the placeholder.
+  shows no notice. The menu keeps earlier results on screen only while the same query is typed
+  further or shortened; a replaced query clears them, so Enter never opens a stale result.
+- Artwork loads through `artworkUrl` from `@movies/contracts/artwork` against `VITE_MEDIA_BASE_URL`
+  (this origin when unset), resized per use (`?w=185` thumbnails, `500` posters, `780` cards,
+  stills, and logos, `1280` backdrops), as lazy images over a fixed-aspect raised placeholder; a
+  missing or failing image leaves the placeholder.
   Avatars are app assets in `public/avatars/<key>.svg`; the profile stores the key.
 - Play and Resume link to `/watch/$titleId?episodeId=&start=0`, which the playback milestone fills.
+- Signing out navigates to sign-in itself; `RequireSignedIn` stays blank while the location is
+  already `/sign-in` rather than racing that navigation with its own redirect.
+- The stack E2E suite (`apps/web/e2e/stack`) runs the real media service: it generates a fixture
+  library (ffmpeg clips, NFO files with certifications, artwork drawn in the browser), bundles
+  `apps/media`, and starts it against the dev stack. A scan of a folder outside `LIBRARY_ROOTS`
+  is the real failure path; the suite then restarts the service with that folder approved and
+  retries. Fixture names are plain: Convex search matches any query term, so a shared run token in
+  every name made every title match every search.
 
 ## SDK
 

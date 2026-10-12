@@ -139,7 +139,7 @@ export function Episodes({
                     }
                     synopsis={episode.overview ?? undefined}
                     facts={episodeFacts(episode)}
-                    image={artworkUrl(episode.still)}
+                    image={artworkUrl(episode.still, "card")}
                     progress={progressFraction(episode.progress) ?? undefined}
                     aria-current={episode.id === nextId ? "true" : undefined}
                     className={cn(
@@ -171,7 +171,7 @@ function PhoneEpisode({
   readonly episode: Episode;
 }) {
   const fraction = progressFraction(episode.progress);
-  const still = artworkUrl(episode.still);
+  const still = artworkUrl(episode.still, "card");
 
   return (
     <Link

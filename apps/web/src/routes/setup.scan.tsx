@@ -235,7 +235,9 @@ function JustMatched({ libraryId }: { readonly libraryId: LibraryId }) {
       <div className="flex gap-2">
         {Array.from({ length: POSTER_SLOTS }, (_, index) => {
           const title = items[index];
-          const poster = title === undefined ? undefined : artworkUrl(title.artwork.poster);
+
+          const poster =
+            title === undefined ? undefined : artworkUrl(title.artwork.poster, "thumb");
 
           return title === undefined ? (
             <Skeleton

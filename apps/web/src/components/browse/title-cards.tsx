@@ -36,7 +36,7 @@ export function TitlePosterCard({
     <PosterCard
       title={title.name}
       subtitle={subtitle}
-      image={artworkUrl(title.artwork.poster)}
+      image={artworkUrl(title.artwork.poster, "poster")}
       badge={badge}
       className={className}
       render={<Link to="/title/$titleId" params={{ titleId: title.id }} {...prefetch} />}
@@ -60,7 +60,7 @@ export function TitleLandscapeCard({
     <LandscapeCard
       title={title.name}
       subtitle={titleFacts(title) || undefined}
-      image={artworkUrl(title.artwork.backdrop ?? title.artwork.poster)}
+      image={artworkUrl(title.artwork.backdrop ?? title.artwork.poster, "card")}
       size={size}
       className={className}
       render={<Link to="/title/$titleId" params={{ titleId: title.id }} {...prefetch} />}
@@ -115,6 +115,7 @@ export function ContinueCard({
       subtitle={text.subtitle}
       image={artworkUrl(
         item.episode?.still ?? item.title.artwork.backdrop ?? item.title.artwork.poster,
+        "card",
       )}
       progress={progress ?? undefined}
       size={size}

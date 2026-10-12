@@ -23,7 +23,7 @@ import { newBadge } from "./title-cards";
 
 /** The title's logo when it has one; without it the hero draws the name as heavy text. */
 const titleArt = (title: TitleCard, phone: boolean): ReactNode => {
-  const logo = artworkUrl(title.artwork.logo);
+  const logo = artworkUrl(title.artwork.logo, "card");
 
   if (logo === undefined) return undefined;
 
@@ -74,7 +74,7 @@ function DesktopHero({
     <Hero
       title={featured.name}
       titleArt={titleArt(featured, false)}
-      backdrop={artworkUrl(featured.artwork.backdrop)}
+      backdrop={artworkUrl(featured.artwork.backdrop, "backdrop")}
       highlight={newBadge(featured, Date.now()) === undefined ? undefined : "New this week"}
       facts={facts(
         featured.year,
@@ -136,7 +136,7 @@ function PhoneHero({
       <HeroCard
         title={featured.name}
         titleArt={titleArt(featured, true)}
-        backdrop={artworkUrl(featured.artwork.poster ?? featured.artwork.backdrop)}
+        backdrop={artworkUrl(featured.artwork.poster ?? featured.artwork.backdrop, "card")}
         facts={facts(...featured.genres.slice(0, 2), featured.year)}
         actions={
           <>

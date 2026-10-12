@@ -27,13 +27,16 @@ const signInHref = (href: string): string =>
 export function RequireSignedIn({ children }: { readonly children: ReactNode }) {
   const { status } = useAuth();
   const href = useLocation({ select: (location) => location.href });
+  const pathname = useLocation({ select: (location) => location.pathname });
   const setup = useCommandQuery("setup.status", status === "signedOut" ? {} : "skip");
 
   if (status === "loading") return <BlankPage />;
 
   if (status === "signedIn") return children;
 
-  if (setup.status === "loading") return <BlankPage />;
+  // Signing out navigates to sign-in itself, and this guard stays on screen until that navigation
+  // lands. Redirecting now would race it and send people "back" to the sign-in page.
+  if (pathname === "/sign-in" || setup.status === "loading") return <BlankPage />;
 
   if (setup.status === "success" && !setup.data.hasOwner) return <Redirect href="/welcome" />;
 

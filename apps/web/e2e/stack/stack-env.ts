@@ -33,6 +33,8 @@ export interface StackEnv {
   readonly mediaUrl: string;
   readonly webPort: number;
   readonly mediaServiceKey: string;
+  /** The media service's environment as `scripts/dev-stack.sh` wrote it. */
+  readonly mediaEnv: Readonly<Record<string, string>>;
   /** `packages/backend`, where the Convex CLI runs with the stack's admin key. */
   readonly backendDir: string;
 }
@@ -61,6 +63,7 @@ export const stackEnv = (): StackEnv | null => {
     mediaUrl,
     webPort: Number(webPort),
     mediaServiceKey,
+    mediaEnv: Object.fromEntries(media),
     backendDir: fileURLToPath(new URL("../../../../packages/backend", import.meta.url)),
   };
 };

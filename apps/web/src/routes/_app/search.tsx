@@ -176,7 +176,7 @@ function ResultCard({ title }: { readonly title: TitleCard }) {
     <LandscapeCard
       title={title.name}
       subtitle={titleKindFacts(title)}
-      image={artworkUrl(title.artwork.backdrop ?? title.artwork.poster)}
+      image={artworkUrl(title.artwork.backdrop ?? title.artwork.poster, "card")}
       className="w-full gap-1.5 md:gap-2 md:[&>span:nth-child(2)]:text-body/5 md:[&>span:nth-child(3)]:text-label/label"
       render={<Link to="/title/$titleId" params={{ titleId: title.id }} {...prefetch} />}
     />
@@ -233,7 +233,8 @@ function NoResults({
     }
   };
 
-  const still = suggestion === undefined ? undefined : artworkUrl(suggestion.artwork.backdrop);
+  const still =
+    suggestion === undefined ? undefined : artworkUrl(suggestion.artwork.backdrop, "card");
 
   return (
     <div className="flex flex-col items-start gap-12 pt-6 pb-10 md:pt-16">

@@ -1,10 +1,25 @@
+import { artworkUrl as mediaArtworkUrl } from "@movies/contracts/artwork";
+import type { ArtworkWidth } from "@movies/contracts/artwork";
+
 import { MEDIA_BASE_URL } from "@/env";
 
 /**
- * The URL of an artwork key, which the media service resolves at `/artwork/<key>`; undefined when
- * a title has no such artwork, so cards draw their blank placeholder.
+ * The width the media service resizes artwork to for each use, enough for 2x screens: menu and scan
+ * thumbnails, poster cards, landscape cards, stills, and logos, and full-bleed backdrops.
  */
-export const artworkUrl = (key: string | null): string | undefined =>
-  key === null || key === ""
-    ? undefined
-    : `${MEDIA_BASE_URL}/artwork/${key.split("/").map(encodeURIComponent).join("/")}`;
+const WIDTHS = {
+  thumb: 185,
+  poster: 500,
+  card: 780,
+  backdrop: 1280,
+} as const satisfies Record<string, ArtworkWidth>;
+
+/** Where an image is drawn, which decides the width it is fetched at. */
+export type ArtworkUse = keyof typeof WIDTHS;
+
+/**
+ * The URL of an artwork key on the media service, resized for `use`; undefined when a title has no
+ * such artwork, so cards draw their blank placeholder.
+ */
+export const artworkUrl = (key: string | null, use: ArtworkUse): string | undefined =>
+  key === null || key === "" ? undefined : mediaArtworkUrl(MEDIA_BASE_URL, key, WIDTHS[use]);

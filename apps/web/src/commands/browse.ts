@@ -19,7 +19,7 @@ const CONTINUE_LIMIT = 3;
 const RESULT_LIMIT = 6;
 
 const posterOf = (title: TitleCard): CommandLeading => {
-  const src = artworkUrl(title.artwork.poster);
+  const src = artworkUrl(title.artwork.poster, "thumb");
 
   if (src !== undefined) return { kind: "poster", src };
 
@@ -59,8 +59,15 @@ export const useBrowseCommands = (context: CommandContext): CommandContribution 
         }),
     }));
 
-    // The previous results stay while the next search runs, so the list does not flicker.
-    const current = query.trim() === "" ? [] : search.results;
+    // The previous results stay while the same query is typed further or shortened, so the list
+    // does not flicker. Results of a replaced query would sit first, and Enter would open one.
+    const typed = query.trim().toLowerCase();
+    const shown = search.query.toLowerCase();
+
+    const current =
+      typed !== "" && shown !== "" && (typed.startsWith(shown) || shown.startsWith(typed))
+        ? search.results
+        : [];
 
     const pending: ReadonlyArray<CommandItem> =
       search.loading && current.length === 0

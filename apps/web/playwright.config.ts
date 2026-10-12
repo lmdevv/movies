@@ -2,17 +2,15 @@ import { defineConfig, devices } from "@playwright/test";
 
 import { stackEnv } from "./e2e/stack/stack-env";
 
-const port = Number(process.env["E2E_PORT"] ?? "3011");
-
 const stack = stackEnv();
 
-/** Where the stack suite's artwork comes from: the stack's media URL, served by the fake media. */
-const mediaPort = stack === null ? null : new URL(stack.mediaUrl).port;
+/** The worktree's web port when it has a stack, so worktrees running suites at once never share a server. */
+const port = Number(process.env["E2E_PORT"] ?? stack?.webPort ?? 3011);
 
 /**
  * Browser tests against the Vite dev server. `kit` checks the UI kit gallery and needs no backend.
- * `stack` runs the core flows against the worktree's dev stack (`scripts/dev-stack.sh up`) and
- * skips without one; a fake media service serves artwork on the stack's media port.
+ * `stack` runs the core flows against the worktree's dev stack (`scripts/dev-stack.sh up`) and the
+ * real media service, which the suite starts itself; it skips without a fresh stack.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -42,14 +40,5 @@ export default defineConfig({
         VITE_MEDIA_BASE_URL: stack?.mediaUrl ?? "",
       },
     },
-    ...(mediaPort === null
-      ? []
-      : [
-          {
-            command: `node e2e/stack/fake-media.ts ${mediaPort}`,
-            url: `http://127.0.0.1:${mediaPort}/artwork/poster/ready.svg`,
-            reuseExistingServer: true,
-          },
-        ]),
   ],
 });

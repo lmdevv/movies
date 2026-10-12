@@ -60,8 +60,8 @@ export function TitleDetailView({
   const file = mainFile(title);
   const badges = file === undefined ? [] : fileBadges(file);
   const tracks = file === undefined ? null : trackSummary(file);
-  const backdrop = artworkUrl(title.artwork.backdrop);
-  const logo = artworkUrl(title.artwork.logo);
+  const backdrop = artworkUrl(title.artwork.backdrop, "backdrop");
+  const logo = artworkUrl(title.artwork.logo, "card");
   const missing = !title.available;
 
   const remaining =

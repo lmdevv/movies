@@ -63,9 +63,17 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      # The suite generates its fixture library with ffmpeg and runs the real media service.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter web exec playwright install --with-deps chromium
       - run: scripts/dev-stack.sh up
       - run: pnpm --filter web exec playwright test
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-results
+          path: apps/web/test-results
+          retention-days: 7
       - if: always()
         run: scripts/dev-stack.sh destroy
