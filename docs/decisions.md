@@ -243,7 +243,10 @@ choices made while implementing them. Update it in the same PR that changes a de
   requests run without HTTP client tracing because Effect does not redact `X-Plex-Token`. A job
   must survive a restart, so its stored plan carries the credentials sealed with AES-256-GCM under
   a key derived (HKDF-SHA256) from `MEDIA_SERVICE_API_KEY`, bound to the server ID and URL. Convex
-  stores only that key's hash, so neither Convex, its dashboard, nor a backup can open them.
+  functions and their tables hold only that key's hash, so no Convex function, user, or backup can
+  open them. `scripts/configure.ts` keeps the key itself in the deployment's environment variables
+  so restarts reuse it; whoever holds the deployment's admin key can read it there, and already
+  controls everything else.
   Rotating the key makes queued plans unreadable; their jobs fail and the admin imports again.
 
 ## Web UI kit
