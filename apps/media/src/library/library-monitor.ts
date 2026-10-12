@@ -17,7 +17,7 @@ export interface MonitoredLibrary {
 }
 
 /** How quickly changes are picked up. */
-export interface MonitorTiming {
+interface MonitorTiming {
   /** Quiet period after the last change event before scanning. */
   readonly debounce: Duration.Duration;
   readonly reconcileInterval: Duration.Duration;
@@ -26,7 +26,7 @@ export interface MonitorTiming {
 const DEFAULT_DEBOUNCE = Duration.seconds(3);
 
 /** Watches and reconciles one library until interrupted. */
-export const monitorLibrary = Effect.fn("LibraryMonitor.monitor")(
+const monitorLibrary = Effect.fn("LibraryMonitor.monitor")(
   function* (library: MonitoredLibrary, timing: MonitorTiming) {
     const scanner = yield* LibraryScanner.Service;
     const fs = yield* FileSystem.FileSystem;

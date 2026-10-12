@@ -38,7 +38,7 @@ import {
 import { ByteRange, parseByteRange } from "./byte-range.ts";
 
 /** The token is valid but for another file. */
-export class MediaAccessDenied extends Schema.TaggedError<MediaAccessDenied>()(
+class MediaAccessDenied extends Schema.TaggedError<MediaAccessDenied>()(
   "MediaAccessDenied",
   {},
   { httpApiStatus: 403 },
@@ -49,7 +49,7 @@ export class MediaAccessDenied extends Schema.TaggedError<MediaAccessDenied>()(
 }
 
 /** The resolved file could not be read from disk. */
-export class MediaFileUnreadable extends Schema.TaggedError<MediaFileUnreadable>()(
+class MediaFileUnreadable extends Schema.TaggedError<MediaFileUnreadable>()(
   "MediaFileUnreadable",
   {},
   { httpApiStatus: 503 },

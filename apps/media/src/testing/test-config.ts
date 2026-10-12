@@ -6,7 +6,7 @@ import { ConfigProvider, Layer } from "effect";
 import * as MediaConfig from "../media-config.ts";
 
 /** The 32-byte playback token secret tests sign with, as raw bytes. */
-export const testSecretBytes = Buffer.alloc(32, 9);
+const testSecretBytes = Buffer.alloc(32, 9);
 
 /**
  * `MediaConfig` decoded from an environment record, with defaults for the required names.

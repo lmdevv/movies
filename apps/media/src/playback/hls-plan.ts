@@ -12,7 +12,7 @@ export interface SegmentPlan {
 }
 
 /** Target segment length for transcodes and the minimum grouping for copies. */
-export const SEGMENT_SECONDS = 4;
+const SEGMENT_SECONDS = 4;
 
 /** A trailing segment shorter than this merges into the one before it. */
 const MIN_TAIL_SECONDS = 0.5;
@@ -74,7 +74,7 @@ export const segmentAt = (plan: SegmentPlan, seconds: number): number => {
 };
 
 /** Length of segment `index` in seconds. */
-export const segmentDuration = (plan: SegmentPlan, index: number): number =>
+const segmentDuration = (plan: SegmentPlan, index: number): number =>
   (plan.starts[index + 1] ?? plan.end) - (plan.starts[index] ?? plan.end);
 
 /** URIs a rendered playlist points at, relative to the playlist itself. */

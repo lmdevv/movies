@@ -11,7 +11,7 @@ import * as StreamSessions from "../playback/stream-sessions.ts";
 import { MediaApi } from "./media-api.ts";
 
 /** Playback endpoints. */
-export const playbackHandlers = HttpApiBuilder.group(
+const playbackHandlers = HttpApiBuilder.group(
   MediaApi,
   "playback",
   Effect.fn(function* (handlers) {
@@ -44,7 +44,7 @@ export const playbackHandlers = HttpApiBuilder.group(
 );
 
 /** System endpoints. */
-export const systemHandlers = HttpApiBuilder.group(
+const systemHandlers = HttpApiBuilder.group(
   MediaApi,
   "system",
   Effect.fn(function* (handlers) {

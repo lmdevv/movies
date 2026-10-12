@@ -45,7 +45,7 @@ export const qsvProbeArgs = (device: string): ReadonlyArray<string> => [
 ];
 
 /** Builds the availability check from the configured mode. */
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
   const tools = yield* MediaTools.Service;
   const disabled = yield* Ref.make(config.hardwareAcceleration === "none");

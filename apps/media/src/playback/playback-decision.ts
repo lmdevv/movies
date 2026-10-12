@@ -14,7 +14,7 @@ import {
 } from "../media/media-probe.ts";
 
 /** A video codec the client decodes, with optional limits. Names follow ffmpeg (`h264`, `hevc`, `av1`, `vp9`). */
-export const VideoCodecSupport = Schema.Struct({
+const VideoCodecSupport = Schema.Struct({
   codec: Schema.String,
   /** Accepted ffprobe profile names, such as `High` or `Main 10`; absent accepts any profile. */
   profiles: Schema.optional(Schema.Array(Schema.String)),
@@ -27,17 +27,17 @@ export const VideoCodecSupport = Schema.Struct({
 });
 
 /** A video codec the client decodes. */
-export interface VideoCodecSupport extends Schema.Schema.Type<typeof VideoCodecSupport> {}
+interface VideoCodecSupport extends Schema.Schema.Type<typeof VideoCodecSupport> {}
 
 /** An audio codec the client decodes. Names follow ffmpeg (`aac`, `ac3`, `eac3`, `opus`, `flac`, `mp3`). */
-export const AudioCodecSupport = Schema.Struct({
+const AudioCodecSupport = Schema.Struct({
   codec: Schema.String,
   /** Most channels the client plays; 8 when absent. */
   maxChannels: Schema.optional(Schema.Int),
 });
 
 /** An audio codec the client decodes. */
-export interface AudioCodecSupport extends Schema.Schema.Type<typeof AudioCodecSupport> {}
+interface AudioCodecSupport extends Schema.Schema.Type<typeof AudioCodecSupport> {}
 
 /** What a client can play. Browser checks are hints; a failed direct path renegotiates. */
 export const ClientCapabilities = Schema.Struct({
@@ -69,7 +69,7 @@ export const PlaybackMode = Schema.Literals([
 export type PlaybackMode = typeof PlaybackMode.Type;
 
 /** Why no rung of the ladder fits. */
-export const UnsupportedReason = Schema.Literals([
+const UnsupportedReason = Schema.Literals([
   "no-video-stream",
   "audio-track-not-found",
   "no-adaptive-streaming",
@@ -79,7 +79,7 @@ export const UnsupportedReason = Schema.Literals([
 ]);
 
 /** Why no rung of the ladder fits. */
-export type UnsupportedReason = typeof UnsupportedReason.Type;
+type UnsupportedReason = typeof UnsupportedReason.Type;
 
 /** What happens to the video stream. */
 export type VideoPlan = Data.TaggedEnum<{

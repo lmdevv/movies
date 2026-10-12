@@ -6,17 +6,17 @@
 import { Schema } from "effect";
 
 /** Provider IDs embedded in a name, such as `[tmdbid-603]` or `{imdb-tt0133093}`. */
-export const NameIds = Schema.Struct({
+const NameIds = Schema.Struct({
   tmdb: Schema.optional(Schema.String),
   imdb: Schema.optional(Schema.String),
   tvdb: Schema.optional(Schema.String),
 });
 
 /** Provider IDs embedded in a name. */
-export interface NameIds extends Schema.Schema.Type<typeof NameIds> {}
+interface NameIds extends Schema.Schema.Type<typeof NameIds> {}
 
 /** Kinds of extra material stored next to a title. */
-export const ExtraKind = Schema.Literals([
+const ExtraKind = Schema.Literals([
   "trailer",
   "featurette",
   "behind-the-scenes",
@@ -29,7 +29,7 @@ export const ExtraKind = Schema.Literals([
 ]);
 
 /** Kinds of extra material stored next to a title. */
-export type ExtraKind = typeof ExtraKind.Type;
+type ExtraKind = typeof ExtraKind.Type;
 
 /** What a media file's path says it is. */
 export const MediaName = Schema.TaggedUnion({

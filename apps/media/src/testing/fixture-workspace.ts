@@ -7,7 +7,7 @@ import { Context, Effect, FileSystem, Layer, Path, type PlatformError } from "ef
 import { type FixtureLibrary, generateFixtureLibrary } from "./fixture-library.ts";
 
 /** Paths of one private copy of the fixture library. */
-export interface LibraryCopy {
+interface LibraryCopy {
   readonly root: string;
   readonly movies: string;
   readonly shows: string;

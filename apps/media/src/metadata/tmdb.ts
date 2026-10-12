@@ -170,7 +170,7 @@ const usCertification = (
 };
 
 /** Builds the TMDB plugin. */
-export const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
+const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
   const cache = yield* DiskCache.Service;
   const apiBase = new URL(options.apiBaseUrl);
 

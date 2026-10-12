@@ -59,7 +59,7 @@ const parsePacketList = (csv: string): ReadonlyArray<number> =>
     .toSorted((left, right) => left - right);
 
 /** Builds the keyframe index. */
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const tools = yield* MediaTools.Service;
   const cache = yield* DiskCache.Service;

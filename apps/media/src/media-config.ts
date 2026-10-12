@@ -4,7 +4,7 @@ import { isAbsolute, resolve } from "node:path";
 import { Config, Context, Duration, Effect, Layer, Option, type Redacted, Schema } from "effect";
 
 /** How the service may use the GPU for video transcoding. */
-export type HardwareAccelerationMode = "auto" | "qsv" | "none";
+type HardwareAccelerationMode = "auto" | "qsv" | "none";
 
 /** Typed media service settings. */
 export interface Interface {
@@ -64,7 +64,12 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
   Effect.gen(function* () {
     const port = yield* Config.Port("PORT").pipe(Config.withDefault(4300));
     const mediaBaseUrl = yield* Config.URL("MEDIA_BASE_URL");
-    const libraryRoots = yield* Config.Array(Schema.NonEmptyString, "LIBRARY_ROOTS");
+
+    // No approved roots means every library scan is refused; the service still starts.
+    const libraryRoots = yield* Config.Array(Schema.NonEmptyString, "LIBRARY_ROOTS").pipe(
+      Config.withDefault([]),
+    );
+
     const dataDir = yield* Config.NonEmptyString("DATA_DIR");
     const transcodeDir = yield* Config.NonEmptyString("TRANSCODE_DIR");
 

@@ -12,7 +12,7 @@ import * as MediaConfig from "../media-config.ts";
 import type { MediaProbe } from "../media/media-probe.ts";
 
 /** A subtitle file beside the media file, with its absolute path. */
-export const ResolvedSidecar = Schema.Struct({
+const ResolvedSidecar = Schema.Struct({
   path: Schema.String,
   format: SidecarFormat,
   language: Schema.optional(Schema.String),
@@ -23,7 +23,7 @@ export const ResolvedSidecar = Schema.Struct({
 });
 
 /** A subtitle file beside the media file, with its absolute path. */
-export interface ResolvedSidecar extends Schema.Schema.Type<typeof ResolvedSidecar> {}
+interface ResolvedSidecar extends Schema.Schema.Type<typeof ResolvedSidecar> {}
 
 /** Everything playback needs about one stored media file. */
 export interface ResolvedMediaFile {

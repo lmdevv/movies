@@ -9,7 +9,7 @@ import { HttpClient, type HttpClientError } from "effect/http";
 import { ExternalIds } from "../library/nfo.ts";
 
 /** What a plugin may access. Requests to any other host fail with `PluginPermissionDenied`. */
-export const PluginPermissions = Schema.Struct({
+const PluginPermissions = Schema.Struct({
   hosts: Schema.Array(Schema.String),
   paths: Schema.Array(Schema.String),
 });

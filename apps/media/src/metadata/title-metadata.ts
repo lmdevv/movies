@@ -18,17 +18,17 @@ import {
 } from "./metadata-plugin.ts";
 
 /** An image stored beside the media or hosted by a provider. */
-export const ImageRef = Schema.TaggedUnion({
+const ImageRef = Schema.TaggedUnion({
   /** Path relative to the library root. */
   Local: { path: Schema.String },
   Remote: { url: Schema.String },
 });
 
 /** An image stored beside the media or hosted by a provider. */
-export type ImageRef = typeof ImageRef.Type;
+type ImageRef = typeof ImageRef.Type;
 
 /** Where merged values came from. */
-export const MetadataSource = Schema.Literals(["name", "nfo", "provider"]);
+const MetadataSource = Schema.Literals(["name", "nfo", "provider"]);
 
 /** Merged movie or show metadata. */
 export const TitleMetadata = Schema.Struct({
@@ -74,7 +74,7 @@ export const EpisodeMetadata = Schema.Struct({
 export interface EpisodeMetadata extends Schema.Schema.Type<typeof EpisodeMetadata> {}
 
 /** Local inputs for a movie or a show. */
-export interface TitleInput {
+interface TitleInput {
   readonly kind: TitleKind;
   readonly title: string;
   readonly year: number | undefined;
@@ -84,7 +84,7 @@ export interface TitleInput {
 }
 
 /** Local inputs for an episode. */
-export interface EpisodeInput {
+interface EpisodeInput {
   readonly name: Extract<MediaName, { readonly _tag: "Episode" }>;
   readonly local: LocalMetadata | undefined;
   readonly still: string | undefined;
@@ -92,7 +92,7 @@ export interface EpisodeInput {
 }
 
 /** A merged title plus the provider ID needed for its episodes. */
-export interface ResolvedTitle {
+interface ResolvedTitle {
   readonly metadata: TitleMetadata;
   readonly providerId: string | undefined;
 }
@@ -159,10 +159,7 @@ const sourcesOf = (nfo: boolean, provider: boolean): ReadonlyArray<typeof Metada
 ];
 
 /** Field-by-field merge: local NFO, then provider, then the file name. */
-export const mergeTitle = (
-  input: TitleInput,
-  provider: ProviderTitle | undefined,
-): TitleMetadata => {
+const mergeTitle = (input: TitleInput, provider: ProviderTitle | undefined): TitleMetadata => {
   const nfo = input.local;
 
   return {
@@ -193,7 +190,7 @@ export const mergeTitle = (
 };
 
 /** Field-by-field merge for an episode: local NFO, then provider, then the file name. */
-export const mergeEpisode = (
+const mergeEpisode = (
   input: EpisodeInput,
   provider: ProviderEpisode | undefined,
   providerSeasonPoster: string | undefined,
@@ -217,7 +214,7 @@ const cacheSuccessesOnly = <A, E>(exit: Exit.Exit<Option.Option<A>, E>): Duratio
   Exit.isSuccess(exit) && Option.isSome(exit.value) ? LOOKUP_CACHE.success : Duration.zero;
 
 /** A resolver over the active metadata plugin. */
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const plugin = yield* MetadataPlugin.Service;
 
   const logged =

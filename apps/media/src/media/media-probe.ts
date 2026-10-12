@@ -59,10 +59,10 @@ export const AudioTrack = Schema.Struct({
 export interface AudioTrack extends Schema.Schema.Type<typeof AudioTrack> {}
 
 /** Whether a subtitle format is text (convertible to WebVTT) or pictures (PGS, VobSub). */
-export const SubtitleKind = Schema.Literals(["text", "bitmap"]);
+const SubtitleKind = Schema.Literals(["text", "bitmap"]);
 
 /** One subtitle stream inside the media file. */
-export const EmbeddedSubtitle = Schema.Struct({
+const EmbeddedSubtitle = Schema.Struct({
   index: Schema.Int,
   codec: Schema.String,
   kind: SubtitleKind,
@@ -74,7 +74,7 @@ export const EmbeddedSubtitle = Schema.Struct({
 });
 
 /** One subtitle stream inside the media file. */
-export interface EmbeddedSubtitle extends Schema.Schema.Type<typeof EmbeddedSubtitle> {}
+interface EmbeddedSubtitle extends Schema.Schema.Type<typeof EmbeddedSubtitle> {}
 
 /** What ffprobe found in a media file. */
 export const MediaProbe = Schema.Struct({
@@ -95,12 +95,9 @@ export const MediaProbe = Schema.Struct({
 export interface MediaProbe extends Schema.Schema.Type<typeof MediaProbe> {}
 
 /** ffprobe ran but its output did not describe a media file. */
-export class MediaProbeInvalid extends Schema.TaggedError<MediaProbeInvalid>()(
-  "MediaProbeInvalid",
-  {
-    cause: Schema.Defect(),
-  },
-) {
+class MediaProbeInvalid extends Schema.TaggedError<MediaProbeInvalid>()("MediaProbeInvalid", {
+  cause: Schema.Defect(),
+}) {
   override get message(): string {
     return "Media probe invalid: ffprobe output did not describe a media file";
   }

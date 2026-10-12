@@ -25,7 +25,7 @@ export interface PlaybackGrant {
 }
 
 /** Why a playback token was rejected. */
-export type InvalidTokenReason = "malformed" | "bad-signature" | "wrong-audience" | "expired";
+type InvalidTokenReason = "malformed" | "bad-signature" | "wrong-audience" | "expired";
 
 /** A playback token was missing, forged, expired, or meant for another service. */
 export class InvalidPlaybackToken extends Schema.TaggedError<InvalidPlaybackToken>()(

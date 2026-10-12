@@ -31,7 +31,7 @@ const decodeEntry = Schema.decodeUnknownEffect(Schema.fromJsonString(Entry));
 const encodeEntry = Schema.encodeEffect(Schema.fromJsonString(Entry));
 
 /** A cache rooted at `directory`. */
-export const make = Effect.fn("DiskCache.make")(function* (directory: string) {
+const make = Effect.fn("DiskCache.make")(function* (directory: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 

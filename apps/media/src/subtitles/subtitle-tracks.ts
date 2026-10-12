@@ -123,7 +123,7 @@ const webVttArgs = (input: string, map: ReadonlyArray<string>): ReadonlyArray<st
 ];
 
 /** Builds the converter. */
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const tools = yield* MediaTools.Service;
   const cache = yield* DiskCache.Service;
   const fs = yield* FileSystem.FileSystem;

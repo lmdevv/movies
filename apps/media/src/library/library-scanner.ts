@@ -50,10 +50,10 @@ import { type LocalMetadata, type NfoKind, parseNfo } from "./nfo.ts";
 import { sidecarSubtitles } from "./sidecar-subtitles.ts";
 
 /** How much of a library a scan re-reads. */
-export type ScanMode = "incremental" | "full";
+type ScanMode = "incremental" | "full";
 
 /** One scan of one library folder. */
-export interface ScanRequest {
+interface ScanRequest {
   readonly libraryId: LibraryId;
   /** Absolute path of the library folder. */
   readonly root: string;
@@ -62,13 +62,13 @@ export interface ScanRequest {
 }
 
 /** A file the scan could not read. */
-export interface ScanFailure {
+interface ScanFailure {
   readonly relativePath: string;
   readonly reason: string;
 }
 
 /** What a finished scan did. */
-export interface ScanSummary {
+interface ScanSummary {
   readonly libraryId: LibraryId;
   readonly discovered: number;
   readonly unchanged: number;
@@ -111,7 +111,7 @@ export class LibraryRootUnavailable extends Schema.TaggedError<LibraryRootUnavai
 }
 
 /** A folder inside the library cannot be read. The scan stops so no file is marked missing. */
-export class LibraryFolderUnreadable extends Schema.TaggedError<LibraryFolderUnreadable>()(
+class LibraryFolderUnreadable extends Schema.TaggedError<LibraryFolderUnreadable>()(
   "LibraryFolderUnreadable",
   { folder: Schema.String, code: Schema.String },
 ) {
@@ -121,7 +121,7 @@ export class LibraryFolderUnreadable extends Schema.TaggedError<LibraryFolderUnr
 }
 
 /** Failures that stop a scan. */
-export type ScanError =
+type ScanError =
   | LibraryRootNotApproved
   | LibraryRootUnavailable
   | LibraryFolderUnreadable
@@ -243,7 +243,7 @@ interface Counters {
 }
 
 /** Builds the scanner. */
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;

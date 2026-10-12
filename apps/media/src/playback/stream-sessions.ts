@@ -141,7 +141,7 @@ export class TranscodeFailed extends Schema.TaggedError<TranscodeFailed>()(
 }
 
 /** What negotiation hands to a new session. */
-export interface StartRequest {
+interface StartRequest {
   readonly grant: PlaybackGrant;
   readonly file: ResolvedMediaFile;
   readonly plan: Extract<PlaybackPlan, { readonly _tag: "Hls" }>;
@@ -151,7 +151,7 @@ export interface StartRequest {
 }
 
 /** A started stream. `mode` reflects any fallback that happened while starting. */
-export interface StartedStream {
+interface StartedStream {
   readonly streamId: StreamId;
   readonly generation: number;
   readonly mode: Exclude<PlaybackMode, "direct">;
@@ -159,20 +159,20 @@ export interface StartedStream {
 }
 
 /** The current generation and plan of a stream, for rendering its playlist. */
-export interface StreamView {
+interface StreamView {
   readonly streamId: StreamId;
   readonly generation: number;
   readonly plan: SegmentPlan;
 }
 
 /** Files that make up one served part, in order. */
-export interface SegmentFiles {
+interface SegmentFiles {
   readonly paths: ReadonlyArray<string>;
   readonly sizeBytes: number;
 }
 
 /** Failures of requests against an existing stream. */
-export type StreamRequestError =
+type StreamRequestError =
   | StreamNotFound
   | StreamAccessDenied
   | StreamGenerationGone
@@ -281,7 +281,7 @@ interface Produced {
 const isEncode = VideoPlan.$is("Encode");
 
 /** Builds the session manager. */
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;

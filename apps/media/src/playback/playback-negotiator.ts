@@ -42,7 +42,7 @@ export const NegotiateRequest = Schema.Struct({
 export interface NegotiateRequest extends Schema.Schema.Type<typeof NegotiateRequest> {}
 
 /** A subtitle track with its WebVTT URL, or the reason it cannot be shown. */
-export const NegotiatedSubtitle = Schema.Struct({
+const NegotiatedSubtitle = Schema.Struct({
   ...SubtitleTrack.fields,
   /** WebVTT URL; absent for bitmap tracks, which are not supported yet. */
   url: Schema.optional(Schema.String),
@@ -77,7 +77,7 @@ export const NegotiateResponse = Schema.Struct({
 export interface NegotiateResponse extends Schema.Schema.Type<typeof NegotiateResponse> {}
 
 /** Failures a negotiation can report. */
-export type NegotiateError =
+type NegotiateError =
   | PlaybackToken.InvalidPlaybackToken
   | FileResolver.MediaFileNotFound
   | FileResolver.FileResolverUnavailable
@@ -102,7 +102,7 @@ export const withToken = (url: string, token: Redacted.Redacted): string =>
   `${url}?token=${encodeURIComponent(Redacted.value(token))}`;
 
 /** Builds the negotiator. */
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
   const verifier = yield* PlaybackToken.Service;
   const sessions = yield* StreamSessions.Service;

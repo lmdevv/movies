@@ -25,21 +25,21 @@ import {
 } from "../playback/stream-sessions.ts";
 
 /** A request that moves an HLS stream to another position. */
-export const SeekRequest = Schema.Struct({
+const SeekRequest = Schema.Struct({
   token: Schema.Redacted(Schema.String),
   streamId: StreamId,
   positionSeconds: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
 });
 
 /** Where the stream continues: the generation to load and its playlist. */
-export const SeekResponse = Schema.Struct({
+const SeekResponse = Schema.Struct({
   streamId: StreamId,
   generation: Schema.Int,
   playlistUrl: Schema.String,
 });
 
 /** A request that ends an HLS stream and deletes its temporary output. */
-export const StopRequest = Schema.Struct({
+const StopRequest = Schema.Struct({
   token: Schema.Redacted(Schema.String),
   streamId: StreamId,
 });
@@ -63,7 +63,7 @@ const streamErrors = [
 ] as const;
 
 /** Playback negotiation and HLS stream control. */
-export class PlaybackGroup extends HttpApiGroup.make("playback")
+class PlaybackGroup extends HttpApiGroup.make("playback")
   .add(
     HttpApiEndpoint.post("negotiate", "/negotiate", {
       payload: NegotiateRequest,
@@ -93,7 +93,7 @@ export class PlaybackGroup extends HttpApiGroup.make("playback")
   .prefix("/api/playback") {}
 
 /** Liveness and capability summary. */
-export class SystemGroup extends HttpApiGroup.make("system")
+class SystemGroup extends HttpApiGroup.make("system")
   .add(HttpApiEndpoint.get("health", "/health", { success: HealthResponse }))
   .prefix("/api") {}
 

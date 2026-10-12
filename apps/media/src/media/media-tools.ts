@@ -21,7 +21,7 @@ export class MediaToolFailed extends Schema.TaggedError<MediaToolFailed>()("Medi
 }
 
 /** A long-running ffmpeg process owned by the scope it was started in. */
-export interface RunningTool {
+interface RunningTool {
   /** Waits for the process to exit; fails with `MediaToolFailed` on a non-zero exit. */
   readonly exit: Effect.Effect<void, MediaToolFailed>;
   /** The latest standard error output, path-scrubbed. */
@@ -56,7 +56,7 @@ const scrubPaths = (text: string, args: ReadonlyArray<string>): string =>
     .reduce((scrubbed, path) => scrubbed.replaceAll(path, "<path>"), text);
 
 /** Builds the media tools over a child process spawner. */
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 

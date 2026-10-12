@@ -11,7 +11,7 @@ import { MediaName } from "./media-naming.ts";
 import { SidecarSubtitle } from "./sidecar-subtitles.ts";
 
 /** What the store already knows about a file; unchanged files are skipped. */
-export const IndexedFile = Schema.Struct({
+const IndexedFile = Schema.Struct({
   /** Path relative to the library root, with `/` separators. */
   relativePath: Schema.String,
   sizeBytes: Schema.Int,
@@ -19,7 +19,7 @@ export const IndexedFile = Schema.Struct({
 });
 
 /** What the store already knows about a file. */
-export interface IndexedFile extends Schema.Schema.Type<typeof IndexedFile> {}
+interface IndexedFile extends Schema.Schema.Type<typeof IndexedFile> {}
 
 /** One new or changed media file with everything the scan learned about it. */
 export const ScannedFile = Schema.Struct({
