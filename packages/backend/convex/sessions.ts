@@ -1,6 +1,8 @@
 import { v } from "convex/values";
 
-import { mutation, query } from "./_generated/server";
+import { getAuthSessionId } from "@convex-dev/auth/server";
+
+import { internalMutation, mutation, query } from "./_generated/server";
 import { fail } from "./lib/errors";
 import { createdAt } from "./lib/present";
 import { sessionScopes } from "./lib/scopes";
@@ -45,5 +47,18 @@ export const revoke = mutation({
     await endAuthSession(ctx, sessionId);
 
     return { ok: true as const };
+  },
+});
+
+/** Ends the caller's own sign-in session for `auth:signOut`; signing out twice is harmless. */
+export const endCurrent = internalMutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const sessionId = ctx.db.normalizeId("authSessions", (await getAuthSessionId(ctx)) ?? "");
+
+    if (sessionId !== null) await endAuthSession(ctx, sessionId);
+
+    return null;
   },
 });

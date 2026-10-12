@@ -32,7 +32,16 @@ choices made while implementing them. Update it in the same PR that changes a de
   maximum or unrated titles, and asking for one directly reports `not_found`.
 - Any profile may have a 4 to 8 digit PIN. Each session unlocks a PIN profile on its own
   (`profiles.unlock`); the unlock lives on the session row. Five wrong PINs in a row lock the
-  profile for five minutes. Changing or deleting a PIN profile requires it to be unlocked.
+  profile for five minutes. Changing or deleting a PIN profile requires it to be unlocked. The web
+  app locks a profile again (`profiles.lock`) when the browser switches to another one, so a PIN
+  guards a profile every time someone picks it, not once per sign-in. The operator clears a
+  forgotten PIN with `convex run maintenance:clearProfilePin '{"profileId":"…"}'`.
+- A password session withholds `account`, `manage`, and `admin` while the account has a kids or
+  rated profile, every unrestricted profile has a PIN, and none of them is unlocked on the
+  session. Only then do PINs keep someone in a limited profile, and only then could that profile
+  otherwise lift its own limits, add an open profile, mint keys, or re-rate titles. `account.viewer`
+  reports the reduced scopes, so the web app hides those screens. API key and device sessions are
+  exempt: whoever created them held those scopes.
 - Sessions created by an API key or device sign-in carry a grant with explicit scopes, stored on
   the `authSessions` row itself. Effective scopes are the grant's scopes that the role still
   allows, so demoting an admin strips `manage` and `admin` from their keys and devices at once.
@@ -51,7 +60,12 @@ choices made while implementing them. Update it in the same PR that changes a de
   grant carries only `media-service`, which allows the media functions and nothing else.
 - Every public Convex function checks the viewer's scopes server-side, and checks the session row
   on every call: signing out, revoking a key, revoking a session, or disabling the account ends
-  its tokens immediately and ends the playback sessions it started.
+  its tokens immediately and ends the playback sessions it started. `auth:signOut` is ours, not
+  Convex Auth's: it removes the session and its refresh tokens as Convex Auth does and also ends
+  the session's playback. Renewing a playback token checks the profile, its PIN unlock, its limits,
+  and the library grant again. `packages/backend/test/stack.test.ts` calls every public function
+  (found from `convex/_generated/api`) anonymously, as the media service, as a member, and with a
+  read-only key, and expects each call outside the registry's scope to be refused.
 
 ## Command registry
 

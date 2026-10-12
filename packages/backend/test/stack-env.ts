@@ -81,3 +81,39 @@ export const importDocuments = (table: string, documents: ReadonlyArray<string>)
     rmSync(directory, { recursive: true, force: true });
   }
 };
+
+/** Modules that hold no Convex functions of ours: helpers, the cron table, and the HTTP router. */
+const isFunctionModule = (name: string): boolean =>
+  !name.startsWith("lib_") && name !== "crons" && name !== "http";
+
+/** The modules `convex/_generated/api.d.ts` declares, so a new file is found without a list. */
+export const apiModules = (): ReadonlyArray<string> => {
+  const declaration = readFileSync(join(backendDir, "convex/_generated/api.d.ts"), "utf8");
+  const fullApi = declaration.slice(declaration.indexOf("declare const fullApi"));
+  const body = fullApi.slice(0, fullApi.indexOf("}>"));
+
+  return [...body.matchAll(/^\s+(\w+): typeof \w+;$/gmu)].flatMap(([, name]) =>
+    name !== undefined && isFunctionModule(name) ? [name] : [],
+  );
+};
+
+/**
+ * One real document ID per table, read with the Convex CLI's admin access, so generated arguments
+ * pass `v.id` validation and calls reach the function's own checks.
+ */
+export const sampleIds = (tables: Iterable<string>): ReadonlyMap<string, string> =>
+  new Map(
+    [...new Set(tables)].map((table) => {
+      const listed = execFileSync(
+        join(backendDir, "node_modules/.bin/convex"),
+        ["data", table, "--limit", "1", "--format", "jsonl"],
+        { cwd: backendDir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+      );
+
+      const sampled = /"_id":\s*"(?<id>[^"]+)"/u.exec(listed)?.groups?.["id"];
+
+      if (sampled === undefined) throw new Error(`The ${table} table is empty; nothing to sample`);
+
+      return [table, sampled] as const;
+    }),
+  );

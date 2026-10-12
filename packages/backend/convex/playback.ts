@@ -195,6 +195,13 @@ export const renewToken = mutation({
 
     if (session.status !== "active") return fail("conflict", "This playback session has ended");
 
+    // The profile may have been locked or limited, or the library's grant revoked, since it began.
+    await loadVisibleTitle(
+      ctx,
+      await loadAudience(ctx, viewer, session.profileId),
+      session.titleId,
+    );
+
     return issueToken(session);
   },
 });
