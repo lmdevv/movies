@@ -4,7 +4,7 @@
  */
 import { Context, type Effect, Schema } from "effect";
 
-import type { LibraryId } from "../ids.ts";
+import type { LibraryId } from "@movies/contracts/ids";
 import { MediaProbe } from "../media/media-probe.ts";
 import { EpisodeMetadata, TitleMetadata } from "../metadata/title-metadata.ts";
 import { MediaName } from "./media-naming.ts";

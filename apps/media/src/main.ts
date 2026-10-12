@@ -9,8 +9,9 @@ import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Effect, Layer, Option } from "effect";
 import { FetchHttpClient } from "effect/http";
 
+import * as BackendHealth from "./backend-health.ts";
 import * as HttpServer from "./http/http-server.ts";
-import { LibraryId } from "./ids.ts";
+import { LibraryId } from "@movies/contracts/ids";
 import * as LibraryMonitor from "./library/library-monitor.ts";
 import * as MemoryLibrary from "./library/memory-library.ts";
 import * as MediaConfig from "./media-config.ts";
@@ -49,7 +50,9 @@ const standaloneLibraries = Layer.unwrap(
 
 const application = Layer.mergeAll(HttpServer.layer, standaloneLibraries).pipe(
   Layer.provide(servicesLayer),
-  Layer.provide(Layer.mergeAll(MemoryLibrary.layer, PlaybackReporter.layerLog)),
+  Layer.provide(
+    Layer.mergeAll(MemoryLibrary.layer, PlaybackReporter.layerLog, BackendHealth.layerStandalone),
+  ),
   Layer.provide(Observability.layer),
   Layer.provide(MediaConfig.layer),
   Layer.provide(Layer.mergeAll(NodeServices.layer, FetchHttpClient.layer)),

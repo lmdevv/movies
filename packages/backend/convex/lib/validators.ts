@@ -445,6 +445,7 @@ export const metadataField = v.union(
 export const playbackMode = v.union(
   v.literal("direct"),
   v.literal("remux"),
+  v.literal("audio-transcode"),
   v.literal("transcode-qsv"),
   v.literal("transcode-software"),
 );

@@ -4,7 +4,7 @@ import { Context, Duration, Effect, FileSystem, Layer, Option, Path, Schedule } 
 import { FetchHttpClient } from "effect/http";
 
 import * as DiskCache from "../disk-cache.ts";
-import { LibraryId } from "../ids.ts";
+import { LibraryId } from "@movies/contracts/ids";
 import * as MediaTools from "../media/media-tools.ts";
 import * as MetadataResolver from "../metadata/title-metadata.ts";
 import * as Tmdb from "../metadata/tmdb.ts";

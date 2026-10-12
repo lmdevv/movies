@@ -5,15 +5,16 @@
  */
 import { createHash } from "node:crypto";
 
+import { MediaFileNotFound } from "@movies/contracts/media-playback";
 import { Context, Effect, Layer, Ref } from "effect";
 
-import { FileId, type LibraryId } from "../ids.ts";
+import { MediaFileId, type LibraryId } from "@movies/contracts/ids";
 import * as FileResolver from "../playback/file-resolver.ts";
 import * as LibrarySink from "./library-sink.ts";
 
 /** One stored file. */
 export interface StoredFile {
-  readonly fileId: FileId;
+  readonly fileId: MediaFileId;
   readonly libraryId: LibraryId;
   readonly record: LibrarySink.ScannedFile;
   readonly missing: boolean;
@@ -34,13 +35,13 @@ export class Service extends Context.Service<Service, Interface>()("@movies/medi
 
 interface State {
   readonly roots: ReadonlyMap<LibraryId, string>;
-  readonly files: ReadonlyMap<FileId, StoredFile>;
+  readonly files: ReadonlyMap<MediaFileId, StoredFile>;
   readonly progress: ReadonlyMap<LibraryId, ReadonlyArray<LibrarySink.ScanProgress>>;
 }
 
 /** A stable file ID derived from the library and the path inside it. */
-export const fileIdOf = (libraryId: LibraryId, relativePath: string): FileId =>
-  FileId.make(
+export const fileIdOf = (libraryId: LibraryId, relativePath: string): MediaFileId =>
+  MediaFileId.make(
     createHash("sha256")
       .update(`${libraryId}\u0000${relativePath}`)
       .digest("base64url")
@@ -118,13 +119,13 @@ export const layer: Layer.Layer<Service | LibrarySink.Service | FileResolver.Ser
       });
 
       const resolver = FileResolver.Service.of({
-        resolve: Effect.fn("MemoryLibrary.resolve")(function* (fileId: FileId) {
+        resolve: Effect.fn("MemoryLibrary.resolve")(function* (fileId: MediaFileId) {
           const current = yield* Ref.get(state);
           const stored = current.files.get(fileId);
           const root = stored === undefined ? undefined : current.roots.get(stored.libraryId);
 
           if (stored === undefined || stored.missing || root === undefined) {
-            return yield* new FileResolver.MediaFileNotFound({ fileId });
+            return yield* new MediaFileNotFound({ fileId });
           }
 
           const absolute = (relativePath: string) => `${root}/${relativePath}`;

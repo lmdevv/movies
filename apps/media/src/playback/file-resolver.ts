@@ -4,9 +4,10 @@
  * client. `resolveInsideRoots` re-checks every resolved path against the approved library roots
  * after following symbolic links, so a bad record cannot expose other files.
  */
+import { type FileResolverUnavailable, MediaFileNotFound } from "@movies/contracts/media-playback";
 import { Context, Effect, FileSystem, Option, Path, Schema } from "effect";
 
-import type { FileId } from "../ids.ts";
+import type { MediaFileId } from "@movies/contracts/ids";
 import { SidecarFormat } from "../library/sidecar-subtitles.ts";
 import * as MediaConfig from "../media-config.ts";
 import type { MediaProbe } from "../media/media-probe.ts";
@@ -27,7 +28,7 @@ interface ResolvedSidecar extends Schema.Schema.Type<typeof ResolvedSidecar> {}
 
 /** Everything playback needs about one stored media file. */
 export interface ResolvedMediaFile {
-  readonly fileId: FileId;
+  readonly fileId: MediaFileId;
   /** Absolute path; `resolveInsideRoots` has checked it lies inside an approved library root. */
   readonly path: string;
   readonly sizeBytes: number;
@@ -36,32 +37,10 @@ export interface ResolvedMediaFile {
   readonly subtitles: ReadonlyArray<ResolvedSidecar>;
 }
 
-/** No stored file has this ID, or it is marked missing. */
-export class MediaFileNotFound extends Schema.TaggedError<MediaFileNotFound>()(
-  "MediaFileNotFound",
-  { fileId: Schema.String },
-  { httpApiStatus: 404 },
-) {
-  override get message(): string {
-    return `Media file not found: ${this.fileId}`;
-  }
-}
-
-/** The file store cannot answer right now. */
-export class FileResolverUnavailable extends Schema.TaggedError<FileResolverUnavailable>()(
-  "FileResolverUnavailable",
-  { cause: Schema.Defect() },
-  { httpApiStatus: 503 },
-) {
-  override get message(): string {
-    return "File resolver unavailable: the file store did not answer";
-  }
-}
-
 /** Resolves stored file IDs. */
 export interface Interface {
   readonly resolve: (
-    fileId: FileId,
+    fileId: MediaFileId,
   ) => Effect.Effect<ResolvedMediaFile, MediaFileNotFound | FileResolverUnavailable>;
 }
 
@@ -78,7 +57,7 @@ const isWithin = (root: string, candidate: string, separator: string): boolean =
  * and logged; its path is never returned to the client.
  */
 export const resolveInsideRoots = Effect.fn("FileResolver.resolveInsideRoots")(function* (
-  fileId: FileId,
+  fileId: MediaFileId,
 ) {
   const resolver = yield* Service;
   const config = yield* MediaConfig.Service;

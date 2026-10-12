@@ -3,9 +3,9 @@
  * stream with the media service, and report progress while it plays. Watched marks happen on the
  * server at 90 percent; the client only reports what it actually played.
  *
- * The media service's playback API is an Effect HttpApi that has not moved into the contracts
- * yet. The request and response schemas here mirror its `POST /api/playback/negotiate`, `seek`,
- * and `stop` routes and keep only the fields clients use.
+ * The media service's playback API is defined once in `@movies/contracts/media-playback`; requests
+ * and responses here are its schemas, and its failures arrive as its tagged errors. `recoveryFor`
+ * says what a player should do about each one.
  */
 import type {
   DeviceId,
@@ -15,6 +15,15 @@ import type {
   RoomId,
   TitleId,
 } from "@movies/contracts/ids";
+import {
+  type ClientCapabilities,
+  MEDIA_ROUTES,
+  NegotiateRequest,
+  NegotiateResponse,
+  SeekRequest,
+  SeekResponse,
+  StopRequest,
+} from "@movies/contracts/media-playback";
 import type { Episode } from "@movies/contracts/models/catalog";
 import type {
   ProgressEvent,
@@ -22,79 +31,13 @@ import type {
   StartedPlayback,
 } from "@movies/contracts/models/playback";
 import { Milliseconds } from "@movies/contracts/units";
-import { Duration, Effect, Option, Redacted, Schedule, Schema, Stream } from "effect";
+import { Clock, Duration, Effect, Match, Option, Redacted, Schedule, Schema, Stream } from "effect";
 
-import { requestJson } from "./media-http";
+import type { PlaybackCallError } from "./media-http";
+import { requestPlayback } from "./media-http";
 import { MoviesClient } from "./movies-client";
 import type { PlayerEvent, PlayerPort } from "./room-sync/player-port";
 import { playerEvents } from "./room-sync/player-port";
-import type { CallError } from "./sdk-errors";
-
-/** A video codec the device decodes. Names follow ffmpeg (`h264`, `hevc`, `av1`, `vp9`). */
-const VideoCodecSupport = Schema.Struct({
-  codec: Schema.String,
-  profiles: Schema.optionalKey(Schema.Array(Schema.String)),
-  maxLevel: Schema.optionalKey(Schema.Int),
-  maxBitDepth: Schema.optionalKey(Schema.Int),
-  dynamicRanges: Schema.optionalKey(
-    Schema.Array(Schema.Literals(["sdr", "hdr10", "hlg", "dolby-vision"])),
-  ),
-});
-
-/** What the device can play. Browser checks are hints; a failed direct stream renegotiates. */
-export const ClientCapabilities = Schema.Struct({
-  /** Containers played progressively over byte ranges, such as `mp4` or `webm`. */
-  containers: Schema.Array(Schema.Literals(["mp4", "mov", "mkv", "webm", "avi", "ts", "other"])),
-  videoCodecs: Schema.Array(VideoCodecSupport),
-  audioCodecs: Schema.Array(
-    Schema.Struct({ codec: Schema.String, maxChannels: Schema.optionalKey(Schema.Int) }),
-  ),
-  maxWidth: Schema.Int,
-  maxHeight: Schema.Int,
-  /** Plays HLS natively (Safari, TVs). */
-  hls: Schema.Boolean,
-  /** Has Media Source Extensions, so a script player such as hls.js can play fMP4 HLS. */
-  mse: Schema.Boolean,
-});
-
-/** What the device can play. */
-export interface ClientCapabilities extends Schema.Schema.Type<typeof ClientCapabilities> {}
-
-/** A stream the media service negotiated for this device. */
-export const NegotiatedStream = Schema.Struct({
-  /** `direct` plays the file over byte ranges; the other modes are HLS. */
-  mode: Schema.String,
-  /** The file URL or the HLS playlist URL, with the playback token in its query. */
-  url: Schema.String,
-  /** HLS only: the stream and generation the playlist belongs to. */
-  streamId: Schema.optionalKey(Schema.String),
-  generation: Schema.optionalKey(Schema.Int),
-  startSeconds: Schema.Finite,
-  durationSeconds: Schema.Finite,
-  subtitles: Schema.Array(
-    Schema.Struct({
-      id: Schema.String,
-      kind: Schema.String,
-      language: Schema.optionalKey(Schema.String),
-      title: Schema.optionalKey(Schema.String),
-      forced: Schema.Boolean,
-      default: Schema.Boolean,
-      url: Schema.optionalKey(Schema.String),
-    }),
-  ),
-  /** When the playback token expires; renegotiate before then. */
-  expiresAt: Schema.Finite,
-});
-
-/** A negotiated stream. */
-export interface NegotiatedStream extends Schema.Schema.Type<typeof NegotiatedStream> {}
-
-/** Where an HLS stream continues after a seek. */
-const SeekedStream = Schema.Struct({
-  streamId: Schema.String,
-  generation: Schema.Int,
-  playlistUrl: Schema.String,
-});
 
 const mediaUrl = (started: StartedPlayback, path: string): string =>
   `${started.mediaBaseUrl.replace(/\/+$/u, "")}${path}`;
@@ -117,10 +60,15 @@ export interface PlaybackRequest {
 /** A playing session on this device. */
 export interface Playback {
   readonly started: StartedPlayback;
-  readonly stream: NegotiatedStream;
+  readonly stream: NegotiateResponse;
 }
 
-const encodeCapabilities = Schema.encodeEffect(Schema.toCodecJson(ClientCapabilities));
+const encodeJson = <A, I>(schema: Schema.Codec<A, I>, value: A): Effect.Effect<Schema.Json> =>
+  Schema.encodeEffect(Schema.toCodecJson(schema))(value).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)),
+    // The request schemas only hold JSON values; failing to encode one is a defect.
+    Effect.orDie,
+  );
 
 /** Asks the media service for a stream of a started session's file. */
 export const negotiate = Effect.fn("Playback.negotiate")(function* (
@@ -128,65 +76,159 @@ export const negotiate = Effect.fn("Playback.negotiate")(function* (
   capabilities: ClientCapabilities,
   startAtMs: Milliseconds,
 ) {
-  return yield* requestJson(
+  return yield* requestPlayback(
     {
       operation: "playback.negotiate",
-      url: mediaUrl(started, "/api/playback/negotiate"),
+      url: mediaUrl(started, MEDIA_ROUTES.negotiate),
       method: "POST",
-      body: Option.some({
-        token: Redacted.value(Redacted.make(started.token)),
-        capabilities: yield* encodeCapabilities(capabilities).pipe(Effect.orDie),
-        startSeconds: startAtMs / 1000,
-      }),
+      body: Option.some(
+        yield* encodeJson(NegotiateRequest, {
+          token: Redacted.make(started.token),
+          capabilities,
+          startSeconds: startAtMs / 1000,
+        }),
+      ),
       bearer: Option.none(),
     },
-    NegotiatedStream,
+    NegotiateResponse,
   );
 });
 
-/** Moves an HLS stream to `positionMs`; returns the playlist to load next. */
+/** Moves an HLS stream to `positionMs`; returns the playlist to load next, or none for direct play. */
 export const seekStream = Effect.fn("Playback.seekStream")(function* (
   playback: Playback,
   positionMs: Milliseconds,
 ) {
   const streamId = Option.fromNullishOr(playback.stream.streamId);
 
-  if (Option.isNone(streamId)) return Option.none<typeof SeekedStream.Type>();
+  if (Option.isNone(streamId)) return Option.none<SeekResponse>();
 
   return Option.some(
-    yield* requestJson(
+    yield* requestPlayback(
       {
         operation: "playback.seek",
-        url: mediaUrl(playback.started, "/api/playback/seek"),
+        url: mediaUrl(playback.started, MEDIA_ROUTES.seek),
         method: "POST",
-        body: Option.some({
-          token: playback.started.token,
-          streamId: streamId.value,
-          positionSeconds: positionMs / 1000,
-        }),
+        body: Option.some(
+          yield* encodeJson(SeekRequest, {
+            token: Redacted.make(playback.started.token),
+            streamId: streamId.value,
+            positionSeconds: positionMs / 1000,
+          }),
+        ),
         bearer: Option.none(),
       },
-      SeekedStream,
+      SeekResponse,
     ),
   );
 });
 
 /** Ends an HLS stream so the media service can stop encoding and delete its segments. */
-const stopStream = (playback: Playback): Effect.Effect<void, CallError> =>
+const stopStream = (playback: Playback): Effect.Effect<void, PlaybackCallError> =>
   Option.match(Option.fromNullishOr(playback.stream.streamId), {
     onNone: () => Effect.void,
     onSome: (streamId) =>
-      requestJson(
-        {
-          operation: "playback.stop",
-          url: mediaUrl(playback.started, "/api/playback/stop"),
-          method: "POST",
-          body: Option.some({ token: playback.started.token, streamId }),
-          bearer: Option.none(),
-        },
-        Schema.Null,
-      ).pipe(Effect.asVoid),
+      encodeJson(StopRequest, { token: Redacted.make(playback.started.token), streamId }).pipe(
+        Effect.flatMap((body) =>
+          requestPlayback(
+            {
+              operation: "playback.stop",
+              url: mediaUrl(playback.started, MEDIA_ROUTES.stop),
+              method: "POST",
+              body: Option.some(body),
+              bearer: Option.none(),
+            },
+            Schema.Null,
+          ),
+        ),
+        Effect.asVoid,
+      ),
   });
+
+/**
+ * What a player should do after a playback API failure:
+ *
+ * - `reload-playlist`: a seek replaced the HLS generation; load the current one (`seekStream`).
+ * - `renegotiate`: the stream is gone (a restart or idle timeout); call `renegotiate`.
+ * - `renew-token`: the token expired; call `renegotiate`, which renews it first.
+ * - `new-session`: the playback session ended (signed out, or another device took over); start a
+ *   new one with `start`.
+ * - `retry-later`: the service is busy or briefly unable to answer; retry after a pause.
+ * - `unsupported`: this device cannot play the file in any mode; tell the viewer.
+ * - `fail`: anything else; report the error.
+ */
+export type Recovery =
+  | "reload-playlist"
+  | "renegotiate"
+  | "renew-token"
+  | "new-session"
+  | "retry-later"
+  | "unsupported"
+  | "fail";
+
+/** The recovery for a playback API failure. */
+export const recoveryFor = (error: PlaybackCallError): Recovery =>
+  Match.valueTags(error, {
+    StreamGenerationGone: (): Recovery => "reload-playlist",
+    StreamNotFound: (): Recovery => "renegotiate",
+    PlaybackTokenInvalid: ({ reason }): Recovery => (reason === "expired" ? "renew-token" : "fail"),
+    PlaybackSessionEnded: (): Recovery => "new-session",
+    TranscodeCapacityReached: (): Recovery => "retry-later",
+    InsufficientTranscodeSpace: (): Recovery => "retry-later",
+    FileResolverUnavailable: (): Recovery => "retry-later",
+    SegmentNotReady: (): Recovery => "retry-later",
+    TransportError: (): Recovery => "retry-later",
+    UnsupportedPlayback: (): Recovery => "unsupported",
+    MediaFileNotFound: (): Recovery => "fail",
+    StreamAccessDenied: (): Recovery => "fail",
+    SegmentNotFound: (): Recovery => "fail",
+    TranscodeFailed: (): Recovery => "fail",
+    KeyframeIndexFailed: (): Recovery => "fail",
+    ProtocolError: (): Recovery => "fail",
+  });
+
+/** Renew a token this long before it expires, so no media request races the expiry. */
+const TOKEN_RENEW_MARGIN_MS = 5 * 60 * 1000;
+
+/**
+ * Negotiates again at `positionMs`, for example after `StreamNotFound` or before the token
+ * expires: renews the playback token first when it expires within five minutes, then returns the
+ * playback with the new token and stream. Media URLs carry the token, so load the new `stream.url`.
+ */
+export const renegotiate = Effect.fn("Playback.renegotiate")(function* (
+  playback: Playback,
+  capabilities: ClientCapabilities,
+  positionMs: Milliseconds,
+) {
+  const client = yield* MoviesClient;
+  const now = yield* Clock.currentTimeMillis;
+
+  const renewed =
+    playback.started.tokenExpiresAt - TOKEN_RENEW_MARGIN_MS <= now
+      ? Option.some(
+          yield* client.mutate("playback.renewToken", { sessionId: playback.started.sessionId }),
+        )
+      : Option.none();
+
+  const started: StartedPlayback = Option.match(renewed, {
+    onNone: () => playback.started,
+    onSome: ({ token, tokenExpiresAt }) => ({
+      sessionId: playback.started.sessionId,
+      titleId: playback.started.titleId,
+      episodeId: playback.started.episodeId,
+      file: playback.started.file,
+      token,
+      tokenExpiresAt,
+      mediaBaseUrl: playback.started.mediaBaseUrl,
+      resumePositionMs: playback.started.resumePositionMs,
+    }),
+  });
+
+  const stream = yield* negotiate(started, capabilities, positionMs);
+  const next: Playback = { started, stream };
+
+  return next;
+});
 
 /**
  * Starts playing: creates the session (which ends this device's previous one), then negotiates

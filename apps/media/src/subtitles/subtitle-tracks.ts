@@ -4,29 +4,12 @@
  * their conversion to WebVTT. Text formats convert; bitmap formats (PGS, VobSub) are listed as
  * unsupported. ASS/SSA styling is dropped to plain text with basic emphasis.
  */
+import type { SubtitleTrack } from "@movies/contracts/media-playback";
 import { Context, Duration, Effect, FileSystem, Layer, Option, Schema } from "effect";
 
 import * as DiskCache from "../disk-cache.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import type { ResolvedMediaFile } from "../playback/file-resolver.ts";
-
-/** One subtitle track a client can choose. */
-export const SubtitleTrack = Schema.Struct({
-  /** Stable ID within the file: `e<stream index>` for embedded, `x<position>` for sidecar files. */
-  id: Schema.String,
-  source: Schema.Literals(["embedded", "sidecar"]),
-  /** ffmpeg codec name or sidecar extension, such as `subrip`, `ass`, or `hdmv_pgs_subtitle`. */
-  codec: Schema.String,
-  kind: Schema.Literals(["text", "bitmap"]),
-  language: Schema.optional(Schema.String),
-  title: Schema.optional(Schema.String),
-  forced: Schema.Boolean,
-  default: Schema.Boolean,
-  hearingImpaired: Schema.Boolean,
-});
-
-/** One subtitle track a client can choose. */
-export interface SubtitleTrack extends Schema.Schema.Type<typeof SubtitleTrack> {}
 
 /** Every subtitle track of `file`, embedded first. */
 export const subtitleTracks = (file: ResolvedMediaFile): ReadonlyArray<SubtitleTrack> => [

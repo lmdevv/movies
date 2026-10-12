@@ -9,8 +9,9 @@ import { NodeHttpServer, NodeServices } from "@effect/platform-node";
 import { Context, Effect, Layer, Path } from "effect";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
 
+import * as BackendHealth from "../backend-health.ts";
 import { routesLayer, tokenSafeTracing } from "../http/http-server.ts";
-import { type FileId, LibraryId } from "../ids.ts";
+import { type MediaFileId, LibraryId } from "@movies/contracts/ids";
 import * as LibraryScanner from "../library/library-scanner.ts";
 import * as MemoryLibrary from "../library/memory-library.ts";
 import { servicesLayer } from "../media-service.ts";
@@ -23,7 +24,7 @@ export interface Interface {
   /** Base URL of the running server, such as `http://127.0.0.1:41234`. */
   readonly baseUrl: string;
   readonly transcodeDir: string;
-  readonly fileId: (library: "movies" | "shows", relativePath: string) => FileId;
+  readonly fileId: (library: "movies" | "shows", relativePath: string) => MediaFileId;
 }
 
 /** The running test server. */
@@ -56,7 +57,13 @@ export const layer = (overrides: Readonly<Record<string, string>> = {}) =>
       });
 
       const services = servicesLayer.pipe(
-        Layer.provideMerge(Layer.mergeAll(MemoryLibrary.layer, PlaybackReporter.layerRecording)),
+        Layer.provideMerge(
+          Layer.mergeAll(
+            MemoryLibrary.layer,
+            PlaybackReporter.layerRecording,
+            BackendHealth.layerStandalone,
+          ),
+        ),
         Layer.provideMerge(config),
       );
 

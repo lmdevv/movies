@@ -46,6 +46,7 @@ const playback: Playback = {
     url: "http://127.0.0.1:9/media",
     startSeconds: 0,
     durationSeconds: 600,
+    video: { codec: "h264", width: 1920, height: 1080, dynamicRange: "sdr" },
     subtitles: [],
     expiresAt: 1_760_000_000_000,
   },

@@ -2,11 +2,14 @@ import { assert, describe, layer } from "@effect/vitest";
 import { Effect, FileSystem, Path, Schema } from "effect";
 import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/http";
 
+import {
+  type ClientCapabilities,
+  HealthResponse,
+  NegotiateResponse,
+} from "@movies/contracts/media-playback";
+
 import * as MediaTools from "../media/media-tools.ts";
-import { HealthResponse } from "./media-api.ts";
 import { parseFfprobeJson } from "../media/media-probe.ts";
-import type { ClientCapabilities } from "../playback/playback-decision.ts";
-import { NegotiateResponse } from "../playback/playback-negotiator.ts";
 import * as PlaybackReporter from "../playback/playback-reporter.ts";
 import { ffmpegAvailable, qsvUsable } from "../testing/fixture-library.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
@@ -162,6 +165,7 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           status: "ok",
           activeStreams: 0,
           hardwareAcceleration: "none",
+          backend: "standalone",
         });
       }),
     );
@@ -239,8 +243,9 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
 
         assert.strictEqual(expired.status, 401);
         assert.deepStrictEqual(yield* json(expired), {
-          _tag: "InvalidPlaybackToken",
+          _tag: "PlaybackTokenInvalid",
           reason: "expired",
+          message: "Playback token has expired",
         });
 
         const valid = signTestToken({ fid: fileId });
@@ -369,7 +374,7 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const token = signTestToken({ fid: fileId, sid: "software" });
         const result = yield* negotiated({ token, capabilities: smallScreen, startSeconds: 8 });
 
-        assert.strictEqual(result.mode, "software-transcode");
+        assert.strictEqual(result.mode, "transcode-software");
         const streamId = result.streamId ?? "";
         assert.deepStrictEqual(result.video, {
           codec: "h264",
@@ -547,7 +552,7 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           capabilities: smallScreen,
         });
 
-        assert.strictEqual(retry.mode, "software-transcode");
+        assert.strictEqual(retry.mode, "transcode-software");
       }),
     );
   });
@@ -573,7 +578,7 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           capabilities: smallScreen,
         });
 
-        assert.strictEqual(result.mode, "software-transcode");
+        assert.strictEqual(result.mode, "transcode-software");
         const { segment } = yield* fetchSegment(local(server.baseUrl, result.url), 0);
 
         assert.strictEqual(segment.status, 200);
@@ -583,8 +588,8 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           events.some(
             (event) =>
               PlaybackReporter.PlaybackEvent.guards.ModeChanged(event) &&
-              event.from === "hardware-transcode" &&
-              event.to === "software-transcode",
+              event.from === "transcode-qsv" &&
+              event.to === "transcode-software",
           ),
         );
 
@@ -616,7 +621,7 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           capabilities: browser,
         });
 
-        assert.strictEqual(result.mode, "hardware-transcode");
+        assert.strictEqual(result.mode, "transcode-qsv");
         assert.deepStrictEqual(result.video, {
           codec: "h264",
           width: 320,

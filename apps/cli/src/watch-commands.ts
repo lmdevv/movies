@@ -3,11 +3,12 @@ import { commands } from "@movies/contracts/commands";
 import { NotFound } from "@movies/contracts/errors";
 import { EpisodeId } from "@movies/contracts/ids";
 import type { ProfileId } from "@movies/contracts/ids";
+import { type ClientCapabilities, PlaybackApiError } from "@movies/contracts/media-playback";
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import { MoviesClient, Playback } from "@movies/sdk/effect";
-import { Effect, Option } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
 
-import { LaunchError } from "./cli-errors";
+import { LaunchError, PlaybackRefused } from "./cli-errors";
 import { runAttached } from "./files";
 import type { ShortcutCommand } from "./invocation";
 import {
@@ -68,7 +69,7 @@ export const findTitle = Effect.fn("Watch.findTitle")(function* (
 });
 
 /** What mpv, VLC, and similar desktop players can play: everything, so direct play wins. */
-const DESKTOP_PLAYER: Playback.ClientCapabilities = {
+const DESKTOP_PLAYER: ClientCapabilities = {
   containers: ["mp4", "mov", "mkv", "webm", "avi", "ts", "other"],
   videoCodecs: ["h264", "hevc", "av1", "vp9", "vp8", "mpeg4", "mpeg2video", "vc1"].map((codec) => ({
     codec,
@@ -169,7 +170,9 @@ const play: ShortcutCommand = {
               });
             });
 
-      const playback = yield* connection.withSession(
+      // Playback API failures pass through the session wrapper as values, so a refreshed sign-in
+      // retries only the Convex calls, then become the CLI's playback error.
+      const outcome = yield* connection.withSession(
         Playback.start({
           profileId,
           deviceId: connection.deviceId,
@@ -180,8 +183,23 @@ const play: ShortcutCommand = {
           roomId: Option.none(),
           capabilities: DESKTOP_PLAYER,
           startAtMs: from,
-        }).pipe(Effect.provideService(MoviesClient.MoviesClient, connection.client)),
+        }).pipe(
+          Effect.provideService(MoviesClient.MoviesClient, connection.client),
+          Effect.map(Result.succeed),
+          Effect.catchIf(Schema.is(PlaybackApiError), (error) =>
+            Effect.succeed(Result.fail(error)),
+          ),
+        ),
       );
+
+      if (Result.isFailure(outcome)) {
+        return yield* new PlaybackRefused({
+          error: outcome.failure,
+          recovery: Playback.recoveryFor(outcome.failure),
+        });
+      }
+
+      const playback = outcome.success;
 
       const json = {
         sessionId: playback.started.sessionId,

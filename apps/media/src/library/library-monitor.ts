@@ -6,7 +6,7 @@
  */
 import { Duration, Effect, FileSystem, Layer, Schedule, Semaphore, Stream } from "effect";
 
-import type { LibraryId } from "../ids.ts";
+import type { LibraryId } from "@movies/contracts/ids";
 import * as MediaConfig from "../media-config.ts";
 import * as LibraryScanner from "./library-scanner.ts";
 

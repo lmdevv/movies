@@ -26,7 +26,7 @@ import {
   Stream,
 } from "effect";
 
-import type { LibraryId } from "../ids.ts";
+import type { LibraryId } from "@movies/contracts/ids";
 import * as MediaConfig from "../media-config.ts";
 import { probeFile } from "../media/media-probe.ts";
 import * as MediaTools from "../media/media-tools.ts";
