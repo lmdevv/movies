@@ -21,6 +21,7 @@ const MANAGE: ReadonlyArray<NavEntry> = [{ to: "/admin/libraries", label: "Libra
 
 const ADMIN: ReadonlyArray<NavEntry> = [
   { to: "/admin/users", label: "Users" },
+  { to: "/admin/migration", label: "Migration" },
   { to: "/admin/backups", label: "Backups" },
 ];
 

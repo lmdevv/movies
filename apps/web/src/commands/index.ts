@@ -15,6 +15,7 @@ import { useBrowseCommands } from "./browse";
 import type { CommandContext } from "./contribution";
 import { mergeContributions } from "./contribution";
 import { useLibraryCommands } from "./library";
+import { useMigrationCommands } from "./migration";
 import { useNavigationCommands } from "./navigation";
 import { usePlaybackCommands } from "./playback";
 import { usePreferenceCommands } from "./preferences";
@@ -36,6 +37,7 @@ export const useCommandRoot = (context: CommandContext): CommandPage => {
   const library = useLibraryCommands(context);
   const account = useAccountCommands(context);
   const admin = useAdminCommands(context);
+  const migration = useMigrationCommands(context);
 
   return useMemo((): CommandPage => {
     const { groups, fallback } = mergeContributions([
@@ -47,9 +49,21 @@ export const useCommandRoot = (context: CommandContext): CommandPage => {
       library,
       account,
       admin,
+      migration,
       preferences,
     ]);
 
     return { id: "root", placeholder: "Search or jump to…", groups, fallback: () => fallback };
-  }, [playback, rooms, browse, navigation, profiles, preferences, library, account, admin]);
+  }, [
+    playback,
+    rooms,
+    browse,
+    navigation,
+    profiles,
+    preferences,
+    library,
+    account,
+    admin,
+    migration,
+  ]);
 };
