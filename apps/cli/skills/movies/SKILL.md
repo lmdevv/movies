@@ -10,14 +10,15 @@ the CLI, the web app, and this skill always agree. Output is JSON by default.
 
 ## Setup
 
-The server URL is the Convex URL of the install (on the container install,
-`https://<host>/convex`); the media service URL is the web address (`https://<host>`).
+The server URL is the install's Convex URL (`CONVEX_PUBLIC_URL`; port 3210 on the Compose and
+NixOS installs, such as `http://nas.tailnet.ts.net:3210`); the media service URL is the web
+address (`MOVIES_PUBLIC_URL`, port 8080).
 
 - **API key (agents, CI):** create one in the web app (Settings → API keys) or with
   `movies keys create agent --scopes read,play` from a signed-in machine. The secret is shown once.
 
   ```sh
-  movies login --server https://movies.example.com/convex --media-url https://movies.example.com --api-key mk_...
+  movies login --server http://nas.tailnet.ts.net:3210 --media-url http://nas.tailnet.ts.net:8080 --api-key mk_...
   movies whoami
   ```
 
