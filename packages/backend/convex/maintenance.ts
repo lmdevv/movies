@@ -248,3 +248,42 @@ export const endAllSessions = internalMutation({
     return { ended: sessions.length };
   },
 });
+
+/**
+ * Settles jobs a restored snapshot caught mid-run, for the restore procedure, before
+ * `endAllSessions`: the snapshot was taken while its own backup job ran, and other jobs may have
+ * been running too. Running backup jobs are marked succeeded (the archive being restored is their
+ * result); every other running job returns to the queue at once instead of waiting for its lease
+ * to expire, since the worker that held it has moved on.
+ */
+export const settleRestoredJobs = internalMutation({
+  args: {},
+  returns: v.object({ settled: v.number() }),
+  handler: async (ctx) => {
+    const now = Date.now();
+
+    const running = await ctx.db
+      .query("jobs")
+      .withIndex("by_status", (q) => q.eq("status", "running"))
+      .collect();
+
+    await Promise.all(
+      running.map((job) =>
+        ctx.db.patch(
+          job._id,
+          job.kind === "backup"
+            ? {
+                status: "succeeded",
+                finishedAt: now,
+                leaseOwner: undefined,
+                leaseExpiresAt: undefined,
+                progress: { ...job.progress, message: "Restored from this backup" },
+              }
+            : { status: "pending", leaseOwner: undefined, leaseExpiresAt: undefined },
+        ),
+      ),
+    );
+
+    return { settled: running.length };
+  },
+});

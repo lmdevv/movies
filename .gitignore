@@ -8,6 +8,10 @@ dist
 build
 *.tsbuildinfo
 
+# Nix build output links
+result
+result-*
+
 local.db
 local.db-*
 

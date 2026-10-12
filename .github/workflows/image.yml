@@ -1,0 +1,98 @@
+name: Image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "deploy/**"
+      - "apps/**"
+      - "packages/**"
+      - "scripts/stack-e2e.sh"
+      - "pnpm-lock.yaml"
+      - ".dockerignore"
+      - ".github/workflows/image.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: build and smoke-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+
+      # The amd64 image, loaded into Docker for the packaged-stack smoke test. Pull requests read
+      # the build cache but only main and tags write it, so a pull request cannot seed a publish.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/compose/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: movies:ci
+          cache-from: type=gha
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max' || '' }}
+      - name: Image size
+        run: |
+          size="$(docker image inspect movies:ci --format '{{.Size}}')"
+          echo "movies:ci is $((size / 1024 / 1024)) MiB" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The smoke test generates its fixture library with ffmpeg and drives the stack with the
+      # repository's SDK, CLI, and Vitest.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: pnpm install --frozen-lockfile
+      - name: Packaged-stack smoke test
+        run: scripts/stack-e2e.sh
+        env:
+          IMAGE: movies:ci
+
+  # Only main and tags get a token that can push, and only after the smoke test passed.
+  publish:
+    name: publish to GHCR
+    needs: image
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+      # JavaScript builds on the runner's platform; only the runtime stage runs under QEMU.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/compose/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -17,6 +17,10 @@ import { Effect, Layer, Option, Schema } from "effect";
 import { FetchHttpClient } from "effect/http";
 
 import * as ArtworkKeys from "./artwork/artwork-keys.ts";
+import * as BackupJob from "./backups/backup-job.ts";
+import * as BackupRoutes from "./backups/backup-routes.ts";
+import * as Backups from "./backups/backups.ts";
+import * as ConvexCli from "./backups/convex-cli.ts";
 import * as BackendHealth from "./backend-health.ts";
 import * as ConvexFileResolver from "./convex/convex-file-resolver.ts";
 import * as ConvexLibrarySink from "./convex/convex-library-sink.ts";
@@ -52,10 +56,19 @@ class MediaServiceKeyMissing extends Schema.TaggedError<MediaServiceKeyMissing>(
 }
 
 /** The job kinds this service runs. Add a kind's handler here. */
-const jobHandlers = Effect.all([ScanJob.handler, MetadataJob.handler, MigrationJob.handler]);
+const jobHandlers = Effect.all([
+  ScanJob.handler,
+  MetadataJob.handler,
+  MigrationJob.handler,
+  BackupJob.handler,
+]);
 
 /** Route groups of registry `media` commands. Add a group's layer here. */
-const commandRoutes = Layer.mergeAll(MetadataRoutes.layer, MigrationRoutes.layer);
+const commandRoutes = Layer.mergeAll(
+  MetadataRoutes.layer,
+  MigrationRoutes.layer,
+  BackupRoutes.layer,
+);
 
 /** Signed in to Convex: Convex libraries, scan jobs, ended sessions, and file records. */
 const convexMode = (options: MediaBackend.Options) =>
@@ -64,7 +77,9 @@ const convexMode = (options: MediaBackend.Options) =>
     JobWorker.layer(jobHandlers),
     LibrarySync.layer,
     EndedSessionWatcher.layer,
+    Backups.layerSyncOnStart,
   ).pipe(
+    Layer.provide(Backups.layer.pipe(Layer.provide(ConvexCli.layer))),
     Layer.provide(LibraryMonitor.layer()),
     Layer.provide(servicesLayer),
     Layer.provide(Migrations.layer.pipe(Layer.provideMerge(MigrationBackend.layer))),

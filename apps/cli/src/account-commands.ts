@@ -83,7 +83,7 @@ const login: ShortcutCommand = {
       if (Option.isNone(server) || !isServerUrl(server.value)) {
         return yield* usage(
           invocation,
-          "login needs --server with the Convex URL, such as https://movies.example.com/convex",
+          "login needs --server with the Convex URL, such as http://nas.tailnet.ts.net:3210",
         );
       }
 
