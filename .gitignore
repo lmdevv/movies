@@ -57,3 +57,7 @@ temp
 
 # Read-only upstream references (Effect)
 .repos/
+
+# Playwright
+test-results
+playwright-report

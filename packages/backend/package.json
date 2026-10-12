@@ -6,14 +6,24 @@
   "scripts": {
     "dev": "convex dev",
     "dev:setup": "convex dev --configure --until-success",
-    "typecheck": "tsc --noEmit -p convex"
+    "typecheck": "tsc --noEmit -p convex && tsc --noEmit -p scripts && tsc --noEmit -p test",
+    "configure": "node scripts/configure.ts",
+    "test:stack": "MOVIES_STACK_TESTS=1 vitest run --root ../.. packages/backend/test"
   },
   "dependencies": {
-    "convex": "catalog:"
+    "@auth/core": "^0.41.3",
+    "@convex-dev/auth": "^0.0.96",
+    "convex": "catalog:",
+    "lucia": "^3.2.2"
   },
   "devDependencies": {
     "@movies/config": "workspace:*",
+    "@movies/contracts": "workspace:*",
     "@types/node": "catalog:",
-    "typescript": "catalog:"
+    "effect": "catalog:",
+    "fast-check": "4.10.2",
+    "jose": "^6.2.12",
+    "typescript": "catalog:",
+    "vitest": "5.0.3"
   }
 }

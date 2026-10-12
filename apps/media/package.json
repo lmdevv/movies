@@ -18,6 +18,7 @@
   "devDependencies": {
     "@effect/vitest": "4.0.3",
     "@movies/config": "workspace:*",
+    "@movies/contracts": "workspace:*",
     "@types/node": "catalog:",
     "esbuild": "0.27.0",
     "typescript": "catalog:",

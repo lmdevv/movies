@@ -4,6 +4,8 @@ import { assert, describe, it } from "@effect/vitest";
 import { Effect, Redacted } from "effect";
 import { TestClock } from "effect/testing";
 
+import { PLAYBACK_TOKEN_TEST_VECTORS } from "@movies/contracts/playback-token";
+
 import * as PlaybackToken from "./playback-token.ts";
 
 // A fixed 32-byte secret, base64url encoded the way `PLAYBACK_TOKEN_SECRET` is configured.
@@ -88,7 +90,7 @@ describe("PlaybackToken", () => {
     Effect.gen(function* () {
       const token = sign(JSON.stringify({ ...claims, aud: "convex" }));
 
-      assert.strictEqual(yield* rejection(token), "wrong-audience");
+      assert.strictEqual(yield* rejection(token), "wrong_audience");
     }),
   );
 
@@ -96,7 +98,7 @@ describe("PlaybackToken", () => {
     Effect.gen(function* () {
       const token = sign(JSON.stringify(claims), Buffer.alloc(32, 7));
 
-      assert.strictEqual(yield* rejection(token), "bad-signature");
+      assert.strictEqual(yield* rejection(token), "bad_signature");
     }),
   );
 
@@ -108,7 +110,7 @@ describe("PlaybackToken", () => {
         "base64url",
       );
 
-      assert.strictEqual(yield* rejection(`${version}.${forged}.${signature}`), "bad-signature");
+      assert.strictEqual(yield* rejection(`${version}.${forged}.${signature}`), "bad_signature");
     }),
   );
 
@@ -148,6 +150,40 @@ describe("PlaybackToken", () => {
       ).pipe(Effect.flip);
 
       assert.strictEqual(error.decodedBytes, 16);
+    }),
+  );
+
+  it.effect("agrees with the shared contract test vectors", () =>
+    Effect.gen(function* () {
+      const vectors = PLAYBACK_TOKEN_TEST_VECTORS;
+      const verifier = yield* PlaybackToken.make(Redacted.make(vectors.secret)).pipe(Effect.orDie);
+
+      yield* TestClock.setTime(vectors.valid.verifyAt);
+      const grant = yield* verifier.verify(Redacted.make(vectors.valid.token));
+
+      assert.deepStrictEqual(
+        [
+          String(grant.userId),
+          String(grant.profileId),
+          String(grant.fileId),
+          String(grant.sessionId),
+          grant.expiresAt,
+        ],
+        [
+          vectors.valid.payload.sub,
+          vectors.valid.payload.pid,
+          vectors.valid.payload.fid,
+          vectors.valid.payload.sid,
+          vectors.valid.payload.exp,
+        ],
+      );
+
+      for (const rejected of vectors.rejected) {
+        yield* TestClock.setTime(rejected.verifyAt);
+        const error = yield* verifier.verify(Redacted.make(rejected.token)).pipe(Effect.flip);
+
+        assert.strictEqual(error.reason, rejected.reason, rejected.description);
+      }
     }),
   );
 });

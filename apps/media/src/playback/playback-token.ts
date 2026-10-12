@@ -25,12 +25,12 @@ export interface PlaybackGrant {
 }
 
 /** Why a playback token was rejected. */
-type InvalidTokenReason = "malformed" | "bad-signature" | "wrong-audience" | "expired";
+type InvalidTokenReason = "malformed" | "bad_signature" | "wrong_audience" | "expired";
 
 /** A playback token was missing, forged, expired, or meant for another service. */
 export class InvalidPlaybackToken extends Schema.TaggedError<InvalidPlaybackToken>()(
   "InvalidPlaybackToken",
-  { reason: Schema.Literals(["malformed", "bad-signature", "wrong-audience", "expired"]) },
+  { reason: Schema.Literals(["malformed", "bad_signature", "wrong_audience", "expired"]) },
   { httpApiStatus: 401 },
 ) {
   override get message(): string {
@@ -109,14 +109,14 @@ export const make = Effect.fn("PlaybackTokenVerifier.make")(function* (secret: R
     if (given.toString("base64url") !== signature) return yield* reject("malformed");
 
     if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
-      return yield* reject("bad-signature");
+      return yield* reject("bad_signature");
     }
 
     const claims = yield* decodeClaims(Buffer.from(payload, "base64url").toString("utf8")).pipe(
       Effect.mapError(() => reject("malformed")),
     );
 
-    if (claims.aud !== "media") return yield* reject("wrong-audience");
+    if (claims.aud !== "media") return yield* reject("wrong_audience");
 
     if (claims.exp <= (yield* Clock.currentTimeMillis)) return yield* reject("expired");
 

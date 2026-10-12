@@ -9,50 +9,171 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppRouteImport } from './routes/_app'
+import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppMoviesRouteImport } from './routes/_app/movies'
+import { Route as AppMyListRouteImport } from './routes/_app/my-list'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppShowsRouteImport } from './routes/_app/shows'
+import { Route as DevKitRouteImport } from './routes/dev/kit'
 
-const IndexRoute = IndexRouteImport.update({
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMoviesRoute = AppMoviesRouteImport.update({
+  id: '/movies',
+  path: '/movies',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMyListRoute = AppMyListRouteImport.update({
+  id: '/my-list',
+  path: '/my-list',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppShowsRoute = AppShowsRouteImport.update({
+  id: '/shows',
+  path: '/shows',
+  getParentRoute: () => AppRoute,
+} as any)
+const DevKitRoute = DevKitRouteImport.update({
+  id: '/dev/kit',
+  path: '/dev/kit',
   getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
+  '/': typeof AppIndexRoute
+  '/movies': typeof AppMoviesRoute
+  '/my-list': typeof AppMyListRoute
+  '/settings': typeof AppSettingsRoute
+  '/shows': typeof AppShowsRoute
+  '/dev/kit': typeof DevKitRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
+  '/movies': typeof AppMoviesRoute
+  '/my-list': typeof AppMyListRoute
+  '/settings': typeof AppSettingsRoute
+  '/shows': typeof AppShowsRoute
+  '/dev/kit': typeof DevKitRoute
+  '/': typeof AppIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
+  '/_app': typeof AppRouteWithChildren
+  '/_app/movies': typeof AppMoviesRoute
+  '/_app/my-list': typeof AppMyListRoute
+  '/_app/settings': typeof AppSettingsRoute
+  '/_app/shows': typeof AppShowsRoute
+  '/dev/kit': typeof DevKitRoute
+  '/_app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/movies' | '/my-list' | '/settings' | '/shows' | '/dev/kit'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/movies' | '/my-list' | '/settings' | '/shows' | '/dev/kit' | '/'
+  id:
+    | '__root__'
+    | '/_app'
+    | '/_app/movies'
+    | '/_app/my-list'
+    | '/_app/settings'
+    | '/_app/shows'
+    | '/dev/kit'
+    | '/_app/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
+  AppRoute: typeof AppRouteWithChildren
+  DevKitRoute: typeof DevKitRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/': {
+      id: '/_app/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/movies': {
+      id: '/_app/movies'
+      path: '/movies'
+      fullPath: '/movies'
+      preLoaderRoute: typeof AppMoviesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/my-list': {
+      id: '/_app/my-list'
+      path: '/my-list'
+      fullPath: '/my-list'
+      preLoaderRoute: typeof AppMyListRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/shows': {
+      id: '/_app/shows'
+      path: '/shows'
+      fullPath: '/shows'
+      preLoaderRoute: typeof AppShowsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/dev/kit': {
+      id: '/dev/kit'
+      path: '/dev/kit'
+      fullPath: '/dev/kit'
+      preLoaderRoute: typeof DevKitRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
 }
 
+interface AppRouteChildren {
+  AppMoviesRoute: typeof AppMoviesRoute
+  AppMyListRoute: typeof AppMyListRoute
+  AppSettingsRoute: typeof AppSettingsRoute
+  AppShowsRoute: typeof AppShowsRoute
+  AppIndexRoute: typeof AppIndexRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppMoviesRoute: AppMoviesRoute,
+  AppMyListRoute: AppMyListRoute,
+  AppSettingsRoute: AppSettingsRoute,
+  AppShowsRoute: AppShowsRoute,
+  AppIndexRoute: AppIndexRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
+  AppRoute: AppRouteWithChildren,
+  DevKitRoute: DevKitRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
