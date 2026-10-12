@@ -4,7 +4,7 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs =
-    { nixpkgs, ... }:
+    { self, nixpkgs, ... }:
     let
       systems = [
         "x86_64-linux"
@@ -13,6 +13,11 @@
         "aarch64-darwin"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      linuxSystems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
+      forLinux = f: nixpkgs.lib.genAttrs linuxSystems (system: f nixpkgs.legacyPackages.${system});
     in
     {
       devShells = forAllSystems (pkgs: {
@@ -27,5 +32,10 @@
       });
 
       formatter = forAllSystems (pkgs: pkgs.nixfmt);
+
+      packages = forLinux (pkgs: rec {
+        movies = pkgs.callPackage ./nix/package.nix { };
+        default = movies;
+      });
     };
 }

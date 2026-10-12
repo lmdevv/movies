@@ -10,7 +10,7 @@
  * previous URL. Plain Node, no Effect: it runs before the service starts.
  */
 import { createHash } from "node:crypto";
-import { cp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, relative } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -58,6 +58,17 @@ const listFiles = async (directory: string): Promise<ReadonlyArray<string>> => {
 await rm(to, { recursive: true, force: true });
 
 await cp(from, to, { recursive: true });
+
+// A build in the Nix store is read-only, and copies keep its modes.
+const copied = await readdir(to, { withFileTypes: true, recursive: true });
+
+await chmod(to, 0o755);
+
+await Promise.all(
+  copied.map((entry) =>
+    chmod(join(entry.parentPath, entry.name), entry.isDirectory() ? 0o755 : 0o644),
+  ),
+);
 
 const files = await listFiles(to);
 
