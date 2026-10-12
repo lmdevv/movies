@@ -21,8 +21,11 @@ export type StreamFailure =
 export interface AttachedStream {
   /** How the element plays it. */
   readonly engine: "element" | "hls.js";
-  /** Loads another playlist of the same HLS stream (a new generation) and plays from `seconds`. */
-  readonly reloadPlaylist: (url: string, seconds: number) => void;
+  /**
+   * Loads another playlist of the same HLS stream (a new generation) at `seconds`, and resolves
+   * once the element can play there. The element is left paused: a new source empties it.
+   */
+  readonly reloadPlaylist: (url: string, seconds: number) => Promise<void>;
   /** Stops loading and frees the element for the next stream. */
   readonly detach: () => void;
 }
@@ -39,6 +42,18 @@ const MEDIA_ERR_NETWORK = 2;
  */
 export const usesHlsJs = (mse: boolean): boolean =>
   mse && !/^((?!chrome|android).)*safari/iu.test(navigator.userAgent);
+
+/** Resolves once `element` has data to play at its position. */
+const canPlay = (element: HTMLVideoElement): Promise<void> =>
+  new Promise((resolve) => {
+    element.addEventListener(
+      "canplay",
+      () => {
+        resolve();
+      },
+      { once: true },
+    );
+  });
 
 /** Sets `seconds` once the element knows the media's duration, as `src` loads start at zero. */
 const startAt = (element: HTMLVideoElement, seconds: number): void => {
@@ -72,6 +87,8 @@ const attachToElement = (
     reloadPlaylist: (next, from) => {
       startAt(element, from);
       element.src = next;
+
+      return canPlay(element);
     },
     detach: () => {
       element.removeEventListener("error", onError);
@@ -103,9 +120,13 @@ const attachHlsJs = async (
   // never use: subtitles load as WebVTT `<track>` elements and audio is muxed.
   const { default: Hls } = await import("hls.js/light");
   let mediaRecoveries = 0;
+  /** Where loading starts once the current playlist is parsed. */
+  let startFrom = seconds;
 
   const hls = new Hls({
-    startPosition: seconds,
+    // Loading starts by hand once each playlist is parsed: a new generation's playlist starts
+    // later in the film, and hls.js would otherwise start it from the first configured position.
+    autoStartLoad: false,
     // A transcode produces segments a little faster than real time; half a minute is plenty.
     maxBufferLength: 30,
     backBufferLength: 30,
@@ -137,6 +158,10 @@ const attachHlsJs = async (
     onFailure(failure);
   });
 
+  hls.on(Hls.Events.MANIFEST_PARSED, () => {
+    hls.startLoad(startFrom);
+  });
+
   hls.attachMedia(element);
   hls.loadSource(url);
 
@@ -144,9 +169,12 @@ const attachHlsJs = async (
     engine: "hls.js",
     reloadPlaylist: (next, from) => {
       hls.stopLoad();
+      startFrom = from;
+      // A new URL re-creates the MediaSource, which empties the element; loading starts at
+      // `from` once the playlist is parsed.
       hls.loadSource(next);
-      hls.startLoad(from);
-      element.currentTime = from;
+
+      return canPlay(element);
     },
     detach: () => {
       hls.destroy();

@@ -373,17 +373,21 @@ export class PlaybackController {
           return this.#follow(afterPlaybackFailure(moved.failure), positionMs);
         }
 
-        this.#moveTo(playback, moved.success, positionMs);
+        await this.#moveTo(playback, moved.success, positionMs);
       },
     };
   }
 
-  /** Continues `playback` in the generation a seek returned, or just seeks when it is the same. */
-  #moveTo(
+  /**
+   * Continues `playback` in the generation a seek returned, or just seeks when it is the same. A
+   * new generation empties the element, so it plays again once it can, unless the viewer (or the
+   * room) paused meanwhile.
+   */
+  async #moveTo(
     playback: Playback.Playback,
     moved: Option.Option<{ readonly generation: number; readonly playlistUrl: string }>,
     positionMs: number,
-  ): void {
+  ): Promise<void> {
     const seconds = positionMs / 1000;
 
     if (Option.isNone(moved) || moved.value.generation === playback.stream.generation) {
@@ -402,9 +406,16 @@ export class PlaybackController {
       }),
     };
 
+    const attached = this.#attached;
+
     this.#playback = next;
     this.#update({ stream: next.stream });
-    this.#attached?.reloadPlaylist(next.stream.url, seconds);
+
+    if (attached === null) return;
+    await attached.reloadPlaylist(next.stream.url, seconds);
+
+    if (this.#disposed || this.#playback !== next || !this.player.wantsToPlay()) return;
+    await this.#play();
   }
 
   #onStreamFailure(failure: StreamFailure): void {

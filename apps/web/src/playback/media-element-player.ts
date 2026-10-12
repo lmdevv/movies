@@ -78,6 +78,8 @@ export class MediaElementPlayer implements PlayerPort {
   /** The target of a stream seek in progress. */
   #pending: number | null = null;
   #move: AbortController | null = null;
+  /** Whether playing or pausing was asked for last; a stream move keeps reporting it. */
+  #wantsPlay = false;
   /** Where the element was when the player was disposed; the element is reused after that. */
   #final: number | null = null;
   readonly #listeners = new Set<(event: PlayerEvent) => void>();
@@ -89,10 +91,19 @@ export class MediaElementPlayer implements PlayerPort {
     for (const [type] of EVENTS) element.addEventListener(type, this.#onElementEvent);
   }
 
-  /** Uses `seeker` for seeks from now on, such as the HLS stream just loaded. */
+  /**
+   * Uses `seeker` for seeks from now on, such as the HLS stream just loaded. A move of the
+   * previous stream still in progress is dropped.
+   */
   setSeeker(seeker: StreamSeeker): void {
+    this.#move?.abort();
+    this.#move = null;
+    this.#pending = null;
     this.#seeker = seeker;
   }
+
+  /** Whether playing was asked for (by `play`) more recently than pausing. */
+  readonly wantsToPlay = (): boolean => this.#wantsPlay;
 
   /**
    * Stops listening to the element and keeps reporting the position it had, paused, so a report
@@ -126,16 +137,23 @@ export class MediaElementPlayer implements PlayerPort {
   readonly positionMs = (): number =>
     this.#final ?? this.#pending ?? this.#element.currentTime * 1000;
 
-  readonly isPaused = (): boolean => this.#final !== null || this.#element.paused;
+  /** While a stream moves, the element may be emptied; the player reports what was asked for. */
+  readonly isPaused = (): boolean => {
+    if (this.#final !== null) return true;
+
+    return this.#pending === null ? this.#element.paused : !this.#wantsPlay;
+  };
 
   readonly isBuffering = (): boolean => {
     const element = this.#element;
 
     if (this.#final !== null) return false;
 
+    if (this.#pending !== null) return this.#wantsPlay;
+
     if (element.paused || element.ended) return false;
 
-    return this.#pending !== null || element.seeking || element.readyState < HAVE_FUTURE_DATA;
+    return element.seeking || element.readyState < HAVE_FUTURE_DATA;
   };
 
   readonly playbackRate = (): number => this.#element.playbackRate;
@@ -173,6 +191,8 @@ export class MediaElementPlayer implements PlayerPort {
   };
 
   readonly play = async (): Promise<void> => {
+    this.#wantsPlay = true;
+
     try {
       await this.#element.play();
     } catch (cause) {
@@ -181,6 +201,7 @@ export class MediaElementPlayer implements PlayerPort {
   };
 
   readonly pause = (): void => {
+    this.#wantsPlay = false;
     this.#element.pause();
   };
 

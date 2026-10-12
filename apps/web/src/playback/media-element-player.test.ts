@@ -163,6 +163,47 @@ describe("MediaElementPlayer", () => {
     expect(events).toStrictEqual(["playing", "waiting", "seeked"]);
   });
 
+  it("reports what was asked for while a stream move empties the element", async () => {
+    const element = new FakeMediaElement();
+    const player = new MediaElementPlayer(element);
+    const { seeker, moves } = manualSeeker(element, () => false);
+
+    player.setSeeker(seeker);
+    await player.play();
+    player.seek(600_000);
+    // A new generation re-creates the MediaSource, which pauses the element without an event.
+    element.paused = true;
+
+    expect(player.isPaused()).toBe(false);
+    expect(player.isBuffering()).toBe(true);
+    expect(player.wantsToPlay()).toBe(true);
+
+    // Pausing during the move is what the player reports from then on.
+    player.pause();
+
+    expect(player.isPaused()).toBe(true);
+    expect(player.isBuffering()).toBe(false);
+    expect(player.wantsToPlay()).toBe(false);
+
+    moves[0]?.land();
+    await settle();
+
+    expect(player.isPaused()).toBe(true);
+  });
+
+  it("drops a stream move in flight when another stream takes over", () => {
+    const element = new FakeMediaElement();
+    const player = new MediaElementPlayer(element);
+    const { seeker } = manualSeeker(element, () => false);
+
+    player.setSeeker(seeker);
+    element.currentTime = 42;
+    player.seek(600_000);
+    player.setSeeker(manualSeeker(element, () => true).seeker);
+
+    expect(player.positionMs()).toBe(42_000);
+  });
+
   it("lets a newer seek replace a stream seek still in flight", async () => {
     const element = new FakeMediaElement();
     const player = new MediaElementPlayer(element);
