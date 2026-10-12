@@ -13,6 +13,8 @@ declare module "@tanstack/react-router" {
   interface StaticDataRouteOption {
     /** The route opens on a full-bleed billboard, so the desktop top bar floats over it. */
     readonly hero?: boolean;
+    /** Set to false for phone screens without the large title, such as a title's detail page. */
+    readonly phoneTitle?: boolean;
   }
 }
 
@@ -36,6 +38,8 @@ function RootComponent() {
         defaultTheme="dark"
         disableTransitionOnChange
         storageKey="movies-theme"
+        // React never runs scripts it renders on the client; index.html applies the theme before paint.
+        scriptProps={{ type: "application/json" }}
       >
         <Outlet />
         <Toaster />

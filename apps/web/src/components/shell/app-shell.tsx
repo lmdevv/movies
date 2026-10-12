@@ -8,14 +8,17 @@ import { moveRowFocus } from "@movies/ui/lib/row-focus";
 import { useKeymap } from "@movies/ui/lib/use-keymap";
 import { cn } from "@movies/ui/lib/utils";
 import { Link, useLocation, useMatches, useNavigate } from "@tanstack/react-router";
-import { useTheme } from "@/components/theme-provider";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
+import { SWITCH_PROFILE_COMMAND, useCommandRoot } from "@/commands";
+import { TitlePrefetchProvider } from "@/components/browse/prefetch";
+import { profileArt } from "@/components/profiles/profile-art";
 import { keymap, shortcutLabel } from "@/lib/keymap";
+import { useActiveProfile } from "@/session/guards";
+import { useScopes } from "@/session/viewer";
 
-import { commandRoot } from "./command-root";
-import type { Destination, ThemeChoice } from "./command-root";
+import { ScanToast } from "./scan-toast";
 import { SECTIONS, sectionOf } from "./sections";
 
 /** How far the page scrolls before bars switch to their scrolled look. */
@@ -37,27 +40,23 @@ function useScrolledPast(threshold: number): boolean {
   return scrolled;
 }
 
-const themeChoice = (theme: string | undefined): ThemeChoice =>
-  theme === "dark" || theme === "light" ? theme : "system";
+/** Where the menu opens: its root list, or straight on one of its submenus. */
+type MenuState = { readonly open: false } | { readonly open: true; readonly start?: string };
 
 /**
  * The signed-in app frame. At `md` and up: the Netflix-style top bar, transparent over a route's
  * hero and solid once scrolled. Below `md`: a large title that hands over to a compact glass bar,
- * and the floating glass tab bar with its search circle. It hosts the command menu and the global
- * keyboard shortcuts.
+ * and the floating glass tab bar with its search circle. It hosts the command menu, the global
+ * keyboard shortcuts, and the scanning toast. Must sit inside `RequireProfile`.
  *
- * A route opts into the transparent bar over its billboard with `staticData: { hero: true }`.
- *
- * @param profile - The active profile for the avatar; omitted until profiles are wired in.
+ * A route opts into the transparent bar over its billboard with `staticData: { hero: true }`, and
+ * out of the phone large title with `staticData: { phoneTitle: false }`.
  */
-export function AppShell({
-  children,
-  profile,
-}: {
-  readonly children: ReactNode;
-  readonly profile?: { readonly name: string; readonly avatar?: string | undefined } | undefined;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
+export function AppShell({ children }: { readonly children: ReactNode }) {
+  const { profile, profiles } = useActiveProfile();
+  const scopes = useScopes();
+  const [menu, setMenu] = useState<MenuState>({ open: false });
+  const [query, setQuery] = useState("");
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
 
@@ -65,36 +64,50 @@ export function AppShell({
     select: (matches) => matches.some((match) => match.staticData.hero === true),
   });
 
+  const phoneTitle = useMatches({
+    select: (matches) => !matches.some((match) => match.staticData.phoneTitle === false),
+  });
+
   const scrolled = useScrolledPast(SCROLL_THRESHOLD_PX);
-  const { theme, setTheme } = useTheme();
   const current = sectionOf(pathname);
-  const title = current?.label ?? (pathname.startsWith("/settings") ? "Settings" : "");
+  const art = profileArt(profile);
 
-  const go = (to: Destination): void => {
-    void navigate({ to });
-  };
+  const title =
+    pathname === "/"
+      ? `For ${profile.name}`
+      : (current?.label ?? (pathname.startsWith("/settings") ? "Settings" : ""));
 
-  const root = useMemo(
-    () => commandRoot((to) => void navigate({ to }), themeChoice(theme), setTheme),
-    [navigate, theme, setTheme],
-  );
+  const root = useCommandRoot({ navigate, query, profile, profiles, scopes });
+
+  const openMenu = useCallback((start?: string) => {
+    setMenu(start === undefined ? { open: true } : { open: true, start });
+  }, []);
 
   useKeymap(keymap, {
-    "menu.toggle": () => setMenuOpen((open) => !open),
-    "search.open": () => setMenuOpen(true),
-    "go.home": () => go("/"),
-    "go.movies": () => go("/movies"),
-    "go.shows": () => go("/shows"),
-    "go.my-list": () => go("/my-list"),
-    "go.settings": () => go("/settings"),
+    "menu.toggle": () => setMenu((state) => (state.open ? { open: false } : { open: true })),
+    "search.open": () => openMenu(),
+    "profile.switch": () => openMenu(SWITCH_PROFILE_COMMAND),
+    "go.home": () => void navigate({ to: "/" }),
+    "go.movies": () => void navigate({ to: "/movies" }),
+    "go.shows": () => void navigate({ to: "/shows" }),
+    "go.my-list": () => void navigate({ to: "/my-list" }),
+    "go.settings": () => void navigate({ to: "/settings" }),
     "rows.next": () => moveRowFocus(1),
     "rows.previous": () => moveRowFocus(-1),
   });
 
   const overMedia = hero && !scrolled;
 
-  const avatar =
-    profile === undefined ? null : <Avatar name={profile.name} image={profile.avatar} size="sm" />;
+  const profileButton = (size: "xs" | "sm", round: boolean) => (
+    <button
+      type="button"
+      aria-label={`${profile.name}: switch profile`}
+      onClick={() => openMenu(SWITCH_PROFILE_COMMAND)}
+      className={cn("cursor-pointer", round ? "rounded-pill" : "rounded-poster")}
+    >
+      <Avatar name={profile.name} image={art.image} monogram={false} size={size} round={round} />
+    </button>
+  );
 
   return (
     <div className="min-h-svh bg-page text-text">
@@ -126,44 +139,43 @@ export function AppShell({
               <SearchTrigger
                 keycaps={shortcutLabel("menu.toggle")}
                 aria-keyshortcuts="Meta+K Control+K"
-                onClick={() => setMenuOpen(true)}
+                onClick={() => openMenu()}
               />
-              {avatar}
+              {profileButton("sm", false)}
             </>
           }
         />
       </div>
 
-      <CompactTopBar
-        title={title}
-        visible={scrolled}
-        className="fixed inset-x-0 top-0 z-40 md:hidden"
-        trailing={
-          profile === undefined ? undefined : (
-            <Avatar name={profile.name} image={profile.avatar} size="xs" round />
-          )
-        }
-      />
+      {phoneTitle ? (
+        <CompactTopBar
+          title={title}
+          visible={scrolled}
+          className="fixed inset-x-0 top-0 z-40 md:hidden"
+          trailing={profileButton("xs", true)}
+        />
+      ) : null}
 
       <main className={cn("pb-32 md:pb-20", !hero && "md:pt-17")}>
-        {title === "" ? null : (
+        {title === "" || !phoneTitle ? null : (
           <LargeTitle
             title={title}
             className="pt-[max(env(safe-area-inset-top),--spacing(4))] md:hidden"
-            trailing={
-              profile === undefined ? undefined : (
-                <Avatar name={profile.name} image={profile.avatar} round />
-              )
-            }
+            trailing={profileButton("sm", true)}
           />
         )}
-        {children}
+        <TitlePrefetchProvider profileId={profile.id}>{children}</TitlePrefetchProvider>
       </main>
 
       <TabBar
         minimized={scrolled}
         className="fixed inset-x-4 bottom-[max(env(safe-area-inset-bottom),--spacing(6))] z-40 md:hidden"
-        search={<TabBarSearch onClick={() => setMenuOpen(true)} />}
+        search={
+          <TabBarSearch
+            onClick={() => void navigate({ to: "/search" })}
+            className={cn(pathname === "/search" && "text-accent")}
+          />
+        }
       >
         {SECTIONS.map((section) => (
           <TabBarItem
@@ -176,7 +188,21 @@ export function AppShell({
         ))}
       </TabBar>
 
-      <CommandMenu open={menuOpen} onOpenChange={setMenuOpen} root={root} />
+      {scopes.has("manage") ? <ScanToast /> : null}
+
+      <CommandMenu
+        open={menu.open}
+        start={menu.open ? menu.start : undefined}
+        onOpenChange={(open) => {
+          setMenu(open ? { open: true } : { open: false });
+
+          if (!open) setQuery("");
+        }}
+        onQueryChange={(text, page) => {
+          if (page.id === "root") setQuery(text);
+        }}
+        root={root}
+      />
     </div>
   );
 }

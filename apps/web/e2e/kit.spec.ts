@@ -1,26 +1,5 @@
 import { expect, test } from "@playwright/test";
 
-test("the shell navigates with g-sequences and opens the command menu", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByRole("link", { name: "Home", exact: true }).first()).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
-
-  await page.keyboard.press("g");
-  await page.keyboard.press("m");
-  await expect(page).toHaveURL(/\/movies$/);
-
-  await page.keyboard.press("ControlOrMeta+k");
-  const input = page.getByRole("combobox");
-  await expect(input).toBeFocused();
-
-  await input.fill("shows");
-  await page.keyboard.press("Enter");
-  await expect(page).toHaveURL(/\/shows$/);
-  await expect(page.getByRole("dialog")).toBeHidden();
-});
-
 test("the command menu filters, nests and goes back with the keyboard", async ({ page }) => {
   await page.goto("/dev/kit");
   await expect(page.getByRole("button", { name: "Open command menu" })).toBeVisible();

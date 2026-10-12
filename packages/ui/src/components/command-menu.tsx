@@ -114,17 +114,21 @@ function CommandRow({
  *   had when opened.
  * @param onQueryChange - Called with the typed text and the list it filters, so the caller can
  *   supply `search`-scoped groups (such as title results) for it.
+ * @param start - The id of a submenu in `root` to show when the menu opens, such as a "Switch
+ *   profile" list opened by its own shortcut. Going back reaches the root list.
  */
 export function CommandMenu({
   open,
   onOpenChange,
   root,
   onQueryChange,
+  start,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly root: CommandPage;
   readonly onQueryChange?: (query: string, page: CommandPage) => void;
+  readonly start?: string | undefined;
 }) {
   const [state, dispatch] = useReducer(commandMenuReducer, initialCommandMenuState);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -142,6 +146,24 @@ export function CommandMenu({
     if (activeId !== undefined)
       document.getElementById(activeId)?.scrollIntoView({ block: "nearest" });
   }, [activeId]);
+
+  const latestRoot = useRef(root);
+
+  latestRoot.current = root;
+
+  // Opening on a submenu reads the root of that moment; later rebuilds keep the opened options.
+  useEffect(() => {
+    if (!open || start === undefined) return;
+
+    const item = latestRoot.current.groups
+      .flatMap((group) => group.items)
+      .find((candidate) => candidate.id === start);
+
+    if (item?.kind !== "submenu") return;
+
+    dispatch({ type: "reset" });
+    dispatch({ type: "open", page: item.page });
+  }, [open, start]);
 
   const setQuery = (query: string, on: CommandPage): void => {
     dispatch({ type: "query", query });

@@ -9,6 +9,7 @@ import { detectPlatform } from "@movies/ui/lib/use-keymap";
 const SHORTCUTS = [
   { id: "menu.toggle", keys: "mod+k", whileTyping: true, title: "Search or jump to…" },
   { id: "search.open", keys: "/", title: "Search" },
+  { id: "profile.switch", keys: "mod+shift+p", whileTyping: true, title: "Switch profile" },
   { id: "go.home", keys: "g h", title: "Home" },
   { id: "go.movies", keys: "g m", title: "Movies" },
   { id: "go.shows", keys: "g s", title: "Shows" },

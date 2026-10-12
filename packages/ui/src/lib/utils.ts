@@ -19,6 +19,7 @@ export const cn = createCn({
         "micro",
         "lead",
         "subtitle",
+        "search",
         "large-title",
         "hero-card",
         "hero",

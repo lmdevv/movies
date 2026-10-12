@@ -1,0 +1,61 @@
+/**
+ * The contract between the command menu and the features that fill it. Each feature module in
+ * `src/commands/` exports one hook that returns its groups (and any "No results" fallbacks) for the
+ * current context; `index.ts` calls every hook and merges the results into the menu's root page.
+ */
+import type { Profile } from "@movies/contracts/models/profiles";
+import type { Scope } from "@movies/contracts/scopes";
+import type { CommandGroup, CommandItem } from "@movies/ui/lib/command-menu";
+import type { useNavigate } from "@tanstack/react-router";
+
+/** What every contribution can read and do. */
+export interface CommandContext {
+  /** The router's `navigate`, typed by the route tree. */
+  readonly navigate: ReturnType<typeof useNavigate>;
+  /** What is typed in the menu's root list, for contributions that search as people type. */
+  readonly query: string;
+  /** The active profile; pass its id to profile-scoped commands. */
+  readonly profile: Profile;
+  /** Every profile of the signed-in account. */
+  readonly profiles: ReadonlyArray<Profile>;
+  /** What this session may do; gate `manage` and `admin` commands on it. */
+  readonly scopes: ReadonlySet<Scope>;
+}
+
+/** One feature's part of the menu. */
+export interface CommandContribution {
+  /**
+   * Labeled groups in the order the feature wants them. Groups with the same `id` from different
+   * features merge into one, in contribution order, so features can share "Actions".
+   */
+  readonly groups: ReadonlyArray<CommandGroup>;
+  /** Commands offered under "No results for …" when the typed query matches nothing. */
+  readonly fallback?: ReadonlyArray<CommandItem> | undefined;
+}
+
+/** Every contribution combined: the root page's groups and its "No results" commands. */
+export interface MergedCommands {
+  readonly groups: ReadonlyArray<CommandGroup>;
+  readonly fallback: ReadonlyArray<CommandItem>;
+}
+
+/** Merges contributions: same-id groups join (first label and options win), fallbacks concatenate. */
+export const mergeContributions = (
+  contributions: ReadonlyArray<CommandContribution>,
+): MergedCommands => {
+  const groups = new Map<string, CommandGroup>();
+
+  for (const group of contributions.flatMap((contribution) => contribution.groups)) {
+    const existing = groups.get(group.id);
+
+    groups.set(
+      group.id,
+      existing === undefined ? group : { ...existing, items: [...existing.items, ...group.items] },
+    );
+  }
+
+  return {
+    groups: [...groups.values()].filter((group) => group.items.length > 0),
+    fallback: contributions.flatMap((contribution) => contribution.fallback ?? []),
+  };
+};
