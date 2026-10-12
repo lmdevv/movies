@@ -3,5 +3,25 @@
   "version": "0.0.0",
   "private": true,
   "description": "Node + Effect HttpApi media service. Also serves the built web app.",
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/build.ts --watch",
+    "build": "node scripts/build.ts",
+    "start": "node --enable-source-maps dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "fixtures": "node scripts/generate-fixtures.ts"
+  },
+  "dependencies": {
+    "@effect/platform-node": "4.0.3",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.3",
+    "@movies/config": "workspace:*",
+    "@movies/contracts": "workspace:*",
+    "@types/node": "catalog:",
+    "esbuild": "0.27.0",
+    "typescript": "catalog:",
+    "vitest": "5.0.3"
+  }
 }

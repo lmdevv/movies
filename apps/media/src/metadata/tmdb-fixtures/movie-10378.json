@@ -1,0 +1,15 @@
+{
+  "backdrop_path": "/bbb-backdrop.jpg",
+  "genres": [{ "id": 16, "name": "Animation" }],
+  "id": 10378,
+  "imdb_id": "tt1254207",
+  "original_title": "Big Buck Bunny",
+  "overview": "Provider plot that local metadata overrides.",
+  "poster_path": "/bbb-poster.jpg",
+  "production_companies": [{ "id": 2, "name": "Blender Foundation" }],
+  "release_date": "2008-04-10",
+  "runtime": 10,
+  "tagline": "Provider tagline.",
+  "title": "Big Buck Bunny",
+  "vote_average": 6.4
+}
