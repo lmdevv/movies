@@ -9,6 +9,8 @@ type HardwareAccelerationMode = "auto" | "qsv" | "none";
 /** Typed media service settings. */
 export interface Interface {
   readonly port: number;
+  /** Address the HTTP server listens on; all interfaces when unset. */
+  readonly host: Option.Option<string>;
   /** Origin and path prefix clients use to reach this service, without a trailing slash. */
   readonly mediaBaseUrl: string;
   /** Absolute, approved library mounts. Scans and playback never leave them. */
@@ -19,6 +21,12 @@ export interface Interface {
   readonly transcodeDir: string;
   /** Absolute folder for nightly backups. */
   readonly backupDir: string;
+  /** Archives older than this are pruned after a new backup succeeds. */
+  readonly backupRetention: Duration.Duration;
+  /** Admin key of the self-hosted Convex deployment, for `convex export` and `convex import`. */
+  readonly convexAdminKey: Option.Option<Redacted.Redacted>;
+  /** The deployed `@movies/backend` package, whose Convex CLI backs up and restores. */
+  readonly convexBackendDir: Option.Option<string>;
   /** Shared HMAC secret Convex signs playback tokens with: base64url of at least 32 bytes. */
   readonly playbackTokenSecret: Redacted.Redacted;
   /** TMDB API key or read access token. Without it the TMDB plugin reports itself unavailable. */
@@ -63,6 +71,7 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
   Service,
   Effect.gen(function* () {
     const port = yield* Config.Port("PORT").pipe(Config.withDefault(4300));
+    const host = yield* Config.option(Config.NonEmptyString("HOST"));
     const mediaBaseUrl = yield* Config.URL("MEDIA_BASE_URL");
 
     // No approved roots means every library scan is refused; the service still starts.
@@ -77,6 +86,12 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
       Config.withDefault("/data/backups"),
     );
 
+    const backupRetentionDays = yield* Config.schema(PositiveInt, "BACKUP_RETENTION_DAYS").pipe(
+      Config.withDefault(14),
+    );
+
+    const convexAdminKey = yield* Config.option(Config.Redacted("CONVEX_SELF_HOSTED_ADMIN_KEY"));
+    const convexBackendDir = yield* Config.option(Config.NonEmptyString("CONVEX_BACKEND_DIR"));
     const playbackTokenSecret = yield* Config.Redacted("PLAYBACK_TOKEN_SECRET");
     const tmdbApiKey = yield* Config.option(Config.Redacted("TMDB_API_KEY"));
     const otlpEndpoint = yield* Config.option(Config.URL("OTEL_EXPORTER_OTLP_ENDPOINT"));
@@ -120,11 +135,15 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
 
     return Service.of({
       port,
+      host,
       mediaBaseUrl: withoutTrailingSlash(mediaBaseUrl),
       libraryRoots: libraryRoots.map(absolute),
       dataDir: absolute(dataDir),
       transcodeDir: absolute(transcodeDir),
       backupDir: absolute(backupDir),
+      backupRetention: Duration.days(backupRetentionDays),
+      convexAdminKey,
+      convexBackendDir: Option.map(convexBackendDir, absolute),
       playbackTokenSecret,
       tmdbApiKey,
       otlpEndpoint: Option.map(otlpEndpoint, withoutTrailingSlash),

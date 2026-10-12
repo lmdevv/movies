@@ -1,0 +1,27 @@
+# A local OpenTelemetry collector for `--profile telemetry`. Set
+# OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 in .env so the media service sends traces
+# and logs here. The debug exporter prints them to `docker compose logs otel-collector`; replace it
+# with your backend (Jaeger, Tempo, ...) as needed.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]

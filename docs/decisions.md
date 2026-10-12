@@ -163,10 +163,15 @@ choices made while implementing them. Update it in the same PR that changes a de
 
 ## Backups and restore
 
-- Restore: stop writes, `convex import --replace-all --yes <zip>`, then
-  `convex run maintenance:endAllSessions` (a snapshot carries working sessions), then run
-  `scripts/configure.ts` again. Deployment environment variables are not part of an export. See
+- The media service owns both: a nightly Convex cron queues a `backup` job, which runs
+  `convex export --include-file-storage` into `BACKUP_DIR` (renamed into place only on success,
+  pruned past `BACKUP_RETENTION_DAYS` only after a new backup succeeds). `POST
+  /api/backups/restore` (admin) runs `convex import --replace-all`, re-registers the service key,
+  then `maintenance:settleRestoredJobs` and `maintenance:endAllSessions` (a snapshot carries
+  working sessions). Deployment environment variables are not part of an export. The procedure,
+  including recovery without the media service, is in `docs/operations.md`; the round trip in
   `docs/spikes.md`.
+- Both installs back up before deploying a new version's functions.
 
 ## Migration from Jellyfin and Plex
 

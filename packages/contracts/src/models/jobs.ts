@@ -102,3 +102,17 @@ export const Backup = Schema.Struct({
 
 /** A backup archive. */
 export interface Backup extends Schema.Schema.Type<typeof Backup> {}
+
+/** Most archives one `mediaService.syncBackups` call may carry. */
+export const BACKUP_SYNC_LIMIT = 1000;
+
+/** A backup archive as the media service finds it in its backup folder. */
+export const BackupArchive = Schema.Struct({
+  fileName: Schema.String,
+  sizeBytes: Bytes,
+  trigger: Schema.Literals(["nightly", "manual"]),
+  takenAt: EpochMillis,
+});
+
+/** A backup archive in the backup folder. */
+export interface BackupArchive extends Schema.Schema.Type<typeof BackupArchive> {}

@@ -135,6 +135,8 @@ DATA_DIR=${data_dir}
 TRANSCODE_DIR=${transcode_dir}
 BACKUP_DIR=${backup_dir}
 LIBRARY_ROOTS=${library_roots}
+CONVEX_BACKEND_DIR=${root}/packages/backend
+CONVEX_SELF_HOSTED_ADMIN_KEY=${admin_key}
 ${media_env}
 ENV
 

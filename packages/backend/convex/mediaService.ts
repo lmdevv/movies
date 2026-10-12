@@ -20,6 +20,7 @@ import { fail } from "./lib/errors";
 import { MAX_JOB_ATTEMPTS, requireLease, requireLeaseOf } from "./lib/jobs";
 import { presentJob } from "./lib/present";
 import {
+  backupArchive,
   claimedJob,
   endedSession,
   indexedFile,
@@ -43,6 +44,9 @@ import { authorize } from "./lib/viewer";
 
 /** Most items one scan or import write may carry; `SCAN_BATCH_LIMIT` in contracts. */
 const BATCH_LIMIT = 100;
+
+/** Most archives one backup sync may carry; `BACKUP_SYNC_LIMIT` in contracts. */
+const BACKUP_SYNC_LIMIT = 1000;
 
 const MIN_LEASE_MS = 5_000;
 
@@ -420,14 +424,42 @@ export const recordBackup = mutation({
   },
 });
 
-export const removeBackup = mutation({
+/** The archive file of a backup, for a restore. */
+export const backupFile = query({
   args: { backupId: v.id("backups") },
-  returns: ok,
+  returns: v.object({ fileName: v.string() }),
   handler: async (ctx, { backupId }) => {
     await authorize(ctx, "media-service");
+    const doc = (await ctx.db.get(backupId)) ?? fail("not_found", "No such backup");
 
-    if ((await ctx.db.get(backupId)) !== null) await ctx.db.delete(backupId);
+    return { fileName: doc.fileName };
+  },
+});
 
-    return { ok: true as const };
+/**
+ * Makes the backups table list exactly the archives in the media service's backup folder: rows
+ * without a file go (retention pruned it), and files without a row are added (a restore replaced
+ * the table with an older one, or an admin copied an archive in). Safe to repeat.
+ */
+export const syncBackups = mutation({
+  args: { archives: v.array(backupArchive) },
+  returns: v.object({ added: v.number(), removed: v.number() }),
+  handler: async (ctx, { archives }) => {
+    await authorize(ctx, "media-service");
+
+    if (archives.length > BACKUP_SYNC_LIMIT) {
+      return fail("invalid_args", `Send at most ${BACKUP_SYNC_LIMIT} archives`);
+    }
+
+    const rows = await ctx.db.query("backups").collect();
+    const onDisk = new Set(archives.map((archive) => archive.fileName));
+    const recorded = new Set(rows.map((row) => row.fileName));
+    const stale = rows.filter((row) => !onDisk.has(row.fileName));
+    const missing = archives.filter((archive) => !recorded.has(archive.fileName));
+
+    await Promise.all(stale.map((row) => ctx.db.delete(row._id)));
+    await Promise.all(missing.map((archive) => ctx.db.insert("backups", archive)));
+
+    return { added: missing.length, removed: stale.length };
   },
 });

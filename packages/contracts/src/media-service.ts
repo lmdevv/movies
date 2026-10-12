@@ -10,7 +10,7 @@ import { mutation, query } from "./commands/command";
 import { BackupId, LibraryId, MediaFileId, PlaybackSessionId, TitleId } from "./ids";
 import { migrationServiceFunctions } from "./migration-service";
 import { NoArgs, Ok, Page, PageArgs } from "./models/common";
-import { Job, JobProgress } from "./models/jobs";
+import { BACKUP_SYNC_LIMIT, BackupArchive, Job, JobProgress } from "./models/jobs";
 import { PlaybackMode } from "./models/playback";
 import {
   ClaimedJob,
@@ -179,13 +179,23 @@ export const mediaServiceFunctions = {
     result: Schema.Struct({ backupId: BackupId }),
     function: "mediaService:recordBackup",
   }),
-  "mediaService.removeBackup": mutation({
-    summary: "Forget a backup archive removed by retention",
+  "mediaService.backupFile": query({
+    summary: "The archive file of a backup, for a restore",
     group: "media-service",
     scope: "media-service",
     args: Schema.Struct({ backupId: BackupId }),
-    result: Ok,
-    function: "mediaService:removeBackup",
+    result: Schema.Struct({ fileName: Schema.String }),
+    function: "mediaService:backupFile",
+  }),
+  "mediaService.syncBackups": mutation({
+    summary: "Make the backups table list exactly the archives in the backup folder",
+    group: "media-service",
+    scope: "media-service",
+    args: Schema.Struct({
+      archives: Schema.Array(BackupArchive).check(Schema.isMaxLength(BACKUP_SYNC_LIMIT)),
+    }),
+    result: Schema.Struct({ added: Schema.Int, removed: Schema.Int }),
+    function: "mediaService:syncBackups",
   }),
   ...migrationServiceFunctions,
 };

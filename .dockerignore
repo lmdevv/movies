@@ -1,0 +1,15 @@
+# Only the sources the image builds from; never local env files or dependency folders.
+**/node_modules
+**/dist
+**/.env*
+!.env.example
+**/.turbo
+**/test-results
+**/playwright-report
+.git
+.repos
+.agents
+.claude
+docs
+nix
+result

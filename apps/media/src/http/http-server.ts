@@ -7,7 +7,7 @@
 import { createServer } from "node:http";
 
 import { NodeHttpServer } from "@effect/platform-node";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { HttpMiddleware, HttpRouter } from "effect/http";
 
 import * as MediaConfig from "../media-config.ts";
@@ -36,7 +36,7 @@ export const tokenSafeTracing = Layer.succeed(HttpMiddleware.TracerDisabledWhen)
 
 /**
  * Serves the common routes plus `commandRoutes` (route groups of registry `media` commands, which
- * need Convex) on `PORT`.
+ * need Convex) on `HOST`:`PORT`.
  */
 export const layer = <E, R>(commandRoutes: Layer.Layer<never, E, R>) =>
   Layer.unwrap(
@@ -45,7 +45,12 @@ export const layer = <E, R>(commandRoutes: Layer.Layer<never, E, R>) =>
 
       return HttpRouter.serve(Layer.mergeAll(routesLayer, commandRoutes)).pipe(
         Layer.provide(tokenSafeTracing),
-        Layer.provide(NodeHttpServer.layer(createServer, { port: config.port })),
+        Layer.provide(
+          NodeHttpServer.layer(createServer, {
+            port: config.port,
+            host: Option.getOrUndefined(config.host),
+          }),
+        ),
       );
     }),
   );

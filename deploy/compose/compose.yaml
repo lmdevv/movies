@@ -1,0 +1,87 @@
+# [movies] with Docker Compose: the self-hosted Convex backend and the media service, which also
+# serves the web app. From this folder:
+#
+#   cp .env.example .env        # then set MOVIES_LIBRARY and the URLs; see README.md
+#   docker compose up -d
+#
+# Open MOVIES_PUBLIC_URL, create the owner account, and add /media/library as a library.
+# Optional: Intel Quick Sync with `-f compose.yaml -f compose.qsv.yaml`; an OpenTelemetry
+# collector with `--profile telemetry`.
+name: movies
+
+services:
+  convex:
+    # Keep in step with Dockerfile, nix/module.nix, and scripts/dev-stack.sh.
+    image: ghcr.io/get-convex/convex-backend:5c7cb5bc7db457290f1769f95f1d1340912f7fd7@sha256:d715e9ec088784407ca4ba2d3db592702cd328d02c76cdca3852c0018f2a76b4
+    restart: unless-stopped
+    environment:
+      # Where browsers and the CLI reach Convex; it appears in URLs the backend hands out.
+      CONVEX_CLOUD_ORIGIN: ${CONVEX_PUBLIC_URL:-http://localhost:3210}
+      # HTTP actions (Convex Auth's JWKS) stay inside the container; the backend fetches its own.
+      CONVEX_SITE_ORIGIN: http://127.0.0.1:3211
+      DISABLE_BEACON: "1"
+      REDACT_LOGS_TO_CLIENT: "1"
+      # Plain HTTP over the tailnet or localhost; put a TLS proxy in front for anything else.
+      DO_NOT_REQUIRE_SSL: "1"
+    ports:
+      - "${MOVIES_BIND:-127.0.0.1}:${CONVEX_PORT:-3210}:3210"
+    volumes:
+      - convex-data:/convex/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3210/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  movies:
+    image: ${MOVIES_IMAGE:-ghcr.io/lmdevv/movies:main}
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile
+    restart: unless-stopped
+    # Reaps ffmpeg processes and forwards signals to the service.
+    init: true
+    depends_on:
+      convex:
+        condition: service_healthy
+    environment:
+      MOVIES_PUBLIC_URL: ${MOVIES_PUBLIC_URL:-http://localhost:8080}
+      CONVEX_PUBLIC_URL: ${CONVEX_PUBLIC_URL:-http://localhost:3210}
+      CONVEX_URL: http://convex:3210
+      # User and group the media service runs as; they must be able to read the library.
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      HARDWARE_ACCELERATION: ${HARDWARE_ACCELERATION:-auto}
+      MAX_CONCURRENT_TRANSCODES: ${MAX_CONCURRENT_TRANSCODES:-3}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    ports:
+      - "${MOVIES_BIND:-127.0.0.1}:${MOVIES_PORT:-8080}:8080"
+    volumes:
+      - movies-data:/data
+      - movies-transcode:/transcode
+      # The backend's instance secret, from which the admin key is derived at startup.
+      - type: volume
+        source: convex-data
+        target: /run/convex-credentials
+        read_only: true
+        volume:
+          subpath: credentials
+      # Libraries, read-only. Add one line per folder and add /media/<name> as a library.
+      - ${MOVIES_LIBRARY:-./library}:/media/library:ro
+
+  otel-collector:
+    profiles: [telemetry]
+    image: otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+
+volumes:
+  convex-data:
+  movies-data:
+  movies-transcode:

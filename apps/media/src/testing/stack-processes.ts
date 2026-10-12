@@ -6,7 +6,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -191,3 +191,20 @@ export const makeTempDir = (prefix: string): Promise<string> => mkdtemp(join(tmp
 /** Removes a directory tree. */
 export const removeDir = (path: string): Promise<void> =>
   rm(path, { recursive: true, force: true });
+
+/** Writes `text` to a file. */
+export const writeText = (path: string, text: string): Promise<void> => writeFile(path, text);
+
+/** A file's size and permission bits, or undefined when it does not exist. */
+export const fileInfo = (
+  path: string,
+): Promise<{ readonly size: number; readonly mode: number } | undefined> =>
+  stat(path).then(
+    (info) => ({ size: info.size, mode: info.mode & 0o777 }),
+    () => undefined,
+  );
+
+/** Runs `command` (a program and its arguments), such as a service restart, and waits for it. */
+export const runCommand = ([program = "false", ...args]: ReadonlyArray<string>): void => {
+  execFileSync(program, args, { stdio: "ignore" });
+};
