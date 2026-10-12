@@ -19,6 +19,7 @@ import {
 import { fail } from "./lib/errors";
 import { enqueueJob, MAX_JOB_ATTEMPTS, requireLease, requireLeaseOf } from "./lib/jobs";
 import { presentJob } from "./lib/present";
+import { checkRoots } from "./lib/roots";
 import { isAdminRole } from "./lib/scopes";
 import {
   claimedJob,
@@ -500,14 +501,15 @@ export const ensureLibrary = mutation({
   handler: async (ctx, { jobId, workerId, name, kind, roots }) => {
     await authorize(ctx, "media-service");
     const doc = await requireLeaseOf(ctx, jobId, workerId, "migration");
-    const wanted = roots.map((root) => root.replace(/\/+$/u, "") || "/");
+    const trimmed = roots.map((root) => root.trim().replace(/\/+$/u, "") || "/");
     const existing = await ctx.db.query("libraries").collect();
 
     const covering = existing.find((library) =>
-      wanted.every((root) => library.roots.includes(root)),
+      trimmed.every((root) => library.roots.includes(root)),
     );
 
     if (covering !== undefined) return { libraryId: covering._id, created: false };
+    const wanted = await checkRoots(ctx, trimmed, null);
 
     if (doc.requestedBy === null)
       return fail("invalid_args", "This migration has no requesting admin");

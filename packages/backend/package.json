@@ -21,6 +21,7 @@
     "@movies/contracts": "workspace:*",
     "@types/node": "catalog:",
     "effect": "catalog:",
+    "fast-check": "4.10.2",
     "jose": "^6.2.12",
     "typescript": "catalog:",
     "vitest": "5.0.3"

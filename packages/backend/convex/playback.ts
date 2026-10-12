@@ -255,6 +255,10 @@ export const endSession = mutation({
 
     if (session.status === "ended") return { ok: true as const };
 
+    if (!Number.isFinite(positionMs) || positionMs < 0) {
+      return fail("invalid_args", "Positions are zero or more milliseconds");
+    }
+
     await recordPosition(ctx, session, positionMs, undefined, false);
     const now = Date.now();
 

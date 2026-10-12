@@ -17,8 +17,13 @@ export const base64UrlEncode = (bytes: Uint8Array): string => {
 
 /** Decodes base64url (padding optional), or returns null when it is not base64url. */
 export const base64UrlDecode = (text: string): Uint8Array<ArrayBuffer> | null => {
-  if (!/^[\w-]*={0,2}$/u.test(text) || text.length % 4 === 1) return null;
-  const binary = atob(text.replaceAll("-", "+").replaceAll("_", "/"));
+  const unpadded = text.replace(/={1,2}$/u, "");
+
+  const misplacedPadding = unpadded.length !== text.length && text.length % 4 !== 0;
+
+  if (!/^[\w-]*$/u.test(unpadded) || unpadded.length % 4 === 1 || misplacedPadding) return null;
+  const padded = unpadded.padEnd(Math.ceil(unpadded.length / 4) * 4, "=");
+  const binary = atob(padded.replaceAll("-", "+").replaceAll("_", "/"));
 
   return Uint8Array.from(binary, (character) => character.codePointAt(0) ?? 0);
 };

@@ -19,6 +19,14 @@ export const WATCHED_FRACTION = 0.9;
 export const reachedEnd = (positionMs: number, durationMs: number): boolean =>
   durationMs > 0 && positionMs >= durationMs * WATCHED_FRACTION;
 
+/**
+ * Whether a progress row counts as finished: played to the end, or marked watched without a
+ * position in progress (a manual mark, or an import, of an item with unknown duration). A rewatch
+ * in progress is not finished, so it shows up to resume.
+ */
+export const isFinished = (row: Doc<"watchProgress">): boolean =>
+  reachedEnd(row.positionMs, row.durationMs) || (row.watched && row.positionMs <= 0);
+
 /** A progress write from a playback session, an import, or a manual mark. */
 export interface ProgressWrite {
   readonly profileId: Id<"profiles">;
@@ -129,6 +137,30 @@ export const firstEpisode = async (
   );
 };
 
+/** Most episodes `nextUnwatchedAfter` steps over, so a long finished run cannot exhaust a query. */
+const MAX_SKIPPED_EPISODES = 500;
+
+/** The first episode after `episode` the profile has not watched, or null when none remains. */
+export const nextUnwatchedAfter = async (
+  ctx: ReadCtx,
+  profileId: Id<"profiles">,
+  episode: Doc<"episodes">,
+): Promise<Doc<"episodes"> | null> => {
+  const step = async (
+    current: Doc<"episodes">,
+    skipped: number,
+  ): Promise<Doc<"episodes"> | null> => {
+    const next = await nextEpisodeAfter(ctx, current);
+
+    if (next === null || skipped >= MAX_SKIPPED_EPISODES) return next;
+    const progress = await findProgress(ctx, profileId, next.titleId, next._id);
+
+    return progress?.watched === true ? step(next, skipped + 1) : next;
+  };
+
+  return step(episode, 0);
+};
+
 /** The profile's most recently played episode progress of a show, if any. */
 const latestShowProgress = async (
   ctx: ReadCtx,
@@ -165,9 +197,7 @@ export const upNextEpisode = async (
 
   if (episode === null) return firstEpisode(ctx, titleId);
 
-  return reachedEnd(latest.positionMs, latest.durationMs)
-    ? nextEpisodeAfter(ctx, episode)
-    : episode;
+  return isFinished(latest) ? nextUnwatchedAfter(ctx, profileId, episode) : episode;
 };
 
 /** Most rows continue watching shows. */
@@ -205,7 +235,7 @@ export const continueWatching = async (
       const title = await ctx.db.get(row.titleId);
 
       if (title === null || !canSee(audience, title)) return null;
-      const finished = reachedEnd(row.positionMs, row.durationMs);
+      const finished = isFinished(row);
 
       if (row.episodeId === null) {
         return finished || row.positionMs <= 0
@@ -231,12 +261,10 @@ export const continueWatching = async (
         };
       }
 
-      const next = await nextEpisodeAfter(ctx, episode);
+      const next = await nextUnwatchedAfter(ctx, audience.profile._id, episode);
 
       if (next === null || next.presentFileCount === 0) return null;
       const nextProgress = await findProgress(ctx, audience.profile._id, title._id, next._id);
-
-      if (nextProgress?.watched === true) return null;
 
       return {
         reason: "next" as const,

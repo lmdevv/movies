@@ -30,4 +30,4 @@ Plain TypeScript with `v` validators; no Effect here. Each public function autho
   stack from `scripts/dev-stack.sh up`. It reads the URL and the media service's credentials from
   the `.env.local` files that script writes, or from `CONVEX_SELF_HOSTED_URL`,
   `MEDIA_SERVICE_API_KEY`, and `PLAYBACK_TOKEN_SECRET`. Without `MOVIES_STACK_TESTS=1` (which the
-  script sets) the suite is skipped.
+  `test:stack` script sets) the suite is skipped, so running Vitest directly skips it too.

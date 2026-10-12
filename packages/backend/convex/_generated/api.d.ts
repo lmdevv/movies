@@ -29,6 +29,7 @@ import type * as lib_playable from "../lib/playable.js";
 import type * as lib_playbackToken from "../lib/playbackToken.js";
 import type * as lib_present from "../lib/present.js";
 import type * as lib_roomClock from "../lib/roomClock.js";
+import type * as lib_roots from "../lib/roots.js";
 import type * as lib_scopes from "../lib/scopes.js";
 import type * as lib_validators from "../lib/validators.js";
 import type * as lib_viewer from "../lib/viewer.js";
@@ -75,6 +76,7 @@ declare const fullApi: ApiFromModules<{
   "lib/playbackToken": typeof lib_playbackToken;
   "lib/present": typeof lib_present;
   "lib/roomClock": typeof lib_roomClock;
+  "lib/roots": typeof lib_roots;
   "lib/scopes": typeof lib_scopes;
   "lib/validators": typeof lib_validators;
   "lib/viewer": typeof lib_viewer;

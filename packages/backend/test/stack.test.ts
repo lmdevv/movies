@@ -639,6 +639,54 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       });
     });
 
+    it("adds migrated libraries only for absolute folders nobody else owns", async () => {
+      const owner = (await run(fixture.owner, "account.viewer", {})).user.id;
+
+      const { jobId } = await service(fixture.mediaService, "mediaService.startMigration", {
+        requestedBy: owner,
+        source: "jellyfin",
+        connectionId: `connection-${id}`,
+        serverName: "Jellyfin",
+      });
+
+      const worker = `migrator-${id}`;
+      await service(fixture.mediaService, "mediaService.claimJob", {
+        jobId,
+        workerId: worker,
+        leaseMs: 60_000,
+      });
+
+      const ensure = (roots: ReadonlyArray<string>) =>
+        service(fixture.mediaService, "mediaService.ensureLibrary", {
+          jobId,
+          workerId: worker,
+          name: "Imported",
+          kind: "movies",
+          roots,
+        });
+
+      expect(await outcome(ensure(["relative/movies"]))).toBe("invalid_args");
+      expect(await outcome(ensure([`/stack-${id}/x/../open`]))).toBe("invalid_args");
+      expect(await ensure([`/stack-${id}/open/`])).toStrictEqual({
+        libraryId: fixture.openLibrary,
+        created: false,
+      });
+      expect((await ensure([`/stack-${id}/imported`])).created).toBe(true);
+
+      expect(
+        await outcome(
+          service(fixture.mediaService, "mediaService.startMigration", {
+            requestedBy: (await run(fixture.member, "account.viewer", {})).user.id,
+            source: "plex",
+            connectionId: "c",
+            serverName: "Plex",
+          }),
+        ),
+      ).toBe("forbidden");
+
+      await service(fixture.mediaService, "mediaService.completeJob", { jobId, workerId: worker });
+    });
+
     it("refuses files outside the library's folders", async () => {
       expect(
         await outcome(
@@ -885,6 +933,21 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         reason: "next",
         episode: { episodeNumber: 2 },
       });
+
+      const second = {
+        profileId: fixture.memberProfile,
+        titleId: fixture.titles.show,
+        episodeId: next?.id,
+      };
+
+      if (second.episodeId === undefined) return;
+      await run(fixture.member, "history.markWatched", { ...second, episodeId: second.episodeId });
+      expect((await run(fixture.member, "titles.get", second)).nextEpisode).toBeNull();
+      await run(fixture.member, "history.markUnwatched", {
+        ...second,
+        episodeId: second.episodeId,
+      });
+      expect((await run(fixture.member, "titles.get", second)).nextEpisode?.episodeNumber).toBe(2);
     });
   });
 

@@ -3,6 +3,9 @@
  *
  *   node scripts/configure.ts [--site-url http://localhost:3001] [--media-url http://127.0.0.1:3002]
  *
+ * Without a URL flag, SITE_URL and MEDIA_BASE_URL keep their stored values (or get the local
+ * defaults when unset), so rerunning it after a restore does not reset them.
+ *
  * Sets JWT_PRIVATE_KEY and JWKS for Convex Auth, SITE_URL, MEDIA_BASE_URL, PLAYBACK_TOKEN_SECRET,
  * and MEDIA_SERVICE_API_KEY; makes sure the media service's account and key exist; then prints
  * `MEDIA_SERVICE_API_KEY=...` and `PLAYBACK_TOKEN_SECRET=...` on stdout for the media service's
@@ -18,8 +21,8 @@ import { exportJWK, exportPKCS8, generateKeyPair } from "jose";
 
 const { values } = parseArgs({
   options: {
-    "site-url": { type: "string", default: "http://localhost:3001" },
-    "media-url": { type: "string", default: "http://127.0.0.1:3002" },
+    "site-url": { type: "string" },
+    "media-url": { type: "string" },
   },
 });
 
@@ -71,9 +74,14 @@ if (!current.has("JWT_PRIVATE_KEY") || !current.has("JWKS")) {
   log("kept JWT_PRIVATE_KEY and JWKS");
 }
 
-ensure("SITE_URL", () => values["site-url"], false);
+/** A URL flag replaces the stored value; without it the stored value stays, or the default is set. */
+const ensureUrl = (name: string, flag: string | undefined, fallback: string): void => {
+  ensure(name, () => flag ?? fallback, flag === undefined);
+};
 
-ensure("MEDIA_BASE_URL", () => values["media-url"], false);
+ensureUrl("SITE_URL", values["site-url"], "http://localhost:3001");
+
+ensureUrl("MEDIA_BASE_URL", values["media-url"], "http://127.0.0.1:3002");
 
 const playbackSecret = ensure(
   "PLAYBACK_TOKEN_SECRET",
