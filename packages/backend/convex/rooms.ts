@@ -45,6 +45,7 @@ const presentRoom = async (ctx: QueryCtx, doc: Doc<"rooms">): Promise<Infer<type
     .collect();
 
   const profiles = await Promise.all(members.map((member) => ctx.db.get(member.profileId)));
+  const hostProfile = await ctx.db.get(doc.hostProfileId);
 
   return {
     id: doc._id,
@@ -56,6 +57,7 @@ const presentRoom = async (ctx: QueryCtx, doc: Doc<"rooms">): Promise<Infer<type
     hostUserId: doc.hostUserId,
     hostProfileId: doc.hostProfileId,
     hostDeviceId: doc.hostDeviceId,
+    hostProfileName: hostProfile?.name ?? "Host",
     hostAway: doc.hostAway,
     clock: presentRoomClock(doc),
     members: members.map((member, index) => ({
@@ -67,6 +69,7 @@ const presentRoom = async (ctx: QueryCtx, doc: Doc<"rooms">): Promise<Infer<type
       role: member.role,
       joinedAt: member.joinedAt,
       lastSeenAt: member.lastSeenAt,
+      driftMs: member.role === "guest" ? (member.driftMs ?? null) : null,
     })),
     createdAt: Math.floor(doc._creationTime),
   };
@@ -351,9 +354,10 @@ export const buffering = mutation({
 });
 
 /**
- * Keeps the device's membership alive. The host's heartbeat also clears `hostAway` and, when the
- * host's player drifted from the computed position and the host saw the current revision,
- * re-anchors the clock at the host's position.
+ * Keeps the device's membership alive. A guest's heartbeat records its reported drift for the room
+ * to show. The host's heartbeat also clears `hostAway` and, when the host's player drifted from
+ * the computed position and the host saw the current revision, re-anchors the clock at the host's
+ * position.
  */
 export const heartbeat = mutation({
   args: {
@@ -361,9 +365,10 @@ export const heartbeat = mutation({
     deviceId: v.string(),
     positionMs: v.optional(v.number()),
     revision: v.optional(v.number()),
+    driftMs: v.optional(v.number()),
   },
   returns: roomClock,
-  handler: async (ctx, { roomId, deviceId, positionMs, revision }) => {
+  handler: async (ctx, { roomId, deviceId, positionMs, revision, driftMs }) => {
     const viewer = await authorize(ctx, "play");
     const found = await loadRoom(ctx, roomId);
 
@@ -375,7 +380,16 @@ export const heartbeat = mutation({
     if (member?.userId !== viewer.userId)
       return fail("forbidden", "Join the room on this device first");
     const now = Date.now();
-    await ctx.db.patch(member._id, { lastSeenAt: now });
+
+    if (member.role === "guest") {
+      // A guest that stopped reporting drift (buffering) clears the last value it reported.
+      await ctx.db.patch(member._id, {
+        lastSeenAt: now,
+        driftMs: Number.isFinite(driftMs) ? driftMs : undefined,
+      });
+    } else {
+      await ctx.db.patch(member._id, { lastSeenAt: now });
+    }
 
     if (member.role !== "host" || found.status === "ended") return presentRoomClock(found);
 

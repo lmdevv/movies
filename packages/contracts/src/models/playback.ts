@@ -3,7 +3,7 @@ import { Schema } from "effect";
 
 import { DeviceId, EpisodeId, MediaFileId, PlaybackSessionId, ProfileId, TitleId } from "../ids";
 import { EpochMillis, Milliseconds } from "../units";
-import { MediaFile } from "./catalog";
+import { Episode, MediaFile } from "./catalog";
 
 /**
  * How the media service delivers a session's file to its device: the original file over byte
@@ -49,6 +49,8 @@ export const StartedPlayback = Schema.Struct({
   sessionId: PlaybackSessionId,
   titleId: TitleId,
   episodeId: Schema.NullOr(EpisodeId),
+  /** The episode playing, with this profile's progress; null for movies. */
+  episode: Schema.NullOr(Episode),
   file: MediaFile,
   token: Schema.String,
   tokenExpiresAt: EpochMillis,

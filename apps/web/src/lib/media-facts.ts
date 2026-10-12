@@ -2,7 +2,8 @@
  * Technical badges and track lists for a playable file, from what ffprobe reported: `4K`,
  * `DOLBY VISION`, `HEVC`, `EAC3 5.1`, `CC`, and `English EAC3 5.1, Spanish · English CC`.
  */
-import type { HdrFormat, MediaFile } from "@movies/contracts/models/catalog";
+import type { SubtitleTrack } from "@movies/contracts/media-playback";
+import type { AudioStream, HdrFormat, MediaFile } from "@movies/contracts/models/catalog";
 import { Match } from "effect";
 
 const resolution = (width: number, height: number): string | null => {
@@ -35,11 +36,12 @@ const CODECS: ReadonlyMap<string, string> = new Map([
   ["mpeg2video", "MPEG-2"],
 ]);
 
-const codecLabel = (codec: string): string =>
+/** `H.264`, `HEVC`, or the codec name upper-cased, such as `EAC3`. */
+export const codecLabel = (codec: string): string =>
   CODECS.get(codec.toLowerCase()) ?? codec.toUpperCase();
 
 /** `5.1` for six channels, `7.1` for eight, `2.0` for stereo. */
-const channelLabel = (channels: number): string | null => {
+export const channelLabel = (channels: number): string | null => {
   if (channels <= 0) return null;
 
   if (channels === 1) return "1.0";
@@ -62,6 +64,28 @@ const languageName = (code: string | null): string | null => {
   } catch {
     return null;
   }
+};
+
+/** An audio track as the track chooser lists it: `English 5.1`, or its title, or `Track 2`. */
+export const audioTrackLabel = (
+  track: Pick<AudioStream, "language" | "title" | "channels">,
+  position: number,
+): string => {
+  const name = languageName(track.language) ?? track.title ?? `Track ${position + 1}`;
+
+  return [name, channelLabel(track.channels)].filter((part) => part !== null).join(" ");
+};
+
+/** A subtitle track as the chooser lists it: `English`, `English CC`, or `English (Forced)`. */
+export const subtitleTrackLabel = (
+  track: Pick<SubtitleTrack, "language" | "title" | "hearingImpaired" | "forced">,
+  position: number,
+): string => {
+  const name = languageName(track.language ?? null) ?? track.title ?? `Subtitles ${position + 1}`;
+
+  if (track.hearingImpaired) return `${name} CC`;
+
+  return track.forced ? `${name} (Forced)` : name;
 };
 
 /** The badges Paper draws after a title's facts, in order: resolution, HDR, codec, audio, CC. */

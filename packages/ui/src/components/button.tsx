@@ -15,6 +15,8 @@ export const buttonVariants = cva(
         /** Netflix red, for the one main action: Play, Continue, Sign in. */
         primary:
           "bg-accent font-bold text-on-accent hover:bg-accent-pressed active:bg-accent-pressed",
+        /** A white fill over dark media, such as Next episode and Back to details on the player. */
+        inverse: "on-media bg-text font-bold text-dark-bg hover:bg-text/85",
         /** Translucent gray over artwork, such as More info on the hero. */
         secondary: "on-media bg-media-secondary font-semibold hover:bg-media-secondary/50",
         /** A soft fill for secondary actions on surfaces, such as Copy invite link. */

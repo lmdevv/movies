@@ -53,7 +53,7 @@ import { FRAGMENT_HEAD_BYTES, fragmentStartSeconds } from "./fmp4-fragments.ts";
 import * as HardwareAcceleration from "./hardware-acceleration.ts";
 import { planGridSegments, planKeyframeSegments, type SegmentPlan, segmentAt } from "./hls-plan.ts";
 import * as KeyframeIndex from "./keyframe-index.ts";
-import { type AudioPlan, decidePlayback, PlaybackPlan, VideoPlan } from "./playback-decision.ts";
+import { AudioPlan, decidePlayback, PlaybackPlan, VideoPlan } from "./playback-decision.ts";
 import * as PlaybackReporter from "./playback-reporter.ts";
 import type { PlaybackGrant } from "./playback-token.ts";
 import { hlsCommandArgs } from "./transcode-command.ts";
@@ -345,6 +345,12 @@ const make = Effect.gen(function* () {
       videoBitDepth: video?.bitDepth ?? 8,
       video: videoPlan,
       audio: session.audio,
+      audioCodec: AudioPlan.$match(session.audio, {
+        None: () => "",
+        Aac: () => "",
+        Copy: ({ index }) =>
+          session.file.probe.audio.find((track) => track.index === index)?.codec ?? "",
+      }),
       segmentStarts: session.plan.starts.slice(startSegment),
       outputDirectory: directory,
       qsvDevice: hardware.qsvDevice,

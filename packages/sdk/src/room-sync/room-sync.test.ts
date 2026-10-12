@@ -53,6 +53,7 @@ const roomWith = (clock: Partial<RoomClock>): Room =>
     hostUserId: "user-1",
     hostProfileId: "profile-1",
     hostDeviceId: HOST,
+    hostProfileName: "Alex",
     hostAway: false,
     clock: {
       status: "paused",
@@ -62,7 +63,19 @@ const roomWith = (clock: Partial<RoomClock>): Room =>
       revision: 0,
       ...clock,
     },
-    members: [],
+    members: [
+      {
+        userId: "user-2",
+        profileId: "profile-2",
+        profileName: "Maya",
+        avatar: "blue",
+        deviceId: GUEST,
+        role: "guest",
+        joinedAt: START,
+        lastSeenAt: START,
+        driftMs: null,
+      },
+    ],
     createdAt: START,
   });
 
@@ -166,6 +179,23 @@ describe("room sync", () => {
           DEFAULT_TUNABLES.inSyncMs,
         );
         expect((yield* current(sync)).follow).toBe("following");
+      }),
+    ));
+
+  it("reports a following guest's drift with its heartbeats", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        const player = yield* makeFakePlayer(0);
+
+        yield* start(rooms, GUEST, player);
+        yield* advance(DEFAULT_TUNABLES.heartbeatIntervalMs + 1_000);
+
+        const reported = (yield* rooms.room).members.find((member) => member.deviceId === GUEST);
+
+        expect(reported?.driftMs).toBeTypeOf("number");
+        expect(Math.abs(reported?.driftMs ?? Infinity)).toBeLessThanOrEqual(
+          DEFAULT_TUNABLES.inSyncMs,
+        );
       }),
     ));
 

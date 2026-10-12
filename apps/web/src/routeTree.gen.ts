@@ -24,6 +24,7 @@ import { Route as DevKitRouteImport } from './routes/dev/kit'
 import { Route as InviteCodeRouteImport } from './routes/invite.$code'
 import { Route as ProfilesIndexRouteImport } from './routes/profiles.index'
 import { Route as ProfilesNewRouteImport } from './routes/profiles.new'
+import { Route as RRoomIdRouteImport } from './routes/r.$roomId'
 import { Route as SetupLibraryRouteImport } from './routes/setup.library'
 import { Route as SetupScanRouteImport } from './routes/setup.scan'
 import { Route as WatchTitleIdRouteImport } from './routes/watch.$titleId'
@@ -114,6 +115,11 @@ const ProfilesIndexRoute = ProfilesIndexRouteImport.update({
 const ProfilesNewRoute = ProfilesNewRouteImport.update({
   id: '/profiles/new',
   path: '/profiles/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RRoomIdRoute = RRoomIdRouteImport.update({
+  id: '/r/$roomId',
+  path: '/r/$roomId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SetupLibraryRoute = SetupLibraryRouteImport.update({
@@ -218,6 +224,7 @@ export interface FileRoutesByFullPath {
   '/dev/kit': typeof DevKitRoute
   '/invite/$code': typeof InviteCodeRoute
   '/profiles/new': typeof ProfilesNewRoute
+  '/r/$roomId': typeof RRoomIdRoute
   '/setup/library': typeof SetupLibraryRoute
   '/setup/scan': typeof SetupScanRoute
   '/watch/$titleId': typeof WatchTitleIdRoute
@@ -248,6 +255,7 @@ export interface FileRoutesByTo {
   '/dev/kit': typeof DevKitRoute
   '/invite/$code': typeof InviteCodeRoute
   '/profiles/new': typeof ProfilesNewRoute
+  '/r/$roomId': typeof RRoomIdRoute
   '/setup/library': typeof SetupLibraryRoute
   '/setup/scan': typeof SetupScanRoute
   '/watch/$titleId': typeof WatchTitleIdRoute
@@ -283,6 +291,7 @@ export interface FileRoutesById {
   '/dev/kit': typeof DevKitRoute
   '/invite/$code': typeof InviteCodeRoute
   '/profiles/new': typeof ProfilesNewRoute
+  '/r/$roomId': typeof RRoomIdRoute
   '/setup/library': typeof SetupLibraryRoute
   '/setup/scan': typeof SetupScanRoute
   '/watch/$titleId': typeof WatchTitleIdRoute
@@ -319,6 +328,7 @@ export interface FileRouteTypes {
     | '/dev/kit'
     | '/invite/$code'
     | '/profiles/new'
+    | '/r/$roomId'
     | '/setup/library'
     | '/setup/scan'
     | '/watch/$titleId'
@@ -349,6 +359,7 @@ export interface FileRouteTypes {
     | '/dev/kit'
     | '/invite/$code'
     | '/profiles/new'
+    | '/r/$roomId'
     | '/setup/library'
     | '/setup/scan'
     | '/watch/$titleId'
@@ -383,6 +394,7 @@ export interface FileRouteTypes {
     | '/dev/kit'
     | '/invite/$code'
     | '/profiles/new'
+    | '/r/$roomId'
     | '/setup/library'
     | '/setup/scan'
     | '/watch/$titleId'
@@ -412,6 +424,7 @@ export interface RootRouteChildren {
   DevKitRoute: typeof DevKitRoute
   InviteCodeRoute: typeof InviteCodeRoute
   ProfilesNewRoute: typeof ProfilesNewRoute
+  RRoomIdRoute: typeof RRoomIdRoute
   SetupLibraryRoute: typeof SetupLibraryRoute
   SetupScanRoute: typeof SetupScanRoute
   WatchTitleIdRoute: typeof WatchTitleIdRoute
@@ -525,6 +538,13 @@ declare module '@tanstack/react-router' {
       path: '/profiles/new'
       fullPath: '/profiles/new'
       preLoaderRoute: typeof ProfilesNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/r/$roomId': {
+      id: '/r/$roomId'
+      path: '/r/$roomId'
+      fullPath: '/r/$roomId'
+      preLoaderRoute: typeof RRoomIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/setup/library': {
@@ -724,6 +744,7 @@ const rootRouteChildren: RootRouteChildren = {
   DevKitRoute: DevKitRoute,
   InviteCodeRoute: InviteCodeRoute,
   ProfilesNewRoute: ProfilesNewRoute,
+  RRoomIdRoute: RRoomIdRoute,
   SetupLibraryRoute: SetupLibraryRoute,
   SetupScanRoute: SetupScanRoute,
   WatchTitleIdRoute: WatchTitleIdRoute,

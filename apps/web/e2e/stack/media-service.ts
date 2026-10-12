@@ -2,8 +2,10 @@
  * The real media service for the stack suite: the bundle `apps/media` ships, signed in to the
  * worktree's dev stack with its service key, scanning the suite's fixture folders and serving
  * their artwork on the stack's media port. Stop a media service started with `pnpm dev` first.
+ * Set `E2E_MEDIA_LOG` to a file path to keep what the service logs.
  */
 import { execFileSync, spawn } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { MEDIA_ROUTES } from "@movies/contracts/media-playback";
@@ -49,8 +51,12 @@ export const startMediaService = async (
 
   let logs = "";
 
+  const logFile = process.env["E2E_MEDIA_LOG"];
+
   const collect = (chunk: Buffer): void => {
     logs += chunk.toString("utf8");
+
+    if (logFile !== undefined && logFile !== "") appendFileSync(logFile, chunk);
   };
 
   child.stdout.on("data", collect);

@@ -16,8 +16,10 @@ import type { CommandContext } from "./contribution";
 import { mergeContributions } from "./contribution";
 import { useLibraryCommands } from "./library";
 import { useNavigationCommands } from "./navigation";
+import { usePlaybackCommands } from "./playback";
 import { usePreferenceCommands } from "./preferences";
 import { useProfileCommands } from "./profiles";
+import { useRoomCommands } from "./rooms";
 
 export type { CommandContext } from "./contribution";
 
@@ -25,6 +27,8 @@ export { SWITCH_PROFILE_COMMAND } from "./profiles";
 
 /** Every contribution merged into the menu's root page, in menu order. */
 export const useCommandRoot = (context: CommandContext): CommandPage => {
+  const playback = usePlaybackCommands();
+  const rooms = useRoomCommands(context);
   const browse = useBrowseCommands(context);
   const navigation = useNavigationCommands(context);
   const profiles = useProfileCommands(context);
@@ -35,6 +39,8 @@ export const useCommandRoot = (context: CommandContext): CommandPage => {
 
   return useMemo((): CommandPage => {
     const { groups, fallback } = mergeContributions([
+      playback,
+      rooms,
       browse,
       navigation,
       profiles,
@@ -45,5 +51,5 @@ export const useCommandRoot = (context: CommandContext): CommandPage => {
     ]);
 
     return { id: "root", placeholder: "Search or jump to…", groups, fallback: () => fallback };
-  }, [browse, navigation, profiles, preferences, library, account, admin]);
+  }, [playback, rooms, browse, navigation, profiles, preferences, library, account, admin]);
 };

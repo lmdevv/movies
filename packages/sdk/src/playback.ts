@@ -55,6 +55,8 @@ export interface PlaybackRequest {
   readonly capabilities: ClientCapabilities;
   /** Start here instead of the saved progress. */
   readonly startAtMs: Option.Option<Milliseconds>;
+  /** ffmpeg stream index of the audio track to play; the file's default track when none. */
+  readonly audioStreamIndex: Option.Option<number>;
 }
 
 /** A playing session on this device. */
@@ -70,11 +72,15 @@ const encodeJson = <A, I>(schema: Schema.Codec<A, I>, value: A): Effect.Effect<S
     Effect.orDie,
   );
 
-/** Asks the media service for a stream of a started session's file. */
+/**
+ * Asks the media service for a stream of a started session's file at `startAtMs`, with the audio
+ * track `audioStreamIndex` (an ffmpeg stream index) or the file's default track.
+ */
 export const negotiate = Effect.fn("Playback.negotiate")(function* (
   started: StartedPlayback,
   capabilities: ClientCapabilities,
   startAtMs: Milliseconds,
+  audioStreamIndex: Option.Option<number>,
 ) {
   return yield* requestPlayback(
     {
@@ -86,6 +92,10 @@ export const negotiate = Effect.fn("Playback.negotiate")(function* (
           token: Redacted.make(started.token),
           capabilities,
           startSeconds: startAtMs / 1000,
+          ...Option.match(audioStreamIndex, {
+            onNone: () => ({}),
+            onSome: (index) => ({ audioStreamIndex: index }),
+          }),
         }),
       ),
       bearer: Option.none(),
@@ -123,8 +133,12 @@ export const seekStream = Effect.fn("Playback.seekStream")(function* (
   );
 });
 
-/** Ends an HLS stream so the media service can stop encoding and delete its segments. */
-const stopStream = (playback: Playback): Effect.Effect<void, PlaybackCallError> =>
+/**
+ * Ends an HLS stream so the media service can stop encoding and delete its segments; a direct
+ * stream has nothing to stop. `reportProgress` stops the stream it was given when its scope
+ * closes; stop a stream that replaced it (a renegotiation) with this.
+ */
+export const stop = (playback: Playback): Effect.Effect<void, PlaybackCallError> =>
   Option.match(Option.fromNullishOr(playback.stream.streamId), {
     onNone: () => Effect.void,
     onSome: (streamId) =>
@@ -191,14 +205,16 @@ export const recoveryFor = (error: PlaybackCallError): Recovery =>
 const TOKEN_RENEW_MARGIN_MS = 5 * 60 * 1000;
 
 /**
- * Negotiates again at `positionMs`, for example after `StreamNotFound` or before the token
- * expires: renews the playback token first when it expires within five minutes, then returns the
- * playback with the new token and stream. Media URLs carry the token, so load the new `stream.url`.
+ * Negotiates again at `positionMs`, for example after `StreamNotFound`, before the token expires,
+ * or to switch the audio track: renews the playback token first when it expires within five
+ * minutes, then returns the playback with the new token and stream. Media URLs carry the token,
+ * so load the new `stream.url`. `audioStreamIndex` picks the audio track as in `negotiate`.
  */
 export const renegotiate = Effect.fn("Playback.renegotiate")(function* (
   playback: Playback,
   capabilities: ClientCapabilities,
   positionMs: Milliseconds,
+  audioStreamIndex: Option.Option<number>,
 ) {
   const client = yield* MoviesClient;
   const now = yield* Clock.currentTimeMillis;
@@ -216,6 +232,7 @@ export const renegotiate = Effect.fn("Playback.renegotiate")(function* (
       sessionId: playback.started.sessionId,
       titleId: playback.started.titleId,
       episodeId: playback.started.episodeId,
+      episode: playback.started.episode,
       file: playback.started.file,
       token,
       tokenExpiresAt,
@@ -224,7 +241,7 @@ export const renegotiate = Effect.fn("Playback.renegotiate")(function* (
     }),
   });
 
-  const stream = yield* negotiate(started, capabilities, positionMs);
+  const stream = yield* negotiate(started, capabilities, positionMs, audioStreamIndex);
   const next: Playback = { started, stream };
 
   return next;
@@ -254,7 +271,7 @@ export const start = Effect.fn("Playback.start")(function* (request: PlaybackReq
   });
 
   const startAt = Option.getOrElse(request.startAtMs, () => started.resumePositionMs);
-  const stream = yield* negotiate(started, request.capabilities, startAt);
+  const stream = yield* negotiate(started, request.capabilities, startAt, request.audioStreamIndex);
   const playback: Playback = { started, stream };
 
   return playback;
@@ -308,7 +325,7 @@ export const reportProgress = Effect.fn("Playback.reportProgress")(function* (
     Effect.all(
       [
         client.mutate("playback.endSession", { sessionId, positionMs: position(player) }),
-        stopStream(playback),
+        stop(playback),
       ],
       { concurrency: "unbounded", discard: true },
     ).pipe(Effect.timeout(Duration.millis(EXIT_REPORT_TIMEOUT_MS)), Effect.ignore),

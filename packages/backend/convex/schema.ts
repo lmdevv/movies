@@ -311,6 +311,8 @@ export default defineSchema({
     role: v.union(v.literal("host"), v.literal("guest")),
     joinedAt: v.number(),
     lastSeenAt: v.number(),
+    /** A guest's last reported distance from the shared position; absent until it reports one. */
+    driftMs: v.optional(v.number()),
   })
     .index("by_room_device", ["roomId", "deviceId"])
     .index("by_user_device", ["userId", "deviceId"]),

@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import type { LaunchOptions } from "@playwright/test";
 
 import { stackEnv } from "./e2e/stack/stack-env";
 
@@ -8,18 +9,33 @@ const stack = stackEnv();
 const port = Number(process.env["E2E_PORT"] ?? stack?.webPort ?? 3011);
 
 /**
+ * A Chromium to run instead of Playwright's download, for hosts that cannot run that build (NixOS
+ * without nix-ld). It must decode H.264 and AAC, as the playback suites expect.
+ */
+const chromium = process.env["E2E_CHROMIUM"];
+
+const launchOptions: LaunchOptions = {};
+
+if (chromium !== undefined && chromium !== "") launchOptions.executablePath = chromium;
+
+/**
  * Browser tests against the Vite dev server. `kit` checks the UI kit gallery and needs no backend.
  * `stack` runs the core flows against the worktree's dev stack (`scripts/dev-stack.sh up`) and the
  * real media service, which the suite starts itself; it skips without a fresh stack. `admin` then
  * runs the account and admin screens on the same stack as the owner `stack` created; it skips
- * without a stack.
+ * without a stack. `player` and then `rooms` play generated clips through the real media service
+ * as that owner. The suites that run a media service take turns, as it owns the stack's port.
  */
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: Boolean(process.env["CI"]),
   timeout: 60_000,
-  use: { baseURL: `http://localhost:${port}`, trace: "retain-on-failure" },
+  use: {
+    baseURL: `http://localhost:${port}`,
+    trace: "retain-on-failure",
+    launchOptions,
+  },
   projects: [
     {
       name: "kit",
@@ -36,6 +52,18 @@ export default defineConfig({
       name: "admin",
       testMatch: /e2e\/admin\/.*\.spec\.ts$/u,
       dependencies: ["stack"],
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: "player",
+      testMatch: /e2e\/playback\/player\.spec\.ts$/u,
+      dependencies: ["admin"],
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: "rooms",
+      testMatch: /e2e\/playback\/rooms\.spec\.ts$/u,
+      dependencies: ["player"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
   ],
