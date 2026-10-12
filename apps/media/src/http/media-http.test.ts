@@ -288,7 +288,12 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         assert.strictEqual(playlist.headers["content-type"], "application/vnd.apple.mpegurl");
         assert.include(text, "#EXT-X-PLAYLIST-TYPE:VOD");
         assert.include(text, '#EXT-X-MAP:URI="init.mp4?token=');
-        assert.strictEqual(text.match(/#EXTINF:4\.000000,/g)?.length, 3);
+        const durations = [...text.matchAll(/#EXTINF:([\d.]+),/g)].map((match) => Number(match[1]));
+
+        // Keyframes every 2 s grouped into 4 s segments; ffmpeg builds differ by a few milliseconds.
+        assert.strictEqual(durations.length, 3);
+
+        for (const duration of durations) assert.approximately(duration, 4, 0.05);
         assert.include(text, "#EXT-X-ENDLIST");
 
         const parts = [];
@@ -474,7 +479,8 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
 
         assert.isTrue(texts.every((text) => text.startsWith("WEBVTT")));
         assert.include(texts[0], "Hello from the fixture.");
-        assert.include(texts[0], "00:01.000 --> 00:03.000");
+        // Cue times may carry the container start offset of the ffmpeg build that made the fixture.
+        assert.match(texts[0] ?? "", /00:01\.0\d\d --> 00:03\.0\d\d/);
         assert.include(texts[1], "Second");
         assert.include(texts[2], "Bonjour");
       }),
