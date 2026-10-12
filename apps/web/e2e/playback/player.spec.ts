@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 import type { EpisodeId, TitleId } from "@movies/contracts/ids";
 import type { PlaybackMode } from "@movies/contracts/models/playback";
-import { expect, test } from "@playwright/test";
+import { devices, expect, test } from "@playwright/test";
 import type { BrowserContext, Page } from "@playwright/test";
 
 import { NO_STACK, ownedStack, signInOwner, useSession } from "../admin/session";
@@ -21,6 +21,7 @@ import { buildMediaService, startMediaService } from "../stack/media-service";
 import type { MediaService } from "../stack/media-service";
 import {
   adultProfile,
+  capture,
   clickScrubber,
   encodeClip,
   episodeNfo,
@@ -36,7 +37,8 @@ import {
   videoState,
   writeText,
 } from "./playback-stack";
-import { recordModes } from "./negotiated-modes";
+import { recordStreams } from "./negotiated-streams";
+import type { NegotiatedStream } from "./negotiated-streams";
 
 const stack = await ownedStack();
 
@@ -84,7 +86,7 @@ let context: BrowserContext;
 
 let page: Page;
 
-let modes: ReadonlyArray<PlaybackMode> = [];
+let streams: ReadonlyArray<NegotiatedStream> = [];
 
 const titles = new Map<string, TitleId>();
 
@@ -187,7 +189,7 @@ test.beforeAll(async ({ browser }) => {
   episodes.push(...season.map((episode) => episode.id));
   context = await browser.newContext();
   page = await context.newPage();
-  modes = recordModes(page);
+  streams = recordStreams(page);
   await useSession(page, owner);
 });
 
@@ -217,11 +219,11 @@ function titleId(name: string): TitleId {
 
 /** Opens the player at the beginning and waits for the first frame of `mode`. */
 const playFromStart = async (name: string, mode: PlaybackMode): Promise<void> => {
-  const before = modes.length;
+  const before = streams.length;
 
   await page.goto(`/watch/${titleId(name)}?start=0`);
   await expectPlayingPast(page, 0.5);
-  await expect.poll(() => modes.slice(before).at(-1)).toBe(mode);
+  await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe(mode);
   firstFrames.push({ mode, ms: await firstFrameMs(page) });
 };
 
@@ -263,6 +265,7 @@ test("a direct file plays, answers the keyboard, and lands in Continue watching"
 
   // Stream info names the rung; codec details live only there.
   await revealControls(page);
+  await capture(page, "07-01-playing");
   await page.getByRole("button", { name: "Stream info" }).click();
   await expect(activeRung(page)).toHaveText("Direct");
   await page.getByRole("button", { name: "Close stream info" }).click();
@@ -289,6 +292,7 @@ test("the resume prompt resumes where the profile stopped, or starts over", asyn
   const resume = page.getByRole("button", { name: /^Resume from 0:2\d$/u });
 
   await expect(resume).toBeVisible();
+  await capture(page, "07-04-resume-prompt");
   await resume.click();
   await expectPlayingPast(page, 20);
 
@@ -317,6 +321,7 @@ test("subtitles show from the track popover and toggle with c; another audio tra
     });
 
   await expect.poll(showing).toEqual({ label: "English", cues: 2 });
+  await capture(page, "07-02b-subtitles");
   await page.keyboard.press("Escape");
   await page.getByTestId("player").press("c");
   await expect.poll(showing).toBeNull();
@@ -324,15 +329,30 @@ test("subtitles show from the track popover and toggle with c; another audio tra
   await expect.poll(showing).toEqual({ label: "English", cues: 2 });
 
   // A track the browser cannot pick from the file needs the media service to remux it.
-  const before = modes.length;
+  const before = streams.length;
   const position = (await videoState(page)).currentTime;
 
   await revealControls(page);
   await page.getByRole("button", { name: "Audio and subtitles" }).click();
+  await capture(page, "07-02-audio-and-subtitles");
   await panel.getByRole("radio", { name: "French" }).click();
-  await expect.poll(() => modes.slice(before).at(-1)).toBe("remux");
+  await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe("remux");
   await expectPlayingPast(page, position);
   await expect(panel.getByRole("radio", { name: "French" })).toBeChecked();
+
+  // Leaving stops the remuxed stream, which replaced the direct one the session started with.
+  const streamId = streams.at(-1)?.streamId;
+
+  if (streamId === undefined) throw new Error("The remux has no stream id");
+
+  const stopped = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/api/playback/stop") && (request.postData() ?? "").includes(streamId),
+  );
+
+  await page.keyboard.press("Escape");
+  await page.getByTestId("player").press("Escape");
+  await stopped;
 });
 
 test("an MPEG-TS file remuxes to HLS", async () => {
@@ -355,6 +375,7 @@ test("HEVC transcodes in software, and a seek past what is produced moves the st
   await revealControls(page);
   await page.getByRole("button", { name: "Stream info" }).click();
   await expect(activeRung(page)).toHaveText("Transcode");
+  await capture(page, "07-03-stream-info");
   await page.getByRole("button", { name: "Close stream info" }).click();
 
   const seek = page.waitForResponse((response) => response.url().endsWith("/api/playback/seek"));
@@ -381,6 +402,7 @@ test("the next episode plays itself after the countdown; Watch credits cancels i
     timeout: 10_000,
   });
   await expect(page.getByText(EPISODES[1])).toBeVisible();
+  await capture(page, "07-05-autoplay-next");
   await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"), { timeout: 20_000 });
   await expectPlayingPast(page, 0.5);
 
@@ -404,4 +426,23 @@ test("a file gone from disk says so instead of playing", async () => {
   await page.goto(`/watch/${titleId(MOVIES.missing)}?start=0`);
   await expect(page.getByRole("heading", { name: "We can't find this file" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Show missing files" })).toBeVisible();
+  await capture(page, "07-09-file-missing");
+});
+
+test("a phone plays in its own layout, with brightness and volume sliders", async ({ browser }) => {
+  if (stack === null) return;
+
+  // Paper's iOS player: an iPhone held sideways, 390 points tall.
+  const phone = await browser.newContext({ ...devices["iPhone 13 landscape"] });
+  const handset = await phone.newPage();
+
+  await useSession(handset, owner);
+  await handset.goto(`/watch/${titleId(MOVIES.direct)}?start=0`);
+  await expectPlayingPast(handset, 0.5);
+  await handset.getByTestId("player-video").tap();
+  await expect(handset.getByRole("slider", { name: "Brightness" })).toBeVisible();
+  await expect(handset.getByRole("slider", { name: "Volume" })).toBeVisible();
+  await expect(handset.getByRole("button", { name: "Close player" })).toBeVisible();
+  await capture(handset, "07-10-ios-player");
+  await phone.close();
 });

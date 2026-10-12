@@ -184,6 +184,16 @@
   body {
     @apply bg-background font-sans text-foreground antialiased;
   }
+  /* Subtitles from WebVTT tracks: the player's sans face, white over a soft shadow instead of a
+     box, as Netflix sets them. The browser keeps sizing cues to the video. */
+  video::cue {
+    font-family: var(--font-sans);
+    color: var(--color-dark-text);
+    background-color: transparent;
+    text-shadow:
+      0 0 4px var(--color-scrim),
+      0 1px 2px var(--color-scrim);
+  }
   /* Paper draws no focus ring; the design note settles on 2px with a 2px offset, white on dark. */
   :focus-visible {
     outline: 2px solid var(--focus-ring, var(--color-text));

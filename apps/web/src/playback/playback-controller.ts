@@ -152,6 +152,8 @@ export class PlaybackController {
   #recoveries = 0;
   #renewTimer: ReturnType<typeof setTimeout> | undefined;
   #reporting: Scope.Closeable | null = null;
+  /** The playback the reporter was started with; it stops that stream when it closes. */
+  #reported: Playback.Playback | null = null;
   #disposed = false;
 
   /**
@@ -585,6 +587,7 @@ export class PlaybackController {
     const scope = Scope.makeUnsafe();
 
     this.#reporting = scope;
+    this.#reported = playback;
     void this.#runtime.runPromiseExit(
       Scope.provide(scope)(Playback.reportProgress(playback, this.player)),
     );
@@ -607,6 +610,13 @@ export class PlaybackController {
 
     clearTimeout(this.#renewTimer);
     void this.#closeReporting();
+
+    // The reporter stops the stream it started with; a renegotiated one replaced it.
+    const current = this.#playback;
+
+    if (current !== null && current.stream.streamId !== this.#reported?.stream.streamId) {
+      void run(this.#runtime, Playback.stop(current));
+    }
 
     // A session that never reached a stream has no reporter to end it.
     if (!reporting && started !== null) {

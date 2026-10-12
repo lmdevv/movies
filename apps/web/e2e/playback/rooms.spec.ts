@@ -22,6 +22,7 @@ import type { MediaService } from "../stack/media-service";
 import { OWNER, createInvite } from "../stack/owner";
 import {
   adultProfile,
+  capture,
   clickScrubber,
   driftMs,
   encodeClip,
@@ -225,6 +226,7 @@ const startRoom = async (page: Page): Promise<RoomId> => {
   const dialog = page.getByRole("dialog", { name: "Watch together" });
 
   await expect(dialog.getByLabel("Room link")).toContainText("/r/");
+  await capture(page, "08-01-start-a-room");
   await dialog.getByRole("button", { name: "Start room" }).click();
   await expect(page).toHaveURL(/[?&]room=/u);
 
@@ -261,6 +263,8 @@ test("the host starts a room and a late guest lands on the live position", async
   await expect(
     host.getByRole("region", { name: "Watching together" }).getByText(GUEST.name),
   ).toBeVisible();
+  await revealControls(host);
+  await capture(host, "08-02-host-view");
 });
 
 test("the host's pause and seek reach the guest", async () => {
@@ -289,6 +293,7 @@ test("the host's pause and seek reach the guest", async () => {
 test("a guest's controls are locked, and the server refuses a guest's command", async () => {
   await revealControls(guest);
   await expect(guest.getByText(`Only ${OWNER.name} can pause or seek`)).toBeVisible();
+  await capture(guest, "08-04-guest-view");
 
   const before = await videoState(guest);
 
@@ -324,6 +329,7 @@ test("the host's stall holds the guest until the host plays again", async () => 
   });
   await expect.poll(async () => (await videoState(guest)).paused).toBe(true);
   expect((await videoState(guest)).currentTime).toBeGreaterThan(FILM_SECONDS * 0.7);
+  await capture(guest, "08-05-host-buffering");
 
   await release();
   await expect(guest.getByText(`Waiting for ${OWNER.name}'s connection`)).toBeHidden({
@@ -345,6 +351,7 @@ test("a guest who stalls catches up without moving the host", async () => {
   // The guest reloads and cannot load a segment; the room plays on.
   await guest.reload();
   await expect(guest.getByText(`Syncing to ${OWNER.name}`)).toBeVisible({ timeout: 15_000 });
+  await capture(guest, "08-03-guest-joining");
   await guest.waitForTimeout(4_000);
 
   const hostDuring = await videoState(host);
@@ -367,6 +374,7 @@ test("the host going away pauses the room for the guest, who can keep watching a
     timeout: 45_000,
   });
   await expect(guest.getByText(/^Paused for everyone at \d+:\d\d\.$/u)).toBeVisible();
+  await capture(guest, "08-06-host-left");
   await expect.poll(async () => (await videoState(guest)).paused).toBe(true);
 
   const stopped = (await videoState(guest)).currentTime;
@@ -403,6 +411,7 @@ test("an ended room and another household's room deny their links", async ({
   await guest.goto(`/r/${second}`);
   await expect(guest.getByRole("heading", { name: "This room has ended" })).toBeVisible();
   await expect(guest.getByText(`${OWNER.name} closed this room.`)).toBeVisible();
+  await capture(guest, "08-07a-join-denied-ended");
 
   // A room playing a title the member's account cannot see.
   const profile = await adultProfile(owner.sdk);
@@ -422,5 +431,6 @@ test("an ended room and another household's room deny their links", async ({
   await expect(
     visitor.getByRole("heading", { name: "This room is for another household" }),
   ).toBeVisible();
+  await capture(visitor, "08-07b-join-denied-household");
   await stranger.close();
 });

@@ -133,8 +133,12 @@ export const seekStream = Effect.fn("Playback.seekStream")(function* (
   );
 });
 
-/** Ends an HLS stream so the media service can stop encoding and delete its segments. */
-const stopStream = (playback: Playback): Effect.Effect<void, PlaybackCallError> =>
+/**
+ * Ends an HLS stream so the media service can stop encoding and delete its segments; a direct
+ * stream has nothing to stop. `reportProgress` stops the stream it was given when its scope
+ * closes; stop a stream that replaced it (a renegotiation) with this.
+ */
+export const stop = (playback: Playback): Effect.Effect<void, PlaybackCallError> =>
   Option.match(Option.fromNullishOr(playback.stream.streamId), {
     onNone: () => Effect.void,
     onSome: (streamId) =>
@@ -321,7 +325,7 @@ export const reportProgress = Effect.fn("Playback.reportProgress")(function* (
     Effect.all(
       [
         client.mutate("playback.endSession", { sessionId, positionMs: position(player) }),
-        stopStream(playback),
+        stop(playback),
       ],
       { concurrency: "unbounded", discard: true },
     ).pipe(Effect.timeout(Duration.millis(EXIT_REPORT_TIMEOUT_MS)), Effect.ignore),

@@ -313,3 +313,21 @@ export const clickScrubber = async (page: Page, fraction: number): Promise<void>
 
   await page.mouse.click(box.x + box.width * fraction, box.y + box.height / 2);
 };
+
+/**
+ * Saves a JPEG of `page` to `$E2E_SCREENSHOTS/<name>.jpg` when that folder is set, for design
+ * review against Paper.
+ */
+export const capture = async (page: Page, name: string): Promise<void> => {
+  const folder = process.env["E2E_SCREENSHOTS"];
+
+  if (folder === undefined || folder === "") return;
+
+  // The development server's router devtools button is no part of the app.
+  await page.getByRole("button", { name: /TanStack Router/u }).evaluateAll((buttons) => {
+    for (const button of buttons) {
+      if (button instanceof HTMLElement) button.style.visibility = "hidden";
+    }
+  });
+  await page.screenshot({ path: join(folder, `${name}.jpg`), type: "jpeg", quality: 72 });
+};
