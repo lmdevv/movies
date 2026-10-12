@@ -50,6 +50,15 @@ const BATCH_LIMIT = 100;
 /** Most members one imported collection keeps. */
 const COLLECTION_LIMIT = 1000;
 
+/**
+ * Most collections, and members in all, one `importCollections` call may carry, so its deletes
+ * and inserts stay inside one mutation's limits; `COLLECTION_BATCH_LIMIT` and
+ * `COLLECTION_MEMBER_BATCH_LIMIT` in contracts.
+ */
+const COLLECTION_BATCH_LIMIT = 10;
+
+const COLLECTION_MEMBER_BATCH_LIMIT = 2000;
+
 const NOTHING_IMPORTED = {
   librariesAdded: 0,
   watched: 0,
@@ -535,8 +544,16 @@ export const importCollections = mutation({
     await authorize(ctx, "media-service");
     await requireLease(ctx, jobId, workerId);
     const now = Date.now();
+    const memberCount = items.reduce((total, item) => total + item.titleIds.length, 0);
 
-    const imported = await inSequence(checkBatch(items), async (item) => {
+    if (items.length > COLLECTION_BATCH_LIMIT || memberCount > COLLECTION_MEMBER_BATCH_LIMIT) {
+      return fail(
+        "invalid_args",
+        `Send at most ${COLLECTION_BATCH_LIMIT} collections and ${COLLECTION_MEMBER_BATCH_LIMIT} members per call`,
+      );
+    }
+
+    const imported = await inSequence(items, async (item) => {
       const name = item.name.trim() || "Collection";
       const sortKey = (item.sortName ?? name).trim().toLowerCase();
 

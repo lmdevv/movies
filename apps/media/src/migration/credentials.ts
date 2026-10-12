@@ -51,7 +51,11 @@ export const sealCredentials = (
   binding: string,
 ): SealedCredentials => {
   const nonce = randomBytes(NONCE_BYTES);
-  const cipher = createCipheriv("aes-256-gcm", keyOf(secret), nonce);
+
+  const cipher = createCipheriv("aes-256-gcm", keyOf(secret), nonce, {
+    authTagLength: TAG_BYTES,
+  });
+
   cipher.setAAD(associatedData(binding));
 
   const sealed = Buffer.concat([
@@ -77,10 +81,14 @@ export const openCredentials = (
     try: () => {
       const data = Buffer.from(sealed.ciphertext, "base64url");
 
+      if (data.length <= TAG_BYTES) throw new Error("Sealed credentials are too short");
+
+      // A fixed tag length: GCM would otherwise accept tags as short as 4 bytes.
       const decipher = createDecipheriv(
         "aes-256-gcm",
         keyOf(secret),
         Buffer.from(sealed.nonce, "base64url"),
+        { authTagLength: TAG_BYTES },
       );
 
       decipher.setAAD(associatedData(binding));

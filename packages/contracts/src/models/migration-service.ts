@@ -158,6 +158,16 @@ export const WatchStateImported = Schema.Struct({
   keptLocal: Schema.Int,
 });
 
+/**
+ * Most collections, and most members in all, one `importCollections` call may carry. Replacing a
+ * collection deletes its old members (at most 1000) and inserts the new ones, so these keep a
+ * call's reads and writes inside one Convex mutation's limits.
+ */
+export const COLLECTION_BATCH_LIMIT = 10;
+
+/** Most members, summed over its collections, one `importCollections` call may carry. */
+export const COLLECTION_MEMBER_BATCH_LIMIT = 2000;
+
 /** A source collection with its matched titles. Re-importing replaces its members. */
 export const CollectionImport = Schema.Struct({
   /** Stable across runs: the source, its server ID, and the collection's ID there. */

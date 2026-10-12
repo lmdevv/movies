@@ -19,7 +19,11 @@
  */
 import type { JobProgress } from "@movies/contracts/models/jobs";
 import type { MigrationImported, MigrationPhase } from "@movies/contracts/models/migration";
-import type { MigrationCheckpoint } from "@movies/contracts/models/migration-service";
+import {
+  COLLECTION_BATCH_LIMIT,
+  COLLECTION_MEMBER_BATCH_LIMIT,
+  type MigrationCheckpoint,
+} from "@movies/contracts/models/migration-service";
 import type { CallError } from "@movies/sdk/effect";
 import { Duration, Effect, Match, Option, Ref } from "effect";
 import type { HttpClient } from "effect/http";
@@ -60,11 +64,40 @@ const PHASE_MESSAGES: Readonly<Record<MigrationPhase, string>> = {
   done: "Imported",
 };
 
-const chunks = <Item>(items: ReadonlyArray<Item>, from: number, size: number) => {
-  const result: Array<{ readonly start: number; readonly items: ReadonlyArray<Item> }> = [];
+/** A batch of items and the index of its first item. */
+interface Batch<Item> {
+  readonly start: number;
+  readonly items: ReadonlyArray<Item>;
+}
 
-  for (let start = from; start < items.length; start += size) {
-    result.push({ start, items: items.slice(start, start + size) });
+/**
+ * Consecutive batches of `items` from index `from`, each with at most `size` items and, when
+ * `weight` is given, a total weight of at most `maxWeight`. An item heavier than `maxWeight` goes
+ * alone.
+ */
+export const batchesOf = <Item>(
+  items: ReadonlyArray<Item>,
+  from: number,
+  size: number,
+  limit?: { readonly maxWeight: number; readonly weight: (item: Item) => number },
+): ReadonlyArray<Batch<Item>> => {
+  const result: Array<Batch<Item>> = [];
+  let start = from;
+
+  while (start < items.length) {
+    let end = start;
+    let weight = 0;
+
+    for (const item of items.slice(start, start + size)) {
+      const next = limit === undefined ? 0 : limit.weight(item);
+
+      if (end > start && limit !== undefined && weight + next > limit.maxWeight) break;
+      weight += next;
+      end += 1;
+    }
+
+    result.push({ start, items: items.slice(start, end) });
+    start = end;
   }
 
   return result;
@@ -225,7 +258,7 @@ export const runMigrationJob = Effect.fn("MigrationJob.run")(function* (
       if (user === undefined) continue;
       const from = unit === resume.unit ? resume.cursor : 0;
 
-      for (const batch of chunks(user.items, from, MigrationBackend.BATCH_SIZE)) {
+      for (const batch of batchesOf(user.items, from, MigrationBackend.BATCH_SIZE)) {
         const { keptLocal } = yield* backend.importWatchState(lease, batch.items);
 
         yield* add({ ...countImports(batch.items), keptLocal });
@@ -244,7 +277,10 @@ export const runMigrationJob = Effect.fn("MigrationJob.run")(function* (
   if (isBefore((yield* Ref.get(checkpoint)).phase, "overrides")) {
     const from = (yield* Ref.get(checkpoint)).cursor;
 
-    for (const batch of chunks(plan.collections, from, MigrationBackend.BATCH_SIZE)) {
+    for (const batch of batchesOf(plan.collections, from, COLLECTION_BATCH_LIMIT, {
+      maxWeight: COLLECTION_MEMBER_BATCH_LIMIT,
+      weight: (collection) => collection.titleIds.length,
+    })) {
       yield* backend.importCollections(lease, batch.items);
       yield* add({ collections: batch.items.length });
       const cursor = batch.start + batch.items.length;
@@ -261,7 +297,7 @@ export const runMigrationJob = Effect.fn("MigrationJob.run")(function* (
   if (isBefore((yield* Ref.get(checkpoint)).phase, "done")) {
     const from = (yield* Ref.get(checkpoint)).cursor;
 
-    for (const batch of chunks(plan.overrides, from, MigrationBackend.BATCH_SIZE)) {
+    for (const batch of batchesOf(plan.overrides, from, MigrationBackend.BATCH_SIZE)) {
       yield* backend.importOverrides(lease, batch.items);
       yield* add({ overrides: batch.items.length });
       const cursor = batch.start + batch.items.length;

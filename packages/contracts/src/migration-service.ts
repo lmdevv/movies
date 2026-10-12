@@ -13,6 +13,8 @@ import { JobProgress, QueuedJob } from "./models/jobs";
 import { MigrationImported } from "./models/migration";
 import {
   CatalogFile,
+  COLLECTION_BATCH_LIMIT,
+  COLLECTION_MEMBER_BATCH_LIMIT,
   CollectionImport,
   LocalProgress,
   MigrationCheckpoint,
@@ -113,10 +115,21 @@ export const migrationServiceFunctions = {
     function: "migrationService:importWatchState",
   }),
   "migrationService.importCollections": mutation({
-    summary: "Create or update up to 100 collections from a migration source",
+    summary: "Create or update up to 10 collections (2000 members) from a migration source",
     group: "media-service",
     scope: "media-service",
-    args: Schema.Struct({ ...LeaseArgs, items: Batch(CollectionImport) }),
+    args: Schema.Struct({
+      ...LeaseArgs,
+      items: Schema.Array(CollectionImport).check(
+        Schema.isMaxLength(COLLECTION_BATCH_LIMIT),
+        Schema.makeFilter(
+          (items) =>
+            items.reduce((total, item) => total + item.titleIds.length, 0) <=
+              COLLECTION_MEMBER_BATCH_LIMIT ||
+            `at most ${String(COLLECTION_MEMBER_BATCH_LIMIT)} members in all`,
+        ),
+      ),
+    }),
     result: Schema.Struct({ imported: Schema.Int }),
     function: "migrationService:importCollections",
   }),

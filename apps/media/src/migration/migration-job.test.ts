@@ -14,14 +14,14 @@ import type {
   WatchStateImport,
 } from "@movies/contracts/models/migration-service";
 import { TransportError } from "@movies/sdk/effect";
-import { assert, layer } from "@effect/vitest";
+import { assert, describe, it as test, layer } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Layer, Predicate, Redacted } from "effect";
 import { FetchHttpClient } from "effect/http";
 
 import { testConfigLayer } from "../testing/test-config.ts";
 import { sealCredentials } from "./credentials.ts";
 import * as MigrationBackend from "./migration-backend.ts";
-import { runMigrationJob } from "./migration-job.ts";
+import { batchesOf, runMigrationJob } from "./migration-job.ts";
 import { credentialsBinding } from "./migrations.ts";
 import {
   FIXTURE_API_KEY,
@@ -373,4 +373,27 @@ layer(environment, { excludeTestServices: true })("runMigrationJob", (it) => {
       }),
     ),
   );
+});
+
+describe("batchesOf", () => {
+  test("cuts batches by count, then by total weight, from a cursor", () => {
+    const sizes = [3, 1, 4, 1, 5, 9, 2, 6];
+
+    const batches = batchesOf(sizes, 1, 3, { maxWeight: 6, weight: (item) => item }).map(
+      (batch) => [batch.start, [...batch.items]],
+    );
+
+    assert.deepStrictEqual(batches, [
+      [1, [1, 4, 1]],
+      [4, [5]],
+      [5, [9]],
+      [6, [2]],
+      [7, [6]],
+    ]);
+    assert.deepStrictEqual(
+      batchesOf(sizes, 0, 5).map((batch) => batch.items.length),
+      [5, 3],
+    );
+    assert.deepStrictEqual(batchesOf(sizes, 8, 5), []);
+  });
 });
