@@ -15,7 +15,6 @@ import type * as authParams from "../authParams.js";
 import type * as backups from "../backups.js";
 import type * as crons from "../crons.js";
 import type * as deviceAuth from "../deviceAuth.js";
-import type * as healthCheck from "../healthCheck.js";
 import type * as history from "../history.js";
 import type * as http from "../http.js";
 import type * as invites from "../invites.js";
@@ -62,7 +61,6 @@ declare const fullApi: ApiFromModules<{
   backups: typeof backups;
   crons: typeof crons;
   deviceAuth: typeof deviceAuth;
-  healthCheck: typeof healthCheck;
   history: typeof history;
   http: typeof http;
   invites: typeof invites;

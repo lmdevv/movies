@@ -23,12 +23,14 @@ import { describe, expect, it } from "vitest";
 
 import * as account from "../convex/account";
 import * as apiKeys from "../convex/apiKeys";
+import * as authParams from "../convex/authParams";
 import * as backups from "../convex/backups";
 import * as deviceAuth from "../convex/deviceAuth";
 import * as history from "../convex/history";
 import * as invites from "../convex/invites";
 import * as jobs from "../convex/jobs";
 import * as libraries from "../convex/libraries";
+import * as maintenance from "../convex/maintenance";
 import * as mediaService from "../convex/mediaService";
 import * as metadata from "../convex/metadata";
 import * as migration from "../convex/migration";
@@ -49,15 +51,18 @@ import { ROLE_SCOPES } from "../convex/lib/scopes";
 import type { ValidatorJson } from "./validator-json";
 import { normalizeValidator, parseExportedValidator, validatorFromSchema } from "./validator-json";
 
+/** Every module with Convex functions except `auth.ts`, whose `signIn` and `signOut` are Convex Auth's. */
 const modules = {
   account,
   apiKeys,
+  authParams,
   backups,
   deviceAuth,
   history,
   invites,
   jobs,
   libraries,
+  maintenance,
   mediaService,
   metadata,
   migration,
