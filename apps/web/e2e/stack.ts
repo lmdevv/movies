@@ -51,7 +51,7 @@ export const stack = findStack();
 export const NO_STACK = "needs MOVIES_STACK_TESTS=1 and scripts/dev-stack.sh up";
 
 /** The password every test account uses; it is a throwaway on a local stack. */
-export const PASSWORD = "stack-test-password";
+const PASSWORD = "stack-test-password";
 
 /** The owner accounts the backend and SDK stack suites share. */
 const OWNER_EMAILS = ["owner-a@movies.test", "owner-b@movies.test"] as const;

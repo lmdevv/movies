@@ -3,7 +3,7 @@ import { Badge } from "@movies/ui/components/badge";
 import { cn } from "@movies/ui/lib/utils";
 
 /** A scope in a mono outline; `admin` is drawn in the warning color because it grants the most. */
-export function ScopeBadge({ scope }: { readonly scope: Scope }) {
+function ScopeBadge({ scope }: { readonly scope: Scope }) {
   return (
     <Badge className={cn("rounded-poster", scope === "admin" ? "text-warning" : "text-text")}>
       {scope}

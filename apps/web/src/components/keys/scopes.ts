@@ -10,13 +10,7 @@ export const SCOPE_DESCRIPTIONS: Readonly<Record<DeviceScope, string>> = {
 };
 
 /** Grantable scopes in the order the screens list them. */
-export const SCOPE_ORDER: ReadonlyArray<DeviceScope> = [
-  "read",
-  "play",
-  "account",
-  "manage",
-  "admin",
-];
+const SCOPE_ORDER: ReadonlyArray<DeviceScope> = ["read", "play", "account", "manage", "admin"];
 
 /** `scopes` sorted into {@link SCOPE_ORDER}. */
 export const sortScopes = <S extends DeviceScope>(scopes: ReadonlyArray<S>): ReadonlyArray<S> =>

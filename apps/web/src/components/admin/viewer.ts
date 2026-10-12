@@ -8,7 +8,3 @@ export const useViewer = (): QueryState<Viewer> => useCommandQuery("account.view
 
 /** Whether the session holds `scope`. */
 export const hasScope = (viewer: Viewer, scope: Scope): boolean => viewer.scopes.includes(scope);
-
-/** Whether the session may open any admin screen: libraries need `manage`, the rest `admin`. */
-export const isAdministrator = (viewer: Viewer): boolean =>
-  hasScope(viewer, "manage") || hasScope(viewer, "admin");
