@@ -1,0 +1,643 @@
+/**
+ * Functions for the media service, which signs in with `MEDIA_SERVICE_API_KEY` through the
+ * `apikey` provider. Every function here requires the `media-service` scope, which only that key's
+ * session holds; user sessions are refused, and the service session is refused everywhere else.
+ */
+import { v } from "convex/values";
+
+import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
+import {
+  inSequence,
+  markFileMissing,
+  searchTextOf,
+  titleMetadata,
+  upsertEpisode,
+  upsertScannedItem,
+} from "./lib/catalog";
+import { fail } from "./lib/errors";
+import { enqueueJob, MAX_JOB_ATTEMPTS, requireLease, requireLeaseOf } from "./lib/jobs";
+import { presentJob } from "./lib/present";
+import { checkRoots } from "./lib/roots";
+import { isAdminRole } from "./lib/scopes";
+import {
+  claimedJob,
+  endedSession,
+  importCounts,
+  importedOverride,
+  importedWatchState,
+  indexedFile,
+  job,
+  jobProgress,
+  leaseArgs,
+  libraryKind,
+  mediaLibrary,
+  metadataTarget as metadataTargetResult,
+  migrationSource,
+  migrationTarget,
+  ok,
+  page,
+  pageArgs,
+  playbackMode,
+  queuedJob,
+  resolvedFile,
+  scannedEpisode,
+  scannedItem,
+  scannedTitle,
+  sessionStatus as sessionStatusResult,
+  upsertedFile,
+} from "./lib/validators";
+import { authorize } from "./lib/viewer";
+import { writeProgress } from "./lib/viewing";
+
+/** Most items one scan or import write may carry; `SCAN_BATCH_LIMIT` in contracts. */
+const BATCH_LIMIT = 100;
+
+const MIN_LEASE_MS = 5_000;
+
+const MAX_LEASE_MS = 600_000;
+
+const checkBatch = <Item>(items: ReadonlyArray<Item>): ReadonlyArray<Item> =>
+  items.length > BATCH_LIMIT
+    ? fail("invalid_args", `Send at most ${BATCH_LIMIT} items per call`)
+    : items;
+
+const checkLease = (leaseMs: number): number =>
+  Number.isInteger(leaseMs) && leaseMs >= MIN_LEASE_MS && leaseMs <= MAX_LEASE_MS
+    ? leaseMs
+    : fail("invalid_args", "Leases last from 5 seconds to 10 minutes");
+
+const presentMediaLibrary = (doc: Doc<"libraries">) => ({
+  id: doc._id,
+  name: doc.name,
+  kind: doc.kind,
+  roots: doc.roots,
+});
+
+const requireLibrary = async (
+  ctx: MutationCtx,
+  libraryId: Id<"libraries">,
+): Promise<Doc<"libraries">> =>
+  (await ctx.db.get(libraryId)) ?? fail("not_found", "No such library");
+
+/** Jobs waiting for a worker, oldest first. Expired leases return here through a cron. */
+export const pendingJobs = query({
+  args: {},
+  returns: v.array(job),
+  handler: async (ctx) => {
+    await authorize(ctx, "media-service");
+
+    const pending = await ctx.db
+      .query("jobs")
+      .withIndex("by_status", (q) => q.eq("status", "pending"))
+      .take(50);
+
+    return pending.map(presentJob);
+  },
+});
+
+export const claimJob = mutation({
+  args: { ...leaseArgs, leaseMs: v.number() },
+  returns: v.union(v.null(), claimedJob),
+  handler: async (ctx, { jobId, workerId, leaseMs }) => {
+    await authorize(ctx, "media-service");
+    const doc = await ctx.db.get(jobId);
+    const now = Date.now();
+
+    const claimable =
+      doc !== null &&
+      (doc.status === "pending" || (doc.status === "running" && (doc.leaseExpiresAt ?? 0) <= now));
+
+    if (!claimable) return null;
+    const leaseExpiresAt = now + checkLease(leaseMs);
+
+    await ctx.db.patch(jobId, {
+      status: "running",
+      leaseOwner: workerId,
+      leaseExpiresAt,
+      attempts: doc.attempts + 1,
+      startedAt: doc.startedAt ?? now,
+    });
+
+    const claimed = await ctx.db.get(jobId);
+
+    if (claimed === null) return null;
+    const library = doc.payload.kind === "scan" ? await ctx.db.get(doc.payload.libraryId) : null;
+
+    return {
+      job: presentJob(claimed),
+      library: library === null ? null : presentMediaLibrary(library),
+      leaseExpiresAt,
+    };
+  },
+});
+
+export const renewLease = mutation({
+  args: { ...leaseArgs, leaseMs: v.number(), progress: v.optional(jobProgress) },
+  returns: v.object({ leaseExpiresAt: v.number(), cancelled: v.boolean() }),
+  handler: async (ctx, { jobId, workerId, leaseMs, progress }) => {
+    await authorize(ctx, "media-service");
+    const doc = await ctx.db.get(jobId);
+
+    if (doc?.status === "cancelled" && doc.leaseOwner === workerId) {
+      return { leaseExpiresAt: doc.leaseExpiresAt ?? 0, cancelled: true };
+    }
+
+    await requireLease(ctx, jobId, workerId);
+    const leaseExpiresAt = Date.now() + checkLease(leaseMs);
+
+    await ctx.db.patch(
+      jobId,
+      progress === undefined ? { leaseExpiresAt } : { leaseExpiresAt, progress },
+    );
+
+    return { leaseExpiresAt, cancelled: false };
+  },
+});
+
+export const completeJob = mutation({
+  args: { ...leaseArgs, message: v.optional(v.string()) },
+  returns: ok,
+  handler: async (ctx, { jobId, workerId, message }) => {
+    await authorize(ctx, "media-service");
+    const doc = await requireLease(ctx, jobId, workerId);
+    const now = Date.now();
+
+    await ctx.db.patch(jobId, {
+      status: "succeeded",
+      finishedAt: now,
+      leaseOwner: undefined,
+      leaseExpiresAt: undefined,
+      progress: { ...doc.progress, message: message ?? doc.progress.message },
+    });
+
+    if (doc.payload.kind === "scan" && (await ctx.db.get(doc.payload.libraryId)) !== null) {
+      await ctx.db.patch(doc.payload.libraryId, { lastScanAt: now });
+    }
+
+    return { ok: true as const };
+  },
+});
+
+export const failJob = mutation({
+  args: { ...leaseArgs, error: v.string(), retry: v.boolean() },
+  returns: ok,
+  handler: async (ctx, { jobId, workerId, error, retry }) => {
+    await authorize(ctx, "media-service");
+    const doc = await requireLease(ctx, jobId, workerId);
+    const again = retry && doc.attempts < MAX_JOB_ATTEMPTS;
+
+    await ctx.db.patch(jobId, {
+      status: again ? "pending" : "failed",
+      error,
+      leaseOwner: undefined,
+      leaseExpiresAt: undefined,
+      finishedAt: again ? null : Date.now(),
+    });
+
+    return { ok: true as const };
+  },
+});
+
+export const libraries = query({
+  args: {},
+  returns: v.array(mediaLibrary),
+  handler: async (ctx) => {
+    await authorize(ctx, "media-service");
+    const docs = await ctx.db.query("libraries").collect();
+
+    return docs.map(presentMediaLibrary);
+  },
+});
+
+export const fileIndex = query({
+  args: { libraryId: v.id("libraries"), ...pageArgs },
+  returns: page(indexedFile),
+  handler: async (ctx, { libraryId, cursor, limit }) => {
+    await authorize(ctx, "media-service");
+
+    const result = await ctx.db
+      .query("mediaFiles")
+      .withIndex("by_library_path", (q) => q.eq("libraryId", libraryId))
+      .paginate({
+        numItems: Math.min(Math.max(1, Math.floor(limit ?? 100)), 100),
+        cursor: cursor ?? null,
+      });
+
+    return {
+      items: result.page.map((file) => ({
+        path: file.path,
+        sizeBytes: file.sizeBytes,
+        mtimeMs: file.mtimeMs,
+        missing: file.missing,
+      })),
+      nextCursor: result.isDone ? null : result.continueCursor,
+    };
+  },
+});
+
+export const upsertScanned = mutation({
+  args: { libraryId: v.id("libraries"), items: v.array(scannedItem) },
+  returns: v.array(upsertedFile),
+  handler: async (ctx, { libraryId, items }) => {
+    await authorize(ctx, "media-service");
+    const library = await requireLibrary(ctx, libraryId);
+
+    const inside = (path: string) =>
+      !path.split("/").some((segment) => segment === ".." || segment === ".") &&
+      library.roots.some(
+        (root) => path === root || path.startsWith(root === "/" ? root : `${root}/`),
+      );
+
+    const outside = checkBatch(items).find((item) => !inside(item.file.path));
+
+    if (outside !== undefined) {
+      return fail("invalid_args", `${outside.file.path} is outside the library's folders`);
+    }
+
+    return inSequence(items, (item) => upsertScannedItem(ctx, libraryId, item));
+  },
+});
+
+export const markMissing = mutation({
+  args: { libraryId: v.id("libraries"), paths: v.array(v.string()) },
+  returns: v.object({ marked: v.number() }),
+  handler: async (ctx, { libraryId, paths }) => {
+    await authorize(ctx, "media-service");
+    await requireLibrary(ctx, libraryId);
+
+    const marked = await inSequence(checkBatch(paths), (path) =>
+      markFileMissing(ctx, libraryId, path),
+    );
+
+    return { marked: marked.filter(Boolean).length };
+  },
+});
+
+export const resolveFile = query({
+  args: { fileId: v.id("mediaFiles") },
+  returns: resolvedFile,
+  handler: async (ctx, { fileId }) => {
+    await authorize(ctx, "media-service");
+    const file = await ctx.db.get(fileId);
+
+    if (file === null) return fail("not_found", "No such file");
+    const library = await ctx.db.get(file.libraryId);
+
+    if (library === null) return fail("not_found", "This file's library was removed");
+
+    return {
+      fileId,
+      libraryId: library._id,
+      path: file.path,
+      roots: library.roots,
+      probe: file.probe,
+      externalSubtitles: file.externalSubtitles,
+      missing: file.missing,
+    };
+  },
+});
+
+export const sessionStatus = query({
+  args: { sessionId: v.id("playbackSessions") },
+  returns: sessionStatusResult,
+  handler: async (ctx, { sessionId }) => {
+    await authorize(ctx, "media-service");
+    const session = await ctx.db.get(sessionId);
+
+    if (session === null) return fail("not_found", "No such playback session");
+
+    return { sessionId, status: session.status, fileId: session.fileId, endedAt: session.endedAt };
+  },
+});
+
+/** Sessions that ended after `after`, oldest first; the media service stops their streams. */
+export const endedSessions = query({
+  args: { after: v.number(), limit: v.optional(v.number()) },
+  returns: v.array(endedSession),
+  handler: async (ctx, { after, limit }) => {
+    await authorize(ctx, "media-service");
+
+    const ended = await ctx.db
+      .query("playbackSessions")
+      .withIndex("by_status_ended", (q) => q.eq("status", "ended").gt("endedAt", after))
+      .take(Math.min(Math.max(1, Math.floor(limit ?? 100)), 200));
+
+    return ended.flatMap((session) =>
+      session.endedAt === null ? [] : [{ sessionId: session._id, endedAt: session.endedAt }],
+    );
+  },
+});
+
+export const recordPlaybackMode = mutation({
+  args: { sessionId: v.id("playbackSessions"), mode: playbackMode },
+  returns: ok,
+  handler: async (ctx, { sessionId, mode }) => {
+    await authorize(ctx, "media-service");
+
+    if ((await ctx.db.get(sessionId)) === null)
+      return fail("not_found", "No such playback session");
+    await ctx.db.patch(sessionId, { mode });
+
+    return { ok: true as const };
+  },
+});
+
+export const metadataTarget = query({
+  args: { titleId: v.id("titles") },
+  returns: metadataTargetResult,
+  handler: async (ctx, { titleId }) => {
+    await authorize(ctx, "media-service");
+    const title = await ctx.db.get(titleId);
+
+    if (title === null) return fail("not_found", "No such title");
+
+    const episodes = await ctx.db
+      .query("episodes")
+      .withIndex("by_title_order", (q) => q.eq("titleId", titleId))
+      .collect();
+
+    return {
+      titleId,
+      libraryId: title.libraryId,
+      kind: title.kind,
+      name: title.overrides?.name ?? title.name,
+      year: title.overrides?.year ?? title.year,
+      externalIds: title.externalIds,
+      episodes: episodes.map((episode) => ({
+        seasonNumber: episode.seasonNumber,
+        episodeNumber: episode.episodeNumber,
+      })),
+    };
+  },
+});
+
+/**
+ * Writes fetched metadata during a metadata job. A job carrying a manual match marks the title
+ * manual, so later scans keep its files and metadata.
+ */
+export const applyMetadata = mutation({
+  args: {
+    ...leaseArgs,
+    titleId: v.id("titles"),
+    title: scannedTitle,
+    episodes: v.array(scannedEpisode),
+  },
+  returns: ok,
+  handler: async (ctx, { jobId, workerId, titleId, title, episodes }) => {
+    await authorize(ctx, "media-service");
+    const doc = await requireLeaseOf(ctx, jobId, workerId, "metadata");
+
+    if (doc.payload.titleId !== titleId)
+      return fail("invalid_args", "This job is for another title");
+    const current = await ctx.db.get(titleId);
+
+    if (current === null) return fail("not_found", "No such title");
+    const metadata = { ...titleMetadata(title), kind: current.kind };
+
+    await ctx.db.patch(titleId, {
+      ...metadata,
+      matchStatus: doc.payload.match === null ? title.matchStatus : "manual",
+      updatedAt: Date.now(),
+      searchText: searchTextOf({ ...metadata, overrides: current.overrides }),
+    });
+
+    if (current.kind === "show") {
+      await inSequence(checkBatch(episodes), (episode) => upsertEpisode(ctx, titleId, episode));
+    }
+
+    return { ok: true as const };
+  },
+});
+
+export const recordBackup = mutation({
+  args: { ...leaseArgs, fileName: v.string(), sizeBytes: v.number() },
+  returns: v.object({ backupId: v.id("backups") }),
+  handler: async (ctx, { jobId, workerId, fileName, sizeBytes }) => {
+    await authorize(ctx, "media-service");
+    const doc = await requireLeaseOf(ctx, jobId, workerId, "backup");
+
+    const backupId = await ctx.db.insert("backups", {
+      fileName,
+      sizeBytes,
+      trigger: doc.payload.trigger,
+      jobId,
+    });
+
+    return { backupId };
+  },
+});
+
+export const removeBackup = mutation({
+  args: { backupId: v.id("backups") },
+  returns: ok,
+  handler: async (ctx, { backupId }) => {
+    await authorize(ctx, "media-service");
+
+    if ((await ctx.db.get(backupId)) !== null) await ctx.db.delete(backupId);
+
+    return { ok: true as const };
+  },
+});
+
+export const migrationTargets = query({
+  args: {},
+  returns: v.array(migrationTarget),
+  handler: async (ctx) => {
+    await authorize(ctx, "media-service");
+    const users = await ctx.db.query("users").collect();
+
+    return Promise.all(
+      users
+        .filter((user) => user.role !== "service" && user.disabledAt === undefined)
+        .map(async (user) => {
+          const profiles = await ctx.db
+            .query("profiles")
+            .withIndex("by_user", (q) => q.eq("userId", user._id))
+            .collect();
+
+          return {
+            userId: user._id,
+            name: user.name ?? user.email ?? "Unnamed",
+            email: user.email ?? null,
+            profiles: profiles.map((profile) => ({ profileId: profile._id, name: profile.name })),
+          };
+        }),
+    );
+  },
+});
+
+export const startMigration = mutation({
+  args: {
+    requestedBy: v.id("users"),
+    source: migrationSource,
+    connectionId: v.string(),
+    serverName: v.string(),
+  },
+  returns: queuedJob,
+  handler: async (ctx, { requestedBy, source, connectionId, serverName }) => {
+    await authorize(ctx, "media-service");
+    const requester = await ctx.db.get(requestedBy);
+
+    if (requester === null || requester.disabledAt !== undefined || !isAdminRole(requester.role)) {
+      return fail("forbidden", "Only an admin can start a migration");
+    }
+
+    const jobId = await enqueueJob(
+      ctx,
+      { kind: "migration", source, connectionId, serverName },
+      requestedBy,
+    );
+
+    return { jobId };
+  },
+});
+
+/** Finds the library covering these folders, or adds one, while a migration job runs. */
+export const ensureLibrary = mutation({
+  args: { ...leaseArgs, name: v.string(), kind: libraryKind, roots: v.array(v.string()) },
+  returns: v.object({ libraryId: v.id("libraries"), created: v.boolean() }),
+  handler: async (ctx, { jobId, workerId, name, kind, roots }) => {
+    await authorize(ctx, "media-service");
+    const doc = await requireLeaseOf(ctx, jobId, workerId, "migration");
+    const trimmed = roots.map((root) => root.trim().replace(/\/+$/u, "") || "/");
+    const existing = await ctx.db.query("libraries").collect();
+
+    const covering = existing.find((library) =>
+      trimmed.every((root) => library.roots.includes(root)),
+    );
+
+    if (covering !== undefined) return { libraryId: covering._id, created: false };
+    const wanted = await checkRoots(ctx, trimmed, null);
+
+    if (doc.requestedBy === null)
+      return fail("invalid_args", "This migration has no requesting admin");
+
+    const libraryId = await ctx.db.insert("libraries", {
+      name: name.trim() || "Imported library",
+      kind,
+      roots: wanted,
+      access: "everyone",
+      createdBy: doc.requestedBy,
+      titleCount: 0,
+      lastScanAt: null,
+    });
+
+    await enqueueJob(ctx, { kind: "scan", libraryId, mode: "full" }, doc.requestedBy);
+
+    return { libraryId, created: true };
+  },
+});
+
+const findFileByPath = async (
+  ctx: MutationCtx,
+  path: string,
+): Promise<Doc<"mediaFiles"> | null> => {
+  const files = await ctx.db
+    .query("mediaFiles")
+    .withIndex("by_path", (q) => q.eq("path", path))
+    .collect();
+
+  return files.find((file) => !file.missing) ?? files[0] ?? null;
+};
+
+/**
+ * Imports watched marks, positions, and favorites matched by file path. Progress newer on
+ * [movies] than the source's last play is kept.
+ */
+export const importWatchState = mutation({
+  args: { ...leaseArgs, items: v.array(importedWatchState) },
+  returns: importCounts,
+  handler: async (ctx, { jobId, workerId, items }) => {
+    await authorize(ctx, "media-service");
+    await requireLeaseOf(ctx, jobId, workerId, "migration");
+
+    const outcomes = await inSequence(checkBatch(items), async (item) => {
+      const profile = await ctx.db.get(item.profileId);
+      const file = await findFileByPath(ctx, item.path);
+
+      if (profile === null || file === null) return false;
+      const playedAt = item.lastPlayedAt ?? Date.now();
+
+      const existing = await ctx.db
+        .query("watchProgress")
+        .withIndex("by_profile_item", (q) =>
+          q
+            .eq("profileId", item.profileId)
+            .eq("titleId", file.titleId)
+            .eq("episodeId", file.episodeId),
+        )
+        .unique();
+
+      if (
+        (item.watched || item.positionMs > 0) &&
+        (existing === null || existing.updatedAt < playedAt)
+      ) {
+        await writeProgress(ctx, {
+          profileId: item.profileId,
+          titleId: file.titleId,
+          episodeId: file.episodeId,
+          fileId: file._id,
+          positionMs: item.positionMs,
+          durationMs: file.probe.durationMs,
+          watched: item.watched,
+          playedAt,
+          session: null,
+        });
+      }
+
+      if (item.favorite) {
+        const listed = await ctx.db
+          .query("myList")
+          .withIndex("by_profile_title", (q) =>
+            q.eq("profileId", item.profileId).eq("titleId", file.titleId),
+          )
+          .unique();
+
+        if (listed === null) {
+          await ctx.db.insert("myList", {
+            profileId: item.profileId,
+            titleId: file.titleId,
+            addedAt: playedAt,
+          });
+        }
+      }
+
+      return true;
+    });
+
+    const matched = outcomes.filter(Boolean).length;
+
+    return { matched, unmatched: outcomes.length - matched };
+  },
+});
+
+export const importOverrides = mutation({
+  args: { ...leaseArgs, items: v.array(importedOverride) },
+  returns: importCounts,
+  handler: async (ctx, { jobId, workerId, items }) => {
+    await authorize(ctx, "media-service");
+    await requireLeaseOf(ctx, jobId, workerId, "migration");
+
+    const outcomes = await inSequence(checkBatch(items), async (item) => {
+      const file = await findFileByPath(ctx, item.path);
+      const title = file === null ? null : await ctx.db.get(file.titleId);
+
+      if (title === null) return false;
+      const overrides = { ...title.overrides, ...item.overrides };
+
+      await ctx.db.patch(title._id, {
+        overrides,
+        searchText: searchTextOf({ ...title, overrides }),
+        updatedAt: Date.now(),
+      });
+
+      return true;
+    });
+
+    const matched = outcomes.filter(Boolean).length;
+
+    return { matched, unmatched: outcomes.length - matched };
+  },
+});
