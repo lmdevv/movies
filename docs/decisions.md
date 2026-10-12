@@ -225,6 +225,16 @@ choices made while implementing them. Update it in the same PR that changes a de
   a key derived (HKDF-SHA256) from `MEDIA_SERVICE_API_KEY`, bound to the server ID and URL. Convex
   stores only that key's hash, so neither Convex, its dashboard, nor a backup can open them.
   Rotating the key makes queued plans unreadable; their jobs fail and the admin imports again.
+- Web screens (`/admin/migration`): Connect runs `migration.connect` then `migration.dryRun`, and
+  shows a source failure under the field it concerns. Review maps each source user to the
+  suggested account's profile, one of the admin's own profiles, or skip, and maps a source folder
+  the host lacks to a local one; each change runs the dry run again (a folder mapping reconnects
+  with the typed key, which stays in page memory only), so Import always matches the last dry run.
+  A running import is pinned to the URL (`?job=`), so the page lands on Done. Job progress
+  restarts at every phase, so the bar weighs the phases.
+- The web migration suite imports from the recorded Jellyfin server by default and from a real
+  Jellyfin in Docker with `MOVIES_JELLYFIN_DOCKER=1`, as CI runs it; both are served by
+  `apps/media/scripts/serve-jellyfin-source.ts` over the generated fixture library.
 
 ## Web UI kit
 

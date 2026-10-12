@@ -72,7 +72,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter web exec playwright install --with-deps chromium
       - run: scripts/dev-stack.sh up
+      # The migration suite imports from a real Jellyfin, set up over the fixture library.
+      - run: docker pull jellyfin/jellyfin:12.2
       - run: pnpm --filter web exec playwright test
+        env:
+          MOVIES_JELLYFIN_DOCKER: "1"
       - if: failure()
         uses: actions/upload-artifact@v7
         with:

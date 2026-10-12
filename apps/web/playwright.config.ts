@@ -24,7 +24,8 @@ if (chromium !== undefined && chromium !== "") launchOptions.executablePath = ch
  * real media service, which the suite starts itself; it skips without a fresh stack. `admin` then
  * runs the account and admin screens on the same stack as the owner `stack` created; it skips
  * without a stack. `player` and then `rooms` play generated clips through the real media service
- * as that owner. The suites that run a media service take turns, as it owns the stack's port.
+ * as that owner, and `migration` imports from a Jellyfin through it last. The suites that run a
+ * media service take turns, as it owns the stack's port.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -51,6 +52,7 @@ export default defineConfig({
       // Signs in as the owner the core flows create, so it runs after them.
       name: "admin",
       testMatch: /e2e\/admin\/.*\.spec\.ts$/u,
+      testIgnore: /e2e\/admin\/migration\.spec\.ts$/u,
       dependencies: ["stack"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
@@ -64,6 +66,12 @@ export default defineConfig({
       name: "rooms",
       testMatch: /e2e\/playback\/rooms\.spec\.ts$/u,
       dependencies: ["player"],
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: "migration",
+      testMatch: /e2e\/admin\/migration\.spec\.ts$/u,
+      dependencies: ["rooms"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
   ],
