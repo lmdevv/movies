@@ -23,7 +23,7 @@ export function RadioItem({ className, ...props }: Radio.Root.Props) {
     <Radio.Root
       data-slot="radio"
       className={cn(
-        "size-4 shrink-0 cursor-pointer rounded-pill border-[1.5px] border-text-muted transition-[border] outline-none data-checked:border-[5px] data-checked:border-accent data-checked:bg-on-accent data-disabled:cursor-not-allowed data-disabled:opacity-(--opacity-disabled)",
+        "size-4 shrink-0 cursor-pointer rounded-pill border-[1.5px] border-text-muted transition-[border] data-checked:border-[5px] data-checked:border-accent data-checked:bg-on-accent data-disabled:cursor-not-allowed data-disabled:opacity-(--opacity-disabled)",
         className,
       )}
       {...props}

@@ -225,6 +225,12 @@ const DEFAULT_FILE_PAGE = 50;
 
 const MAX_FILE_PAGE = 100;
 
+/** Unmatched titles per page; each brings its files, so pages stay well under the read limit. */
+const UNMATCHED_TITLES_PER_PAGE = 20;
+
+/** Most files listed per unmatched title, so a large unmatched show cannot exhaust a page. */
+const FILES_PER_UNMATCHED_TITLE = 50;
+
 /** Most missing files or unmatched titles counted for a summary; more read as this many. */
 const SUMMARY_LIMIT = 1000;
 
@@ -288,8 +294,8 @@ const presentFiles = async (
 
 /**
  * A library's files for the admin file list, by path. `missing` pages through missing files;
- * `unmatched` pages through unmatched titles and lists each one's files, so a page may hold more
- * or fewer files than `limit`.
+ * `unmatched` pages through unmatched titles (20 at most) and lists up to 50 files of each, so a
+ * page may hold more or fewer files than `limit`.
  */
 export const files = query({
   args: {
@@ -325,14 +331,14 @@ export const files = query({
         .withIndex("by_library_status", (q) =>
           q.eq("libraryId", libraryId).eq("matchStatus", "unmatched"),
         )
-        .paginate(paging);
+        .paginate({ ...paging, numItems: Math.min(numItems, UNMATCHED_TITLES_PER_PAGE) });
 
       const perTitle = await Promise.all(
         result.page.map((title) =>
           ctx.db
             .query("mediaFiles")
             .withIndex("by_title", (q) => q.eq("titleId", title._id))
-            .collect(),
+            .take(FILES_PER_UNMATCHED_TITLE),
         ),
       );
 

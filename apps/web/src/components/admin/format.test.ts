@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { formatAgo, formatBytes, formatDate, formatSpan, formatUntil, plural } from "./format";
 
-const NOW = Date.UTC(2026, 9, 12, 12, 0, 0);
+// Local times, so calendar assertions hold in any time zone.
+const NOW = new Date(2026, 9, 12, 12, 0, 0).getTime();
 
 const MINUTE = 60_000;
 
@@ -43,8 +44,8 @@ describe("formatBytes", () => {
 
 describe("dates and counts", () => {
   it("drops the year only for the current year", () => {
-    expect(formatDate(Date.UTC(2026, 7, 2, 12), NOW)).toBe("Aug 2");
-    expect(formatDate(Date.UTC(2025, 2, 4, 12), NOW)).toBe("Mar 4, 2025");
+    expect(formatDate(new Date(2026, 7, 2, 12).getTime(), NOW)).toBe("Aug 2");
+    expect(formatDate(new Date(2025, 2, 4, 12).getTime(), NOW)).toBe("Mar 4, 2025");
   });
 
   it("pluralizes with separators", () => {

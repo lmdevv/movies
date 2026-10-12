@@ -26,7 +26,7 @@ import {
   SlidersHorizontalIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { useAction } from "./action";
 import {
@@ -268,10 +268,14 @@ function FileList({
   readonly counts: { readonly missingFiles: number; readonly unmatchedTitles: number } | null;
   readonly now: number;
 }) {
-  const [cursors, setCursors] = useState<ReadonlyArray<string>>([]);
-  const [search, setSearch] = useState("");
+  // Pages loaded so far belong to one filter; switching filters starts again from the first page.
+  const [paging, setPaging] = useState<{
+    readonly filter: LibraryFileFilter;
+    readonly cursors: ReadonlyArray<string>;
+  }>({ filter, cursors: [] });
 
-  useEffect(() => setCursors([]), [filter]);
+  const [search, setSearch] = useState("");
+  const cursors = paging.filter === filter ? paging.cursors : [];
 
   const needle = search.trim().toLowerCase();
 
@@ -330,7 +334,10 @@ function FileList({
             needle={needle}
             now={now}
             onMore={(next) =>
-              setCursors((current) => (current.includes(next) ? current : [...current, next]))
+              setPaging({
+                filter,
+                cursors: cursors.includes(next) ? cursors : [...cursors, next],
+              })
             }
             last={cursor === (cursors.at(-1) ?? null)}
           />
