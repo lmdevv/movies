@@ -37,5 +37,60 @@
         movies = pkgs.callPackage ./nix/package.nix { };
         default = movies;
       });
+
+      nixosModules.default = import ./nix/module.nix;
+
+      # Evaluates the module in minimal systems, so `nix flake check` catches option and type
+      # errors, builds the package, and shellchecks the startup script.
+      checks = forLinux (
+        pkgs:
+        let
+          evaluate =
+            settings:
+            let
+              evaluated = nixpkgs.lib.nixosSystem {
+                inherit (pkgs.stdenv.hostPlatform) system;
+                modules = [
+                  self.nixosModules.default
+                  {
+                    boot.isContainer = true;
+                    system.stateVersion = "26.05";
+                    services.movies = {
+                      enable = true;
+                      libraryDirs = [ "/srv/media/movies" ];
+                    }
+                    // settings;
+                  }
+                ];
+              };
+              inherit (evaluated) config;
+              service = config.systemd.services.movies;
+            in
+            pkgs.writeText "movies-module-check" (
+              builtins.toJSON {
+                container = {
+                  inherit (config.virtualisation.oci-containers.containers.movies-convex)
+                    image
+                    ports
+                    volumes
+                    environment
+                    ;
+                };
+                inherit (service) environment serviceConfig;
+                firewall = config.networking.firewall.allowedTCPPorts;
+                groups = config.users.users.movies.extraGroups;
+              }
+            );
+        in
+        {
+          module = evaluate { };
+          module-qsv = evaluate {
+            hardwareAcceleration = "qsv";
+            openFirewall = true;
+            tmdbApiKeyFile = "/run/secrets/tmdb-api-key";
+            otlpEndpoint = "http://127.0.0.1:4318";
+          };
+        }
+      );
     };
 }

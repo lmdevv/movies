@@ -92,7 +92,8 @@ pnpm --dir "$root" --filter @movies/cli build >/dev/null
 MOVIES_PACKAGED_STACK=1 \
   MOVIES_PACKAGED_CONVEX_URL="$CONVEX_PUBLIC_URL" \
   MOVIES_PACKAGED_MEDIA_URL="$MOVIES_PUBLIC_URL" \
-  MOVIES_PACKAGED_COMPOSE="${compose_args[*]}" \
+  MOVIES_PACKAGED_LIBRARY=/media/library \
+  MOVIES_PACKAGED_RESTART="docker compose ${compose_args[*]} restart movies" \
   pnpm --dir "$root" exec vitest run --root "$root" apps/media/src/stack/packaged-stack.test.ts
 
 # An upgrade (another image version in /data/version) backs up before deploying the new functions.

@@ -204,7 +204,7 @@ export const fileInfo = (
     () => undefined,
   );
 
-/** Runs `docker` with `args`, such as a Compose restart, and waits for it. */
-export const runDocker = (args: ReadonlyArray<string>): void => {
-  execFileSync("docker", args, { stdio: "ignore" });
+/** Runs `command` (a program and its arguments), such as a service restart, and waits for it. */
+export const runCommand = ([program = "false", ...args]: ReadonlyArray<string>): void => {
+  execFileSync(program, args, { stdio: "ignore" });
 };

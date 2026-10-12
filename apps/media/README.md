@@ -49,12 +49,13 @@ Registry `media` commands answer `{ code, message }` like Convex.
 
 Required: `MEDIA_BASE_URL`, `DATA_DIR`, `TRANSCODE_DIR`, `PLAYBACK_TOKEN_SECRET` (base64url,
 ≥ 32 bytes). Optional with defaults: `LIBRARY_ROOTS` (comma list of approved mounts; none
-approves nothing, so every scan is refused), `PORT` (4300),
+approves nothing, so every scan is refused), `PORT` (4300), `HOST` (all interfaces),
 `BACKUP_DIR` (`/data/backups`), `TMDB_API_KEY` (v3 key or v4 read token), `WEB_DIST_DIR`,
 `MAX_CONCURRENT_TRANSCODES` (3), `HARDWARE_ACCELERATION` (`auto`, `qsv`, `none`),
 `QSV_DEVICE` (`/dev/dri/renderD128`), `STREAM_IDLE_SECONDS` (60), `MIN_FREE_TRANSCODE_MB`
 (2048), `LIBRARY_RECONCILE_MINUTES` (360), `FFMPEG_PATH`, `FFPROBE_PATH`,
-`OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVEX_URL`, `MEDIA_SERVICE_API_KEY`. The dev stack sets
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVEX_URL`, `MEDIA_SERVICE_API_KEY`,
+`CONVEX_SELF_HOSTED_ADMIN_KEY` and `CONVEX_BACKEND_DIR` (backups), `BACKUP_RETENTION_DAYS` (14). The dev stack sets
 `LIBRARY_ROOTS` to its own `library` folder unless `MOVIES_LIBRARY_ROOTS` says otherwise.
 
 QSV needs an ffmpeg built with libvpl; the Nix dev shell uses `ffmpeg-full` for that.

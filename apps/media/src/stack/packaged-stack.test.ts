@@ -1,12 +1,14 @@
 /**
  * The packaged install, end to end: the Compose stack (`deploy/compose`) started by
- * `scripts/stack-e2e.sh` with a generated fixture library mounted read-only at `/media/library`.
- * An owner signs up on the fresh deployment through the SDK, adds a library, scans it, plays a
- * movie directly (byte range) and through HLS, restarts the media container (the stream answers
- * a typed error and playback negotiates again), then backs up and restores through the `movies`
- * CLI and signs in again.
+ * `scripts/stack-e2e.sh` with a generated fixture library mounted read-only at `/media/library`,
+ * or the NixOS module's service. An owner signs up on the fresh deployment through the SDK, adds
+ * a library, scans it, plays a movie directly (byte range) and through HLS, restarts the media
+ * service (the stream answers a typed error and playback negotiates again), then backs up and
+ * restores through the `movies` CLI and signs in again.
  *
- * Skipped unless `MOVIES_PACKAGED_STACK=1`; the script sets it with the stack's URLs.
+ * Skipped unless `MOVIES_PACKAGED_STACK=1`; the script sets it with the stack's URLs, the library
+ * folder as the service sees it (`MOVIES_PACKAGED_LIBRARY`), and the command that restarts the
+ * media service (`MOVIES_PACKAGED_RESTART`).
  */
 import { DeviceId } from "@movies/contracts/ids";
 import type { LibraryId, ProfileId, TitleId } from "@movies/contracts/ids";
@@ -32,7 +34,7 @@ import {
 import {
   makeTempDir,
   removeDir,
-  runDocker,
+  runCommand,
   runMovies,
   waitForBody,
 } from "../testing/stack-processes.ts";
@@ -43,8 +45,11 @@ const convexUrl = process.env["MOVIES_PACKAGED_CONVEX_URL"] ?? "";
 
 const mediaUrl = process.env["MOVIES_PACKAGED_MEDIA_URL"] ?? "";
 
-/** The `docker compose` arguments that address the stack, such as `-p movies-e2e -f compose.yaml`. */
-const composeArgs = (process.env["MOVIES_PACKAGED_COMPOSE"] ?? "").split(" ").filter(Boolean);
+/** The fixture library as the media service sees it. */
+const libraryDir = process.env["MOVIES_PACKAGED_LIBRARY"] ?? "/media/library";
+
+/** Restarts the media service, such as `docker compose -p movies-e2e restart movies`. */
+const restartCommand = (process.env["MOVIES_PACKAGED_RESTART"] ?? "").split(" ").filter(Boolean);
 
 const OWNER = "owner@movies.test";
 
@@ -194,7 +199,7 @@ describe.skipIf(!enabled)("the packaged install", { timeout: 180_000 }, () => {
         movies.mutate("libraries.create", {
           name: "Movies",
           kind: "movies",
-          roots: ["/media/library/movies"],
+          roots: [`${libraryDir}/movies`],
         }),
       ),
     );
@@ -236,7 +241,7 @@ describe.skipIf(!enabled)("the packaged install", { timeout: 180_000 }, () => {
     const hls = await play(smallScreen, "restart");
 
     expect((await fetch(hls.url)).status).toBe(200);
-    runDocker(["compose", ...composeArgs, "restart", "movies"]);
+    runCommand(restartCommand);
     await connected();
 
     const lost = await fetch(hls.url);
