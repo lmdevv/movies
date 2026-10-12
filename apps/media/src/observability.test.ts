@@ -43,6 +43,8 @@ const logEverySecret = Effect.gen(function* () {
     `Authorization: MediaBrowser Client="movies", Token="${secrets.jellyfinToken}"`,
     `Authorization: Bearer ${secrets.apiKey}`,
     `admin key ${secrets.adminKey}`,
+    `import failed: {"user":"owner","password":"${secrets.password}"}`,
+    `config apiKey: '${secrets.tmdbKey}'`,
   ).pipe(
     Effect.annotateLogs({
       apiKey: secrets.apiKey,
@@ -160,6 +162,7 @@ describe("Observability", () => {
       expect(output).toContain("Backups.failed");
       expect(output).toContain("api.themoviedb.org/3/search/movie?query=x");
       expect(output).toContain("file_123");
+      expect(output).toContain("import failed:");
     }),
   );
 

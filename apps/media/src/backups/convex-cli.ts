@@ -125,7 +125,7 @@ const make = Effect.gen(function* () {
         Effect.forkScoped,
       );
 
-      yield* handle.stderr.pipe(
+      const stderr = yield* handle.stderr.pipe(
         Stream.decodeText(),
         Stream.runForEach((chunk) =>
           Ref.update(output, (tail) => (tail + chunk).slice(-OUTPUT_TAIL)),
@@ -136,6 +136,9 @@ const make = Effect.gen(function* () {
 
       const code = yield* handle.exitCode.pipe(Effect.mapError((cause) => failed(null, "", cause)));
       const printed = yield* Fiber.join(stdout);
+
+      // The CLI's last error lines are the useful ones; read the tail only once stderr is drained.
+      yield* Fiber.join(stderr);
 
       if (code !== ChildProcessSpawner.ExitCode(0)) {
         return yield* failed(code, `${yield* Ref.get(output)}${printed}`.slice(-OUTPUT_TAIL), null);

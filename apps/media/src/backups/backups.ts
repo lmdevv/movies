@@ -265,11 +265,12 @@ const make = Effect.gen(function* () {
   });
 
   const restore = Effect.fn("Backups.restore")(function* (backupId: BackupId) {
-    const { fileName } = yield* backend.call("mediaService.backupFile", { backupId });
-    const archive = yield* archivePath(fileName);
-
     yield* exclusively(
       Effect.gen(function* () {
+        // Resolved under the permit, so a backup's pruning cannot remove the archive in between.
+        const { fileName } = yield* backend.call("mediaService.backupFile", { backupId });
+        const archive = yield* archivePath(fileName);
+
         yield* Effect.logWarning("Backups.restore_started").pipe(Effect.annotateLogs({ fileName }));
 
         yield* cli.importSnapshot(archive);

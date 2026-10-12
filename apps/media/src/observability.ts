@@ -28,6 +28,11 @@ const SECRET_VALUES: ReadonlyArray<readonly [RegExp, string]> = [
     /\b((?:access_|x-plex-|x-emby-)?token|api_?key|key|secret|password)=[^\s&"',;\\]+/gi,
     `$1=${REDACTED}`,
   ],
+  // Quoted credential fields inside text, as in `import failed: {"password":"…"}`.
+  [
+    /(["']?)\b([\w.-]*?(?:token|secret|password|passwd|api[-_]?key|authorization|cookie|credentials?))\1(\s*[:=]\s*)(["'])(?:\\.|(?!\4)[^\\])*\4/gi,
+    `$1$2$1$3$4${REDACTED}$4`,
+  ],
   // `Authorization` schemes, and Jellyfin's `Token="…"` parameter.
   [/\b(Bearer|Basic)\s+[\w.~+/=-]+/gi, `$1 ${REDACTED}`],
   [/\bToken="[^"]*"/g, `Token="${REDACTED}"`],
