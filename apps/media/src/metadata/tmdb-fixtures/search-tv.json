@@ -1,0 +1,14 @@
+{
+  "page": 1,
+  "results": [
+    {
+      "id": 99999,
+      "name": "Fixture Show",
+      "original_name": "Fixture Show",
+      "first_air_date": "2021-01-01",
+      "popularity": 3.2
+    }
+  ],
+  "total_pages": 1,
+  "total_results": 1
+}

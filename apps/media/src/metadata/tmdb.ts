@@ -182,8 +182,17 @@ export const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
     permissions: { hosts: [apiBase.host], paths: ["DATA_DIR/metadata-cache/tmdb"] },
   };
 
-  const limitRequests = yield* RateLimiter.makeWithRateLimiter;
-  const client = guardHosts(manifest, yield* HttpClient.HttpClient);
+  // Paces every TMDB request of this process and retries `429` answers after `Retry-After`.
+  const client = guardHosts(manifest, yield* HttpClient.HttpClient).pipe(
+    HttpClient.withRateLimiter({
+      limiter: yield* RateLimiter.RateLimiter,
+      key: PROVIDER,
+      limit: options.requestsPerSecond,
+      window: "1 second",
+      algorithm: "token-bucket",
+      times: 3,
+    }),
+  );
 
   const image = (size: string, path: string | null | undefined): string | undefined =>
     path === null || path === undefined ? undefined : `${options.imageBaseUrl}/${size}${path}`;
@@ -228,12 +237,6 @@ export const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
             );
 
             const response = yield* client.execute(outgoing).pipe(
-              limitRequests({
-                key: PROVIDER,
-                limit: options.requestsPerSecond,
-                window: "1 second",
-                algorithm: "token-bucket",
-              }),
               Effect.provideService(HttpClient.TracerDisabledWhen, () => true),
               Effect.catchTags({
                 HttpClientError: (error) =>

@@ -1,0 +1,16 @@
+{
+  "backdrop_path": "/show-backdrop.jpg",
+  "episode_run_time": [24],
+  "first_air_date": "2021-01-01",
+  "genres": [{ "id": 18, "name": "Drama" }],
+  "id": 99999,
+  "name": "Fixture Show",
+  "networks": [{ "id": 3, "name": "Fixture TV" }],
+  "original_name": "Fixture Show",
+  "overview": "Colour bars, weekly.",
+  "poster_path": "/show-poster.jpg",
+  "tagline": "",
+  "vote_average": 7.9,
+  "external_ids": { "imdb_id": "tt9999999", "tvdb_id": 123456 },
+  "content_ratings": { "results": [{ "iso_3166_1": "US", "rating": "TV-14" }] }
+}
