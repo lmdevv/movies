@@ -8,7 +8,6 @@ import { Spinner } from "@movies/ui/components/spinner";
 import { cn } from "@movies/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import { PlusIcon, RotateCwIcon } from "lucide-react";
-import { useState } from "react";
 
 import { useAction } from "./action";
 import { formatAgo, formatCount, formatPercent, formatSpan, plural } from "./format";
@@ -20,11 +19,17 @@ import { useNow } from "@/lib/use-now";
 import { QueryView } from "./query-view";
 
 /** Libraries and scans: every library with its folders, size, last scan, and live scan progress. */
-export function LibrariesScreen() {
+export function LibrariesScreen({
+  adding,
+  onAddingChange: setAdding,
+}: {
+  /** Whether Add library is open; it lives in the URL so the command menu can open it. */
+  readonly adding: boolean;
+  readonly onAddingChange: (open: boolean) => void;
+}) {
   const libraries = useCommandQuery("libraries.listDetails", {});
   const scans = useLatestScans();
   const scan = useCommand("libraries.scan");
-  const [adding, setAdding] = useState(false);
   const now = useNow(10_000);
   const list = libraries.status === "success" ? libraries.data : [];
 

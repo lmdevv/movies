@@ -12,6 +12,7 @@ interface NavEntry {
 
 const YOU: ReadonlyArray<NavEntry> = [
   { to: "/settings/account", label: "Account" },
+  { to: "/profiles", label: "Profiles" },
   { to: "/settings/devices", label: "Devices" },
   { to: "/settings/api-keys", label: "API keys" },
 ];

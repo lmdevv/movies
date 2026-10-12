@@ -43,10 +43,18 @@ type ExpiryChoice = (typeof EXPIRY_CHOICES)[number];
 
 const API_KEY_SCOPES = ApiKeyScope.literals;
 
-/** API keys: the account's keys with their scopes and use, Create key, and revoke. */
-export function ApiKeysScreen() {
+/**
+ * API keys: the account's keys with their scopes and use, Create key, and revoke. Whether Create key
+ * is open lives in the URL, so links and the command menu can open it.
+ */
+export function ApiKeysScreen({
+  creating,
+  onCreatingChange: setCreating,
+}: {
+  readonly creating: boolean;
+  readonly onCreatingChange: (open: boolean) => void;
+}) {
   const keys = useCommandQuery("apiKeys.list", {});
-  const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<CreatedApiKey | null>(null);
   const [revoking, setRevoking] = useState<ApiKey | null>(null);
   const now = useNow(30_000);
