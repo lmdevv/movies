@@ -53,7 +53,7 @@ export const anonymous = (url: string): Session => ({
 });
 
 /** Opens a connection that sends `token`. */
-export const withToken = (url: string, token: string): Session => {
+const withToken = (url: string, token: string): Session => {
   const client = new ConvexHttpClient(url, { logger: false });
   client.setAuth(token);
 

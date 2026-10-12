@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
 import { enqueueJob, MAX_JOB_ATTEMPTS } from "./lib/jobs";
+import { endAuthSession } from "./lib/viewer";
 import {
   HOST_ABANDON_TIMEOUT_MS,
   HOST_PRESENCE_TIMEOUT_MS,
@@ -223,5 +224,27 @@ export const purgeLibrary = internalMutation({
       await ctx.scheduler.runAfter(0, internal.maintenance.purgeLibrary, { libraryId });
 
     return null;
+  },
+});
+
+/**
+ * Signs out every session, for the restore procedure: a restored snapshot carries the sessions
+ * and refresh tokens it was taken with, and they keep working until ended. Run it with
+ * `convex run maintenance:endAllSessions` after `convex import`; it reschedules itself until done.
+ * The media service signs in again with its key.
+ */
+export const endAllSessions = internalMutation({
+  args: {},
+  returns: v.object({ ended: v.number() }),
+  handler: async (ctx) => {
+    const sessions = await ctx.db.query("authSessions").take(PURGE_BATCH);
+
+    await Promise.all(sessions.map((session) => endAuthSession(ctx, session._id)));
+
+    if (sessions.length === PURGE_BATCH) {
+      await ctx.scheduler.runAfter(0, internal.maintenance.endAllSessions, {});
+    }
+
+    return { ended: sessions.length };
   },
 });
