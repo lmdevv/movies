@@ -198,12 +198,12 @@ const importCredentials = (invocation: Invocation) =>
   });
 
 /** Whether the source answered; otherwise the result is a `MigrationSourceFailure`. */
-const isReady = <Ready extends { readonly status: "connected" | "queued" }>(
+const isReady = <Ready extends { readonly status: "connected" | "ready" | "queued" }>(
   result: Ready | MigrationSourceFailure,
 ): result is Ready => result.status !== "failed";
 
 /** Fails with the source's reason when the result says it could not be used. */
-const sourceReady = <Ready extends { readonly status: "connected" | "queued" }>(
+const sourceReady = <Ready extends { readonly status: "connected" | "ready" | "queued" }>(
   result: Ready | MigrationSourceFailure,
 ): Effect.Effect<Ready, MigrationSourceError> =>
   isReady(result)
@@ -255,11 +255,12 @@ const migrate: ShortcutCommand = {
           ? { connectionId: connected.connectionId }
           : { connectionId: connected.connectionId, users };
 
-      if (booleanFlag(invocation.tokens, "dry-run")) {
-        const report = yield* connection.withSession(
-          connection.client.media("migration.dryRun", plan),
-        );
+      // The import queues exactly what this dry run planned; the media service requires one.
+      const report = yield* connection
+        .withSession(connection.client.media("migration.dryRun", plan))
+        .pipe(Effect.flatMap(sourceReady));
 
+      if (booleanFlag(invocation.tokens, "dry-run")) {
         return resultOutcome(
           commands["migration.dryRun"],
           yield* encodeResult("migration.dryRun", commands["migration.dryRun"], report),

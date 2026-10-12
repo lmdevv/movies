@@ -1,0 +1,458 @@
+{
+  "note": "Hand-written from the Plex Media Server API documentation; a real server was not available. Paths mirror the generated fixture library under /data.",
+  "recordings": {
+    "owner|GET /identity": {
+      "status": 200,
+      "body": {
+        "MediaContainer": {
+          "size": 0,
+          "claimed": true,
+          "machineIdentifier": "fixture-machine-id",
+          "version": "1.41.3.9314-a0bfb8370"
+        }
+      }
+    },
+    "owner|GET /": {
+      "status": 200,
+      "body": {
+        "MediaContainer": {
+          "size": 0,
+          "friendlyName": "Fixture Plex",
+          "machineIdentifier": "fixture-machine-id",
+          "version": "1.41.3.9314-a0bfb8370",
+          "myPlex": true
+        }
+      }
+    },
+    "shared|GET /identity": {
+      "status": 200,
+      "body": {
+        "MediaContainer": {
+          "size": 0,
+          "claimed": true,
+          "machineIdentifier": "fixture-machine-id",
+          "version": "1.41.3.9314-a0bfb8370"
+        }
+      }
+    },
+    "shared|GET /": {
+      "status": 200,
+      "body": {
+        "MediaContainer": {
+          "size": 0,
+          "friendlyName": "Fixture Plex",
+          "machineIdentifier": "fixture-machine-id",
+          "version": "1.41.3.9314-a0bfb8370",
+          "myPlex": true
+        }
+      }
+    },
+    "shared|GET /accounts": {
+      "status": 401,
+      "body": null
+    },
+    "owner|GET /accounts": {
+      "status": 200,
+      "body": {
+        "MediaContainer": {
+          "size": 3,
+          "identifier": "com.plexapp.system.accounts",
+          "Account": [
+            {
+              "id": 0,
+              "key": "/accounts/0",
+              "name": ""
+            },
+            {
+              "id": 1,
+              "key": "/accounts/1",
+              "name": "Admin"
+            },
+            {
+              "id": 2,
+              "key": "/accounts/2",
+              "name": "bob"
+            }
+          ]
+        }
+      }
+    },
+    "owner|GET /library/sections": {
+      "status": 200,
+      "body": {
+        "MediaContainer": {
+          "size": 3,
+          "Directory": [
+            {
+              "key": "1",
+              "type": "movie",
+              "title": "Movies",
+              "agent": "tv.plex.agents.movie",
+              "Location": [
+                {
+                  "id": 1,
+                  "path": "/data/movies"
+                },
+                {
+                  "id": 3,
+                  "path": "/offline"
+                }
+              ]
+            },
+            {
+              "key": "2",
+              "type": "show",
+              "title": "TV Shows",
+              "agent": "tv.plex.agents.series",
+              "Location": [
+                {
+                  "id": 2,
+                  "path": "/data/shows"
+                }
+              ]
+            },
+            {
+              "key": "3",
+              "type": "artist",
+              "title": "Music",
+              "Location": [
+                {
+                  "id": 4,
+                  "path": "/data/music"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "owner|GET /library/sections/1/all?includeguids=1&type=1&x-plex-container-size=500&x-plex-container-start=0": {
+      "status": 200,
+      "body": {
+        "MediaContainer": {
+          "size": 4,
+          "totalSize": 4,
+          "offset": 0,
+          "Metadata": [
+            {
+              "ratingKey": "101",
+              "key": "/library/metadata/101",
+              "type": "movie",
+              "title": "Big Buck Fixture",
+              "titleSort": "Fixture, Big Buck",
+              "year": 2008,
+              "summary": "A rabbit & a test pattern.",
+              "contentRating": "PG",
+              "Guid": [
+                {
+                  "id": "imdb://tt1254207"
+                },
+                {
+                  "id": "tmdb://10378"
+                }
+              ],
+              "Media": [
+                {
+                  "id": 1,
+                  "Part": [
+                    {
+                      "id": 1,
+                      "file": "/data/movies/Big Buck Fixture (2008)/Big Buck Fixture (2008).mp4"
+                    }
+                  ]
+                }
+              ],
+              "Field": [
+                {
+                  "locked": true,
+                  "name": "titleSort"
+                },
+                {
+                  "locked": true,
+                  "name": "summary"
+                }
+              ],
+              "viewCount": 2,
+              "lastViewedAt": 1790000000
+            },
+            {
+              "ratingKey": "102",
+              "key": "/library/metadata/102",
+              "type": "movie",
+              "title": "Remux Fixture",
+              "year": 2015,
+              "Guid": [],
+              "Media": [
+                {
+                  "id": 2,
+                  "Part": [
+                    {
+                      "id": 2,
+                      "file": "/data/movies/Remux Fixture (2015)/Remux Fixture (2015).mkv"
+                    }
+                  ]
+                }
+              ],
+              "viewOffset": 6000,
+              "lastViewedAt": 1790884800
+            },
+            {
+              "ratingKey": "103",
+              "key": "/library/metadata/103",
+              "type": "movie",
+              "title": "HDR Fixture",
+              "year": 2020,
+              "Media": [
+                {
+                  "id": 3,
+                  "Part": [
+                    {
+                      "id": 3,
+                      "file": "/data/movies/HDR Fixture (2020)/HDR Fixture (2020).mkv"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "ratingKey": "104",
+              "key": "/library/metadata/104",
+              "type": "movie",
+              "title": "Elsewhere",
+              "year": 1999,
+              "Guid": [
+                {
+                  "id": "tmdb://424242"
+                }
+              ],
+              "Media": [
+                {
+                  "id": 4,
+                  "Part": [
+                    {
+                      "id": 4,
+                      "file": "/offline/Elsewhere (1999)/Elsewhere.mkv"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "owner|GET /library/sections/2/all?includeguids=1&type=2&x-plex-container-size=500&x-plex-container-start=0": {
+      "status": 200,
+      "body": {
+        "MediaContainer": {
+          "size": 1,
+          "totalSize": 1,
+          "offset": 0,
+          "Metadata": [
+            {
+              "ratingKey": "201",
+              "key": "/library/metadata/201/children",
+              "type": "show",
+              "title": "Fixture Show",
+              "year": 2021,
+              "Guid": [
+                {
+                  "id": "tmdb://99999"
+                },
+                {
+                  "id": "tvdb://123456"
+                }
+              ],
+              "Location": [
+                {
+                  "path": "/data/shows/Fixture Show (2021)"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "owner|GET /library/sections/2/all?includeguids=1&type=4&x-plex-container-size=500&x-plex-container-start=0": {
+      "status": 200,
+      "body": {
+        "MediaContainer": {
+          "size": 3,
+          "totalSize": 3,
+          "offset": 0,
+          "Metadata": [
+            {
+              "ratingKey": "301",
+              "type": "episode",
+              "title": "Episode 1",
+              "grandparentRatingKey": "201",
+              "grandparentTitle": "Fixture Show",
+              "parentIndex": 1,
+              "index": 1,
+              "Guid": [
+                {
+                  "id": "tvdb://911"
+                }
+              ],
+              "Media": [
+                {
+                  "Part": [
+                    {
+                      "file": "/data/shows/Fixture Show (2021)/Season 01/Fixture Show - S01E01 - Pilot.mkv"
+                    }
+                  ]
+                }
+              ],
+              "viewCount": 1,
+              "lastViewedAt": 1790500000
+            },
+            {
+              "ratingKey": "302",
+              "type": "episode",
+              "title": "Episode 2",
+              "grandparentRatingKey": "201",
+              "grandparentTitle": "Fixture Show",
+              "parentIndex": 1,
+              "index": 2,
+              "Guid": [
+                {
+                  "id": "tvdb://912"
+                }
+              ],
+              "Media": [
+                {
+                  "Part": [
+                    {
+                      "file": "/data/shows/Fixture Show (2021)/Season 01/Fixture Show - S01E02 - Second.mkv"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "ratingKey": "303",
+              "type": "episode",
+              "title": "Episode 1",
+              "grandparentRatingKey": "201",
+              "grandparentTitle": "Fixture Show",
+              "parentIndex": 2,
+              "index": 1,
+              "Guid": [
+                {
+                  "id": "tvdb://921"
+                }
+              ],
+              "Media": [
+                {
+                  "Part": [
+                    {
+                      "file": "/data/shows/Fixture Show (2021)/Season 02/Fixture.Show.S02E01.Return.720p.WEB-DL.mp4"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "owner|GET /library/sections/1/collections?x-plex-container-size=500&x-plex-container-start=0": {
+      "status": 200,
+      "body": {
+        "MediaContainer": {
+          "size": 1,
+          "totalSize": 1,
+          "offset": 0,
+          "Metadata": [
+            {
+              "ratingKey": "901",
+              "type": "collection",
+              "title": "Fixture Box",
+              "subtype": "movie",
+              "childCount": 2
+            }
+          ]
+        }
+      }
+    },
+    "owner|GET /library/sections/2/collections?x-plex-container-size=500&x-plex-container-start=0": {
+      "status": 200,
+      "body": {
+        "MediaContainer": {
+          "size": 0,
+          "totalSize": 0,
+          "offset": 0
+        }
+      }
+    },
+    "owner|GET /library/collections/901/children?x-plex-container-size=500&x-plex-container-start=0": {
+      "status": 200,
+      "body": {
+        "MediaContainer": {
+          "size": 2,
+          "totalSize": 2,
+          "offset": 0,
+          "Metadata": [
+            {
+              "ratingKey": "101",
+              "type": "movie",
+              "title": "Big Buck Fixture"
+            },
+            {
+              "ratingKey": "104",
+              "type": "movie",
+              "title": "Elsewhere"
+            }
+          ]
+        }
+      }
+    },
+    "owner|GET /status/sessions/history/all?accountid=2&sort=viewedAt:desc&x-plex-container-size=500&x-plex-container-start=0": {
+      "status": 200,
+      "body": {
+        "MediaContainer": {
+          "size": 4,
+          "totalSize": 4,
+          "offset": 0,
+          "Metadata": [
+            {
+              "historyKey": "/status/sessions/history/1",
+              "ratingKey": "301",
+              "title": "Episode 1",
+              "type": "episode",
+              "viewedAt": 1790600000,
+              "accountID": 2,
+              "deviceID": 5
+            },
+            {
+              "historyKey": "/status/sessions/history/2",
+              "ratingKey": "301",
+              "title": "Episode 1",
+              "type": "episode",
+              "viewedAt": 1790700000,
+              "accountID": 2,
+              "deviceID": 5
+            },
+            {
+              "historyKey": "/status/sessions/history/3",
+              "ratingKey": "102",
+              "title": "Remux Fixture",
+              "type": "movie",
+              "viewedAt": 1790650000,
+              "accountID": 2,
+              "deviceID": 5
+            },
+            {
+              "historyKey": "/status/sessions/history/4",
+              "title": "Deleted item",
+              "type": "movie",
+              "viewedAt": 1790000000,
+              "accountID": 2,
+              "deviceID": 5
+            }
+          ]
+        }
+      }
+    }
+  }
+}

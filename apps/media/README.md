@@ -34,6 +34,9 @@ playback events are logged. `CONVEX_URL` without the key refuses to start.
 | `GET /media/subtitles/:fileId/:track.vtt?token=`         | WebVTT (`e<stream>` embedded, `x<n>` sidecar)                       |
 | `GET /artwork/:key?w=`                                   | Artwork by sealed key, original or resized (185–1280), no token     |
 | `POST /api/metadata/candidates`                          | `metadata.searchCandidates` command (bearer Convex token, `manage`) |
+| `POST /api/migration/connect`                            | `migration.connect` command (bearer Convex token, `admin`)          |
+| `POST /api/migration/dry-run`                            | `migration.dryRun` command (bearer Convex token, `admin`)           |
+| `POST /api/migration/import`                             | `migration.import` command (bearer Convex token, `admin`)           |
 | `GET /*`                                                 | Built web app from `WEB_DIST_DIR`, with SPA fallback                |
 
 The playback API (`/api/playback/*`, `/api/health`) is the Effect HttpApi in
@@ -78,7 +81,8 @@ QSV needs an ffmpeg built with libvpl; the Nix dev shell uses `ffmpeg-full` for 
   every 15 s (with progress), interrupts the handler when the job is cancelled or the lease is
   lost, and completes or fails the job (`retry` returns it to the queue). Handlers: `scan`
   (through the library monitor, so scans of one library never overlap; a folder outside
-  `LIBRARY_ROOTS` fails the job for good) and `metadata` (refresh and fix-match through TMDB).
+  `LIBRARY_ROOTS` fails the job for good), `metadata` (refresh and fix-match through TMDB), and
+  `migration` (see "Migration").
 
 Extension points in `src/main.ts`: `jobHandlers` (one handler per job kind) and `commandRoutes`
 (route groups of registry `media` commands, built with `commandRoute` in
@@ -86,6 +90,27 @@ Extension points in `src/main.ts`: `jobHandlers` (one handler per job kind) and 
 
 The tests use the in-memory `MemoryLibrary` (`LibrarySink` + `FileResolver`) and a recording
 `PlaybackReporter`.
+
+## Migration
+
+`src/migration/` imports from Jellyfin and Plex (decisions in `docs/decisions.md`, "Migration from
+Jellyfin and Plex").
+
+- `source-plugin.ts`: the migration-source plugin contract (manifest, source-neutral records,
+  typed `Source*` errors) and the request guard. `jellyfin.ts` and `plex.ts` implement it over
+  `source-http.ts`; `sources.ts` picks one.
+- `migrations.ts`: connect, dry run, and import for the routes in `migration-routes.ts`;
+  connections live in memory for an hour.
+- `paths.ts` (path mapping and normalization), `matching.ts` (path, then provider IDs), and
+  `planner.ts` (the plan and the dry-run summary) are pure.
+- `migration-job.ts`: the `migration` job handler, resuming from its Convex checkpoint;
+  `migration-backend.ts` is its view of Convex; `credentials.ts` seals source credentials for the
+  stored plan.
+
+Tests replay recorded servers (`testing/recorded-server.ts`): `fixtures/jellyfin.json` was
+recorded from a real Jellyfin with `node scripts/record-jellyfin-fixtures.ts` (Docker, the
+`jellyfin/jellyfin:12.2` image, or `JELLYFIN_IMAGE`); `fixtures/plex.json` is written from Plex's
+API documentation and needs checking against a real server.
 
 ## Tests against a real stack
 
@@ -101,6 +126,13 @@ remux, and software transcode; progress reaches continue watching; an ended sess
 stream; metadata commands check scopes; the same through `movies scan --wait`, `search`, `play`
 (the URL is probed with ffprobe), `progress`, and `continue`; and a job whose worker died is
 claimed again after its lease expires (up to a minute, the release cron's interval).
+
+The migration suite connects to the recorded Jellyfin and Plex servers, dry-runs, imports, and
+reads each profile's history, continue watching, My List, and collections back from Convex, then
+imports again through `movies import --wait` without duplicates. With `MOVIES_JELLYFIN_DOCKER=1`
+and the `jellyfin/jellyfin:12.2` image pulled, it also sets up a real Jellyfin in Docker over the
+fixture library (about 15 seconds) and imports from it with a password sign-in. The suites run one
+file at a time because each starts the service on the stack's media port.
 
 ## Effect unstable modules
 

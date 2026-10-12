@@ -122,6 +122,14 @@ movies backups list
 movies restore movies-2026-10-12.zip        # every session signs in again
 ```
 
+`movies import` connects, dry-runs, and only then imports what that dry run planned. Read the
+dry run's `users`: an `invite` user has no [movies] account yet, so import never creates one;
+invite the person or `--map` them to a profile (`skip` leaves them out). A source folder maps on
+its own when a `LIBRARY_ROOTS` folder ends in the same names (`/data/movies` to
+`/mnt/nas/movies`); pass `--path-map` for the rest.
+Media files are never moved or copied. Running the import again changes nothing already imported,
+and newer [movies] progress is kept unless the source played the item more recently.
+
 ## Exit codes
 
 | Code | Meaning                                                          | What to do                                      |
