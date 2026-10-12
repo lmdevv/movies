@@ -2,27 +2,10 @@
 import { Schema } from "effect";
 
 import { AgeRating } from "../content-rating";
-import {
-  EpisodeId,
-  JobId,
-  LibraryId,
-  MediaFileId,
-  PlaybackSessionId,
-  ProfileId,
-  TitleId,
-  UserId,
-} from "../ids";
+import { EpisodeId, JobId, LibraryId, MediaFileId, PlaybackSessionId, TitleId } from "../ids";
 import { Bytes, EpochMillis, Milliseconds } from "../units";
-import {
-  Artwork,
-  ExternalIds,
-  ExternalSubtitle,
-  LibraryKind,
-  MetadataOverrides,
-  Probe,
-  TitleKind,
-} from "./catalog";
-import { Job, MigrationSource } from "./jobs";
+import { Artwork, ExternalIds, ExternalSubtitle, LibraryKind, Probe, TitleKind } from "./catalog";
+import { Job } from "./jobs";
 
 /** Most items one scan or import write may carry. */
 export const SCAN_BATCH_LIMIT = 100;
@@ -176,39 +159,4 @@ export const MetadataTarget = Schema.Struct({
   /** The title's current artwork, kept where the provider has none. */
   artwork: Artwork,
   episodes: Schema.Array(Schema.Struct({ seasonNumber: Schema.Int, episodeNumber: Schema.Int })),
-});
-
-/** A [movies] account and its profiles, for mapping migration source users. */
-export const MigrationTarget = Schema.Struct({
-  userId: UserId,
-  name: Schema.String,
-  email: Schema.NullOr(Schema.String),
-  profiles: Schema.Array(Schema.Struct({ profileId: ProfileId, name: Schema.String })),
-});
-
-/** One item's watch state from a migration source, matched to a file by path. */
-export const ImportedWatchState = Schema.Struct({
-  profileId: ProfileId,
-  path: Schema.String,
-  watched: Schema.Boolean,
-  positionMs: Milliseconds,
-  lastPlayedAt: Schema.NullOr(EpochMillis),
-  favorite: Schema.Boolean,
-});
-
-/** One title's metadata overrides from a migration source, matched by a file path. */
-export const ImportedOverride = Schema.Struct({
-  path: Schema.String,
-  overrides: MetadataOverrides,
-});
-
-/** How many imported items matched a [movies] file. */
-export const ImportCounts = Schema.Struct({ matched: Schema.Int, unmatched: Schema.Int });
-
-/** Arguments to start a migration job for an admin the media service verified. */
-export const StartMigrationArgs = Schema.Struct({
-  requestedBy: UserId,
-  source: MigrationSource,
-  connectionId: Schema.String,
-  serverName: Schema.String,
 });

@@ -3,6 +3,11 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 import {
+  migrationCheckpoint,
+  migrationImported,
+  storedMigrationPlan,
+} from "./lib/migrationValidators";
+import {
   apiKeyScope,
   artwork,
   assignableRole,
@@ -18,6 +23,7 @@ import {
   libraryKind,
   matchStatus,
   metadataOverrides,
+  migrationSource,
   nullable,
   playbackMode,
   probe,
@@ -239,6 +245,8 @@ export default defineSchema({
     watched: v.boolean(),
     updatedAt: v.number(),
     lastPlayedAt: v.number(),
+    /** Completed plays; imported from Jellyfin or Plex, absent for items never imported. */
+    playCount: v.optional(v.number()),
     /** The playback session that owns this progress; older sessions cannot overwrite it. */
     sessionId: v.optional(v.id("playbackSessions")),
     sessionStartedAt: v.optional(v.number()),
@@ -325,6 +333,40 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_kind_status", ["kind", "status"])
     .index("by_library_status", ["libraryId", "status"]),
+
+  /** A migration job's plan, checkpoint, and counts; one row per migration job. */
+  migrations: defineTable({
+    jobId: v.id("jobs"),
+    source: migrationSource,
+    serverId: v.string(),
+    serverName: v.string(),
+    plan: storedMigrationPlan,
+    checkpoint: migrationCheckpoint,
+    imported: migrationImported,
+    libraryIds: v.array(v.id("libraries")),
+  })
+    .index("by_job", ["jobId"])
+    .index("by_server", ["serverId"]),
+
+  /** Named sets of titles, such as box sets imported from Jellyfin or Plex. */
+  collections: defineTable({
+    name: v.string(),
+    sortKey: v.string(),
+    /** Identifies an imported collection across runs, such as `jellyfin:<server>:<id>`. */
+    sourceKey: nullable(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_source_key", ["sourceKey"])
+    .index("by_sort", ["sortKey"]),
+
+  collectionItems: defineTable({
+    collectionId: v.id("collections"),
+    titleId: v.id("titles"),
+    position: v.number(),
+  })
+    .index("by_collection_position", ["collectionId", "position"])
+    .index("by_title", ["titleId"]),
 
   backups: defineTable({
     fileName: v.string(),

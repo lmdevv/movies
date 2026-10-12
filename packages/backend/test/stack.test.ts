@@ -6,7 +6,8 @@
  * Skipped unless `MOVIES_STACK_TESTS=1` (the `test:stack` script sets it). On an empty backend the
  * first test races two sign-ups for the owner account; later runs sign in as whichever won.
  */
-import type { DeviceId, LibraryId, ProfileId, TitleId } from "@movies/contracts/ids";
+import type { DeviceId, JobId, LibraryId, ProfileId, TitleId, UserId } from "@movies/contracts/ids";
+import type { CatalogFile, WatchStateImport } from "@movies/contracts/models/migration-service";
 import { DeviceId as DeviceIdSchema } from "@movies/contracts/ids";
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import { ScannedItem } from "@movies/contracts/models/scan";
@@ -296,6 +297,77 @@ const setUp = async (): Promise<Fixture> => {
       hidden: (await titleNamed(owner, ownerProfile, `Hidden ${TOKEN}`)).id,
     },
   };
+};
+
+/** A stored migration plan as the media service sends it; the credentials are opaque to Convex. */
+const plan = (
+  serverId: string,
+  users: ReadonlyArray<{ readonly sourceUserId: string; readonly profileId: ProfileId }>,
+) => ({
+  sourceUrl: "http://jellyfin.test:8096",
+  serverId,
+  credentials: { version: 1 as const, nonce: "bm9uY2U", ciphertext: "c2VhbGVk" },
+  users: users.map((user) => ({ ...user, history: "full" as const })),
+  libraries: [],
+  pathMappings: [],
+});
+
+/** Queues a migration for `serverId` and claims it. */
+const claimMigration = async (
+  fixture: Fixture,
+  owner: UserId,
+  serverId: string,
+): Promise<{ readonly jobId: JobId; readonly worker: string }> => {
+  const { jobId } = await service(fixture.mediaService, "migrationService.start", {
+    requestedBy: owner,
+    source: "jellyfin",
+    serverName: "Jellyfin",
+    plan: plan(serverId, [{ sourceUserId: "source-owner", profileId: fixture.ownerProfile }]),
+  });
+
+  const worker = `migrator-${serverId}`;
+
+  await service(fixture.mediaService, "mediaService.claimJob", {
+    jobId,
+    workerId: worker,
+    leaseMs: 60_000,
+  });
+
+  return { jobId, worker };
+};
+
+/** Every catalog file, read page by page like the media service does. */
+const catalogFiles = async (session: Session): Promise<ReadonlyArray<CatalogFile>> => {
+  const read = async (
+    cursor: string | null,
+    found: ReadonlyArray<CatalogFile>,
+  ): Promise<ReadonlyArray<CatalogFile>> => {
+    const page = await service(session, "migrationService.catalog", { cursor, limit: 100 });
+    const all = [...found, ...page.items];
+
+    return page.nextCursor === null ? all : read(page.nextCursor, all);
+  };
+
+  return read(null, []);
+};
+
+const at = (offset: number) => EpochMillis.make(1_760_000_000_000 + offset);
+
+const fileAt = async (fixture: Fixture, path: string): Promise<CatalogFile> => {
+  const found = (await catalogFiles(fixture.mediaService)).find((file) => file.path === path);
+
+  if (found === undefined) throw new Error(`${path} is not in the catalog`);
+
+  return found;
+};
+
+const progressOf = async (fixture: Fixture, titleId: TitleId, episodeId: string | null) => {
+  const page = await service(fixture.mediaService, "migrationService.localProgress", {
+    profileId: fixture.ownerProfile,
+    limit: 100,
+  });
+
+  return page.items.find((row) => row.titleId === titleId && row.episodeId === episodeId);
 };
 
 describe.skipIf(stack === undefined)("against a real stack", () => {
@@ -641,23 +713,10 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
     it("adds migrated libraries only for absolute folders nobody else owns", async () => {
       const owner = (await run(fixture.owner, "account.viewer", {})).user.id;
-
-      const { jobId } = await service(fixture.mediaService, "mediaService.startMigration", {
-        requestedBy: owner,
-        source: "jellyfin",
-        connectionId: `connection-${id}`,
-        serverName: "Jellyfin",
-      });
-
-      const worker = `migrator-${id}`;
-      await service(fixture.mediaService, "mediaService.claimJob", {
-        jobId,
-        workerId: worker,
-        leaseMs: 60_000,
-      });
+      const { jobId, worker } = await claimMigration(fixture, owner, `server-libraries-${id}`);
 
       const ensure = (roots: ReadonlyArray<string>) =>
-        service(fixture.mediaService, "mediaService.ensureLibrary", {
+        service(fixture.mediaService, "migrationService.ensureLibrary", {
           jobId,
           workerId: worker,
           name: "Imported",
@@ -665,21 +724,25 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           roots,
         });
 
-      expect(await outcome(ensure(["relative/movies"]))).toBe("invalid_args");
       expect(await outcome(ensure([`/stack-${id}/x/../open`]))).toBe("invalid_args");
       expect(await ensure([`/stack-${id}/open/`])).toStrictEqual({
-        libraryId: fixture.openLibrary,
+        libraryIds: [fixture.openLibrary],
+        created: false,
+      });
+      expect(await ensure([`/stack-${id}/open/nested`])).toStrictEqual({
+        libraryIds: [fixture.openLibrary],
         created: false,
       });
       expect((await ensure([`/stack-${id}/imported`])).created).toBe(true);
+      expect((await ensure([`/stack-${id}/imported`])).created).toBe(false);
 
       expect(
         await outcome(
-          service(fixture.mediaService, "mediaService.startMigration", {
+          service(fixture.mediaService, "migrationService.start", {
             requestedBy: (await run(fixture.member, "account.viewer", {})).user.id,
             source: "plex",
-            connectionId: "c",
             serverName: "Plex",
+            plan: plan(`server-member-${id}`, []),
           }),
         ),
       ).toBe("forbidden");
@@ -709,6 +772,228 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           }),
         ),
       ).toBe("invalid_args");
+    });
+  });
+
+  describe("migration imports", () => {
+    it("lists files with their titles and episodes for matching", async () => {
+      const episode = await fileAt(fixture, `/stack-${id}/open/show/s01e02.mp4`);
+
+      expect(episode).toMatchObject({
+        titleId: fixture.titles.show,
+        kind: "show",
+        seasonNumber: 1,
+        episodeNumber: 2,
+        missing: false,
+      });
+      expect(episode.episodeId).not.toBeNull();
+    });
+
+    it("imports watch state once and keeps newer [movies] progress", async () => {
+      const owner = (await run(fixture.owner, "account.viewer", {})).user.id;
+      const { jobId, worker } = await claimMigration(fixture, owner, `server-watch-${id}`);
+      const movie = await fileAt(fixture, `/stack-${id}/open/unrated.mp4`);
+      const episode = await fileAt(fixture, `/stack-${id}/open/show/s01e01.mp4`);
+
+      const resume = {
+        profileId: fixture.ownerProfile,
+        titleId: movie.titleId,
+        episodeId: null,
+        fileId: movie.fileId,
+        watched: false,
+        positionMs: ms(120_000),
+        playCount: 0,
+        lastPlayedAt: at(5_000),
+        favorite: true,
+      };
+
+      const items = [
+        resume,
+        {
+          profileId: fixture.ownerProfile,
+          titleId: episode.titleId,
+          episodeId: episode.episodeId,
+          fileId: episode.fileId,
+          watched: true,
+          positionMs: ms(0),
+          playCount: 3,
+          lastPlayedAt: at(4_000),
+          favorite: false,
+        },
+        {
+          profileId: fixture.ownerProfile,
+          titleId: episode.titleId,
+          episodeId: null,
+          fileId: null,
+          watched: false,
+          positionMs: ms(0),
+          playCount: 0,
+          lastPlayedAt: null,
+          favorite: true,
+        },
+      ];
+
+      const importBatch = (batch: ReadonlyArray<WatchStateImport>) =>
+        service(fixture.mediaService, "migrationService.importWatchState", {
+          jobId,
+          workerId: worker,
+          items: batch,
+        });
+
+      expect(await importBatch(items)).toStrictEqual({
+        watched: 1,
+        inProgress: 1,
+        playCounts: 1,
+        favorites: 2,
+        keptLocal: 0,
+      });
+      expect(await importBatch(items)).toStrictEqual({
+        watched: 0,
+        inProgress: 0,
+        playCounts: 0,
+        favorites: 0,
+        keptLocal: 0,
+      });
+
+      const older = { ...resume, positionMs: ms(30_000), lastPlayedAt: at(1_000) };
+
+      expect((await importBatch([older])).keptLocal).toBe(1);
+      expect((await progressOf(fixture, movie.titleId, null))?.positionMs).toBe(120_000);
+      expect(await progressOf(fixture, episode.titleId, episode.episodeId)).toMatchObject({
+        watched: true,
+      });
+
+      const list = await run(fixture.owner, "myList.list", { profileId: fixture.ownerProfile });
+      const listed = list.map((title) => title.id);
+
+      expect(listed.filter((titleId) => titleId === movie.titleId)).toHaveLength(1);
+      expect(listed).toContain(episode.titleId);
+
+      await service(fixture.mediaService, "mediaService.completeJob", { jobId, workerId: worker });
+    });
+
+    it("imports collections and overrides idempotently", async () => {
+      const owner = (await run(fixture.owner, "account.viewer", {})).user.id;
+      const { jobId, worker } = await claimMigration(fixture, owner, `server-sets-${id}`);
+      const lease = { jobId, workerId: worker };
+
+      const collection = {
+        sourceKey: `jellyfin:${id}:boxset`,
+        name: `Box ${TOKEN}`,
+        sortName: null,
+        titleIds: [fixture.titles.adult, fixture.titles.allAges, fixture.titles.adult],
+      };
+
+      expect(
+        await service(fixture.mediaService, "migrationService.importCollections", {
+          ...lease,
+          items: [collection],
+        }),
+      ).toStrictEqual({ imported: 1 });
+      expect(
+        await service(fixture.mediaService, "migrationService.importCollections", {
+          ...lease,
+          items: [collection],
+        }),
+      ).toStrictEqual({ imported: 0 });
+
+      const forOwner = await run(fixture.owner, "collections.list", {
+        profileId: fixture.ownerProfile,
+      });
+
+      const box = forOwner.find((entry) => entry.name === `Box ${TOKEN}`);
+
+      expect(box?.titles.map((title) => title.id)).toStrictEqual([
+        fixture.titles.adult,
+        fixture.titles.allAges,
+      ]);
+
+      const forKids = await run(fixture.member, "collections.list", {
+        profileId: fixture.kidsProfile,
+      });
+
+      expect(
+        forKids.find((entry) => entry.name === `Box ${TOKEN}`)?.titles.map((title) => title.id),
+      ).toStrictEqual([fixture.titles.allAges]);
+
+      const override = {
+        titleId: fixture.titles.allAges,
+        overrides: { sortName: `Aaa ${TOKEN}` },
+      };
+
+      expect(
+        await service(fixture.mediaService, "migrationService.importOverrides", {
+          ...lease,
+          items: [override],
+        }),
+      ).toStrictEqual({ imported: 1 });
+      expect(
+        await service(fixture.mediaService, "migrationService.importOverrides", {
+          ...lease,
+          items: [{ ...override, overrides: { sortName: "Zzz" } }],
+        }),
+      ).toStrictEqual({ imported: 0 });
+
+      await service(fixture.mediaService, "mediaService.completeJob", lease);
+    });
+
+    it("reports checkpoints, runs one migration per server, and stops cancelled jobs", async () => {
+      const owner = (await run(fixture.owner, "account.viewer", {})).user.id;
+      const serverId = `server-status-${id}`;
+      const { jobId, worker } = await claimMigration(fixture, owner, serverId);
+
+      const again = await service(fixture.mediaService, "migrationService.start", {
+        requestedBy: owner,
+        source: "jellyfin",
+        serverName: "Jellyfin",
+        plan: plan(serverId, []),
+      });
+
+      expect(again.jobId).toBe(jobId);
+
+      const state = await service(fixture.mediaService, "migrationService.state", {
+        jobId,
+        workerId: worker,
+      });
+
+      expect(state.checkpoint).toStrictEqual({ phase: "libraries", unit: 0, cursor: 0 });
+      expect(
+        await outcome(
+          service(fixture.mediaService, "migrationService.state", { jobId, workerId: "other" }),
+        ),
+      ).toBe("conflict");
+
+      const imported = { ...state.imported, watched: 4 };
+
+      expect(
+        await service(fixture.mediaService, "migrationService.saveCheckpoint", {
+          jobId,
+          workerId: worker,
+          checkpoint: { phase: "watchState", unit: 1, cursor: 100 },
+          imported,
+          progress: { done: 100, total: 300, message: "Importing watch history" },
+        }),
+      ).toStrictEqual({ cancelled: false });
+
+      const runs = await run(fixture.owner, "migration.status", {});
+      const current = runs.find((entry) => entry.job.id === jobId);
+
+      expect(current).toMatchObject({
+        phase: "watchState",
+        imported: { watched: 4 },
+        job: { status: "running", progress: { done: 100, total: 300 } },
+      });
+
+      await run(fixture.owner, "jobs.cancel", { jobId });
+      expect(
+        await service(fixture.mediaService, "migrationService.saveCheckpoint", {
+          jobId,
+          workerId: worker,
+          checkpoint: { phase: "watchState", unit: 1, cursor: 200 },
+          imported,
+          progress: { done: 200, total: 300, message: null },
+        }),
+      ).toStrictEqual({ cancelled: true });
     });
   });
 

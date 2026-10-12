@@ -47,7 +47,11 @@ jobs:
       - run: pnpm --filter @movies/backend test:stack
       - run: pnpm --filter @movies/sdk test:stack
       - run: pnpm --filter @movies/cli test:stack
+      # The migration suite also imports from a real Jellyfin, set up over the fixture library.
+      - run: docker pull jellyfin/jellyfin:12.2
       - run: pnpm --filter @movies/media test:stack
+        env:
+          MOVIES_JELLYFIN_DOCKER: "1"
       - if: always()
         run: scripts/dev-stack.sh destroy
 

@@ -11,7 +11,7 @@
  */
 import { artworkUrl } from "@movies/contracts/artwork";
 import { DeviceId } from "@movies/contracts/ids";
-import type { JobId, LibraryId, ProfileId, TitleId } from "@movies/contracts/ids";
+import type { LibraryId, ProfileId, TitleId } from "@movies/contracts/ids";
 import {
   type ClientCapabilities,
   HealthResponse,
@@ -19,27 +19,25 @@ import {
   NegotiateRequest,
   NegotiateResponse,
 } from "@movies/contracts/media-playback";
-import type { Job } from "@movies/contracts/models/jobs";
 import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { Milliseconds } from "@movies/contracts/units";
-import { Auth, ConvexTransport, Movies, MoviesClient, TokenStorage } from "@movies/sdk/effect";
-import type { Duration } from "effect";
-import {
-  Context,
-  Effect,
-  Exit,
-  Fiber,
-  Layer,
-  Option,
-  Redacted,
-  Schema,
-  Scope,
-  Stream,
-} from "effect";
+import type { Movies } from "@movies/sdk/effect";
+import { Auth, ConvexTransport, MoviesClient } from "@movies/sdk/effect";
+import { Context, Effect, Exit, Fiber, Option, Redacted, Schema, Scope, Stream } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { ffmpegAvailable, generateFixtureLibrary } from "../testing/fixture-library.ts";
 import type { MediaProcess } from "../testing/stack-processes.ts";
+import {
+  client,
+  finished,
+  openSession,
+  OWNER_EMAILS,
+  runIn,
+  signInOwner,
+  STACK_PASSWORD,
+  type StackSession,
+} from "../testing/stack-owner.ts";
 import {
   buildServiceAndCli,
   ffprobeUrl,
@@ -54,10 +52,6 @@ import {
 const stack = findMediaStack();
 
 const hasFfmpeg = await ffmpegAvailable();
-
-const PASSWORD = "stack-test-password";
-
-const OWNER_EMAILS = ["owner-a@movies.test", "owner-b@movies.test"] as const;
 
 const id = Math.random().toString(36).slice(2, 8);
 
@@ -90,11 +84,9 @@ const smallScreen: ClientCapabilities = {
   mse: browser.mse,
 };
 
-type Session = Context.Context<Movies.Services | ConvexTransport.ConvexTransport>;
-
 let scope: Scope.Closeable;
 
-let owner: Session;
+let owner: StackSession;
 
 let media: MediaProcess;
 
@@ -139,67 +131,12 @@ const startService = async (): Promise<void> => {
   );
 };
 
-const open = Effect.fn("MediaStack.open")(function* () {
-  return yield* Layer.buildWithScope(
-    Movies.layerWithTransport({ convexUrl, mediaUrl: Option.some(mediaUrl) }).pipe(
-      Layer.provideMerge(ConvexTransport.layerWebSocket(convexUrl)),
-      Layer.provide(TokenStorage.layerMemory),
-    ),
-    scope,
-  );
-});
+const open = () => openSession(convexUrl, mediaUrl, scope);
 
 /** Runs `effect` as the owner. */
 const asOwner = <A, E>(
   effect: Effect.Effect<A, E, Movies.Services | ConvexTransport.ConvexTransport>,
-): Promise<A> => Effect.runPromise(Effect.provideContext(effect, owner));
-
-const client = Effect.map(MoviesClient.MoviesClient, (service) => service);
-
-const password = (email: string, flow: "signIn" | "signUp") =>
-  Auth.Credentials.Password({
-    flow,
-    email,
-    password: Redacted.make(PASSWORD),
-    name: Option.none(),
-    inviteCode: Option.none(),
-  });
-
-/** Signs in as the stack's owner, creating it on an empty backend; returns the owner's email. */
-const signInOwner = Effect.gen(function* () {
-  const auth = yield* Auth.Auth;
-  const status = yield* (yield* client).query("setup.status", {});
-
-  if (!status.hasOwner) {
-    yield* auth.signIn(password(OWNER_EMAILS[0], "signUp"));
-
-    return OWNER_EMAILS[0];
-  }
-
-  for (const email of OWNER_EMAILS) {
-    const signedIn = yield* auth.signIn(password(email, "signIn")).pipe(
-      Effect.as(true),
-      Effect.orElseSucceed(() => false),
-    );
-
-    if (signedIn) return email;
-  }
-
-  return yield* Effect.die(new Error("The backend has an owner from elsewhere; use a fresh stack"));
-});
-
-/** Waits until a job finishes and returns it. */
-const finished = (jobId: JobId, timeout: Duration.Input) =>
-  Effect.gen(function* () {
-    const movies = yield* client;
-
-    return yield* movies.subscribe("jobs.get", { jobId }).pipe(
-      Stream.filter((job: Job) => job.status !== "pending" && job.status !== "running"),
-      Stream.runHead,
-      Effect.flatMap(Effect.fromOption),
-      Effect.timeout(timeout),
-    );
-  });
+): Promise<A> => runIn(owner, effect);
 
 /** The title named `name` in `libraryId`. */
 const titleIn = (libraryId: LibraryId, name: string) =>
@@ -604,7 +541,7 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
             await runMovies(
               ["login", "--server", convexUrl, "--email", email, "--password"],
               env,
-              PASSWORD,
+              STACK_PASSWORD,
             )
           ).code === 0;
 

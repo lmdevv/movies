@@ -34,6 +34,10 @@ import * as LibraryMonitor from "./library/library-monitor.ts";
 import * as MemoryLibrary from "./library/memory-library.ts";
 import * as MediaConfig from "./media-config.ts";
 import { servicesLayer } from "./media-service.ts";
+import * as MigrationBackend from "./migration/migration-backend.ts";
+import * as MigrationJob from "./migration/migration-job.ts";
+import * as MigrationRoutes from "./migration/migration-routes.ts";
+import * as Migrations from "./migration/migrations.ts";
 import * as Observability from "./observability.ts";
 import * as PlaybackReporter from "./playback/playback-reporter.ts";
 
@@ -48,10 +52,10 @@ class MediaServiceKeyMissing extends Schema.TaggedError<MediaServiceKeyMissing>(
 }
 
 /** The job kinds this service runs. Add a kind's handler here. */
-const jobHandlers = Effect.all([ScanJob.handler, MetadataJob.handler]);
+const jobHandlers = Effect.all([ScanJob.handler, MetadataJob.handler, MigrationJob.handler]);
 
 /** Route groups of registry `media` commands. Add a group's layer here. */
-const commandRoutes = Layer.mergeAll(MetadataRoutes.layer);
+const commandRoutes = Layer.mergeAll(MetadataRoutes.layer, MigrationRoutes.layer);
 
 /** Signed in to Convex: Convex libraries, scan jobs, ended sessions, and file records. */
 const convexMode = (options: MediaBackend.Options) =>
@@ -63,6 +67,7 @@ const convexMode = (options: MediaBackend.Options) =>
   ).pipe(
     Layer.provide(LibraryMonitor.layer()),
     Layer.provide(servicesLayer),
+    Layer.provide(Migrations.layer.pipe(Layer.provideMerge(MigrationBackend.layer))),
     Layer.provide(
       Layer.mergeAll(
         ConvexLibrarySink.layer,

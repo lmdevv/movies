@@ -66,6 +66,21 @@ export class PlaybackRefused extends Schema.TaggedError<PlaybackRefused>()("Play
   }
 }
 
+/** `movies import` could not use the Jellyfin or Plex server; `reason` says why. */
+export class MigrationSourceError extends Schema.TaggedError<MigrationSourceError>()(
+  "MigrationSourceError",
+  {
+    reason: Schema.Literals([
+      "unreachable",
+      "auth_failed",
+      "not_admin",
+      "version_unsupported",
+      "unexpected_response",
+    ]),
+    message: Schema.String,
+  },
+) {}
+
 /** Every expected failure the CLI reports. */
 export type CliError =
   | CallError
@@ -75,7 +90,8 @@ export type CliError =
   | JobError
   | NotLoggedIn
   | LoginRefused
-  | LaunchError;
+  | LaunchError
+  | MigrationSourceError;
 
 /** Process exit codes. Stable: agents branch on them. */
 export const ExitCode = {
@@ -90,6 +106,7 @@ export const ExitCode = {
   rateLimited: 8,
   unavailable: 9,
   job: 10,
+  source: 11,
 } as const;
 
 /** A process exit code. */
@@ -137,6 +154,7 @@ export const exitCodeOf: (error: CliError) => ExitCode = Match.type<CliError>().
     LaunchError: () => ExitCode.failed,
     PlaybackRefused: (error) =>
       error.recovery === "retry-later" ? ExitCode.unavailable : ExitCode.failed,
+    MigrationSourceError: () => ExitCode.source,
   }),
 );
 
@@ -164,5 +182,6 @@ export const reportOf: (error: CliError) => ErrorReport = Match.type<CliError>()
       code: `playback_${error.recovery.replaceAll("-", "_")}`,
       message: error.message,
     }),
+    MigrationSourceError: (error) => ({ code: `source_${error.reason}`, message: error.message }),
   }),
 );

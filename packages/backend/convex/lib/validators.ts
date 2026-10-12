@@ -632,7 +632,6 @@ export const jobPayload = v.union(
   v.object({
     kind: v.literal("migration"),
     source: migrationSource,
-    connectionId: v.string(),
     serverName: v.string(),
   }),
 );
@@ -788,27 +787,3 @@ export const metadataTarget = v.object({
   artwork,
   episodes: v.array(v.object({ seasonNumber: v.number(), episodeNumber: v.number() })),
 });
-
-/** Mirrors `MigrationTarget` in `@movies/contracts`. */
-export const migrationTarget = v.object({
-  userId: v.id("users"),
-  name: v.string(),
-  email: nullable(v.string()),
-  profiles: v.array(v.object({ profileId: v.id("profiles"), name: v.string() })),
-});
-
-/** Mirrors `ImportedWatchState` in `@movies/contracts`. */
-export const importedWatchState = v.object({
-  profileId: v.id("profiles"),
-  path: v.string(),
-  watched: v.boolean(),
-  positionMs: v.number(),
-  lastPlayedAt: nullable(v.number()),
-  favorite: v.boolean(),
-});
-
-/** Mirrors `ImportedOverride` in `@movies/contracts`. */
-export const importedOverride = v.object({ path: v.string(), overrides: metadataOverrides });
-
-/** Mirrors `ImportCounts` in `@movies/contracts`. */
-export const importCounts = v.object({ matched: v.number(), unmatched: v.number() });
