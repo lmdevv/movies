@@ -8,7 +8,7 @@
 import type { MediaFileId } from "@movies/contracts/ids";
 import { FileResolverUnavailable, MediaFileNotFound } from "@movies/contracts/media-playback";
 import type { CallError } from "@movies/sdk/effect";
-import { Cache, Duration, Effect, Exit, FileSystem, Layer, Match, Option } from "effect";
+import { Cache, Duration, Effect, Exit, FileSystem, Layer, Match, Option, Predicate } from "effect";
 
 import * as FileResolver from "../playback/file-resolver.ts";
 import { relativeTo, toResolvedMediaFile } from "./catalog-records.ts";
@@ -48,9 +48,16 @@ const make = Effect.gen(function* () {
       return yield* new MediaFileNotFound({ fileId });
     }
 
+    // A file that is gone is not found; an unreadable one (an offline share) may come back.
     const info = yield* fs
       .stat(resolved.path)
-      .pipe(Effect.mapError(() => new MediaFileNotFound({ fileId })));
+      .pipe(
+        Effect.mapError((error) =>
+          Predicate.isTagged(error.reason, "NotFound")
+            ? new MediaFileNotFound({ fileId })
+            : new FileResolverUnavailable({ cause: error }),
+        ),
+      );
 
     return toResolvedMediaFile(
       resolved,
