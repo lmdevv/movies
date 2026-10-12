@@ -1,0 +1,7 @@
+{
+  "name": "@movies/cli",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Effect CLI with JSON output for people and agents, plus the agent skill.",
+  "type": "module"
+}
