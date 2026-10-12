@@ -288,6 +288,8 @@ movies restore movies-2026-10-12.zip        # every session signs in again
 - `movies libraries create --name <text> --kind <movies|shows|mixed> --roots <text,...> [--access <everyone|restricted>] [--wait [--timeout <seconds>]]`: Add a library folder and scan it. (scope manage; job: add `--wait`)
 - `movies libraries update <library-id> [--name <text>] [--roots <text,...>] [--access <everyone|restricted>]`: Rename a library or change its folders or access. (scope manage)
 - `movies libraries remove <library-id>`: Remove a library from [movies]; files on disk are untouched. (scope manage)
+- `movies libraries files <library-id> [--cursor <text>] [--limit <int>] [--filter <all|missing|unmatched>] [--title-id <id>]`: List a library's files with their titles, or only missing or unmatched ones. (scope manage)
+- `movies libraries file-summary <library-id>`: Count a library's missing files and unmatched titles. (scope manage)
 - `movies libraries scan <library-id> [--mode <full|quick>] [--wait [--timeout <seconds>]]`: Scan a library for new, changed, and missing files. (scope manage; job: add `--wait`)
 
 ### jobs

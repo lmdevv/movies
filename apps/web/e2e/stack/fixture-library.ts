@@ -392,3 +392,10 @@ export const generateFixtureLibrary = async (
     4,
   );
 };
+
+/** Writes a one-second 1080p H.264 clip to `output`, for suites that build their own folders. */
+export const encodeClip = (output: string): Promise<void> => encode("hd", output);
+
+/** Draws a poster lettered with `name` to `path`, for suites that build their own folders. */
+export const drawPoster = (browser: Browser, name: string, path: string): Promise<void> =>
+  drawArt(browser, { kind: "poster", name, path });

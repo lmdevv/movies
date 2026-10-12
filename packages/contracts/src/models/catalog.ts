@@ -354,3 +354,50 @@ export const MetadataCandidate = Schema.Struct({
 
 /** A possible metadata match. */
 export interface MetadataCandidate extends Schema.Schema.Type<typeof MetadataCandidate> {}
+
+/** Which files a library's admin file list shows. */
+export const LibraryFileFilter = Schema.Literals(["all", "missing", "unmatched"]);
+
+/** Which files a library's admin file list shows. */
+export type LibraryFileFilter = typeof LibraryFileFilter.Type;
+
+/** A file in a library's admin file list with the title it belongs to. Paths are for admins. */
+export const LibraryFile = Schema.Struct({
+  id: MediaFileId,
+  /** The absolute path on the media host. */
+  path: Schema.String,
+  sizeBytes: Bytes,
+  durationMs: Milliseconds,
+  /** The primary video stream; null for a file without one. */
+  video: Schema.NullOr(
+    Schema.Struct({ codec: Schema.String, width: Schema.Int, height: Schema.Int, hdr: HdrFormat }),
+  ),
+  missing: Schema.Boolean,
+  /** When a scan last found the file gone; null while it is present. */
+  missingSince: Schema.NullOr(EpochMillis),
+  title: Schema.Struct({
+    id: TitleId,
+    kind: TitleKind,
+    name: Schema.String,
+    year: Schema.NullOr(Schema.Int),
+    matchStatus: MatchStatus,
+    externalIds: ExternalIds,
+    poster: Schema.NullOr(Schema.String),
+  }),
+  /** For a show's file, its season and episode numbers. */
+  episode: Schema.NullOr(Schema.Struct({ seasonNumber: Schema.Int, episodeNumber: Schema.Int })),
+});
+
+/** A file in a library's admin file list. */
+export interface LibraryFile extends Schema.Schema.Type<typeof LibraryFile> {}
+
+/** What needs attention in a library: missing files and unmatched titles. */
+export const LibraryFileSummary = Schema.Struct({
+  missingFiles: Schema.Int,
+  /** The earliest time a missing file went missing; null when none are missing. */
+  missingSince: Schema.NullOr(EpochMillis),
+  unmatchedTitles: Schema.Int,
+});
+
+/** What needs attention in a library. */
+export interface LibraryFileSummary extends Schema.Schema.Type<typeof LibraryFileSummary> {}

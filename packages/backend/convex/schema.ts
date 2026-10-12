@@ -177,6 +177,7 @@ export default defineSchema({
   })
     .index("by_library_match", ["libraryId", "matchKey"])
     .index("by_library", ["libraryId"])
+    .index("by_library_status", ["libraryId", "matchStatus"])
     .index("by_kind_sort", ["kind", "sortKey"])
     .index("by_kind_added", ["kind", "addedAt"])
     .index("by_kind_year", ["kind", "year"])
@@ -222,6 +223,7 @@ export default defineSchema({
     addedAt: v.number(),
   })
     .index("by_library_path", ["libraryId", "path"])
+    .index("by_library_missing", ["libraryId", "missing"])
     .index("by_path", ["path"])
     .index("by_title", ["titleId"])
     .index("by_episode", ["episodeId"]),

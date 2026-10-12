@@ -10,7 +10,9 @@ const port = Number(process.env["E2E_PORT"] ?? stack?.webPort ?? 3011);
 /**
  * Browser tests against the Vite dev server. `kit` checks the UI kit gallery and needs no backend.
  * `stack` runs the core flows against the worktree's dev stack (`scripts/dev-stack.sh up`) and the
- * real media service, which the suite starts itself; it skips without a fresh stack.
+ * real media service, which the suite starts itself; it skips without a fresh stack. `admin` then
+ * runs the account and admin screens on the same stack as the owner `stack` created; it skips
+ * without a stack.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -26,7 +28,14 @@ export default defineConfig({
     },
     {
       name: "stack",
-      testMatch: /stack\/.*\.spec\.ts$/u,
+      testMatch: /e2e\/stack\/.*\.spec\.ts$/u,
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+    },
+    {
+      // Signs in as the owner the core flows create, so it runs after them.
+      name: "admin",
+      testMatch: /e2e\/admin\/.*\.spec\.ts$/u,
+      dependencies: ["stack"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
   ],
