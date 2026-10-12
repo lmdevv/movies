@@ -26,20 +26,34 @@ export function ProfileChoiceProvider({ children }: { readonly children: ReactNo
   const current = useRef(profileId);
   const lock = useCommand("profiles.lock");
 
+  const commit = useCallback((next: ProfileId | null) => {
+    current.current = next;
+    saveProfileChoice(next);
+    setProfileId(next);
+  }, []);
+
   const choose = useCallback(
     (next: ProfileId | null) => {
       const previous = current.current;
 
-      current.current = next;
-      saveProfileChoice(next);
-      setProfileId(next);
+      // Signing out (null) ends the session and every unlock with it. Leaving one profile for
+      // another completes only once the one left behind is locked, so a failed lock keeps its PIN.
+      if (previous === null || next === null || previous === next) {
+        commit(next);
 
-      // Signing out (null) ends the session and every unlock with it.
-      if (previous !== null && next !== null && previous !== next) {
-        lock({ profileId: previous }).catch(toastFailure);
+        return;
       }
+
+      void (async () => {
+        try {
+          await lock({ profileId: previous });
+          commit(next);
+        } catch (cause) {
+          toastFailure(cause);
+        }
+      })();
     },
-    [lock],
+    [commit, lock],
   );
 
   const value = useMemo(() => ({ profileId, choose }), [profileId, choose]);

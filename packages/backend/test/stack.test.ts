@@ -1206,6 +1206,13 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
     });
 
     it("keeps an account to eight playing devices, ending the quietest", async () => {
+      // Earlier tests may leave this account playing somewhere; start from none.
+      await Promise.all(
+        (await run(fixture.member, "playback.active", {})).map((session) =>
+          run(fixture.member, "playback.endSession", { sessionId: session.id, positionMs: ms(0) }),
+        ),
+      );
+
       const devices = Array.from({ length: 9 }, (_, index) => device(`wall-${index}`));
 
       // One after another, so the first device is the quietest.

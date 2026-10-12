@@ -553,6 +553,9 @@ const make = Effect.gen(function* () {
     if (generation.number === 0 || (yield* Deferred.isDone(generation.exit))) return;
     yield* refreshFragments(generation);
     const produced = producedRange(session, generation, yield* Ref.get(generation.fragments));
+
+    // Nothing written yet: a slow first segment must never be mistaken for a finished file.
+    if (produced.head < generation.startSegment) return;
     const requested = yield* Ref.get(session.requested);
     const startOf = (index: number) => session.plan.starts[index] ?? session.plan.end;
     const ahead = startOf(produced.head) - startOf(requested);
