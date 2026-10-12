@@ -3,5 +3,30 @@
   "version": "0.0.0",
   "private": true,
   "description": "Effect Schema DTOs, errors, the media HttpApi, and typed plugin interfaces.",
-  "type": "module"
+  "type": "module",
+  "exports": {
+    "./ids": "./src/ids.ts",
+    "./units": "./src/units.ts",
+    "./scopes": "./src/scopes.ts",
+    "./errors": "./src/errors.ts",
+    "./content-rating": "./src/content-rating.ts",
+    "./clock": "./src/clock.ts",
+    "./playback-token": "./src/playback-token.ts",
+    "./commands": "./src/commands/registry.ts",
+    "./command": "./src/commands/command.ts",
+    "./media-service": "./src/media-service.ts",
+    "./models/*": "./src/models/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@movies/config": "workspace:*",
+    "fast-check": "4.10.2",
+    "typescript": "catalog:",
+    "vitest": "5.0.3"
+  }
 }
