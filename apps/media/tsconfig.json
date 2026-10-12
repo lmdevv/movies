@@ -15,6 +15,7 @@
           "effect/http",
           "effect/http-api",
           "effect/observability",
+          "effect/persistence/RateLimiter",
           "effect/process"
         ],
         "diagnosticSeverity": {
