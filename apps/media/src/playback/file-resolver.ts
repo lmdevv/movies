@@ -52,25 +52,35 @@ const isWithin = (root: string, candidate: string, separator: string): boolean =
   candidate.startsWith(root.endsWith(separator) ? root : `${root}${separator}`);
 
 /**
+ * The canonical path of `candidate` when, after following symbolic links, it lies inside an
+ * approved library root (`LIBRARY_ROOTS`); none for a path outside them or one that does not
+ * exist. Callers open the canonical path, so a link swapped after the check cannot redirect them.
+ */
+const realPathInsideApprovedRoots = Effect.fn("FileResolver.realPathInsideApprovedRoots")(
+  function* (candidate: string) {
+    const config = yield* MediaConfig.Service;
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+
+    const roots = (yield* Effect.forEach(config.libraryRoots, (root) =>
+      fs.realPath(root).pipe(Effect.option),
+    )).flatMap((root) => (Option.isSome(root) ? [root.value] : []));
+
+    return yield* fs.realPath(candidate).pipe(
+      Effect.map((real) =>
+        roots.some((root) => isWithin(root, real, path.sep)) ? Option.some(real) : Option.none(),
+      ),
+      Effect.orElseSucceed(() => Option.none<string>()),
+    );
+  },
+);
+
+/**
  * Whether `candidate`, after following symbolic links, lies inside an approved library root
  * (`LIBRARY_ROOTS`). A path that does not exist is not inside.
  */
-export const isInsideApprovedRoots = Effect.fn("FileResolver.isInsideApprovedRoots")(function* (
-  candidate: string,
-) {
-  const config = yield* MediaConfig.Service;
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-
-  const roots = (yield* Effect.forEach(config.libraryRoots, (root) =>
-    fs.realPath(root).pipe(Effect.option),
-  )).flatMap((root) => (Option.isSome(root) ? [root.value] : []));
-
-  return yield* fs.realPath(candidate).pipe(
-    Effect.map((real) => roots.some((root) => isWithin(root, real, path.sep))),
-    Effect.orElseSucceed(() => false),
-  );
-});
+export const isInsideApprovedRoots = (candidate: string) =>
+  Effect.map(realPathInsideApprovedRoots(candidate), Option.isSome);
 
 /**
  * Resolves `fileId` and checks that the media file and its sidecars, after following symbolic
@@ -82,8 +92,9 @@ export const resolveInsideRoots = Effect.fn("FileResolver.resolveInsideRoots")(f
 ) {
   const resolver = yield* Service;
   const file = yield* resolver.resolve(fileId);
+  const real = yield* realPathInsideApprovedRoots(file.path);
 
-  if (!(yield* isInsideApprovedRoots(file.path))) {
+  if (Option.isNone(real)) {
     yield* Effect.logError("FileResolver.path_rejected").pipe(Effect.annotateLogs({ fileId }));
 
     return yield* new MediaFileNotFound({ fileId });
@@ -93,5 +104,5 @@ export const resolveInsideRoots = Effect.fn("FileResolver.resolveInsideRoots")(f
     isInsideApprovedRoots(subtitle.path),
   );
 
-  return { ...file, subtitles } satisfies ResolvedMediaFile;
+  return { ...file, path: real.value, subtitles } satisfies ResolvedMediaFile;
 });
