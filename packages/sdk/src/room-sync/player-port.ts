@@ -1,0 +1,62 @@
+/**
+ * The player the room engine drives. Web `<video>`, hls.js, and native players adapt to this one
+ * small interface, so synchronization logic never touches a platform API.
+ */
+import { Effect, Queue, Stream } from "effect";
+import type { Scope } from "effect";
+
+/** Something that happened on a player, from user input, the network, or the engine itself. */
+export type PlayerEvent =
+  /** Playback started or resumed after a pause or a stall. */
+  | "playing"
+  | "paused"
+  /** A seek finished. */
+  | "seeked"
+  /** Playback stalled waiting for data. */
+  | "waiting"
+  | "ended";
+
+/**
+ * A media player as the room engine sees it. Getters return the state at the moment of the call;
+ * `subscribe` reports events as they happen and returns a function that stops reporting.
+ *
+ * A web adapter maps `currentTime * 1000` to `positionMs`, `readyState < HAVE_FUTURE_DATA` on a
+ * playing element to `isBuffering`, and the `playing`, `pause`, `seeked`, `waiting`, and `ended`
+ * events to `PlayerEvent`.
+ */
+export interface PlayerPort {
+  /** Position in the media, in milliseconds. */
+  readonly positionMs: () => number;
+  readonly isPaused: () => boolean;
+  /** Stalled waiting for data while meant to be playing. */
+  readonly isBuffering: () => boolean;
+  readonly playbackRate: () => number;
+  readonly setPlaybackRate: (rate: number) => void;
+  readonly seek: (positionMs: number) => void;
+  /** Starts playback. Rejects when the platform blocks playback until the user interacts. */
+  readonly play: () => Promise<void>;
+  readonly pause: () => void;
+  readonly subscribe: (listener: (event: PlayerEvent) => void) => () => void;
+}
+
+/**
+ * Subscribes to `player` now, for the rest of the scope, and returns the events as a stream.
+ * Subscribing before any fiber forks means no event fired after this returns is missed.
+ */
+export const playerEvents = (
+  player: PlayerPort,
+): Effect.Effect<Stream.Stream<PlayerEvent>, never, Scope.Scope> =>
+  Effect.gen(function* () {
+    const queue = yield* Queue.unbounded<PlayerEvent>();
+
+    yield* Effect.acquireRelease(
+      Effect.sync(() =>
+        player.subscribe((event) => {
+          Queue.offerUnsafe(queue, event);
+        }),
+      ),
+      (unsubscribe) => Effect.sync(unsubscribe),
+    );
+
+    return Stream.fromQueue(queue);
+  });

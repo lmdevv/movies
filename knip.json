@@ -6,8 +6,11 @@
     ".": {},
     "apps/web": {},
     "packages/backend": {
-      "typescript": { "config": ["convex/tsconfig.json"] }
+      "typescript": {
+        "config": ["convex/tsconfig.json"]
+      }
     },
-    "packages/ui": {}
+    "packages/ui": {},
+    "packages/sdk": {}
   }
 }
