@@ -9,13 +9,14 @@ import { cn } from "@movies/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import { PlusIcon, RotateCwIcon } from "lucide-react";
 
+import { useNow } from "@/lib/use-now";
+
 import { useAction } from "./action";
 import { formatAgo, formatCount, formatPercent, formatSpan, plural } from "./format";
 import { KIND_LABELS, LibraryDialog } from "./library-dialog";
 import { PageHeader } from "./page-header";
 import { isActive, useLatestScans } from "./scan-jobs";
 import { Cell, Column, StatusDot, Table, TableHead } from "./table";
-import { useNow } from "@/lib/use-now";
 import { QueryView } from "./query-view";
 
 /** Libraries and scans: every library with its folders, size, last scan, and live scan progress. */

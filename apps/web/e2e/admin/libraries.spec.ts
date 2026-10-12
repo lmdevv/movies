@@ -151,12 +151,8 @@ test("an admin adds a library, watches it scan, reviews missing and unmatched fi
   await page.getByRole("radio", { name: /All/u }).click();
   await expect(files).toContainText("best guess · Stalker (Criterion) (1979)");
 
-  // A matched title shows its poster from the media service.
-  await files
-    .getByRole("row")
-    .filter({ hasText: "Arrival.2016.1080p.mkv" })
-    .getByRole("link", { name: "Fix match" })
-    .click();
+  // A matched title opens from its name and shows its poster from the media service.
+  await files.getByRole("link", { name: "Arrival (2016)" }).click();
   const poster = page.getByRole("img", { name: "Arrival" });
   await expect(poster).toHaveAttribute("src", /\/artwork\//u);
   await expect

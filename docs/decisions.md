@@ -261,3 +261,14 @@ choices made while implementing them. Update it in the same PR that changes a de
   error shows the NAS-offline state. Other failures show as Failed on the libraries list.
 - The device approval page grants `read` and `play` unless the approver changes it; it offers only
   scopes the approving session holds.
+- Fix match treats a search the media service answers with `Internal` (no metadata provider, or
+  one that failed) or cannot reach as search being unavailable, and keeps hand edits working.
+  `RateLimited` asks to try again; other failures show their message. Only unmatched files carry a
+  Fix match button; a matched file's title opens the same screen.
+- Dialogs the command menu opens live in the URL: `/settings/api-keys?dialog=create` and
+  `/admin/libraries?dialog=add`. Menu entries follow the session's scopes, like the settings list.
+  A query shaped like a device code (`HD5R-5GTL`) offers to approve it.
+- The admin browser suites (`apps/web/e2e/admin`) run as a Playwright project that depends on the
+  stack project and sign in as the owner it creates, so both share one fresh stack without racing
+  for the first owner. Library scans run on the real media service with generated clips; backups
+  use a stand-in that calls `mediaService:*` until the media service runs backup jobs.

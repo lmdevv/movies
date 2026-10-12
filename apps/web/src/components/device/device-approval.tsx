@@ -14,10 +14,10 @@ import type { FormEvent, ReactNode } from "react";
 
 import { useAction } from "@/components/admin/action";
 import { formatAgo, formatUntil } from "@/components/admin/format";
-import { useNow } from "@/lib/use-now";
-import { useViewer } from "@/session/viewer";
 import { ScopeBadges } from "@/components/keys/scope-badge";
 import { SCOPE_DESCRIPTIONS, sortScopes } from "@/components/keys/scopes";
+import { useNow } from "@/lib/use-now";
+import { useViewer } from "@/session/viewer";
 
 import { USER_CODE_LENGTH, codeLetters, formatUserCode } from "./user-code";
 

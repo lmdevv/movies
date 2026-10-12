@@ -25,6 +25,7 @@ import { useAction } from "./action";
 import { Eyebrow } from "./settings-frame";
 import { formatRuntime, qualityLabel, titleWithYear } from "./media-quality";
 import { PageHeader, crumbLinkClass } from "./page-header";
+import { Poster } from "./poster";
 
 const SEARCH_DELAY_MS = 400;
 
@@ -266,7 +267,11 @@ function MatchEditor({
       <div className="flex flex-col items-start gap-10 md:flex-row">
         <section aria-label="Matched to now" className="flex w-65 shrink-0 flex-col gap-3.5">
           <Eyebrow>Matched to now</Eyebrow>
-          <Poster artwork={title.poster} label={title.name} className="h-60 w-40" />
+          <Poster
+            src={artworkUrl(title.poster, "poster")}
+            alt={title.name}
+            className="h-60 w-40 rounded-poster"
+          />
           <div className="flex flex-col gap-1">
             <span className="font-sans text-body/body font-semibold text-text">
               {title.matchStatus === "unmatched" ? "No match" : titleWithYear(title)}
@@ -314,31 +319,6 @@ function MatchEditor({
         </div>
       </div>
     </>
-  );
-}
-
-function Poster({
-  artwork,
-  url,
-  label,
-  className,
-}: {
-  readonly artwork?: string | null;
-  readonly url?: string | null;
-  readonly label: string;
-  readonly className: string;
-}) {
-  const source = url ?? artworkUrl(artwork ?? null, "poster") ?? null;
-
-  return source === null ? (
-    <span aria-hidden className={cn("shrink-0 rounded-poster bg-text/10", className)} />
-  ) : (
-    <img
-      src={source}
-      alt={label}
-      loading="lazy"
-      className={cn("shrink-0 rounded-poster bg-text/10 object-cover", className)}
-    />
   );
 }
 
@@ -443,7 +423,11 @@ function CandidateRow({
       )}
     >
       <RadioItem id={id} value={candidate.providerId} />
-      <Poster url={candidate.posterUrl} label={candidate.name} className="h-12.5 w-8.5" />
+      <Poster
+        src={candidate.posterUrl}
+        alt={candidate.name}
+        className="h-12.5 w-8.5 rounded-poster"
+      />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate font-sans text-body/body font-semibold text-text">
           {titleWithYear(candidate)}

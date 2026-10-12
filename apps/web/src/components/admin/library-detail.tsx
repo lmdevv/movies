@@ -28,6 +28,9 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import { artworkUrl } from "@/lib/artwork";
+import { useNow } from "@/lib/use-now";
+
 import { useAction } from "./action";
 import {
   formatBytes,
@@ -41,9 +44,9 @@ import { LibraryDialog } from "./library-dialog";
 import { fileName, qualityLabel, titleWithYear } from "./media-quality";
 import { Notice } from "./notice";
 import { PageHeader, crumbLinkClass } from "./page-header";
+import { Poster } from "./poster";
 import { isActive, isUnreachable, useLatestScans } from "./scan-jobs";
 import { Cell, Column, StatusDot, Table, TableHead, TableRow } from "./table";
-import { useNow } from "@/lib/use-now";
 
 const PAGE_SIZE = 50;
 
@@ -458,26 +461,43 @@ function FileRow({
 }) {
   const unmatched = file.title.matchStatus === "unmatched";
 
+  const match = {
+    to: "/admin/libraries/$libraryId/match/$titleId",
+    params: { libraryId, titleId: file.title.id },
+  } as const;
+
   return (
     <TableRow className="h-13">
       <Cell className="flex min-w-80 flex-1 items-center gap-3">
-        <span
-          aria-hidden
-          className={cn(
-            "h-9 w-6 shrink-0 rounded-xs",
-            unmatched ? "border border-dashed border-text-muted" : "bg-text/10",
-            file.missing && "opacity-50",
-          )}
-        />
-        <span className="flex min-w-0 flex-col gap-0.5">
+        {unmatched ? (
           <span
+            aria-hidden
             className={cn(
-              "truncate font-sans text-label/label font-semibold",
-              unmatched ? "text-text-muted italic" : "text-text",
+              "h-9 w-6 shrink-0 rounded-xs border border-dashed border-text-muted",
+              file.missing && "opacity-50",
             )}
-          >
-            {unmatched ? "No match" : episodeLabel(file)}
-          </span>
+          />
+        ) : (
+          <Poster
+            src={artworkUrl(file.title.poster, "thumb")}
+            alt=""
+            className={cn("h-9 w-6 rounded-xs", file.missing && "opacity-50")}
+          />
+        )}
+        <span className="flex min-w-0 flex-col gap-0.5">
+          {unmatched ? (
+            <span className="truncate font-sans text-label/label font-semibold text-text-muted italic">
+              No match
+            </span>
+          ) : (
+            // A wrong match is fixed from its title; only unmatched rows carry the button.
+            <Link
+              {...match}
+              className="truncate font-sans text-label/label font-semibold text-text hover:underline"
+            >
+              {episodeLabel(file)}
+            </Link>
+          )}
           <span
             className="truncate font-mono text-caption/caption text-text-muted"
             title={file.path}
@@ -496,12 +516,8 @@ function FileRow({
         <FileStatus file={file} now={now} />
       </Cell>
       <Cell className="flex w-24 justify-end">
-        {file.missing ? null : (
-          <Link
-            to="/admin/libraries/$libraryId/match/$titleId"
-            params={{ libraryId, titleId: file.title.id }}
-            className={buttonVariants({ variant: "raised", size: "row" })}
-          >
+        {file.missing || !unmatched ? null : (
+          <Link {...match} className={buttonVariants({ variant: "raised", size: "row" })}>
             Fix match
           </Link>
         )}
