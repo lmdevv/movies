@@ -1,15 +1,16 @@
 /**
- * Best-effort disk cache for metadata provider responses under `DATA_DIR/metadata-cache`. Entries
- * hold the raw response text and its fetch time; callers parse what they read, as with any
- * other external input. Read and write failures are logged and treated as misses.
+ * Best-effort disk cache under `DATA_DIR/cache`, one folder per namespace (provider responses,
+ * keyframe indexes, converted subtitles). Entries hold text and the time it was stored; callers
+ * parse what they read, as with any other external input. Read and write failures are logged
+ * and treated as misses.
  */
 import { createHash } from "node:crypto";
 
 import { Clock, Context, Duration, Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 
-import * as MediaConfig from "../media-config.ts";
+import * as MediaConfig from "./media-config.ts";
 
-/** Cached provider responses. */
+/** Cached text by namespace and key. */
 export interface Interface {
   /** The cached text for `key` when it is younger than `maxAge`. */
   readonly read: (
@@ -20,8 +21,8 @@ export interface Interface {
   readonly write: (namespace: string, key: string, body: string) => Effect.Effect<void>;
 }
 
-/** The metadata response cache. */
-export class Service extends Context.Service<Service, Interface>()("@movies/media/MetadataCache") {}
+/** The disk cache. */
+export class Service extends Context.Service<Service, Interface>()("@movies/media/DiskCache") {}
 
 const Entry = Schema.Struct({ fetchedAt: Schema.Finite, body: Schema.String });
 
@@ -30,14 +31,14 @@ const decodeEntry = Schema.decodeUnknownEffect(Schema.fromJsonString(Entry));
 const encodeEntry = Schema.encodeEffect(Schema.fromJsonString(Entry));
 
 /** A cache rooted at `directory`. */
-export const make = Effect.fn("MetadataCache.make")(function* (directory: string) {
+export const make = Effect.fn("DiskCache.make")(function* (directory: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
   const fileOf = (namespace: string, key: string): string =>
     path.join(directory, namespace, `${createHash("sha256").update(key).digest("hex")}.json`);
 
-  const read = Effect.fn("MetadataCache.read")(function* (
+  const read = Effect.fn("DiskCache.read")(function* (
     namespace: string,
     key: string,
     maxAge: Duration.Duration,
@@ -49,7 +50,7 @@ export const make = Effect.fn("MetadataCache.make")(function* (directory: string
 
     const entry = yield* fs.readFileString(file).pipe(
       Effect.flatMap(decodeEntry),
-      Effect.tapError((error) => Effect.logDebug("MetadataCache.unreadable", error)),
+      Effect.tapError((error) => Effect.logDebug("DiskCache.unreadable", error)),
       Effect.option,
     );
 
@@ -60,7 +61,7 @@ export const make = Effect.fn("MetadataCache.make")(function* (directory: string
     );
   });
 
-  const write = Effect.fn("MetadataCache.write")(function* (
+  const write = Effect.fn("DiskCache.write")(function* (
     namespace: string,
     key: string,
     body: string,
@@ -74,7 +75,7 @@ export const make = Effect.fn("MetadataCache.make")(function* (directory: string
       yield* fs.writeFileString(temporary, yield* encodeEntry({ fetchedAt, body }));
       yield* fs.rename(temporary, file);
     }).pipe(
-      Effect.tapError((error) => Effect.logWarning("MetadataCache.write_failed", error)),
+      Effect.tapError((error) => Effect.logWarning("DiskCache.write_failed", error)),
       Effect.ignore,
     );
   });
@@ -82,7 +83,7 @@ export const make = Effect.fn("MetadataCache.make")(function* (directory: string
   return Service.of({ read, write });
 });
 
-/** A cache under `DATA_DIR/metadata-cache`. */
+/** A cache under `DATA_DIR/cache`. */
 export const layer: Layer.Layer<
   Service,
   never,
@@ -93,6 +94,6 @@ export const layer: Layer.Layer<
     const config = yield* MediaConfig.Service;
     const path = yield* Path.Path;
 
-    return yield* make(path.join(config.dataDir, "metadata-cache"));
+    return yield* make(path.join(config.dataDir, "cache"));
   }),
 );

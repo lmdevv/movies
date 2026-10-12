@@ -5,7 +5,7 @@ import { FetchHttpClient } from "effect/http";
 
 import { LibraryId } from "../ids.ts";
 import * as MediaTools from "../media/media-tools.ts";
-import * as MetadataCache from "../metadata/metadata-cache.ts";
+import * as DiskCache from "../disk-cache.ts";
 import * as MetadataResolver from "../metadata/title-metadata.ts";
 import * as Tmdb from "../metadata/tmdb.ts";
 import { ffmpegAvailable } from "../testing/fixture-library.ts";
@@ -31,7 +31,7 @@ const scannerLayer = Layer.unwrap(
       Layer.provideMerge(MemoryLibrary.layer),
       Layer.provide(MetadataResolver.layer),
       Layer.provide(Tmdb.layerWithOptions(Tmdb.defaultOptions(Option.none()))),
-      Layer.provide(MetadataCache.layer),
+      Layer.provide(DiskCache.layer),
       Layer.provide(MediaTools.layer),
       Layer.provide(config),
     );

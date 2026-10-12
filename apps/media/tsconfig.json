@@ -9,6 +9,7 @@
         "allowedUnstableApis": [
           "@effect/platform-node",
           "@effect/vitest",
+          "effect/Crypto",
           "effect/FileSystem",
           "effect/Path",
           "effect/PlatformError",

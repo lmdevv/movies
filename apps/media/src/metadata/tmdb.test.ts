@@ -14,7 +14,7 @@ import {
 } from "effect/http";
 
 import { testConfigLayer } from "../testing/test-config.ts";
-import * as MetadataCache from "./metadata-cache.ts";
+import * as DiskCache from "../disk-cache.ts";
 import { guardHosts } from "./metadata-plugin.ts";
 import * as MetadataPlugin from "./metadata-plugin.ts";
 import * as MetadataResolver from "./title-metadata.ts";
@@ -113,7 +113,7 @@ const pluginLayer = (apiKey: string) =>
       const dataDir = yield* fs.makeTempDirectoryScoped({ prefix: "movies-tmdb-" });
 
       return Tmdb.layerWithOptions(tmdbOptions(server.baseUrl, apiKey)).pipe(
-        Layer.provide(MetadataCache.layer),
+        Layer.provide(DiskCache.layer),
         Layer.provide(testConfigLayer({ DATA_DIR: dataDir })),
       );
     }).pipe(Effect.orDie),
@@ -290,7 +290,7 @@ describe("TMDB plugin", () => {
   );
 
   const withoutKey = Tmdb.layerWithOptions(Tmdb.defaultOptions(Option.none())).pipe(
-    Layer.provide(MetadataCache.layer),
+    Layer.provide(DiskCache.layer),
     Layer.provide(testConfigLayer({})),
     Layer.provideMerge(Layer.mergeAll(NodeServices.layer, FetchHttpClient.layer)),
   );

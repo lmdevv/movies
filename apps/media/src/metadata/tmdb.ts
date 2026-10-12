@@ -11,7 +11,7 @@ import { RateLimiter } from "effect/persistence";
 
 import type { ExternalIds } from "../library/nfo.ts";
 import * as MediaConfig from "../media-config.ts";
-import * as MetadataCache from "./metadata-cache.ts";
+import * as DiskCache from "../disk-cache.ts";
 import {
   guardHosts,
   MetadataProviderUnavailable,
@@ -171,7 +171,7 @@ const usCertification = (
 
 /** Builds the TMDB plugin. */
 export const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
-  const cache = yield* MetadataCache.Service;
+  const cache = yield* DiskCache.Service;
   const apiBase = new URL(options.apiBaseUrl);
 
   const manifest: PluginManifest = {
@@ -179,7 +179,7 @@ export const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
     name: "The Movie Database",
     version: "1.0.0",
     role: "metadata",
-    permissions: { hosts: [apiBase.host], paths: ["DATA_DIR/metadata-cache/tmdb"] },
+    permissions: { hosts: [apiBase.host], paths: ["DATA_DIR/cache/tmdb"] },
   };
 
   // Paces every TMDB request of this process and retries `429` answers after `Retry-After`.
@@ -480,7 +480,7 @@ export const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
 /** The TMDB plugin with explicit options; tests point it at a local server. */
 export const layerWithOptions = (
   options: TmdbOptions,
-): Layer.Layer<Service, never, MetadataCache.Service | HttpClient.HttpClient> =>
+): Layer.Layer<Service, never, DiskCache.Service | HttpClient.HttpClient> =>
   Layer.effect(Service, make(options)).pipe(
     Layer.provide(RateLimiter.layer),
     Layer.provide(RateLimiter.layerStoreMemory),
@@ -490,7 +490,7 @@ export const layerWithOptions = (
 export const layer: Layer.Layer<
   Service,
   never,
-  MediaConfig.Service | MetadataCache.Service | HttpClient.HttpClient
+  MediaConfig.Service | DiskCache.Service | HttpClient.HttpClient
 > = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* MediaConfig.Service;
