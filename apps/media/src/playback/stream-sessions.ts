@@ -511,6 +511,17 @@ const make = Effect.gen(function* () {
     const deadline = (yield* Clock.currentTimeMillis) + Duration.toMillis(maxWait);
 
     for (;;) {
+      const current = yield* Ref.get(session.generation);
+
+      // A seek replaced this generation while the request waited; its output is gone.
+      if (current.number !== generation.number) {
+        return yield* new StreamGenerationGone({
+          streamId: session.streamId,
+          generation: generation.number,
+          currentGeneration: current.number,
+        });
+      }
+
       const finished = yield* Deferred.isDone(generation.exit);
       yield* refreshFragments(generation);
       const fragments = yield* Ref.get(generation.fragments);
