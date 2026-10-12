@@ -43,5 +43,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: scripts/dev-stack.sh up
       - run: pnpm --filter @movies/backend test:stack
+      - run: pnpm --filter @movies/sdk test:stack
       - if: always()
         run: scripts/dev-stack.sh destroy

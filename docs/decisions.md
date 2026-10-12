@@ -138,3 +138,19 @@ choices made while implementing them. Update it in the same PR that changes a de
   results. Once the command registry in `@movies/contracts` exists, its entries map onto this model.
 - The component gallery at `/dev/kit` is development-only; production builds replace it with an
   empty route and do not bundle it.
+
+## SDK
+
+- `@movies/sdk` runs on three Convex clients through one transport: the WebSocket `ConvexClient`
+  for apps, `ConvexHttpClient` for short-lived processes (subscriptions poll), and the app's
+  `ConvexReactClient` in React. Functions are called by registry path with `makeFunctionReference`.
+- The SDK avoids Effect modules marked unstable, which the repo's lint rejects: media service
+  requests use the platform `fetch`, and tests use plain Vitest with `TestClock`.
+- Sign-in and token refresh go through a private `ConvexHttpClient`: the WebSocket client waits
+  for its token before running calls, so refreshing through it would wait on itself.
+- The Promise facade and React commands reject with the same tagged errors the Effect API fails
+  with; React queries return a `loading | success | error` state instead of throwing.
+- The room engine's host publishes the difference between its player and the committed clock, not
+  raw player events, so the engine's own corrections never echo back as commands. The host moves
+  its player onto the committed clock only after a stale or rejected command or a reconnect; its
+  own commands reach the subscription before their results do.

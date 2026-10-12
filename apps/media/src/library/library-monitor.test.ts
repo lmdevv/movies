@@ -72,33 +72,38 @@ const eventually = (check: (files: ReadonlyMap<string, MemoryLibrary.StoredFile>
 
 describe.skipIf(!hasFfmpeg)("LibraryMonitor", () => {
   layer(monitorLayer, { excludeTestServices: true, timeout: "60 seconds" })((it) => {
-    it.effect("scans at startup and rescans after file changes", () =>
-      Effect.gen(function* () {
-        const { library } = yield* FixtureWorkspace.Service;
-        const { root } = yield* Watched;
-        const fs = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
+    it.effect(
+      "scans at startup and rescans after file changes",
+      () =>
+        Effect.gen(function* () {
+          const { library } = yield* FixtureWorkspace.Service;
+          const { root } = yield* Watched;
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
 
-        yield* eventually((files) => files.size === 4);
-        yield* fs.makeDirectory(path.join(root, "New Movie (2024)"));
-        yield* fs.copyFile(
-          path.join(root, library.messyMovie),
-          path.join(root, "New Movie (2024)", "New Movie (2024).mkv"),
-        );
+          yield* eventually((files) => files.size === 4);
+          yield* fs.makeDirectory(path.join(root, "New Movie (2024)"));
+          yield* fs.copyFile(
+            path.join(root, library.messyMovie),
+            path.join(root, "New Movie (2024)", "New Movie (2024).mkv"),
+          );
 
-        const added = yield* eventually((files) =>
-          files.has("New Movie (2024)/New Movie (2024).mkv"),
-        );
+          const added = yield* eventually((files) =>
+            files.has("New Movie (2024)/New Movie (2024).mkv"),
+          );
 
-        assert.strictEqual(
-          Option.getOrUndefined(added)?.get("New Movie (2024)/New Movie (2024).mkv")?.record.title
-            ?.title,
-          "New Movie",
-        );
+          assert.strictEqual(
+            Option.getOrUndefined(added)?.get("New Movie (2024)/New Movie (2024).mkv")?.record.title
+              ?.title,
+            "New Movie",
+          );
 
-        yield* fs.remove(path.join(root, library.messyMovie));
-        yield* eventually((files) => files.get(library.messyMovie)?.missing === true);
-      }),
+          yield* fs.remove(path.join(root, library.messyMovie));
+          yield* eventually((files) => files.get(library.messyMovie)?.missing === true);
+        }),
+      // Each step may wait up to 15 seconds for the watcher; the default 5 second budget is
+      // shorter than one step under load.
+      60_000,
     );
   });
 });
