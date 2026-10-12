@@ -244,6 +244,7 @@ export const upsertScanned = mutation({
     const library = await requireLibrary(ctx, libraryId);
 
     const inside = (path: string) =>
+      !path.split("/").some((segment) => segment === ".." || segment === ".") &&
       library.roots.some(
         (root) => path === root || path.startsWith(root === "/" ? root : `${root}/`),
       );

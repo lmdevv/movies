@@ -12,7 +12,7 @@ import { mutation, query } from "./_generated/server";
 import { loadAudience, loadVisibleTitle, visibleLibraryIds } from "./lib/access";
 import { fail } from "./lib/errors";
 import { resolvePlayable } from "./lib/playable";
-import { presentEpisodeFor, presentRoomClock, presentTitleCard } from "./lib/present";
+import { presentEpisode, presentRoomClock, presentTitleCard } from "./lib/present";
 import { HOST_REANCHOR_THRESHOLD_MS, livePosition } from "./lib/roomClock";
 import { hostControlArgs, ok, room as roomResult, roomClock } from "./lib/validators";
 import type { Viewer } from "./lib/viewer";
@@ -50,7 +50,8 @@ const presentRoom = async (ctx: QueryCtx, doc: Doc<"rooms">): Promise<Infer<type
     id: doc._id,
     title: presentTitleCard(title),
     episode:
-      episodeDoc === null ? null : await presentEpisodeFor(ctx, doc.hostProfileId, episodeDoc),
+      // Without the host profile's progress: guests are other accounts.
+      episodeDoc === null ? null : presentEpisode(episodeDoc, null),
     fileId: doc.fileId,
     hostUserId: doc.hostUserId,
     hostProfileId: doc.hostProfileId,

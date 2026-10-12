@@ -365,6 +365,40 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
     });
   });
 
+  describe("account administration", () => {
+    it("strips admin scopes from a demoted admin's keys and ends a disabled account's sessions", async () => {
+      const email = `admin-${id}@movies.test`;
+      const invite = await run(fixture.owner, "invites.create", { email, role: "admin" });
+      const admin = await signIn(url, password(email, "signUp", invite.code));
+      const adminId = (await run(admin, "account.viewer", {})).user.id;
+
+      const key = await run(admin, "apiKeys.create", {
+        name: `Ops ${id}`,
+        scopes: ["read", "admin"],
+      });
+
+      const agent = await signIn(url, { provider: "apikey", params: { key: key.secret } });
+
+      expect((await run(agent, "account.viewer", {})).scopes).toStrictEqual(["read", "admin"]);
+      await run(fixture.owner, "users.setRole", { userId: adminId, role: "member" });
+      expect((await run(agent, "account.viewer", {})).scopes).toStrictEqual(["read"]);
+      expect(await outcome(run(agent, "users.list", {}))).toBe("forbidden");
+
+      await run(fixture.owner, "users.disable", { userId: adminId });
+      expect(await outcome(run(admin, "account.viewer", {}))).toBe("unauthenticated");
+      expect(await outcome(run(agent, "account.viewer", {}))).toBe("unauthenticated");
+      expect(await outcome(signIn(url, password(email, "signIn")))).toBe("unauthenticated");
+      expect(await trySignIn(url, { provider: "apikey", params: { key: key.secret } })).toBeNull();
+
+      await run(fixture.owner, "users.enable", { userId: adminId });
+      expect(await outcome(signIn(url, password(email, "signIn")))).toBe("succeeded");
+      const ownerId = (await run(fixture.owner, "account.viewer", {})).user.id;
+      expect(await outcome(run(fixture.owner, "users.disable", { userId: ownerId }))).toBe(
+        "forbidden",
+      );
+    });
+  });
+
   describe("API keys", () => {
     it("shows a key once, scopes its sessions, and ends them on revocation", async () => {
       const created = await run(fixture.member, "apiKeys.create", {
@@ -613,6 +647,17 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
             items: [
               scanned("/etc/passwd.mp4", { kind: "movie", name: "Escape", ageRating: 0 }, null),
             ],
+          }),
+        ),
+      ).toBe("invalid_args");
+
+      const climb = `/stack-${id}/open/../../etc/x.mp4`;
+
+      expect(
+        await outcome(
+          service(fixture.mediaService, "mediaService.upsertScanned", {
+            libraryId: fixture.openLibrary,
+            items: [scanned(climb, { kind: "movie", name: "Climb", ageRating: 0 }, null)],
           }),
         ),
       ).toBe("invalid_args");

@@ -10,8 +10,10 @@ export const nullable = <T, FieldPaths extends string>(
   validator: Validator<T, "required", FieldPaths>,
 ) => v.union(validator, v.null());
 
+/** Mirrors `Ok` in `@movies/contracts/models/common`. */
 export const ok = v.object({ ok: v.literal(true) });
 
+/** Paging arguments; mirrors `PageArgs` in `@movies/contracts/models/common`. */
 export const pageArgs = {
   cursor: v.optional(nullable(v.string())),
   limit: v.optional(v.number()),
@@ -23,6 +25,7 @@ export const page = <T, FieldPaths extends string>(item: Validator<T, "required"
 
 // Accounts and sessions.
 
+/** Mirrors `Role` in `@movies/contracts`. */
 export const role = v.union(
   v.literal("owner"),
   v.literal("admin"),
@@ -30,8 +33,10 @@ export const role = v.union(
   v.literal("service"),
 );
 
+/** Mirrors `AssignableRole` in `@movies/contracts`. */
 export const assignableRole = v.union(v.literal("admin"), v.literal("member"));
 
+/** Mirrors `Scope` in `@movies/contracts`. */
 export const scope = v.union(
   v.literal("read"),
   v.literal("play"),
@@ -41,6 +46,7 @@ export const scope = v.union(
   v.literal("media-service"),
 );
 
+/** Mirrors `ApiKeyScope` in `@movies/contracts`. */
 export const apiKeyScope = v.union(
   v.literal("read"),
   v.literal("play"),
@@ -48,6 +54,7 @@ export const apiKeyScope = v.union(
   v.literal("admin"),
 );
 
+/** Mirrors `DeviceScope` in `@movies/contracts`. */
 export const deviceScope = v.union(
   v.literal("read"),
   v.literal("play"),
@@ -56,8 +63,10 @@ export const deviceScope = v.union(
   v.literal("admin"),
 );
 
+/** Mirrors `SessionKind` in `@movies/contracts`. */
 export const sessionKind = v.union(v.literal("password"), v.literal("apikey"), v.literal("device"));
 
+/** Mirrors `User` in `@movies/contracts`. */
 export const user = v.object({
   id: v.id("users"),
   email: nullable(v.string()),
@@ -67,6 +76,7 @@ export const user = v.object({
   createdAt: v.number(),
 });
 
+/** Mirrors `Viewer` in `@movies/contracts`. */
 export const viewer = v.object({
   user,
   sessionId: v.id("authSessions"),
@@ -74,6 +84,7 @@ export const viewer = v.object({
   scopes: v.array(scope),
 });
 
+/** Mirrors `SessionInfo` in `@movies/contracts`. */
 export const sessionInfo = v.object({
   id: v.id("authSessions"),
   kind: sessionKind,
@@ -84,8 +95,10 @@ export const sessionInfo = v.object({
   current: v.boolean(),
 });
 
+/** Mirrors `SetupStatus` in `@movies/contracts`. */
 export const setupStatus = v.object({ hasOwner: v.boolean(), hasLibraries: v.boolean() });
 
+/** Mirrors `InviteState` in `@movies/contracts`. */
 export const inviteState = v.union(
   v.literal("open"),
   v.literal("used"),
@@ -93,6 +106,7 @@ export const inviteState = v.union(
   v.literal("revoked"),
 );
 
+/** Mirrors `Invite` in `@movies/contracts`. */
 export const invite = v.object({
   id: v.id("invites"),
   email: nullable(v.string()),
@@ -103,8 +117,10 @@ export const invite = v.object({
   expiresAt: v.number(),
 });
 
+/** Mirrors `CreatedInvite` in `@movies/contracts`. */
 export const createdInvite = v.object({ invite, code: v.string(), url: v.string() });
 
+/** Mirrors `InviteLookup` in `@movies/contracts`. */
 export const inviteLookup = v.union(
   v.object({ state: v.literal("invalid") }),
   v.object({
@@ -115,6 +131,7 @@ export const inviteLookup = v.union(
   }),
 );
 
+/** Mirrors `ApiKey` in `@movies/contracts`. */
 export const apiKey = v.object({
   id: v.id("apiKeys"),
   userId: v.id("users"),
@@ -127,8 +144,10 @@ export const apiKey = v.object({
   revokedAt: nullable(v.number()),
 });
 
+/** Mirrors `CreatedApiKey` in `@movies/contracts`. */
 export const createdApiKey = v.object({ apiKey, secret: v.string() });
 
+/** Mirrors `DeviceCodeRequest` in `@movies/contracts`. */
 export const deviceCodeRequest = v.object({
   deviceCode: v.string(),
   userCode: v.string(),
@@ -136,6 +155,7 @@ export const deviceCodeRequest = v.object({
   expiresAt: v.number(),
 });
 
+/** Mirrors `DeviceCodeState` in `@movies/contracts`. */
 export const deviceCodeState = v.union(
   v.literal("pending"),
   v.literal("approved"),
@@ -144,6 +164,7 @@ export const deviceCodeState = v.union(
   v.literal("consumed"),
 );
 
+/** Mirrors `DeviceCodeLookup` in `@movies/contracts`. */
 export const deviceCodeLookup = v.object({
   userCode: v.string(),
   clientName: v.string(),
@@ -154,6 +175,7 @@ export const deviceCodeLookup = v.object({
 
 // Profiles.
 
+/** Mirrors `Profile` in `@movies/contracts`. */
 export const profile = v.object({
   id: v.id("profiles"),
   name: v.string(),
@@ -165,6 +187,7 @@ export const profile = v.object({
   createdAt: v.number(),
 });
 
+/** Mirrors `UnlockResult` in `@movies/contracts`. */
 export const unlockResult = v.union(
   v.object({ status: v.literal("unlocked") }),
   v.object({ status: v.literal("wrong_pin"), attemptsLeft: v.number() }),
@@ -173,8 +196,10 @@ export const unlockResult = v.union(
 
 // Catalog.
 
+/** Mirrors `LibraryKind` in `@movies/contracts`. */
 export const libraryKind = v.union(v.literal("movies"), v.literal("shows"), v.literal("mixed"));
 
+/** Mirrors `LibraryAccess` in `@movies/contracts`. */
 export const libraryAccess = v.union(v.literal("everyone"), v.literal("restricted"));
 
 const libraryFields = {
@@ -186,8 +211,10 @@ const libraryFields = {
   scanning: v.boolean(),
 };
 
+/** Mirrors `Library` in `@movies/contracts`. */
 export const library = v.object(libraryFields);
 
+/** Mirrors `LibraryDetail` in `@movies/contracts`. */
 export const libraryDetail = v.object({
   ...libraryFields,
   roots: v.array(v.string()),
@@ -196,20 +223,24 @@ export const libraryDetail = v.object({
   createdAt: v.number(),
 });
 
+/** Mirrors `TitleKind` in `@movies/contracts`. */
 export const titleKind = v.union(v.literal("movie"), v.literal("show"));
 
+/** Mirrors `MatchStatus` in `@movies/contracts`. */
 export const matchStatus = v.union(
   v.literal("matched"),
   v.literal("unmatched"),
   v.literal("manual"),
 );
 
+/** Mirrors `ExternalIds` in `@movies/contracts`. */
 export const externalIds = v.object({
   tmdb: nullable(v.string()),
   imdb: nullable(v.string()),
   tvdb: nullable(v.string()),
 });
 
+/** Mirrors `Artwork` in `@movies/contracts`. */
 export const artwork = v.object({
   poster: nullable(v.string()),
   backdrop: nullable(v.string()),
@@ -230,8 +261,10 @@ const titleCardFields = {
   addedAt: v.number(),
 };
 
+/** Mirrors `TitleCard` in `@movies/contracts`. */
 export const titleCard = v.object(titleCardFields);
 
+/** Mirrors `HdrFormat` in `@movies/contracts`. */
 export const hdrFormat = v.union(
   v.literal("none"),
   v.literal("hdr10"),
@@ -240,6 +273,7 @@ export const hdrFormat = v.union(
   v.literal("dolby_vision"),
 );
 
+/** Mirrors `VideoStream` in `@movies/contracts`. */
 export const videoStream = v.object({
   index: v.number(),
   codec: v.string(),
@@ -253,6 +287,7 @@ export const videoStream = v.object({
   bitRate: nullable(v.number()),
 });
 
+/** Mirrors `AudioStream` in `@movies/contracts`. */
 export const audioStream = v.object({
   index: v.number(),
   codec: v.string(),
@@ -265,6 +300,7 @@ export const audioStream = v.object({
   bitRate: nullable(v.number()),
 });
 
+/** Mirrors `SubtitleStream` in `@movies/contracts`. */
 export const subtitleStream = v.object({
   index: v.number(),
   codec: v.string(),
@@ -275,6 +311,7 @@ export const subtitleStream = v.object({
   forced: v.boolean(),
 });
 
+/** Mirrors `Probe` in `@movies/contracts`. */
 export const probe = v.object({
   container: v.string(),
   durationMs: v.number(),
@@ -284,6 +321,7 @@ export const probe = v.object({
   subtitles: v.array(subtitleStream),
 });
 
+/** Mirrors `ExternalSubtitle` in `@movies/contracts`. */
 export const externalSubtitle = v.object({
   fileName: v.string(),
   codec: v.string(),
@@ -291,6 +329,7 @@ export const externalSubtitle = v.object({
   forced: v.boolean(),
 });
 
+/** Mirrors `MediaFile` in `@movies/contracts`. */
 export const mediaFile = v.object({
   id: v.id("mediaFiles"),
   titleId: v.id("titles"),
@@ -303,6 +342,7 @@ export const mediaFile = v.object({
   missing: v.boolean(),
 });
 
+/** Mirrors `Progress` in `@movies/contracts`. */
 export const progress = v.object({
   positionMs: v.number(),
   durationMs: v.number(),
@@ -310,6 +350,7 @@ export const progress = v.object({
   updatedAt: v.number(),
 });
 
+/** Mirrors `Episode` in `@movies/contracts`. */
 export const episode = v.object({
   id: v.id("episodes"),
   titleId: v.id("titles"),
@@ -325,6 +366,7 @@ export const episode = v.object({
   progress: nullable(progress),
 });
 
+/** Mirrors `Season` in `@movies/contracts`. */
 export const season = v.object({
   id: v.id("seasons"),
   seasonNumber: v.number(),
@@ -333,6 +375,7 @@ export const season = v.object({
   episodeCount: v.number(),
 });
 
+/** Mirrors `TitleDetail` in `@movies/contracts`. */
 export const titleDetail = v.object({
   ...titleCardFields,
   libraryId: v.id("libraries"),
@@ -348,6 +391,7 @@ export const titleDetail = v.object({
   inMyList: v.boolean(),
 });
 
+/** Mirrors `ContinueWatchingItem` in `@movies/contracts`. */
 export const continueWatchingItem = v.object({
   reason: v.union(v.literal("resume"), v.literal("next")),
   title: titleCard,
@@ -355,6 +399,7 @@ export const continueWatchingItem = v.object({
   progress: nullable(progress),
 });
 
+/** Mirrors `Home` in `@movies/contracts`. */
 export const home = v.object({
   featured: nullable(titleCard),
   continueWatching: v.array(continueWatchingItem),
@@ -363,6 +408,7 @@ export const home = v.object({
   recentlyAddedShows: v.array(titleCard),
 });
 
+/** Mirrors `HistoryEntry` in `@movies/contracts`. */
 export const historyEntry = v.object({
   title: titleCard,
   episode: nullable(episode),
@@ -370,8 +416,10 @@ export const historyEntry = v.object({
   lastPlayedAt: v.number(),
 });
 
+/** Mirrors `TitleSort` in `@movies/contracts`. */
 export const titleSort = v.union(v.literal("name"), v.literal("added"), v.literal("year"));
 
+/** Mirrors `MetadataOverrides` in `@movies/contracts`. */
 export const metadataOverrides = v.object({
   name: v.optional(v.string()),
   sortName: v.optional(v.string()),
@@ -381,6 +429,7 @@ export const metadataOverrides = v.object({
   ageRating: v.optional(v.number()),
 });
 
+/** Mirrors `MetadataField` in `@movies/contracts`. */
 export const metadataField = v.union(
   v.literal("name"),
   v.literal("sortName"),
@@ -392,6 +441,7 @@ export const metadataField = v.union(
 
 // Playback.
 
+/** Mirrors `PlaybackMode` in `@movies/contracts`. */
 export const playbackMode = v.union(
   v.literal("direct"),
   v.literal("remux"),
@@ -399,6 +449,7 @@ export const playbackMode = v.union(
   v.literal("transcode-software"),
 );
 
+/** Mirrors `PlaybackSession` in `@movies/contracts`. */
 export const playbackSession = v.object({
   id: v.id("playbackSessions"),
   profileId: v.id("profiles"),
@@ -414,6 +465,7 @@ export const playbackSession = v.object({
   lastReportAt: v.number(),
 });
 
+/** Mirrors `StartedPlayback` in `@movies/contracts`. */
 export const startedPlayback = v.object({
   sessionId: v.id("playbackSessions"),
   titleId: v.id("titles"),
@@ -425,8 +477,10 @@ export const startedPlayback = v.object({
   resumePositionMs: v.number(),
 });
 
+/** Mirrors `RenewedToken` in `@movies/contracts`. */
 export const renewedToken = v.object({ token: v.string(), tokenExpiresAt: v.number() });
 
+/** Mirrors `ProgressEvent` in `@movies/contracts`. */
 export const progressEvent = v.union(
   v.literal("tick"),
   v.literal("pause"),
@@ -435,10 +489,12 @@ export const progressEvent = v.union(
   v.literal("ended"),
 );
 
+/** Mirrors `ProgressReceipt` in `@movies/contracts`. */
 export const progressReceipt = v.object({ applied: v.boolean(), watched: v.boolean() });
 
 // Rooms.
 
+/** Mirrors `RoomStatus` in `@movies/contracts`. */
 export const roomStatus = v.union(
   v.literal("playing"),
   v.literal("paused"),
@@ -446,6 +502,7 @@ export const roomStatus = v.union(
   v.literal("ended"),
 );
 
+/** Mirrors `RoomClock` in `@movies/contracts`. */
 export const roomClock = v.object({
   status: roomStatus,
   positionAtAnchorMs: v.number(),
@@ -454,6 +511,7 @@ export const roomClock = v.object({
   revision: v.number(),
 });
 
+/** Mirrors `RoomMember` in `@movies/contracts`. */
 export const roomMember = v.object({
   userId: v.id("users"),
   profileId: v.id("profiles"),
@@ -465,6 +523,7 @@ export const roomMember = v.object({
   lastSeenAt: v.number(),
 });
 
+/** Mirrors `Room` in `@movies/contracts`. */
 export const room = v.object({
   id: v.id("rooms"),
   title: titleCard,
@@ -479,6 +538,7 @@ export const room = v.object({
   createdAt: v.number(),
 });
 
+/** Arguments of every host room control; mirrors `HostControlArgs` in contracts. */
 export const hostControlArgs = {
   roomId: v.id("rooms"),
   deviceId: v.string(),
@@ -488,6 +548,7 @@ export const hostControlArgs = {
 
 // Jobs and backups.
 
+/** Mirrors `JobKind` in `@movies/contracts`. */
 export const jobKind = v.union(
   v.literal("scan"),
   v.literal("metadata"),
@@ -495,6 +556,7 @@ export const jobKind = v.union(
   v.literal("migration"),
 );
 
+/** Mirrors `JobStatus` in `@movies/contracts`. */
 export const jobStatus = v.union(
   v.literal("pending"),
   v.literal("running"),
@@ -503,12 +565,16 @@ export const jobStatus = v.union(
   v.literal("cancelled"),
 );
 
+/** Mirrors `ScanMode` in `@movies/contracts`. */
 export const scanMode = v.union(v.literal("full"), v.literal("quick"));
 
+/** Mirrors `MigrationSource` in `@movies/contracts`. */
 export const migrationSource = v.union(v.literal("jellyfin"), v.literal("plex"));
 
+/** Why a backup ran: the nightly cron or an admin. */
 export const backupTrigger = v.union(v.literal("nightly"), v.literal("manual"));
 
+/** Mirrors `JobPayload` in `@movies/contracts`. */
 export const jobPayload = v.union(
   v.object({ kind: v.literal("scan"), libraryId: v.id("libraries"), mode: scanMode }),
   v.object({
@@ -525,12 +591,14 @@ export const jobPayload = v.union(
   }),
 );
 
+/** Mirrors `JobProgress` in `@movies/contracts`. */
 export const jobProgress = v.object({
   done: v.number(),
   total: nullable(v.number()),
   message: nullable(v.string()),
 });
 
+/** Mirrors `Job` in `@movies/contracts`. */
 export const job = v.object({
   id: v.id("jobs"),
   kind: jobKind,
@@ -545,8 +613,10 @@ export const job = v.object({
   finishedAt: nullable(v.number()),
 });
 
+/** Mirrors `QueuedJob` in `@movies/contracts`. */
 export const queuedJob = v.object({ jobId: v.id("jobs") });
 
+/** Mirrors `Backup` in `@movies/contracts`. */
 export const backup = v.object({
   id: v.id("backups"),
   fileName: v.string(),
@@ -557,8 +627,10 @@ export const backup = v.object({
 
 // The media service seam.
 
+/** Arguments naming a job and the worker that holds its lease; mirrors `LeaseArgs` in contracts. */
 export const leaseArgs = { jobId: v.id("jobs"), workerId: v.string() };
 
+/** Mirrors `MediaLibrary` in `@movies/contracts`. */
 export const mediaLibrary = v.object({
   id: v.id("libraries"),
   name: v.string(),
@@ -566,12 +638,14 @@ export const mediaLibrary = v.object({
   roots: v.array(v.string()),
 });
 
+/** Mirrors `ClaimedJob` in `@movies/contracts`. */
 export const claimedJob = v.object({
   job,
   library: nullable(mediaLibrary),
   leaseExpiresAt: v.number(),
 });
 
+/** Mirrors `ScannedTitle` in `@movies/contracts`. */
 export const scannedTitle = v.object({
   kind: titleKind,
   matchKey: v.string(),
@@ -589,6 +663,7 @@ export const scannedTitle = v.object({
   matchStatus: v.union(v.literal("matched"), v.literal("unmatched")),
 });
 
+/** Mirrors `ScannedEpisode` in `@movies/contracts`. */
 export const scannedEpisode = v.object({
   seasonNumber: v.number(),
   episodeNumber: v.number(),
@@ -601,6 +676,7 @@ export const scannedEpisode = v.object({
   seasonPoster: nullable(v.string()),
 });
 
+/** Mirrors `ScannedFile` in `@movies/contracts`. */
 export const scannedFile = v.object({
   path: v.string(),
   sizeBytes: v.number(),
@@ -610,12 +686,14 @@ export const scannedFile = v.object({
   versionName: nullable(v.string()),
 });
 
+/** Mirrors `ScannedItem` in `@movies/contracts`. */
 export const scannedItem = v.object({
   file: scannedFile,
   title: scannedTitle,
   episode: nullable(scannedEpisode),
 });
 
+/** Mirrors `UpsertedFile` in `@movies/contracts`. */
 export const upsertedFile = v.object({
   path: v.string(),
   fileId: v.id("mediaFiles"),
@@ -623,6 +701,7 @@ export const upsertedFile = v.object({
   episodeId: nullable(v.id("episodes")),
 });
 
+/** Mirrors `IndexedFile` in `@movies/contracts`. */
 export const indexedFile = v.object({
   path: v.string(),
   sizeBytes: v.number(),
@@ -630,6 +709,7 @@ export const indexedFile = v.object({
   missing: v.boolean(),
 });
 
+/** Mirrors `ResolvedFile` in `@movies/contracts`. */
 export const resolvedFile = v.object({
   fileId: v.id("mediaFiles"),
   libraryId: v.id("libraries"),
@@ -640,6 +720,7 @@ export const resolvedFile = v.object({
   missing: v.boolean(),
 });
 
+/** Mirrors `SessionStatus` in `@movies/contracts`. */
 export const sessionStatus = v.object({
   sessionId: v.id("playbackSessions"),
   status: v.union(v.literal("active"), v.literal("ended")),
@@ -647,8 +728,10 @@ export const sessionStatus = v.object({
   endedAt: nullable(v.number()),
 });
 
+/** Mirrors `EndedSession` in `@movies/contracts`. */
 export const endedSession = v.object({ sessionId: v.id("playbackSessions"), endedAt: v.number() });
 
+/** Mirrors `MetadataTarget` in `@movies/contracts`. */
 export const metadataTarget = v.object({
   titleId: v.id("titles"),
   libraryId: v.id("libraries"),
@@ -659,6 +742,7 @@ export const metadataTarget = v.object({
   episodes: v.array(v.object({ seasonNumber: v.number(), episodeNumber: v.number() })),
 });
 
+/** Mirrors `MigrationTarget` in `@movies/contracts`. */
 export const migrationTarget = v.object({
   userId: v.id("users"),
   name: v.string(),
@@ -666,6 +750,7 @@ export const migrationTarget = v.object({
   profiles: v.array(v.object({ profileId: v.id("profiles"), name: v.string() })),
 });
 
+/** Mirrors `ImportedWatchState` in `@movies/contracts`. */
 export const importedWatchState = v.object({
   profileId: v.id("profiles"),
   path: v.string(),
@@ -675,6 +760,8 @@ export const importedWatchState = v.object({
   favorite: v.boolean(),
 });
 
+/** Mirrors `ImportedOverride` in `@movies/contracts`. */
 export const importedOverride = v.object({ path: v.string(), overrides: metadataOverrides });
 
+/** Mirrors `ImportCounts` in `@movies/contracts`. */
 export const importCounts = v.object({ matched: v.number(), unmatched: v.number() });
