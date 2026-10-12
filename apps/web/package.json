@@ -12,6 +12,8 @@
     "test:e2e": "playwright test --pass-with-no-tests"
   },
   "dependencies": {
+    "@movies/contracts": "workspace:*",
+    "@movies/sdk": "workspace:*",
     "@movies/ui": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-router": "^1.170.32",
@@ -20,7 +22,8 @@
     "lucide-react": "catalog:",
     "next-themes": "catalog:",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "sonner": "catalog:"
   },
   "devDependencies": {
     "@movies/config": "workspace:*",

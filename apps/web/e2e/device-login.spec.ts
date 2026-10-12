@@ -1,0 +1,95 @@
+import { expect, test } from "@playwright/test";
+
+import { NO_STACK, openClient, signInOwner, stack, useSession } from "./stack";
+
+test.skip(stack === undefined, NO_STACK);
+
+test("a device's code is approved in the browser, the device signs in, and the code works once", async ({
+  page,
+}) => {
+  if (stack === undefined) return;
+
+  const owner = await signInOwner(stack);
+  const device = openClient(stack);
+  const login = await device.sdk.auth.startDeviceLogin("Living room TV");
+  const signedIn = login.complete();
+
+  // The QR code holds the approval URL; the page also accepts the code typed by hand.
+  expect(new URL(login.verificationUrl).searchParams.get("code")).toBe(login.userCode);
+
+  await useSession(page, owner);
+  await page.goto("/device");
+  await expect(page.getByRole("heading", { name: "Enter the code on your device" })).toBeVisible();
+  // Typing advances box by box, as on a TV remote's keyboard.
+  await page.getByRole("textbox").first().click();
+  await page.keyboard.type(login.userCode.replace("-", "").toLowerCase());
+  await expect(page).toHaveURL(new RegExp(`code=${login.userCode}`, "u"));
+
+  await expect(
+    page.getByRole("heading", { name: /Living room TV\s*wants to sign in as/u }),
+  ).toBeVisible();
+  await expect(page.getByRole("definition").getByText(login.userCode)).toBeVisible();
+  await expect(page.getByRole("button", { name: "read" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "play" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "admin" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+
+  await page.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByRole("heading", { name: /Living room TV\s*is signed in/u })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Manage devices" })).toBeVisible();
+
+  await signedIn;
+  await expect(device.sdk.query("account.viewer", {})).resolves.toMatchObject({
+    sessionKind: "device",
+    scopes: ["read", "play"],
+  });
+
+  // The device is listed under Devices with what it was allowed.
+  await page.getByRole("link", { name: "Manage devices" }).click();
+  await expect(page.getByRole("row").filter({ hasText: "Living room TV" }).first()).toContainText(
+    "Device",
+  );
+
+  // The code is spent.
+  await page.goto(`/device?code=${login.userCode}`);
+  await expect(page.getByRole("heading", { name: "That code was already used" })).toBeVisible();
+  await expect(page.getByText(`${login.userCode} is used up`)).toBeVisible();
+});
+
+test("a device can be denied", async ({ page }) => {
+  if (stack === undefined) return;
+
+  const owner = await signInOwner(stack);
+  const device = openClient(stack);
+  const login = await device.sdk.auth.startDeviceLogin("Unknown laptop");
+
+  const refused = login.complete().then(
+    () => "signed in",
+    (cause: unknown) => (cause instanceof Error ? cause.message : "refused"),
+  );
+
+  await useSession(page, owner);
+  await page.goto(new URL(login.verificationUrl).pathname + new URL(login.verificationUrl).search);
+  await page.getByRole("button", { name: "Deny" }).click();
+  await expect(page.getByRole("heading", { name: "Unknown laptop was denied" })).toBeVisible();
+  await expect(refused).resolves.toBe("Device sign-in denied: start a new sign-in");
+});
+
+test("an unknown code says so and lets the person type another", async ({ page }) => {
+  if (stack === undefined) return;
+
+  await useSession(page, await signInOwner(stack));
+  await page.goto("/device?code=ZZZZ-ZZZZ");
+  await expect(page.getByRole("heading", { name: "That code isn’t valid" })).toBeVisible();
+  await expect(page.getByText("No device is waiting for ZZZZ-ZZZZ")).toBeVisible();
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByRole("textbox").first()).toHaveValue("");
+  await expect(page.getByRole("textbox").first()).toBeFocused();
+});
+
+test("signed-out visitors sign in first and come back to the code", async ({ page }) => {
+  await page.goto("/device?code=HDRB-GTLK");
+  await expect(page).toHaveURL(/\/sign-in\?redirect=%2Fdevice%3Fcode%3DHDRB-GTLK$/u);
+});

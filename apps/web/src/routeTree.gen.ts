@@ -10,20 +10,43 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as DeviceRouteImport } from './routes/device'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppAdminRouteImport } from './routes/_app/admin'
 import { Route as AppMoviesRouteImport } from './routes/_app/movies'
 import { Route as AppMyListRouteImport } from './routes/_app/my-list'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppShowsRouteImport } from './routes/_app/shows'
 import { Route as DevKitRouteImport } from './routes/dev/kit'
+import { Route as AppAdminIndexRouteImport } from './routes/_app/admin/index'
+import { Route as AppAdminBackupsRouteImport } from './routes/_app/admin/backups'
+import { Route as AppAdminServerRouteImport } from './routes/_app/admin/server'
+import { Route as AppAdminUsersRouteImport } from './routes/_app/admin/users'
+import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
+import { Route as AppSettingsAccountRouteImport } from './routes/_app/settings/account'
+import { Route as AppSettingsApiKeysRouteImport } from './routes/_app/settings/api-keys'
+import { Route as AppSettingsDevicesRouteImport } from './routes/_app/settings/devices'
+import { Route as AppAdminLibrariesIndexRouteImport } from './routes/_app/admin/libraries.index'
+import { Route as AppAdminLibrariesLibraryIdIndexRouteImport } from './routes/_app/admin/libraries.$libraryId.index'
+import { Route as AppAdminLibrariesLibraryIdMatchTitleIdRouteImport } from './routes/_app/admin/libraries.$libraryId.match.$titleId'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DeviceRoute = DeviceRouteImport.update({
+  id: '/device',
+  path: '/device',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAdminRoute = AppAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => AppRoute,
 } as any)
 const AppMoviesRoute = AppMoviesRouteImport.update({
@@ -51,51 +74,195 @@ const DevKitRoute = DevKitRouteImport.update({
   path: '/dev/kit',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppAdminIndexRoute = AppAdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminBackupsRoute = AppAdminBackupsRouteImport.update({
+  id: '/backups',
+  path: '/backups',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminServerRoute = AppAdminServerRouteImport.update({
+  id: '/server',
+  path: '/server',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminUsersRoute = AppAdminUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppSettingsAccountRoute = AppSettingsAccountRouteImport.update({
+  id: '/account',
+  path: '/account',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppSettingsApiKeysRoute = AppSettingsApiKeysRouteImport.update({
+  id: '/api-keys',
+  path: '/api-keys',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppSettingsDevicesRoute = AppSettingsDevicesRouteImport.update({
+  id: '/devices',
+  path: '/devices',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppAdminLibrariesIndexRoute = AppAdminLibrariesIndexRouteImport.update({
+  id: '/libraries/',
+  path: '/libraries/',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminLibrariesLibraryIdIndexRoute =
+  AppAdminLibrariesLibraryIdIndexRouteImport.update({
+    id: '/libraries/$libraryId/',
+    path: '/libraries/$libraryId/',
+    getParentRoute: () => AppAdminRoute,
+  } as any)
+const AppAdminLibrariesLibraryIdMatchTitleIdRoute =
+  AppAdminLibrariesLibraryIdMatchTitleIdRouteImport.update({
+    id: '/libraries/$libraryId/match/$titleId',
+    path: '/libraries/$libraryId/match/$titleId',
+    getParentRoute: () => AppAdminRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/device': typeof DeviceRoute
+  '/admin': typeof AppAdminRouteWithChildren
   '/movies': typeof AppMoviesRoute
   '/my-list': typeof AppMyListRoute
-  '/settings': typeof AppSettingsRoute
+  '/settings': typeof AppSettingsRouteWithChildren
   '/shows': typeof AppShowsRoute
   '/dev/kit': typeof DevKitRoute
+  '/admin/backups': typeof AppAdminBackupsRoute
+  '/admin/server': typeof AppAdminServerRoute
+  '/admin/users': typeof AppAdminUsersRoute
+  '/settings/account': typeof AppSettingsAccountRoute
+  '/settings/api-keys': typeof AppSettingsApiKeysRoute
+  '/settings/devices': typeof AppSettingsDevicesRoute
+  '/admin/': typeof AppAdminIndexRoute
+  '/settings/': typeof AppSettingsIndexRoute
+  '/admin/libraries/': typeof AppAdminLibrariesIndexRoute
+  '/admin/libraries/$libraryId/': typeof AppAdminLibrariesLibraryIdIndexRoute
+  '/admin/libraries/$libraryId/match/$titleId': typeof AppAdminLibrariesLibraryIdMatchTitleIdRoute
 }
 export interface FileRoutesByTo {
+  '/device': typeof DeviceRoute
   '/movies': typeof AppMoviesRoute
   '/my-list': typeof AppMyListRoute
-  '/settings': typeof AppSettingsRoute
   '/shows': typeof AppShowsRoute
   '/dev/kit': typeof DevKitRoute
   '/': typeof AppIndexRoute
+  '/admin/backups': typeof AppAdminBackupsRoute
+  '/admin/server': typeof AppAdminServerRoute
+  '/admin/users': typeof AppAdminUsersRoute
+  '/settings/account': typeof AppSettingsAccountRoute
+  '/settings/api-keys': typeof AppSettingsApiKeysRoute
+  '/settings/devices': typeof AppSettingsDevicesRoute
+  '/admin': typeof AppAdminIndexRoute
+  '/settings': typeof AppSettingsIndexRoute
+  '/admin/libraries': typeof AppAdminLibrariesIndexRoute
+  '/admin/libraries/$libraryId': typeof AppAdminLibrariesLibraryIdIndexRoute
+  '/admin/libraries/$libraryId/match/$titleId': typeof AppAdminLibrariesLibraryIdMatchTitleIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/device': typeof DeviceRoute
+  '/_app/admin': typeof AppAdminRouteWithChildren
   '/_app/movies': typeof AppMoviesRoute
   '/_app/my-list': typeof AppMyListRoute
-  '/_app/settings': typeof AppSettingsRoute
+  '/_app/settings': typeof AppSettingsRouteWithChildren
   '/_app/shows': typeof AppShowsRoute
   '/dev/kit': typeof DevKitRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/admin/backups': typeof AppAdminBackupsRoute
+  '/_app/admin/server': typeof AppAdminServerRoute
+  '/_app/admin/users': typeof AppAdminUsersRoute
+  '/_app/settings/account': typeof AppSettingsAccountRoute
+  '/_app/settings/api-keys': typeof AppSettingsApiKeysRoute
+  '/_app/settings/devices': typeof AppSettingsDevicesRoute
+  '/_app/admin/': typeof AppAdminIndexRoute
+  '/_app/settings/': typeof AppSettingsIndexRoute
+  '/_app/admin/libraries/': typeof AppAdminLibrariesIndexRoute
+  '/_app/admin/libraries/$libraryId/': typeof AppAdminLibrariesLibraryIdIndexRoute
+  '/_app/admin/libraries/$libraryId/match/$titleId': typeof AppAdminLibrariesLibraryIdMatchTitleIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/movies' | '/my-list' | '/settings' | '/shows' | '/dev/kit'
+  fullPaths:
+    | '/'
+    | '/device'
+    | '/admin'
+    | '/movies'
+    | '/my-list'
+    | '/settings'
+    | '/shows'
+    | '/dev/kit'
+    | '/admin/backups'
+    | '/admin/server'
+    | '/admin/users'
+    | '/settings/account'
+    | '/settings/api-keys'
+    | '/settings/devices'
+    | '/admin/'
+    | '/settings/'
+    | '/admin/libraries/'
+    | '/admin/libraries/$libraryId/'
+    | '/admin/libraries/$libraryId/match/$titleId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/movies' | '/my-list' | '/settings' | '/shows' | '/dev/kit' | '/'
+  to:
+    | '/device'
+    | '/movies'
+    | '/my-list'
+    | '/shows'
+    | '/dev/kit'
+    | '/'
+    | '/admin/backups'
+    | '/admin/server'
+    | '/admin/users'
+    | '/settings/account'
+    | '/settings/api-keys'
+    | '/settings/devices'
+    | '/admin'
+    | '/settings'
+    | '/admin/libraries'
+    | '/admin/libraries/$libraryId'
+    | '/admin/libraries/$libraryId/match/$titleId'
   id:
     | '__root__'
     | '/_app'
+    | '/device'
+    | '/_app/admin'
     | '/_app/movies'
     | '/_app/my-list'
     | '/_app/settings'
     | '/_app/shows'
     | '/dev/kit'
     | '/_app/'
+    | '/_app/admin/backups'
+    | '/_app/admin/server'
+    | '/_app/admin/users'
+    | '/_app/settings/account'
+    | '/_app/settings/api-keys'
+    | '/_app/settings/devices'
+    | '/_app/admin/'
+    | '/_app/settings/'
+    | '/_app/admin/libraries/'
+    | '/_app/admin/libraries/$libraryId/'
+    | '/_app/admin/libraries/$libraryId/match/$titleId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  DeviceRoute: typeof DeviceRoute
   DevKitRoute: typeof DevKitRoute
 }
 
@@ -108,11 +275,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/device': {
+      id: '/device'
+      path: '/device'
+      fullPath: '/device'
+      preLoaderRoute: typeof DeviceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/': {
       id: '/_app/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/admin': {
+      id: '/_app/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AppAdminRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/movies': {
@@ -150,21 +331,143 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DevKitRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/admin/': {
+      id: '/_app/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AppAdminIndexRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/backups': {
+      id: '/_app/admin/backups'
+      path: '/backups'
+      fullPath: '/admin/backups'
+      preLoaderRoute: typeof AppAdminBackupsRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/server': {
+      id: '/_app/admin/server'
+      path: '/server'
+      fullPath: '/admin/server'
+      preLoaderRoute: typeof AppAdminServerRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/users': {
+      id: '/_app/admin/users'
+      path: '/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AppAdminUsersRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/settings/': {
+      id: '/_app/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof AppSettingsIndexRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/account': {
+      id: '/_app/settings/account'
+      path: '/account'
+      fullPath: '/settings/account'
+      preLoaderRoute: typeof AppSettingsAccountRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/api-keys': {
+      id: '/_app/settings/api-keys'
+      path: '/api-keys'
+      fullPath: '/settings/api-keys'
+      preLoaderRoute: typeof AppSettingsApiKeysRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/devices': {
+      id: '/_app/settings/devices'
+      path: '/devices'
+      fullPath: '/settings/devices'
+      preLoaderRoute: typeof AppSettingsDevicesRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/admin/libraries/': {
+      id: '/_app/admin/libraries/'
+      path: '/libraries'
+      fullPath: '/admin/libraries/'
+      preLoaderRoute: typeof AppAdminLibrariesIndexRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/libraries/$libraryId/': {
+      id: '/_app/admin/libraries/$libraryId/'
+      path: '/libraries/$libraryId'
+      fullPath: '/admin/libraries/$libraryId/'
+      preLoaderRoute: typeof AppAdminLibrariesLibraryIdIndexRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/libraries/$libraryId/match/$titleId': {
+      id: '/_app/admin/libraries/$libraryId/match/$titleId'
+      path: '/libraries/$libraryId/match/$titleId'
+      fullPath: '/admin/libraries/$libraryId/match/$titleId'
+      preLoaderRoute: typeof AppAdminLibrariesLibraryIdMatchTitleIdRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
   }
 }
 
+interface AppAdminRouteChildren {
+  AppAdminBackupsRoute: typeof AppAdminBackupsRoute
+  AppAdminServerRoute: typeof AppAdminServerRoute
+  AppAdminUsersRoute: typeof AppAdminUsersRoute
+  AppAdminIndexRoute: typeof AppAdminIndexRoute
+  AppAdminLibrariesIndexRoute: typeof AppAdminLibrariesIndexRoute
+  AppAdminLibrariesLibraryIdIndexRoute: typeof AppAdminLibrariesLibraryIdIndexRoute
+  AppAdminLibrariesLibraryIdMatchTitleIdRoute: typeof AppAdminLibrariesLibraryIdMatchTitleIdRoute
+}
+
+const AppAdminRouteChildren: AppAdminRouteChildren = {
+  AppAdminBackupsRoute: AppAdminBackupsRoute,
+  AppAdminServerRoute: AppAdminServerRoute,
+  AppAdminUsersRoute: AppAdminUsersRoute,
+  AppAdminIndexRoute: AppAdminIndexRoute,
+  AppAdminLibrariesIndexRoute: AppAdminLibrariesIndexRoute,
+  AppAdminLibrariesLibraryIdIndexRoute: AppAdminLibrariesLibraryIdIndexRoute,
+  AppAdminLibrariesLibraryIdMatchTitleIdRoute:
+    AppAdminLibrariesLibraryIdMatchTitleIdRoute,
+}
+
+const AppAdminRouteWithChildren = AppAdminRoute._addFileChildren(
+  AppAdminRouteChildren,
+)
+
+interface AppSettingsRouteChildren {
+  AppSettingsAccountRoute: typeof AppSettingsAccountRoute
+  AppSettingsApiKeysRoute: typeof AppSettingsApiKeysRoute
+  AppSettingsDevicesRoute: typeof AppSettingsDevicesRoute
+  AppSettingsIndexRoute: typeof AppSettingsIndexRoute
+}
+
+const AppSettingsRouteChildren: AppSettingsRouteChildren = {
+  AppSettingsAccountRoute: AppSettingsAccountRoute,
+  AppSettingsApiKeysRoute: AppSettingsApiKeysRoute,
+  AppSettingsDevicesRoute: AppSettingsDevicesRoute,
+  AppSettingsIndexRoute: AppSettingsIndexRoute,
+}
+
+const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
+  AppSettingsRouteChildren,
+)
+
 interface AppRouteChildren {
+  AppAdminRoute: typeof AppAdminRouteWithChildren
   AppMoviesRoute: typeof AppMoviesRoute
   AppMyListRoute: typeof AppMyListRoute
-  AppSettingsRoute: typeof AppSettingsRoute
+  AppSettingsRoute: typeof AppSettingsRouteWithChildren
   AppShowsRoute: typeof AppShowsRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAdminRoute: AppAdminRouteWithChildren,
   AppMoviesRoute: AppMoviesRoute,
   AppMyListRoute: AppMyListRoute,
-  AppSettingsRoute: AppSettingsRoute,
+  AppSettingsRoute: AppSettingsRouteWithChildren,
   AppShowsRoute: AppShowsRoute,
   AppIndexRoute: AppIndexRoute,
 }
@@ -173,6 +476,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  DeviceRoute: DeviceRoute,
   DevKitRoute: DevKitRoute,
 }
 export const routeTree = rootRouteImport

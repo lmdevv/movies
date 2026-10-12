@@ -1,9 +1,10 @@
 import { Spinner } from "@movies/ui/components/spinner";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
-import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { ConvexReactClient } from "convex/react";
 import ReactDOM from "react-dom/client";
 
 import { ENV } from "./env";
+import { SdkProvider } from "./movies-sdk";
 import { routeTree } from "./routeTree.gen";
 
 const convex = new ConvexReactClient(ENV.VITE_CONVEX_URL);
@@ -19,7 +20,7 @@ const router = createRouter({
   ),
   context: {},
   Wrap: function WrapComponent({ children }: { children: React.ReactNode }) {
-    return <ConvexProvider client={convex}>{children}</ConvexProvider>;
+    return <SdkProvider client={convex}>{children}</SdkProvider>;
   },
 });
 

@@ -1,10 +1,15 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Outlet, createFileRoute } from "@tanstack/react-router";
 
-// Rows arrive with the data milestone; until then the shell renders an empty page.
+import { SettingsFrame } from "@/components/admin/settings-frame";
+
 export const Route = createFileRoute("/_app/settings")({
-  component: SettingsPage,
+  component: SettingsLayout,
 });
 
-function SettingsPage() {
-  return null;
+function SettingsLayout() {
+  return (
+    <SettingsFrame>
+      <Outlet />
+    </SettingsFrame>
+  );
 }

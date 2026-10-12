@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 
+import type { Infer } from "convex/values";
+
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import type { QueryCtx } from "./_generated/server";
@@ -13,8 +15,13 @@ import {
   library,
   libraryAccess,
   libraryDetail,
+  libraryFile,
+  libraryFileFilter,
+  libraryFileSummary,
   libraryKind,
   ok,
+  page,
+  pageArgs,
   queuedJob,
   scanMode,
 } from "./lib/validators";
@@ -211,5 +218,178 @@ export const scan = mutation({
     );
 
     return { jobId };
+  },
+});
+
+const DEFAULT_FILE_PAGE = 50;
+
+const MAX_FILE_PAGE = 100;
+
+/** Most missing files or unmatched titles counted for a summary; more read as this many. */
+const SUMMARY_LIMIT = 1000;
+
+/** A file with its title (overrides applied) and, for a show, its episode numbers. */
+const presentLibraryFile = async (
+  ctx: QueryCtx,
+  file: Doc<"mediaFiles">,
+  title: Doc<"titles">,
+): Promise<Infer<typeof libraryFile>> => {
+  const video = file.probe.video[0];
+  const episode = file.episodeId === null ? null : await ctx.db.get(file.episodeId);
+
+  return {
+    id: file._id,
+    path: file.path,
+    sizeBytes: file.sizeBytes,
+    durationMs: file.probe.durationMs,
+    video:
+      video === undefined
+        ? null
+        : { codec: video.codec, width: video.width, height: video.height, hdr: video.hdr },
+    missing: file.missing,
+    missingSince: file.missing ? (file.missingSince ?? null) : null,
+    title: {
+      id: title._id,
+      kind: title.kind,
+      name: title.overrides?.name ?? title.name,
+      year: title.overrides?.year ?? title.year,
+      matchStatus: title.matchStatus,
+      externalIds: title.externalIds,
+      poster: title.artwork.poster,
+    },
+    episode:
+      episode === null
+        ? null
+        : { seasonNumber: episode.seasonNumber, episodeNumber: episode.episodeNumber },
+  };
+};
+
+/** Presents files whose titles still exist, loading each title once. */
+const presentFiles = async (
+  ctx: QueryCtx,
+  files: ReadonlyArray<Doc<"mediaFiles">>,
+): Promise<Array<Infer<typeof libraryFile>>> => {
+  const titleIds = [...new Set(files.map((file) => file.titleId))];
+
+  const titles = new Map(
+    (await Promise.all(titleIds.map((id) => ctx.db.get(id)))).flatMap((doc) =>
+      doc === null ? [] : [[doc._id, doc] as const],
+    ),
+  );
+
+  return Promise.all(
+    files.flatMap((file) => {
+      const title = titles.get(file.titleId);
+
+      return title === undefined ? [] : [presentLibraryFile(ctx, file, title)];
+    }),
+  );
+};
+
+/**
+ * A library's files for the admin file list, by path. `missing` pages through missing files;
+ * `unmatched` pages through unmatched titles and lists each one's files, so a page may hold more
+ * or fewer files than `limit`.
+ */
+export const files = query({
+  args: {
+    libraryId: v.id("libraries"),
+    ...pageArgs,
+    filter: v.optional(libraryFileFilter),
+    titleId: v.optional(v.id("titles")),
+  },
+  returns: page(libraryFile),
+  handler: async (ctx, { libraryId, cursor, limit, filter, titleId }) => {
+    await authorize(ctx, "manage");
+    const numItems = Math.min(Math.max(1, Math.floor(limit ?? DEFAULT_FILE_PAGE)), MAX_FILE_PAGE);
+    const paging = { numItems, cursor: cursor ?? null };
+
+    if (titleId !== undefined) {
+      const result = await ctx.db
+        .query("mediaFiles")
+        .withIndex("by_title", (q) => q.eq("titleId", titleId))
+        .paginate(paging);
+
+      return {
+        items: await presentFiles(
+          ctx,
+          result.page.filter((file) => file.libraryId === libraryId),
+        ),
+        nextCursor: result.isDone ? null : result.continueCursor,
+      };
+    }
+
+    if (filter === "unmatched") {
+      const result = await ctx.db
+        .query("titles")
+        .withIndex("by_library_status", (q) =>
+          q.eq("libraryId", libraryId).eq("matchStatus", "unmatched"),
+        )
+        .paginate(paging);
+
+      const perTitle = await Promise.all(
+        result.page.map((title) =>
+          ctx.db
+            .query("mediaFiles")
+            .withIndex("by_title", (q) => q.eq("titleId", title._id))
+            .collect(),
+        ),
+      );
+
+      return {
+        items: await presentFiles(ctx, perTitle.flat()),
+        nextCursor: result.isDone ? null : result.continueCursor,
+      };
+    }
+
+    const result =
+      filter === "missing"
+        ? await ctx.db
+            .query("mediaFiles")
+            .withIndex("by_library_missing", (q) =>
+              q.eq("libraryId", libraryId).eq("missing", true),
+            )
+            .paginate(paging)
+        : await ctx.db
+            .query("mediaFiles")
+            .withIndex("by_library_path", (q) => q.eq("libraryId", libraryId))
+            .paginate(paging);
+
+    return {
+      items: await presentFiles(ctx, result.page),
+      nextCursor: result.isDone ? null : result.continueCursor,
+    };
+  },
+});
+
+/** How many of a library's files are missing (and since when) and how many titles are unmatched. */
+export const fileSummary = query({
+  args: { libraryId: v.id("libraries") },
+  returns: libraryFileSummary,
+  handler: async (ctx, { libraryId }) => {
+    await authorize(ctx, "manage");
+
+    const [missing, unmatched] = await Promise.all([
+      ctx.db
+        .query("mediaFiles")
+        .withIndex("by_library_missing", (q) => q.eq("libraryId", libraryId).eq("missing", true))
+        .take(SUMMARY_LIMIT),
+      ctx.db
+        .query("titles")
+        .withIndex("by_library_status", (q) =>
+          q.eq("libraryId", libraryId).eq("matchStatus", "unmatched"),
+        )
+        .take(SUMMARY_LIMIT),
+    ]);
+
+    const since = missing.flatMap((file) =>
+      file.missingSince === undefined ? [] : [file.missingSince],
+    );
+
+    return {
+      missingFiles: missing.length,
+      missingSince: since.length === 0 ? null : Math.min(...since),
+      unmatchedTitles: unmatched.length,
+    };
   },
 });

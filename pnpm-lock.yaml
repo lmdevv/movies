@@ -251,6 +251,12 @@ importers:
 
   apps/web:
     dependencies:
+      '@movies/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@movies/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       '@movies/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -278,6 +284,9 @@ importers:
       react-dom:
         specifier: 'catalog:'
         version: 19.3.0(react@19.3.0)
+      sonner:
+        specifier: 'catalog:'
+        version: 2.0.8(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
     devDependencies:
       '@movies/config':
         specifier: workspace:*
