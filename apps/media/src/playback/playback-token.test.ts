@@ -112,6 +112,25 @@ describe("PlaybackToken", () => {
     }),
   );
 
+  it.effect("rejects a non-canonical signature encoding", () =>
+    Effect.gen(function* () {
+      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+      const token = sign(JSON.stringify(claims));
+      const signature = token.split(".")[2] ?? "";
+      // The last character of a 32-byte signature carries two padding bits; flipping one aliases the bytes.
+      const flipped = alphabet[alphabet.indexOf(signature.at(-1) ?? "A") ^ 1] ?? "";
+      const alias = `${signature.slice(0, -1)}${flipped}`;
+
+      assert.deepStrictEqual(Buffer.from(alias, "base64url"), Buffer.from(signature, "base64url"));
+      yield* TestClock.setTime(5_000);
+
+      assert.strictEqual(
+        yield* rejection(`${token.slice(0, -signature.length)}${alias}`),
+        "malformed",
+      );
+    }),
+  );
+
   it.effect("rejects malformed tokens", () =>
     Effect.gen(function* () {
       assert.strictEqual(yield* rejection("v2.a.b"), "malformed");

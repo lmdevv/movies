@@ -8,12 +8,14 @@ import { parseFfprobeJson } from "../media/media-probe.ts";
 import type { ClientCapabilities } from "../playback/playback-decision.ts";
 import { NegotiateResponse } from "../playback/playback-negotiator.ts";
 import * as PlaybackReporter from "../playback/playback-reporter.ts";
-import { ffmpegAvailable } from "../testing/fixture-library.ts";
+import { ffmpegAvailable, qsvUsable } from "../testing/fixture-library.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
 import * as MediaTestServer from "../testing/media-test-server.ts";
 import { signTestToken } from "../testing/test-config.ts";
 
 const hasFfmpeg = await ffmpegAvailable();
+
+const hasQsv = hasFfmpeg && (await qsvUsable());
 
 const browser: ClientCapabilities = {
   containers: ["mp4", "webm"],
@@ -241,7 +243,9 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           reason: "expired",
         });
 
-        const forged = signTestToken({ fid: fileId }).replace(/.$/, "A");
+        const valid = signTestToken({ fid: fileId });
+        const middle = valid.length - 10;
+        const forged = `${valid.slice(0, middle)}${valid[middle] === "A" ? "B" : "A"}${valid.slice(middle + 1)}`;
 
         assert.strictEqual(
           (yield* get(`${server.baseUrl}/media/direct/${fileId}?token=${forged}`)).status,
@@ -583,6 +587,43 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const status = yield* decodeHealth(yield* json(health)).pipe(Effect.orDie);
 
         assert.strictEqual(status.hardwareAcceleration, "none");
+      }),
+    );
+  });
+
+  layer(
+    MediaTestServer.layer({
+      HARDWARE_ACCELERATION: "auto",
+      FFMPEG_PATH: process.env["FFMPEG_PATH"] ?? "ffmpeg",
+      QSV_DEVICE: process.env["QSV_DEVICE"] ?? "/dev/dri/renderD128",
+    }),
+    { excludeTestServices: true, timeout: "120 seconds" },
+  )("on Intel Quick Sync hardware", (it) => {
+    it.effect.skipIf(!hasQsv)("tone-maps HDR10 HEVC to SDR H.264", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const { library } = yield* FixtureWorkspace.Service;
+        const fileId = server.fileId("movies", library.hdrMovie);
+
+        const result = yield* negotiated({
+          token: signTestToken({ fid: fileId, sid: "qsv" }),
+          capabilities: browser,
+        });
+
+        assert.strictEqual(result.mode, "hardware-transcode");
+        assert.deepStrictEqual(result.video, {
+          codec: "h264",
+          width: 320,
+          height: 180,
+          dynamicRange: "sdr",
+        });
+        const { init, segment } = yield* fetchSegment(local(server.baseUrl, result.url), 0);
+        const probe = yield* probeBytes(concat(yield* bytes(init), yield* bytes(segment)));
+
+        assert.deepStrictEqual(
+          [probe.video?.codec, probe.video?.bitDepth, probe.video?.dynamicRange],
+          ["h264", 8, "sdr"],
+        );
       }),
     );
   });

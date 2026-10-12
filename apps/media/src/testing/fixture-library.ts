@@ -8,6 +8,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
+import { qsvProbeArgs } from "../playback/hardware-acceleration.ts";
+
 const run = promisify(execFile);
 
 const ffmpegPath = process.env["FFMPEG_PATH"] ?? "ffmpeg";
@@ -242,6 +244,17 @@ export const generateFixtureLibrary = async (root: string): Promise<FixtureLibra
 export const ffmpegAvailable = async (): Promise<boolean> => {
   try {
     await run(ffmpegPath, ["-version"]);
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** True when `FFMPEG_PATH` (or `ffmpeg`) can encode with Intel QSV on `QSV_DEVICE`. */
+export const qsvUsable = async (): Promise<boolean> => {
+  try {
+    await run(ffmpegPath, [...qsvProbeArgs(process.env["QSV_DEVICE"] ?? "/dev/dri/renderD128")]);
 
     return true;
   } catch {

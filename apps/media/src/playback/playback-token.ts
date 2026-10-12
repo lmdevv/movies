@@ -105,6 +105,9 @@ export const make = Effect.fn("PlaybackTokenVerifier.make")(function* (secret: R
     const expected = createHmac("sha256", key).update(`v1.${payload}`, "ascii").digest();
     const given = Buffer.from(signature, "base64url");
 
+    // Only the canonical encoding counts; base64url padding bits must not create aliases.
+    if (given.toString("base64url") !== signature) return yield* reject("malformed");
+
     if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
       return yield* reject("bad-signature");
     }
