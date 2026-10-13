@@ -181,6 +181,17 @@ choices made while implementing them. Update it in the same PR that changes a de
   a few reads, else from an ffprobe packet scan of the whole file, cached on disk. Negotiation
   waits at most two seconds for a scan; past that it encodes when the client can take an encode,
   and the scan finishes in the background for the next negotiation.
+- Picture subtitles (PGS, VobSub) are listed in negotiation without a URL. A client shows one by
+  negotiating again with `burnInSubtitle`, which always transcodes: the subtitle is decoded on the
+  CPU, its canvas scaled to the picture (DVD subtitles carry none and are read on a 720x576
+  canvas), drawn after any tone mapping, then scaled and encoded on the session's encoder. After a
+  seek the subtitle comes from a second reading of the file from 30 seconds earlier, so a line
+  already on screen is drawn. Choosing a text subtitle or none negotiates again without it, back to
+  the cheaper mode.
+- A client may send a quality cap (`maxHeight`, `maxBitrate` in bits per second). A source above
+  it is encoded down to the cap; one within it plays as before. The web player offers Auto (no
+  cap, as before), Original (no cap; stays so if Auto ever adapts to the connection), 1080p,
+  720p, and 480p (10, 4, and 2 Mb/s), remembered per browser; the CLI takes `--max-height`.
 
 ## Artwork
 

@@ -39,7 +39,12 @@ import { useCommandRoot } from "@/commands";
 import type { PlayerCommands } from "@/commands/playback";
 import { PlayerCommandsContext } from "@/commands/playback";
 import { artworkUrl } from "@/lib/artwork";
-import { deviceName, loadDeviceId } from "@/lib/device-storage";
+import {
+  deviceName,
+  loadDeviceId,
+  loadQualityChoice,
+  saveQualityChoice,
+} from "@/lib/device-storage";
 import { toastFailure } from "@/lib/failure";
 import { copyText } from "@/lib/secure-context";
 import { episodeCode } from "@/lib/format";
@@ -55,6 +60,7 @@ import { useAirPlay, useRemotePlayback } from "@/casting/system-targets";
 import { useCast, useRemoteState } from "@/casting/use-cast";
 import { PlaybackStop } from "@/playback/playback-policy";
 import { chapterAt, useScrubbing } from "@/playback/scrubbing";
+import { parseQualityChoice, QUALITY_OPTIONS } from "@/playback/quality";
 import { useMediaSession } from "@/playback/use-media-session";
 import { usePictureInPicture } from "@/playback/use-picture-in-picture";
 import { useMediaState, usePlayback } from "@/playback/use-playback";
@@ -105,6 +111,9 @@ const KEY_PREVIEW_MS = 1_200;
 const VOLUME_STEP = 0.1;
 
 const OFF = "off";
+
+/** The tracks button and its popover: audio, subtitles, and quality. */
+const TRACKS_LABEL = "Audio, subtitles, and quality";
 
 /** Where the start of an episode's credits is assumed to be: its last tenth, at most 30 s. */
 const creditsSeconds = (duration: number): number => Math.min(30, duration * 0.1);
@@ -230,6 +239,8 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
                   : targetPosition(current.clock, EpochMillis.make(Date.now()));
               },
             }),
+      // Read once per session; later changes go through `selectQuality`.
+      quality: loadQualityChoice(),
     };
   }, [roomReady, profile.id, deviceId, titleId, episodeId, openedRoom, start]);
 
@@ -407,8 +418,9 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   const subtitleOptions = useMemo(
     (): ReadonlyArray<TrackOption> => [
       { id: OFF, label: "Off" },
+      // Text tracks play as `<track>` elements; picture tracks are burned into the video.
       ...(stream?.subtitles ?? [])
-        .filter((track) => track.url !== undefined)
+        .filter((track) => track.url !== undefined || track.kind === "bitmap")
         .map((track, index) => ({ id: track.id, label: subtitleTrackLabel(track, index) })),
     ],
     [stream],
@@ -448,6 +460,19 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       const index = Number(id);
 
       if (Number.isInteger(index)) controller?.selectAudio(index);
+    },
+    [controller],
+  );
+
+  const qualityId = snapshot?.quality ?? "auto";
+
+  const selectQuality = useCallback(
+    (id: string) => {
+      const choice = parseQualityChoice(id);
+
+      if (choice === undefined) return;
+      saveQualityChoice(choice);
+      controller?.selectQuality(choice);
     },
     [controller],
   );
@@ -712,6 +737,9 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       audio: audioOptions,
       audioId,
       selectAudio,
+      quality: QUALITY_OPTIONS,
+      qualityId,
+      selectQuality,
       nextEpisode: nextEpisode === null || inRoom ? null : playNext,
       startRoom: inRoom || started === null ? null : openStartRoom,
       room: !inRoom
@@ -734,6 +762,8 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       audioOptions,
       audioId,
       selectAudio,
+      qualityId,
+      selectQuality,
       nextEpisode,
       inRoom,
       playNext,
@@ -773,12 +803,30 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
     <TrackPopover
       trigger={trigger}
       container={fullscreen ? frame : undefined}
-      audio={audioOptions}
-      subtitles={subtitleOptions}
-      audioId={audioId}
-      subtitleId={subtitleId}
-      onAudioChange={selectAudio}
-      onSubtitleChange={selectSubtitle}
+      label={TRACKS_LABEL}
+      choices={[
+        {
+          id: "audio",
+          label: "Audio",
+          options: audioOptions,
+          value: audioId,
+          onValueChange: selectAudio,
+        },
+        {
+          id: "subtitles",
+          label: "Subtitles",
+          options: subtitleOptions,
+          value: subtitleId,
+          onValueChange: selectSubtitle,
+        },
+        {
+          id: "quality",
+          label: "Quality",
+          options: QUALITY_OPTIONS,
+          value: qualityId,
+          onValueChange: selectQuality,
+        },
+      ]}
     />
   );
 
@@ -1059,7 +1107,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
           locked={guest ? `Only ${hostName} can pause or seek` : undefined}
           roomActive={sidePanel}
           tracks={tracks(
-            <PlayerButton aria-label="Audio and subtitles">
+            <PlayerButton aria-label={TRACKS_LABEL}>
               <TracksGlyph />
             </PlayerButton>,
           )}

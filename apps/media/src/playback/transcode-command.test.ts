@@ -14,6 +14,7 @@ const command = (audio: AudioPlan, audioCodec: string): HlsCommand => ({
   video: VideoPlan.Copy(),
   audio,
   audioCodec,
+  subtitleCodec: "",
   segmentStarts: [1.4, 3.4],
   outputDirectory: "/tmp/stream/1",
   qsvDevice: "/dev/dri/renderD128",
@@ -36,6 +37,15 @@ const encode = (
     toneMap: options.toneMap ?? false,
     bitrate: 8_000_000,
     burnSubtitle: options.burnSubtitle,
+  });
+
+/** A software encode burning in DVD subtitle stream 3, from `from` seconds. */
+const dvd = (from: number) =>
+  hlsCommandArgs({
+    ...command(AudioPlan.Copy({ index: 1 }), "aac"),
+    from,
+    subtitleCodec: "dvd_subtitle",
+    video: encode("software", { burnSubtitle: 3 }),
   });
 
 /** The argument after the first `flag`. */
@@ -171,5 +181,38 @@ describe("hlsCommandArgs", () => {
         "[picture][subtitle]overlay=eof_action=pass:repeatlast=0,format=p010le,hwupload,tonemap_vaapi=format=nv12:p=bt709:t=bt709:m=bt709,scale_vaapi=w=1920:h=1080:format=nv12[video]",
       ].join(";"),
     );
+  });
+
+  it("reads a burned-in DVD subtitle on its canvas, a second time from earlier after a seek", () => {
+    const fromStart = dvd(1.4);
+
+    expect(fromStart.slice(fromStart.indexOf("-canvas_size"), fromStart.indexOf("-map"))).toEqual([
+      "-canvas_size",
+      "720x576",
+      "-copyts",
+      "-i",
+      "/media/Film (2021).ts",
+      "-filter_complex",
+      expect.stringContaining("[0:3][base]scale2ref"),
+    ]);
+
+    // From 61.4 s: the picture from there, the subtitle from 30 s before it.
+    const seeked = dvd(61.4);
+
+    expect(seeked.slice(seeked.indexOf("-ss"), seeked.indexOf("-filter_complex"))).toStrictEqual([
+      "-ss",
+      "60.000000",
+      "-copyts",
+      "-i",
+      "/media/Film (2021).ts",
+      "-canvas_size",
+      "720x576",
+      "-ss",
+      "30.000000",
+      "-copyts",
+      "-i",
+      "/media/Film (2021).ts",
+    ]);
+    expect(after(seeked, "-filter_complex")).toContain("[1:3][base]scale2ref");
   });
 });

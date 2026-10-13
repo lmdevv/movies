@@ -7,6 +7,7 @@ import {
   type ClientCapabilities,
   HealthResponse,
   NegotiateResponse,
+  type PlaybackQuality,
 } from "@movies/contracts/media-playback";
 
 import * as ArtworkKeys from "../artwork/artwork-keys.ts";
@@ -106,6 +107,7 @@ const negotiate = Effect.fn(function* (body: {
   readonly capabilities: ClientCapabilities;
   readonly startSeconds?: number;
   readonly audioStreamIndex?: number;
+  readonly quality?: PlaybackQuality;
 }) {
   const server = yield* MediaTestServer.Service;
   const response = yield* post(`${server.baseUrl}/api/playback/negotiate`, body);
@@ -390,6 +392,31 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const whole = yield* probeBytes(concat(yield* bytes(init), ...parts));
 
         assert.approximately(whole.durationSeconds, 12, 0.3);
+      }),
+    );
+
+    it.effect("transcodes down to the viewer's quality cap, and plays directly within it", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const { library } = yield* FixtureWorkspace.Service;
+        const fileId = server.fileId("movies", library.directMovie);
+
+        const capped = yield* negotiated({
+          token: signTestToken({ fid: fileId, sid: "quality" }),
+          capabilities: browser,
+          quality: { maxHeight: 120 },
+        });
+
+        assert.strictEqual(capped.mode, "transcode-software");
+        assert.strictEqual(capped.video.height, 120);
+
+        const within = yield* negotiated({
+          token: signTestToken({ fid: fileId, sid: "quality" }),
+          capabilities: browser,
+          quality: { maxHeight: 1080, maxBitrate: 50_000_000 },
+        });
+
+        assert.strictEqual(within.mode, "direct");
       }),
     );
 

@@ -23,6 +23,8 @@ export interface HlsCommand {
   readonly audio: AudioPlan;
   /** ffprobe's name for the source audio track's codec, such as `aac`; empty without audio. */
   readonly audioCodec: string;
+  /** ffprobe's name for the burned-in subtitle's codec, such as `dvd_subtitle`; empty without. */
+  readonly subtitleCodec: string;
   /** Planned segment starts at or after `from`; transcodes force keyframes there. */
   readonly segmentStarts: ReadonlyArray<number>;
   readonly outputDirectory: string;
@@ -109,7 +111,7 @@ const videoFilters = (command: HlsCommand, video: Encode): FilterGraph => {
     kind: "complex",
     graph: [
       `[0:${String(command.videoIndex)}]${base}[base]`,
-      `[0:${String(video.burnSubtitle)}][base]scale2ref=w=rw:h=rh[subtitle][picture]`,
+      `[${subtitleReading(command).second ? "1" : "0"}:${String(video.burnSubtitle)}][base]scale2ref=w=rw:h=rh[subtitle][picture]`,
       `[picture][subtitle]overlay=eof_action=pass:repeatlast=0,${after}[video]`,
     ].join(";"),
   };
@@ -218,9 +220,33 @@ const hardwareInput = (command: HlsCommand): ReadonlyArray<string> => {
   ];
 };
 
+/**
+ * Subtitles that started before the seek point are still on screen there, but a seek skips
+ * their packets. A burned-in subtitle therefore comes from a second reading of the file, from
+ * `SUBTITLE_LEAD` earlier; timestamps line up through `-copyts`. A run from the start reads once.
+ */
+const SUBTITLE_LEAD = 30;
+
+/** DVD subtitles carry no canvas size; without one ffmpeg sizes them to the video and crops. */
+const DVD_CANVAS = "720x576";
+
+/** How a burned-in subtitle is read: its canvas size, and whether from a second reading. */
+const subtitleReading = (command: HlsCommand) => {
+  const video = command.video;
+  const burning = VideoPlan.$is("Encode")(video) && video.burnSubtitle !== undefined;
+  const offset = command.from - command.sourceStart;
+
+  return {
+    canvas: burning && command.subtitleCodec === "dvd_subtitle" ? ["-canvas_size", DVD_CANVAS] : [],
+    second: burning && offset > 0.001,
+    lead: Math.max(0, offset - SUBTITLE_LEAD),
+  };
+};
+
 /** The full ffmpeg argument list for `command`. */
 export const hlsCommandArgs = (command: HlsCommand): ReadonlyArray<string> => {
   const offset = command.from - command.sourceStart;
+  const subtitles = subtitleReading(command);
 
   return [
     "-hide_banner",
@@ -229,10 +255,21 @@ export const hlsCommandArgs = (command: HlsCommand): ReadonlyArray<string> => {
     "-v",
     "error",
     ...hardwareInput(command),
+    // A canvas size applies to the input it precedes: the subtitle's, which is this one from 0 s.
+    ...(subtitles.second ? [] : subtitles.canvas),
     ...(offset > 0.001 ? ["-ss", seconds(offset)] : []),
     "-copyts",
     "-i",
     command.input,
+    ...(subtitles.second
+      ? [
+          ...subtitles.canvas,
+          ...(subtitles.lead > 0.001 ? ["-ss", seconds(subtitles.lead)] : []),
+          "-copyts",
+          "-i",
+          command.input,
+        ]
+      : []),
     ...videoArgs(command),
     ...audioArgs(command),
     "-map_metadata",

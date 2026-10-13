@@ -7,7 +7,9 @@
  * generation reloads its playlist, a lost stream or an expired token renegotiates, a path the
  * browser cannot decode is dropped and the next one tried, and a missing file stops with its own
  * state. Tokens are renewed by renegotiating five minutes before they expire, so a six-hour token
- * never ends a long film. Audio tracks switch by renegotiating with the chosen track.
+ * never ends a long film. Audio tracks switch by renegotiating with the chosen track, and so do the
+ * quality cap and picture subtitles (PGS, VobSub), which the media service burns into the video;
+ * text subtitles are `<track>` elements and switch without a new stream.
  *
  * Every SDK call runs on the app's SDK runtime and comes back as a value; nothing here throws.
  */
@@ -20,6 +22,8 @@ import { MoviesClient, Playback } from "@movies/sdk/effect";
 import { Data, Effect, Exit, Option, Result, Scope } from "effect";
 
 import { withoutFailedPath } from "./capabilities";
+import type { QualityChoice } from "./quality";
+import { qualityCap } from "./quality";
 import { ELEMENT_SEEKER, MediaElementPlayer, isBuffered } from "./media-element-player";
 import type { StreamSeeker } from "./media-element-player";
 import {
@@ -60,6 +64,8 @@ export interface PlaybackRequest {
   /** Play a watch room's file as one of its members. */
   readonly roomId: RoomId | null;
   readonly start: StartChoice;
+  /** The quality this browser plays at, as the viewer last chose it. */
+  readonly quality: QualityChoice;
 }
 
 /** Where playback stands. */
@@ -87,8 +93,12 @@ export interface PlaybackSnapshot {
   readonly stream: NegotiateResponse | null;
   /** The audio track playing, as an ffmpeg stream index. */
   readonly audioStreamIndex: number | null;
-  /** The subtitle track shown, or null for none. */
+  /**
+   * The subtitle track shown, or null for none. A picture subtitle shows once a stream that burns
+   * it in has loaded; the stream's `burnedInSubtitle` says which one is in the video.
+   */
   readonly subtitleId: string | null;
+  readonly quality: QualityChoice;
   /** The browser refused to start playback until the viewer interacts with the page. */
   readonly needsGesture: boolean;
 }
@@ -126,12 +136,15 @@ export class PlaybackController {
   readonly #request: PlaybackRequest;
   readonly #hlsJs: boolean;
   #capabilities: ClientCapabilities;
+  /** The picture subtitle the stream should burn in, or null. */
+  #burnIn: string | null = null;
   #snapshot: PlaybackSnapshot = {
     phase: PlaybackPhase.Starting(),
     started: null,
     stream: null,
     audioStreamIndex: null,
     subtitleId: null,
+    quality: "auto",
     needsGesture: false,
   };
   readonly #listeners = new Set<() => void>();
@@ -163,6 +176,7 @@ export class PlaybackController {
     this.#capabilities = capabilities;
     this.#hlsJs = hlsJs;
     this.#request = request;
+    this.#snapshot = { ...this.#snapshot, quality: request.quality };
     this.player = new MediaElementPlayer(element);
     this.output = new SwitchablePlayer(this.player);
     element.addEventListener("playing", this.#onPlaying);
@@ -272,6 +286,7 @@ export class PlaybackController {
         this.#capabilities,
         Milliseconds.make(Math.max(0, positionMs)),
         Option.fromNullishOr(this.#snapshot.audioStreamIndex),
+        this.#choices(),
       ),
     );
 
@@ -558,6 +573,7 @@ export class PlaybackController {
         this.#capabilities,
         Milliseconds.make(Math.max(0, positionMs)),
         Option.fromNullishOr(audioStreamIndex),
+        this.#choices(),
       ),
     );
 
@@ -599,9 +615,45 @@ export class PlaybackController {
     if (!this.#parked) void this.#renegotiate(playback, this.player.positionMs(), streamIndex);
   }
 
-  /** Shows the subtitle track `id`, or none. */
+  /** The quality cap and burned-in subtitle every negotiation asks for. */
+  #choices(): Playback.StreamChoices {
+    return {
+      quality: Option.fromNullishOr(qualityCap(this.#snapshot.quality)),
+      burnInSubtitle: Option.fromNullishOr(this.#burnIn),
+    };
+  }
+
+  /**
+   * Shows the subtitle track `id`, or none. A picture subtitle needs a stream with it burned in,
+   * and leaving one for a text track or none goes back to a stream without it: both renegotiate
+   * at the current position. Text tracks switch in place.
+   */
   selectSubtitle(id: string | null): void {
+    const track = this.#snapshot.stream?.subtitles.find((candidate) => candidate.id === id);
+    const burnIn = track?.kind === "bitmap" ? track.id : null;
+
     this.#update({ subtitleId: id });
+
+    if (burnIn === this.#burnIn) return;
+    this.#burnIn = burnIn;
+
+    const playback = this.#playback;
+
+    if (playback !== null) {
+      void this.#renegotiate(playback, this.player.positionMs(), this.#snapshot.audioStreamIndex);
+    }
+  }
+
+  /** Plays at `quality` from here on, renegotiating when it changes. */
+  selectQuality(quality: QualityChoice): void {
+    const playback = this.#playback;
+
+    if (quality === this.#snapshot.quality) return;
+    this.#update({ quality });
+
+    if (playback !== null) {
+      void this.#renegotiate(playback, this.player.positionMs(), this.#snapshot.audioStreamIndex);
+    }
   }
 
   /** Tries again from where playback stopped. */

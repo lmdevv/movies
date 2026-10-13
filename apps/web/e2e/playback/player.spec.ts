@@ -305,9 +305,9 @@ test("the resume prompt resumes where the profile stopped, or starts over", asyn
 test("subtitles show from the track popover and toggle with c; another audio track renegotiates", async () => {
   await playFromStart(MOVIES.direct, "direct");
   await revealControls(page);
-  await page.getByRole("button", { name: "Audio and subtitles" }).click();
+  await page.getByRole("button", { name: "Audio, subtitles, and quality" }).click();
 
-  const panel = page.getByRole("dialog", { name: "Audio and subtitles" });
+  const panel = page.getByRole("dialog", { name: "Audio, subtitles, and quality" });
 
   await panel.getByRole("radio", { name: "English" }).last().click();
 
@@ -333,7 +333,7 @@ test("subtitles show from the track popover and toggle with c; another audio tra
   const position = (await videoState(page)).currentTime;
 
   await revealControls(page);
-  await page.getByRole("button", { name: "Audio and subtitles" }).click();
+  await page.getByRole("button", { name: "Audio, subtitles, and quality" }).click();
   await capture(page, "07-02-audio-and-subtitles");
   await panel.getByRole("radio", { name: "French" }).click();
   await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe("remux");
