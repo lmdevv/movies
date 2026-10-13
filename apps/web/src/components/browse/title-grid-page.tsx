@@ -39,12 +39,6 @@ type LoadedPage = {
   readonly nextCursor: string | null;
 };
 
-/** A page that failed to load, and the way to load it again. */
-interface GridFailure {
-  readonly cause: unknown;
-  readonly retry: () => void;
-}
-
 /** Subscribes to one page and reports it; the grid draws every page's titles together. */
 function PageSubscription({
   profileId,
@@ -61,13 +55,13 @@ function PageSubscription({
   readonly cursor: string | null;
   readonly index: number;
   readonly onPage: (index: number, page: LoadedPage) => void;
-  readonly onError: (index: number, failure: GridFailure) => void;
+  readonly onError: (index: number, cause: unknown) => void;
 }) {
   const page = useCommandQuery("titles.list", { profileId, kind, sort, cursor, limit: PAGE_SIZE });
 
   useEffect(() => {
     if (page.status === "success") onPage(index, page.data);
-    else if (page.status === "error") onError(index, { cause: page.error, retry: page.retry });
+    else if (page.status === "error") onError(index, page.error);
   }, [page, index, onPage, onError]);
 
   return null;
@@ -150,8 +144,10 @@ export function TitleGridPage({ kind }: { readonly kind: TitleKind }) {
   const [genre, setGenre] = useState<string | null>(null);
   const [pages, setPages] = useState<ReadonlyArray<LoadedPage | undefined>>([]);
   const [cursors, setCursors] = useState<ReadonlyArray<string | null>>([null]);
-  // Failed pages by index; Try again reloads all of them.
-  const [failures, setFailures] = useState<ReadonlyMap<number, GridFailure>>(new Map());
+  // Why each failed page failed, by index.
+  const [failures, setFailures] = useState<ReadonlyMap<number, unknown>>(new Map());
+  // Try again counts up; it is part of every page subscription's key, so they all subscribe anew.
+  const [attempt, setAttempt] = useState(0);
 
   // A new sort starts over from the first page.
   const changeSort = (next: TitleSort): void => {
@@ -171,17 +167,17 @@ export function TitleGridPage({ kind }: { readonly kind: TitleKind }) {
     });
   }, []);
 
-  const onError = useCallback((index: number, failure: GridFailure) => {
-    setFailures((current) => new Map(current).set(index, failure));
+  const onError = useCallback((index: number, cause: unknown) => {
+    setFailures((current) => new Map(current).set(index, cause));
   }, []);
 
   const retryFailed = (): void => {
-    for (const failure of failures.values()) failure.retry();
-
     setFailures(new Map());
+    setAttempt((current) => current + 1);
   };
 
-  const failure = failures.values().next().value;
+  // The earliest failed page speaks for the grid.
+  const firstFailed = failures.size === 0 ? undefined : Math.min(...failures.keys());
 
   const loaded = pages.flatMap((page) => page?.items ?? []);
   const last = pages[cursors.length - 1];
@@ -205,7 +201,7 @@ export function TitleGridPage({ kind }: { readonly kind: TitleKind }) {
     <div className="mx-auto box-content max-w-content px-4 md:px-16">
       {cursors.map((cursor, index) => (
         <PageSubscription
-          key={`${sort}:${cursor ?? "first"}`}
+          key={`${sort}:${cursor ?? "first"}:${attempt}`}
           profileId={profile.id}
           kind={kind}
           sort={sort}
@@ -254,11 +250,11 @@ export function TitleGridPage({ kind }: { readonly kind: TitleKind }) {
           ))}
         </div>
       )}
-      {failure !== undefined ? (
+      {firstFailed !== undefined ? (
         <CalmState
           className="py-24"
           title={`${label} didn't load`}
-          description={describeFailure(failure.cause)}
+          description={describeFailure(failures.get(firstFailed))}
           actions={<Button onClick={retryFailed}>Try again</Button>}
         />
       ) : !firstLoaded ? (

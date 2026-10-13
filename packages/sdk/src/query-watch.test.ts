@@ -86,7 +86,7 @@ describe("QueryWatch", () => {
   it("retries a dropped connection with backoff before showing the result", async () => {
     const { counts, watch, advance } = scripted([
       { values: [], error: dropped },
-      { values: [], error: crashed },
+      { values: [], error: dropped },
       { values: [[]] },
     ]);
 
@@ -107,6 +107,16 @@ describe("QueryWatch", () => {
     await advance(60_000);
 
     expect(watch.getSnapshot()).toMatchObject({ status: "error", error: { _tag: "NotFound" } });
+    expect(counts.opened).toBe(1);
+  });
+
+  it("reports a crashed function at once, without retrying", async () => {
+    const { counts, watch, advance } = scripted([{ values: [], error: crashed }]);
+
+    watch.subscribe(() => undefined);
+    await advance(60_000);
+
+    expect(watch.getSnapshot()).toMatchObject({ status: "error", error: { _tag: "Internal" } });
     expect(counts.opened).toBe(1);
   });
 
@@ -169,9 +179,12 @@ describe("QueryWatch", () => {
 
     expect(watch.getSnapshot()).toMatchObject({ status: "error" });
 
-    watch.subscribe(() => undefined);
+    const seen: Array<string> = [];
+
+    watch.subscribe(() => seen.push(watch.getSnapshot().status));
 
     expect(watch.getSnapshot()).toStrictEqual({ status: "loading" });
+    expect(seen).toStrictEqual(["loading"]);
     expect(counts.opened).toBe(2);
   });
 

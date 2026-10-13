@@ -3,6 +3,7 @@
  * rendering. Inside the app shell they sit in the page like any other state; elsewhere (sign-in,
  * the player, a crashed shell) they take the sign-in frame with the wordmark.
  */
+import { useAuth, useCommandQuery } from "@movies/sdk/react";
 import { Button, buttonVariants } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { cn } from "@movies/ui/lib/utils";
@@ -12,7 +13,6 @@ import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 
 import { AuthPage } from "@/components/auth/auth-page";
-import { useScopes } from "@/session/viewer";
 
 const InShellContext = createContext(false);
 
@@ -78,7 +78,10 @@ export function NotFoundPage() {
  */
 export function RouteErrorPage({ error, reset }: ErrorComponentProps) {
   const router = useRouter();
-  const scopes = useScopes();
+  const { status } = useAuth();
+  // Only a session can manage the server; signed out, the screen asks the server nothing.
+  const viewer = useCommandQuery("account.viewer", status === "signedIn" ? {} : "skip");
+  const canManage = viewer.status === "success" && viewer.data.scopes.includes("manage");
 
   return (
     <StateFrame>
@@ -98,7 +101,7 @@ export function RouteErrorPage({ error, reset }: ErrorComponentProps) {
           </>
         }
       />
-      {scopes.has("manage") ? (
+      {canManage ? (
         <details className="mx-auto w-full max-w-130 font-sans">
           <summary className="cursor-pointer text-center text-label/label text-text-muted">
             Error details

@@ -1,8 +1,8 @@
 /**
  * A live query outside React, for `useCommandQuery`: its latest state, change notifications for
- * `useSyncExternalStore`, and a retry. Failures that may pass by themselves (the network, a crashed
- * function, rate limiting) retry with backoff before the query reports them; the rest, such as
- * not found or forbidden, report at once. A failed query stays failed until `retry` runs.
+ * `useSyncExternalStore`, and a retry. Failures that may pass by themselves (the network, rate
+ * limiting) retry with backoff before the query reports them; the rest, such as not found,
+ * forbidden or a crashed function, report at once. A failed query stays failed until `retry` runs.
  */
 import type { CommandArgs, CommandResult } from "@movies/contracts/commands";
 import type { Duration, ManagedRuntime } from "effect";
@@ -42,11 +42,12 @@ export const skipped: QueryWatch<never> = {
   getSnapshot: () => LOADING,
 };
 
-/** Failures a query retries by itself: they may pass without anyone changing anything. */
+/**
+ * Failures a query retries by itself: they may pass without anyone changing anything. A crashed
+ * function (`Internal`) usually crashes again the same way, so it reports at once for Try again.
+ */
 const isTransient = (error: CallError): boolean =>
-  Predicate.isTagged(error, "TransportError") ||
-  Predicate.isTagged(error, "Internal") ||
-  Predicate.isTagged(error, "RateLimited");
+  Predicate.isTagged(error, "TransportError") || Predicate.isTagged(error, "RateLimited");
 
 /**
  * Four retries about 0.5, 1, 2 and 4 seconds apart, for transient failures only. The count starts
@@ -110,7 +111,7 @@ export const make = <Name extends QueryName>(
 
       // Coming back after everyone left subscribes afresh; an old failure would offer a stale retry.
       if (listeners.size === 1) {
-        if (state.status === "error") state = LOADING;
+        if (state.status === "error") publish(LOADING);
         start();
       }
 

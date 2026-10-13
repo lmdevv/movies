@@ -175,14 +175,23 @@ export const useCommandQuery = <Name extends QueryName>(
   args: CommandArgs<Name> | "skip",
 ): QueryState<CommandResult<Name>> => {
   const runtime = useMoviesRuntime();
-  // The subscription restarts only when the arguments' content changes.
+  // The subscription restarts only when the runtime or the arguments' content changes.
   const key = args === "skip" ? null : `${name}:${JSON.stringify(args)}`;
 
-  const watch = useMemo(
-    (): QueryWatch.QueryWatch<CommandResult<Name>> =>
-      args === "skip" ? QueryWatch.skipped : QueryWatch.make(runtime, name, args),
-    [runtime, key],
-  );
+  const watchFor = (): QueryWatch.QueryWatch<CommandResult<Name>> =>
+    args === "skip" ? QueryWatch.skipped : QueryWatch.make(runtime, name, args);
+
+  // State rather than a memo: React may drop a memo, which would restart a live subscription.
+  const [held, setHeld] = useState(() => ({ runtime, key, watch: watchFor() }));
+  let current = held;
+
+  if (held.runtime !== runtime || held.key !== key) {
+    // A watch does nothing until subscribed, so building the next one during render is safe.
+    current = { runtime, key, watch: watchFor() };
+    setHeld(current);
+  }
+
+  const { watch } = current;
 
   return useSyncExternalStore(watch.subscribe, watch.getSnapshot, watch.getSnapshot);
 };

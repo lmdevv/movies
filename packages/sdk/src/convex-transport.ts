@@ -101,31 +101,25 @@ const isTokenRejection = (error: Error): boolean => {
 };
 
 /**
- * Convex rejecting an argument against a `v.id(table)` validator before the function runs: a
- * string that is no ID at all, such as a mistyped or truncated link, or an ID from another table.
- * Each captures the table.
+ * Convex rejecting an argument against a `v.id(table)` validator before the function runs, in the
+ * self-hosted backend's two wordings: a string that is no ID at all, such as a mistyped or
+ * truncated link, and an ID from another table.
  */
 const ID_VALIDATION_FAILURES = [
-  /ArgumentValidationError[\s\S]*^Validator: v\.id\("([^"]+)"\)$/mu,
-  /ArgumentValidationError: Found ID "[^"]*" from table `[^`]*`, which does not match the table name in validator `v\.id\("([^"]+)"\)`/u,
+  /ArgumentValidationError[\s\S]*^Validator: v\.id\("[^"]+"\)$/mu,
+  /ArgumentValidationError: Found ID "[^"]*" from table `[^`]*`, which does not match the table name in validator `v\.id\("[^"]+"\)`/u,
 ] as const;
 
-/** The table of an ID argument Convex rejected, or null for any other failure. */
-const rejectedIdTable = (message: string): string | null => {
-  for (const pattern of ID_VALIDATION_FAILURES) {
-    const table = pattern.exec(message)?.[1];
-
-    if (table !== undefined) return table;
-  }
-
-  return null;
-};
+/** Whether Convex rejected one of the call's ID arguments. */
+const isRejectedId = (message: string): boolean =>
+  ID_VALIDATION_FAILURES.some((pattern) => pattern.test(message));
 
 /**
  * Translates what a Convex client threw. `ConvexError` data carries a command failure; a token
  * Convex could not verify means the session is gone; an argument that is not an ID of its table
- * names no record, so it is not found; any other "Server Error" is a function that crashed;
- * anything else is the network.
+ * names no record, so the call is not found, whichever of its ID arguments it was (screens
+ * that pass several IDs check the others first, as `RequireProfile` does for the profile); any
+ * other "Server Error" is a function that crashed; anything else is the network.
  */
 export const translateFailure = (operation: string, cause: unknown): CallError => {
   if (cause instanceof ConvexError) {
@@ -152,9 +146,9 @@ export const translateFailure = (operation: string, cause: unknown): CallError =
     return new Unauthenticated({ message: "The server rejected the session; sign in again" });
   }
 
-  const table = rejectedIdTable(cause.message);
-
-  if (table !== null) return new NotFound({ message: "No such item: nothing has that ID" });
+  if (isRejectedId(cause.message)) {
+    return new NotFound({ message: "No such item: nothing has that ID" });
+  }
 
   if (cause.message.includes("Server Error")) {
     return new Internal({ message: `The server failed while running ${operation}` });
