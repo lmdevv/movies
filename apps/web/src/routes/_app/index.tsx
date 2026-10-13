@@ -1,6 +1,7 @@
 import type { ProfileId } from "@movies/contracts/ids";
 import type { Home, TitleCard } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
+import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { MediaRow } from "@movies/ui/components/media-row";
 import { Link, createFileRoute } from "@tanstack/react-router";
@@ -44,12 +45,23 @@ function HomePage() {
   if (home.status === "loading" || libraries.status === "loading") return <HomeSkeleton />;
 
   if (home.status === "error" || libraries.status === "error") {
-    const cause =
-      home.status === "error" ? home.error : libraries.status === "error" ? libraries.error : null;
+    const failed = [home, libraries].filter((query) => query.status === "error");
 
     return (
       <div className="flex min-h-[60svh] items-center justify-center px-6 md:pt-17">
-        <CalmState title="Home didn't load" description={describeFailure(cause)} />
+        <CalmState
+          title="Home didn't load"
+          description={describeFailure(failed[0]?.error)}
+          actions={
+            <Button
+              onClick={() => {
+                for (const query of failed) query.retry();
+              }}
+            >
+              Try again
+            </Button>
+          }
+        />
       </div>
     );
   }

@@ -1,7 +1,7 @@
 import { PersonId } from "@movies/contracts/ids";
 import type { PersonDetail } from "@movies/contracts/models/people";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
-import { buttonVariants } from "@movies/ui/components/button";
+import { Button, buttonVariants } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Schema } from "effect";
@@ -84,9 +84,12 @@ function PersonPage() {
           title={missing ? "This person isn't here" : "This person didn't load"}
           description={missing ? undefined : describeFailure(person.error)}
           actions={
-            <Link to="/" className={buttonVariants({ variant: "subtle" })}>
-              Go home
-            </Link>
+            <>
+              {missing ? null : <Button onClick={person.retry}>Try again</Button>}
+              <Link to="/" className={buttonVariants({ variant: "subtle" })}>
+                Go home
+              </Link>
+            </>
           }
         />
       </div>

@@ -1,4 +1,5 @@
 import { useCommandQuery } from "@movies/sdk/react";
+import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { createFileRoute } from "@tanstack/react-router";
 
@@ -32,6 +33,7 @@ function MyListPage() {
           className="py-24"
           title="My List didn't load"
           description={describeFailure(list.error)}
+          actions={<Button onClick={list.retry}>Try again</Button>}
         />
       ) : list.data.length === 0 ? (
         <CalmState className="py-24" title="Nothing on your list yet" />

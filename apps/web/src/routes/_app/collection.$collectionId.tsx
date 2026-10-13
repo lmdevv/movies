@@ -1,6 +1,6 @@
 import { CollectionId } from "@movies/contracts/ids";
 import { useCommandQuery } from "@movies/sdk/react";
-import { buttonVariants } from "@movies/ui/components/button";
+import { Button, buttonVariants } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Schema } from "effect";
@@ -41,9 +41,12 @@ function CollectionPage() {
           title={missing ? "This collection isn't here" : "This collection didn't load"}
           description={missing ? undefined : describeFailure(collection.error)}
           actions={
-            <Link to="/collections" className={buttonVariants({ variant: "subtle" })}>
-              All collections
-            </Link>
+            <>
+              {missing ? null : <Button onClick={collection.retry}>Try again</Button>}
+              <Link to="/collections" className={buttonVariants({ variant: "subtle" })}>
+                All collections
+              </Link>
+            </>
           }
         />
       </div>

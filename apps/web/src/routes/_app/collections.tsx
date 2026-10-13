@@ -1,4 +1,5 @@
 import { useCommandQuery } from "@movies/sdk/react";
+import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { createFileRoute } from "@tanstack/react-router";
 
@@ -36,6 +37,7 @@ function CollectionsPage() {
           className="py-24"
           title="Collections didn't load"
           description={describeFailure(collections.error)}
+          actions={<Button onClick={collections.retry}>Try again</Button>}
         />
       ) : collections.data.length === 0 ? (
         <CalmState className="py-24" title="No collections yet" />

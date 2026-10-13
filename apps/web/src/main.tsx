@@ -6,6 +6,7 @@ import { StrictMode } from "react";
 import type { ReactNode } from "react";
 import ReactDOM from "react-dom/client";
 
+import { NotFoundPage, RouteErrorPage } from "./components/shell/route-states";
 import { ENV, MEDIA_BASE_URL } from "./env";
 import { parseSearch, stringifySearch } from "./lib/search-params";
 import { routeTree } from "./routeTree.gen";
@@ -20,6 +21,8 @@ const router = createRouter({
   // Search values stay plain strings; each route reads its own.
   parseSearch,
   stringifySearch,
+  defaultNotFoundComponent: NotFoundPage,
+  defaultErrorComponent: RouteErrorPage,
   defaultPendingComponent: () => (
     <div className="flex min-h-svh items-center justify-center bg-page">
       <Spinner className="size-12 text-text" label="Loading" />

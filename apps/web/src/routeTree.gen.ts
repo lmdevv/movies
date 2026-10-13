@@ -21,6 +21,7 @@ import { Route as AppMyListRouteImport } from './routes/_app/my-list'
 import { Route as AppSearchRouteImport } from './routes/_app/search'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppShowsRouteImport } from './routes/_app/shows'
+import { Route as DevCrashRouteImport } from './routes/dev/crash'
 import { Route as DevKitRouteImport } from './routes/dev/kit'
 import { Route as InviteCodeRouteImport } from './routes/invite.$code'
 import { Route as ProfilesIndexRouteImport } from './routes/profiles.index'
@@ -106,6 +107,11 @@ const AppShowsRoute = AppShowsRouteImport.update({
   id: '/shows',
   path: '/shows',
   getParentRoute: () => AppRoute,
+} as any)
+const DevCrashRoute = DevCrashRouteImport.update({
+  id: '/dev/crash',
+  path: '/dev/crash',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const DevKitRoute = DevKitRouteImport.update({
   id: '/dev/kit',
@@ -253,6 +259,7 @@ export interface FileRoutesByFullPath {
   '/search': typeof AppSearchRoute
   '/settings': typeof AppSettingsRouteWithChildren
   '/shows': typeof AppShowsRoute
+  '/dev/crash': typeof DevCrashRoute
   '/dev/kit': typeof DevKitRoute
   '/invite/$code': typeof InviteCodeRoute
   '/profiles/new': typeof ProfilesNewRoute
@@ -289,6 +296,7 @@ export interface FileRoutesByTo {
   '/my-list': typeof AppMyListRoute
   '/search': typeof AppSearchRoute
   '/shows': typeof AppShowsRoute
+  '/dev/crash': typeof DevCrashRoute
   '/dev/kit': typeof DevKitRoute
   '/invite/$code': typeof InviteCodeRoute
   '/profiles/new': typeof ProfilesNewRoute
@@ -330,6 +338,7 @@ export interface FileRoutesById {
   '/_app/search': typeof AppSearchRoute
   '/_app/settings': typeof AppSettingsRouteWithChildren
   '/_app/shows': typeof AppShowsRoute
+  '/dev/crash': typeof DevCrashRoute
   '/dev/kit': typeof DevKitRoute
   '/invite/$code': typeof InviteCodeRoute
   '/profiles/new': typeof ProfilesNewRoute
@@ -372,6 +381,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/settings'
     | '/shows'
+    | '/dev/crash'
     | '/dev/kit'
     | '/invite/$code'
     | '/profiles/new'
@@ -408,6 +418,7 @@ export interface FileRouteTypes {
     | '/my-list'
     | '/search'
     | '/shows'
+    | '/dev/crash'
     | '/dev/kit'
     | '/invite/$code'
     | '/profiles/new'
@@ -448,6 +459,7 @@ export interface FileRouteTypes {
     | '/_app/search'
     | '/_app/settings'
     | '/_app/shows'
+    | '/dev/crash'
     | '/dev/kit'
     | '/invite/$code'
     | '/profiles/new'
@@ -482,6 +494,7 @@ export interface RootRouteChildren {
   DeviceRoute: typeof DeviceRoute
   SignInRoute: typeof SignInRoute
   WelcomeRoute: typeof WelcomeRoute
+  DevCrashRoute: typeof DevCrashRoute
   DevKitRoute: typeof DevKitRoute
   InviteCodeRoute: typeof InviteCodeRoute
   ProfilesNewRoute: typeof ProfilesNewRoute
@@ -579,6 +592,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/shows'
       preLoaderRoute: typeof AppShowsRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/dev/crash': {
+      id: '/dev/crash'
+      path: '/dev/crash'
+      fullPath: '/dev/crash'
+      preLoaderRoute: typeof DevCrashRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/dev/kit': {
       id: '/dev/kit'
@@ -847,6 +867,7 @@ const rootRouteChildren: RootRouteChildren = {
   DeviceRoute: DeviceRoute,
   SignInRoute: SignInRoute,
   WelcomeRoute: WelcomeRoute,
+  DevCrashRoute: DevCrashRoute,
   DevKitRoute: DevKitRoute,
   InviteCodeRoute: InviteCodeRoute,
   ProfilesNewRoute: ProfilesNewRoute,

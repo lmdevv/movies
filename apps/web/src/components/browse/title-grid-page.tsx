@@ -6,6 +6,7 @@ import type { CommandArgs } from "@movies/contracts/commands";
 import type { ProfileId } from "@movies/contracts/ids";
 import type { TitleCard, TitleKind, TitleSort } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
+import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Chip } from "@movies/ui/components/chip";
 import { ChevronDownIcon } from "lucide-react";
@@ -122,13 +123,13 @@ function PageSubscription({
   readonly cursor: string | null;
   readonly index: number;
   readonly onPage: (index: number, page: LoadedPage) => void;
-  readonly onError: (cause: unknown) => void;
+  readonly onError: (index: number, cause: unknown) => void;
 }) {
   const page = useCommandQuery("titles.list", listArgs(profileId, kind, filters, cursor));
 
   useEffect(() => {
     if (page.status === "success") onPage(index, page.data);
-    else if (page.status === "error") onError(page.error);
+    else if (page.status === "error") onError(index, page.error);
   }, [page, index, onPage, onError]);
 
   return null;
@@ -279,7 +280,10 @@ export function TitleGridPage({
 
   const [pages, setPages] = useState<ReadonlyArray<LoadedPage | undefined>>([]);
   const [cursors, setCursors] = useState<ReadonlyArray<string | null>>([null]);
-  const [failure, setFailure] = useState<{ readonly cause: unknown } | null>(null);
+  // Why each failed page failed, by index.
+  const [failures, setFailures] = useState<ReadonlyMap<number, unknown>>(new Map());
+  // Try again counts up; it is part of every page subscription's key, so they all subscribe anew.
+  const [attempt, setAttempt] = useState(0);
   const nearEnd = useRef(false);
 
   // Any change of filter starts over from the first page.
@@ -287,6 +291,7 @@ export function TitleGridPage({
     setFilters((current) => ({ ...current, ...next }));
     setPages([]);
     setCursors([null]);
+    setFailures(new Map());
   };
 
   // A page that lands while the grid's end is still in view asks for the next one, so filtered
@@ -311,7 +316,17 @@ export function TitleGridPage({
     }
   }, []);
 
-  const onError = useCallback((cause: unknown) => setFailure({ cause }), []);
+  const onError = useCallback((index: number, cause: unknown) => {
+    setFailures((current) => new Map(current).set(index, cause));
+  }, []);
+
+  const retryFailed = (): void => {
+    setFailures(new Map());
+    setAttempt((current) => current + 1);
+  };
+
+  // The earliest failed page speaks for the grid.
+  const firstFailed = failures.size === 0 ? undefined : Math.min(...failures.keys());
 
   const loaded = pages.flatMap((page) => page?.items ?? []);
   const last = pages[cursors.length - 1];
@@ -336,7 +351,7 @@ export function TitleGridPage({
     <div className="mx-auto box-content max-w-content px-4 md:px-16">
       {cursors.map((cursor, index) => (
         <PageSubscription
-          key={`${filterKey(filters)}:${cursor ?? "first"}`}
+          key={`${filterKey(filters)}:${cursor ?? "first"}:${attempt}`}
           profileId={profile.id}
           kind={kind}
           filters={filters}
@@ -380,11 +395,12 @@ export function TitleGridPage({
           onChange={(genre) => changeFilters({ genre })}
         />
       ) : null}
-      {failure !== null ? (
+      {firstFailed !== undefined ? (
         <CalmState
           className="py-24"
           title={`${heading} didn't load`}
-          description={describeFailure(failure.cause)}
+          description={describeFailure(failures.get(firstFailed))}
+          actions={<Button onClick={retryFailed}>Try again</Button>}
         />
       ) : !firstLoaded ? (
         <PosterGridSkeleton />
