@@ -48,8 +48,8 @@ choices made while implementing them. Update it in the same PR that changes a de
   Password sessions have no grant and hold every scope their role allows.
 - Scopes: `read` (browse, search, history, room state, PIN unlock), `play` (playback sessions,
   progress, my list, watched marks, rooms), `account` (the account's own profiles, PINs, API keys,
-  device approvals, and sessions), `manage` (libraries, scans, jobs, metadata fixes; admin role
-  required), `admin` (users, invites, other people's keys, backups, restore, migration; admin role
+  device approvals, and sessions), `manage` (libraries, scans, jobs other than backups and
+  migrations, metadata fixes; admin role required), `admin` (users, invites, other people's keys, backups, restore, migration; admin role
   required), and `media-service`. `account` was added so a key or device can never mint
   credentials unless explicitly granted it; API keys can never hold it.
 - API keys hold a non-empty subset of `read`, `play`, `manage`, `admin`, never more than the
@@ -58,6 +58,13 @@ choices made while implementing them. Update it in the same PR that changes a de
 - The media service signs in with `MEDIA_SERVICE_API_KEY` through the `apikey` provider. The key
   belongs to the `service` account, is created by `packages/backend/scripts/configure.ts`, and its
   grant carries only `media-service`, which allows the media functions and nothing else.
+- An API key's session ends at the key's expiry at the latest, and every call checks the key again:
+  a revoked, deleted, or expired key ends its session at once. Admins manage other accounts' keys,
+  except the owner's.
+- Validators check shapes; the bounds the contracts put on arguments (display names 1 to 80
+  characters, avatar keys 1 to 40, device IDs up to 128, folders up to 1024 and 20 per library,
+  non-negative finite positions and durations) are checked again in `convex/lib/bounds.ts`, and the
+  registry test compares each bound with its contract schema.
 - Every public Convex function checks the viewer's scopes server-side, and checks the session row
   on every call: signing out, revoking a key, revoking a session, or disabling the account ends
   its tokens immediately and ends the playback sessions it started. `auth:signOut` is ours, not
@@ -115,6 +122,15 @@ choices made while implementing them. Update it in the same PR that changes a de
   `libraries`, and `endedSessions`, resolves a token's file with `resolveFile`, and writes scans
   in batches of at most 100 with `upsertScanned` and `markMissing`. Missing files keep their
   records and history.
+- Library folders are normalized (trimmed, no repeated or trailing slashes) and may not equal,
+  contain, or sit inside another library's folder: a grant on one library must never expose
+  another's files. A migration reuses the library that already covers a folder.
+- `titles.list` pages by index position (the sort value and creation time of the last title read)
+  instead of Convex's cursor, so one query can read several batches: limited profiles and kind
+  filters still get full pages, up to 1000 titles read per page, and a library filter reads that
+  library's own index. Continue watching resolves progress rows until its 20 rows are full and
+  spends at most 500 episode reads in all on next-episode lookups; a run of more than 100 watched
+  episodes in a row is skipped over.
 - One `jobs` table holds scan, metadata, backup, and migration jobs; `payload` carries what each
   kind needs. A claim lasts 5 seconds to 10 minutes; `renewLease` reports progress and returns
   `cancelled` when an admin cancelled the job. A cron returns expired leases to the queue every
@@ -180,6 +196,10 @@ choices made while implementing them. Update it in the same PR that changes a de
   silent for 20 seconds (`hostAway`), drops guests silent for a minute, and ends rooms abandoned
   for 30 minutes. The host leaving or ending ends the room; a guest leaving only removes them.
 - Guests start their own playback session with `roomId`, which plays the room's file.
+- `rooms.get` answers members while a profile they joined with may see the room's title (the host
+  can switch to a title a guest's kids profile may not see). A room link (`/r/<roomId>`) reads the
+  room before joining by naming the profile that would join: when it may see the title, the room
+  comes back without its members. Everyone else gets `not_found`.
 
 ## Backups and restore
 
@@ -213,6 +233,14 @@ choices made while implementing them. Update it in the same PR that changes a de
   lives in the media service's memory for an hour, private to the admin who opened it. An import
   requires a dry run of the same connection with the same user mappings, and queues exactly that
   plan.
+- Access: a library the import adds is open to everyone only when every source user could see the
+  source library. Otherwise it is restricted and granted to the accounts whose profiles receive an
+  imported user's history, for the imported users who could see it. When the source does not say
+  who sees a library (Plex: a local server token cannot read sharing, which plex.tv holds), it
+  starts admins-only. The plan stores this per library (`PlannedLibrary.access`); plans stored
+  before it existed also add admins-only libraries. A library the import reuses keeps its access.
+  Jellyfin reports it through each user's `EnableAllFolders` and `EnabledFolders` policy. The
+  Review screen says who each new library is shared with.
 - Users are never created. Each source user is suggested a profile of an existing account (same
   email, then same account name, then same profile name) or `invite`; the admin may choose a
   profile or `skip` per user.
@@ -279,7 +307,8 @@ choices made while implementing them. Update it in the same PR that changes a de
 - The command menu takes a typed page model (`@movies/ui/lib/command-menu`): groups scoped to
   browsing or searching, fuzzy or caller-ranked filtering, actions (sync or async) and submenus
   that replace the list in the same panel, running-job progress, and fallback commands for no
-  results. Once the command registry in `@movies/contracts` exists, its entries map onto this model.
+  results. Rows come from the web app's feature contributions (see Web app), which run registry
+  commands through the SDK; registry entries are not mapped onto the menu one to one.
 - The component gallery at `/dev/kit` is development-only; production builds replace it with an
   empty route and do not bundle it.
 
@@ -361,5 +390,5 @@ choices made while implementing them. Update it in the same PR that changes a de
   A query shaped like a device code (`HD5R-5GTL`) offers to approve it.
 - The admin browser suites (`apps/web/e2e/admin`) run as a Playwright project that depends on the
   stack project and sign in as the owner it creates, so both share one fresh stack without racing
-  for the first owner. Library scans run on the real media service with generated clips; backups
-  use a stand-in that calls `mediaService:*` until the media service runs backup jobs.
+  for the first owner. Library scans run on the real media service with generated clips, and the
+  backups suite runs a real backup job: the media service exports the stack into its backup folder.

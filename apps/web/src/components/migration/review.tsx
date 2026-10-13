@@ -118,11 +118,6 @@ function UnmappedFolder({
 }
 
 /**
- * 02 Review: the dry run's summary before anything is written. Each source user's history goes to
- * a profile or is skipped; folders the source has but this host doesn't can be mapped. Changing
- * either runs the dry run again.
- */
-/**
  * Who a library the import adds is shared with: everyone, as on the source, or admins and the
  * imported people who could see it there. A source that does not say leaves it to admins.
  */
@@ -135,6 +130,11 @@ const sharedWith = (access: PlannedLibraryAccess): string => {
   return people === 1 ? "admins and 1 person" : `admins and ${formatCount(people)} people`;
 };
 
+/**
+ * 02 Review: the dry run's summary before anything is written. Each source user's history goes to
+ * a profile or is skipped; folders the source has but this host doesn't can be mapped. Changing
+ * either runs the dry run again.
+ */
 export function Review({
   form,
   preview,

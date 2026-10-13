@@ -45,6 +45,8 @@ const nextAgeRating = (
   kids: boolean | undefined,
   maxAgeRating: number | null | undefined,
 ): number | null => {
+  // Profiles stored before kids profiles always had a limit can still be renamed as they are.
+  if (kids === undefined && maxAgeRating === undefined) return current.maxAgeRating;
   const nextKids = kids ?? current.kids;
 
   const requested =

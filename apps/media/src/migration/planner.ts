@@ -121,9 +121,14 @@ const plannedAccess = (
   return { kind: "users", sourceUserIds: access.userIds.filter((userId) => imported.has(userId)) };
 };
 
-/** The [movies] library whose folders hold `folder`. */
+/**
+ * The [movies] library whose folders hold `folder`, or lie inside it. Libraries never nest, so the
+ * import reuses that library rather than adding one around it, as `ensureLibrary` does.
+ */
 const coveringLibrary = (existing: ReadonlyArray<MediaLibrary>, folder: string) =>
-  existing.find((candidate) => candidate.roots.some((root) => isInside(folder, root)));
+  existing.find((candidate) =>
+    candidate.roots.some((root) => isInside(folder, root) || isInside(root, folder)),
+  );
 
 /** Plans each movie, show, or mixed library: its local folders and the [movies] library covering them. */
 const planLibraries = (

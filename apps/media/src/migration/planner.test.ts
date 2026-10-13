@@ -192,6 +192,28 @@ describe("planMigration", () => {
     );
   });
 
+  it("reuses a library inside a source folder instead of adding one around it", () => {
+    const inner = {
+      id: LibraryId.make("inner"),
+      name: "Inner",
+      kind: "movies" as const,
+      roots: ["/mnt/nas/kids/inner"],
+    };
+
+    const plan = planMigration(
+      input({ existingLibraries: [...input({}).existingLibraries, inner] }),
+    );
+
+    assert.deepStrictEqual(
+      plan.libraries.map((library) => [library.name, library.existingLibraryId, library.newRoots]),
+      [
+        ["Movies", LibraryId.make("movies"), []],
+        ["Kids", LibraryId.make("inner"), []],
+        ["Lost", null, []],
+      ],
+    );
+  });
+
   it("counts what items in folders being added will import, but writes only matched items", () => {
     const watched = planMigration(input({ states: fresh({ played: true, playCount: 1 }) }));
     const partial = planMigration(input({ states: fresh({ positionMs: 5_000, favorite: true }) }));

@@ -315,7 +315,8 @@ const grantedAccounts = async (
 
 /**
  * Finds the libraries covering these folders, or adds one for the folders no library covers yet
- * and queues its scan. Folders inside another library's folder count as covered. An added library
+ * and queues its scan. A folder inside, or holding, another library's folder counts as covered by
+that library, since libraries never nest; files outside it stay unmatched. An added library
  * is open to everyone only when the source showed it to every user; otherwise it is restricted,
  * granted to the accounts of the imported users who could see it (none when the source did not
  * say, or for plans stored before access was recorded). Libraries already here keep their access.
@@ -345,16 +346,14 @@ export const ensureLibrary = mutation({
 
     const existing = await ctx.db.query("libraries").collect();
 
+    // A library whose folder holds this one, or lies inside it: adding another would nest them.
     const coveringOf = (root: string) =>
-      existing.find((library) => library.roots.some((known) => isInside(root, known)));
+      existing.filter((library) =>
+        library.roots.some((known) => isInside(root, known) || isInside(known, root)),
+      );
 
-    const covering = wanted.flatMap((root) => {
-      const library = coveringOf(root);
-
-      return library === undefined ? [] : [library._id];
-    });
-
-    const uncovered = wanted.filter((root) => coveringOf(root) === undefined);
+    const covering = wanted.flatMap((root) => coveringOf(root).map((library) => library._id));
+    const uncovered = wanted.filter((root) => coveringOf(root).length === 0);
     const known = [...new Set(covering)];
 
     if (uncovered.length === 0) {

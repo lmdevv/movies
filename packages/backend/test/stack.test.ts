@@ -1764,6 +1764,17 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         (await run(fixture.member, "libraries.list", {})).map((library) => library.id),
       ).not.toContain(unknown.id);
 
+      // A folder holding other libraries' folders reuses them instead of nesting a new library.
+      expect(
+        await service(fixture.mediaService, "migrationService.ensureLibrary", {
+          jobId,
+          workerId,
+          name: "Around",
+          kind: "movies",
+          roots: [`/stack-${id}`],
+        }),
+      ).toMatchObject({ created: false });
+
       await service(fixture.mediaService, "mediaService.completeJob", { jobId, workerId });
     });
   });
