@@ -464,7 +464,17 @@ EOF
   local vobsub="$cache/feature-test-en.vobsub.mkv" image_subs=()
   [[ -s "$vobsub" ]] || image_subtitle "$cut" "$vobsub" ||
     log "Couldn't render the image subtitle (needs spumux from dvdauthor and fontconfig); skipping it"
-  [[ -s "$vobsub" ]] && image_subs=(-i "$vobsub")
+  if [[ -s "$vobsub" ]]; then
+    image_subs=(-i "$vobsub")
+    # Versions built on an earlier run without the image subtitle are rebuilt with it.
+    local version
+    for version in "Multi-Audio and Subtitles" "SD Interlaced MPEG-2"; do
+      local file="$base {edition-$version}.mkv" codecs
+      [[ -s "$file" ]] || continue
+      codecs="$(ffprobe -v error -show_entries stream=codec_name -of csv=p=0 "$file" || true)"
+      [[ "$codecs" == *dvd_subtitle* ]] || rm -f "$file"
+    done
+  fi
 
   # Audio and subtitle choices: AC3 5.1 (needs an audio transcode in most browsers), an AAC
   # stereo downmix, every text subtitle, and the image subtitle on a canvas smaller than the video.

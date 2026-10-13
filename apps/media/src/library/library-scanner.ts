@@ -227,6 +227,28 @@ const isMainVideo =
   (name: string): boolean =>
     isMediaFile(name) && !MediaName.guards.Extra(parseMediaPath(join(folder, name)));
 
+/**
+ * Whether a folder holds a single movie: one main video, or several that name the same movie, such
+ * as its editions or parts. Generic names like `movie.nfo` and `poster.jpg` then belong to it.
+ */
+const holdsOneMovie = (folder: string, names: ReadonlyArray<string>): boolean => {
+  const movies = new Set(
+    names.flatMap((name) => {
+      if (!isMainVideo(folder)(name)) return [];
+
+      const parsed = parseMediaPath(join(folder, name));
+
+      return [
+        MediaName.guards.Movie(parsed)
+          ? `${parsed.title.toLowerCase()}|${parsed.year ?? ""}`
+          : `other|${name}`,
+      ];
+    }),
+  );
+
+  return movies.size === 1;
+};
+
 /** Title and episode metadata of one file; both absent for extras. */
 interface Described {
   readonly title: MetadataResolver.TitleMetadata | undefined;
@@ -474,8 +496,7 @@ const make = Effect.gen(function* () {
         const folder = parentOf(relativePath);
         const stem = stemOf(relativePath);
 
-        const ownFolder =
-          folder !== "" && listing(folder).names.filter(isMainVideo(folder)).length === 1;
+        const ownFolder = folder !== "" && holdsOneMovie(folder, listing(folder).names);
 
         const local = yield* readNfo(
           folder,

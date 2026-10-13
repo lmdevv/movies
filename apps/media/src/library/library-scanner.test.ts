@@ -220,6 +220,55 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
       }),
     );
 
+    it.effect("treats a folder of one movie's editions as that movie's own folder", () =>
+      Effect.gen(function* () {
+        const { library, copy } = yield* FixtureWorkspace.Service;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const target = yield* copy;
+        const scanner = yield* LibraryScanner.Service;
+        const libraryId = LibraryId.make("editions");
+        const folder = "Edition Fixture (2001)";
+        const source = path.join(target.movies, library.directMovie);
+
+        yield* fs.makeDirectory(path.join(target.movies, folder));
+
+        for (const edition of ["Theatrical", "Director's Cut"]) {
+          yield* fs.copyFile(
+            source,
+            path.join(target.movies, folder, `${folder} {edition-${edition}}.mp4`),
+          );
+        }
+
+        yield* fs.copyFile(
+          path.join(path.dirname(source), "poster.jpg"),
+          path.join(target.movies, folder, "poster.jpg"),
+        );
+        yield* fs.writeFileString(
+          path.join(target.movies, folder, "movie.nfo"),
+          "<movie><title>Edition Fixture</title><plot>Two cuts, one film.</plot></movie>",
+        );
+
+        yield* scanner.scan({ libraryId, root: target.movies, mode: "incremental" });
+
+        const files = yield* scanned(libraryId);
+
+        const editions = [...files.values()].filter((file) =>
+          file.record.relativePath.startsWith(`${folder}/`),
+        );
+
+        assert.strictEqual(editions.length, 2);
+
+        for (const edition of editions) {
+          assert.strictEqual(edition.record.title?.plot, "Two cuts, one film.");
+          assert.deepStrictEqual(edition.record.title?.poster, {
+            _tag: "Local",
+            path: `${folder}/poster.jpg`,
+          });
+        }
+      }),
+    );
+
     it.effect(
       "follows links inside the root, rejects links that escape it, and visits loops once",
       () =>
