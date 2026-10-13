@@ -39,6 +39,7 @@ import type * as lib_present from "../lib/present.js";
 import type * as lib_roomClock from "../lib/roomClock.js";
 import type * as lib_roots from "../lib/roots.js";
 import type * as lib_scopes from "../lib/scopes.js";
+import type * as lib_trickplay from "../lib/trickplay.js";
 import type * as lib_validators from "../lib/validators.js";
 import type * as lib_viewer from "../lib/viewer.js";
 import type * as lib_viewing from "../lib/viewing.js";
@@ -96,6 +97,7 @@ declare const fullApi: ApiFromModules<{
   "lib/roomClock": typeof lib_roomClock;
   "lib/roots": typeof lib_roots;
   "lib/scopes": typeof lib_scopes;
+  "lib/trickplay": typeof lib_trickplay;
   "lib/validators": typeof lib_validators;
   "lib/viewer": typeof lib_viewer;
   "lib/viewing": typeof lib_viewing;

@@ -1,14 +1,21 @@
 /**
  * Background jobs the media service claims with a lease: scans, metadata refreshes, person details,
- * backups, and migrations.
+ * backups, migrations, and scrub thumbnails.
  */
 import { Schema } from "effect";
 
-import { BackupId, JobId, LibraryId, PersonId, TitleId, UserId } from "../ids";
+import { BackupId, JobId, LibraryId, MediaFileId, PersonId, TitleId, UserId } from "../ids";
 import { Bytes, EpochMillis } from "../units";
 
 /** What a job does. */
-export const JobKind = Schema.Literals(["scan", "metadata", "person", "backup", "migration"]);
+export const JobKind = Schema.Literals([
+  "scan",
+  "metadata",
+  "person",
+  "backup",
+  "migration",
+  "trickplay",
+]);
 
 /** What a job does. */
 export type JobKind = typeof JobKind.Type;
@@ -63,6 +70,8 @@ export const JobPayload = Schema.Union([
     source: MigrationSource,
     serverName: Schema.String,
   }),
+  /** Scrub thumbnails for one file; queued after a scan finds it new or changed. */
+  Schema.Struct({ kind: Schema.Literal("trickplay"), fileId: MediaFileId }),
 ]);
 
 /** What the worker needs to run a job. */

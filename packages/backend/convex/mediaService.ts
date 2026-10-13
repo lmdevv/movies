@@ -23,6 +23,7 @@ import { MAX_JOB_ATTEMPTS, requireLease, requireLeaseOf } from "./lib/jobs";
 import { syncTitleGenres } from "./lib/genres";
 import { CREDIT_LIMIT, creditsOf, personKeyOf, replaceCredits } from "./lib/people";
 import { presentJob } from "./lib/present";
+import { settleTrickplay } from "./lib/trickplay";
 import {
   backupArchive,
   claimedJob,
@@ -47,6 +48,7 @@ import {
   scannedPersonDetails,
   scannedTitle,
   sessionStatus as sessionStatusResult,
+  trickplayManifest,
   upsertedFile,
 } from "./lib/validators";
 import { authorize } from "./lib/viewer";
@@ -78,19 +80,39 @@ const requireLibrary = async (
 ): Promise<Doc<"libraries">> =>
   (await ctx.db.get(libraryId)) ?? fail("not_found", "No such library");
 
-/** Jobs waiting for a worker, oldest first. Expired leases return here through a cron. */
+/** Pending jobs of each kind the worker is shown; trickplay jobs run one or two at a time. */
+const PENDING_PER_KIND: ReadonlyArray<readonly [Doc<"jobs">["kind"], number]> = [
+  ["scan", 50],
+  ["metadata", 50],
+  ["backup", 50],
+  ["migration", 50],
+  ["trickplay", 10],
+];
+
+/**
+ * Jobs waiting for a worker, oldest first. Expired leases return here through a cron. Each kind
+ * is read on its own, so a library's worth of queued scrub thumbnails never hides a scan or a
+ * backup queued after them.
+ */
 export const pendingJobs = query({
   args: {},
   returns: v.array(job),
   handler: async (ctx) => {
     await authorize(ctx, "media-service");
 
-    const pending = await ctx.db
-      .query("jobs")
-      .withIndex("by_status", (q) => q.eq("status", "pending"))
-      .take(50);
+    const byKind = await Promise.all(
+      PENDING_PER_KIND.map(([kind, limit]) =>
+        ctx.db
+          .query("jobs")
+          .withIndex("by_kind_status", (q) => q.eq("kind", kind).eq("status", "pending"))
+          .take(limit),
+      ),
+    );
 
-    return pending.map(presentJob);
+    return byKind
+      .flat()
+      .toSorted((left, right) => left._creationTime - right._creationTime)
+      .map(presentJob);
   },
 });
 
@@ -193,6 +215,8 @@ export const failJob = mutation({
       finishedAt: again ? null : Date.now(),
     });
 
+    if (!again) await settleTrickplay(ctx, doc, "failed");
+
     return { ok: true as const };
   },
 });
@@ -253,7 +277,7 @@ export const upsertScanned = mutation({
       return fail("invalid_args", `${outside.file.path} is outside the library's folders`);
     }
 
-    return inSequence(items, (item) => upsertScannedItem(ctx, libraryId, item));
+    return inSequence(items, (item) => upsertScannedItem(ctx, library, item));
   },
 });
 
@@ -759,5 +783,63 @@ export const syncBackups = mutation({
     await Promise.all(missing.map((archive) => ctx.db.insert("backups", archive)));
 
     return { added: missing.length, removed: stale.length };
+  },
+});
+
+/**
+ * Records a file's finished scrub thumbnails during its trickplay job. A file whose state moved
+ * on meanwhile (marked missing, or queued again after a change) keeps its state; the media
+ * service's sweep deletes thumbnails nobody records.
+ */
+export const recordTrickplay = mutation({
+  args: {
+    ...leaseArgs,
+    fileId: v.id("mediaFiles"),
+    sizeBytes: v.number(),
+    mtimeMs: v.number(),
+    manifest: trickplayManifest,
+  },
+  returns: ok,
+  handler: async (ctx, { jobId, workerId, fileId, sizeBytes, mtimeMs, manifest }) => {
+    await authorize(ctx, "media-service");
+    const doc = await requireLeaseOf(ctx, jobId, workerId, "trickplay");
+
+    if (doc.payload.fileId !== fileId) return fail("invalid_args", "This job is for another file");
+    const file = await ctx.db.get(fileId);
+
+    if (file?.trickplay?.status === "pending" && file.trickplay.jobId === jobId) {
+      await ctx.db.patch(fileId, {
+        trickplay: { status: "ready", sizeBytes, mtimeMs, manifest },
+      });
+    }
+
+    return { ok: true as const };
+  },
+});
+
+/**
+ * The thumbnail version each of `fileIds` still uses, for the media service's sweep of its
+ * thumbnail folder: null for unknown IDs, removed or missing files, and files without ready
+ * thumbnails. IDs come from folder names, so they are checked rather than validated.
+ */
+export const trickplayVersions = query({
+  args: { fileIds: v.array(v.string()) },
+  returns: v.array(v.object({ fileId: v.string(), version: nullable(v.string()) })),
+  handler: async (ctx, { fileIds }) => {
+    await authorize(ctx, "media-service");
+
+    return Promise.all(
+      checkBatch(fileIds).map(async (fileId) => {
+        const id = ctx.db.normalizeId("mediaFiles", fileId);
+        const file = id === null ? null : await ctx.db.get(id);
+
+        const version =
+          file === null || file.missing || file.trickplay?.status !== "ready"
+            ? null
+            : file.trickplay.manifest.version;
+
+        return { fileId, version };
+      }),
+    );
   },
 });

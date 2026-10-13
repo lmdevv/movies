@@ -78,6 +78,7 @@ export const presentMediaFile = (doc: Doc<"mediaFiles">): Infer<typeof mediaFile
   externalSubtitles: doc.externalSubtitles,
   hdr: doc.hdr,
   missing: doc.missing,
+  trickplay: doc.trickplay?.status === "ready" ? doc.trickplay.manifest : null,
 });
 
 /** A profile's progress through one item. */
@@ -154,6 +155,7 @@ export const presentLibraryDetail = (
   roots: doc.roots,
   access: doc.access,
   grantedUserIds: [...grantedUserIds],
+  trickplay: doc.trickplay ?? true,
   createdAt: createdAt(doc),
 });
 

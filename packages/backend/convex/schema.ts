@@ -36,6 +36,7 @@ import {
   showStatus,
   titleKind,
   trailer,
+  trickplayState,
 } from "./lib/validators";
 
 /**
@@ -150,6 +151,8 @@ export default defineSchema({
     createdBy: v.id("users"),
     titleCount: v.number(),
     lastScanAt: nullable(v.number()),
+    /** Scans queue scrub thumbnails for new and changed files; absent means yes. */
+    trickplay: v.optional(v.boolean()),
   }),
 
   libraryGrants: defineTable({
@@ -325,6 +328,8 @@ export default defineSchema({
     missing: v.boolean(),
     missingSince: v.optional(v.number()),
     addedAt: v.number(),
+    /** Scrub thumbnails; absent until a trickplay job is queued for this file. */
+    trickplay: v.optional(trickplayState),
   })
     .index("by_library_path", ["libraryId", "path"])
     .index("by_library_missing", ["libraryId", "missing"])
@@ -434,10 +439,13 @@ export default defineSchema({
     finishedAt: nullable(v.number()),
     /** For scan jobs, the library, so a library shows whether it is scanning. */
     libraryId: v.optional(v.id("libraries")),
+    /** For trickplay jobs, the file. */
+    fileId: v.optional(v.id("mediaFiles")),
   })
     .index("by_status", ["status"])
     .index("by_kind_status", ["kind", "status"])
-    .index("by_library_status", ["libraryId", "status"]),
+    .index("by_library_status", ["libraryId", "status"])
+    .index("by_file_status", ["fileId", "status"]),
 
   /** A migration job's plan, checkpoint, and counts; one row per migration job. */
   migrations: defineTable({

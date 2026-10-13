@@ -8,6 +8,7 @@ import { enqueueJob, MAX_JOB_ATTEMPTS } from "./lib/jobs";
 import { removeTitleGenres, syncTitleGenres } from "./lib/genres";
 import { removeTitleCredits } from "./lib/people";
 import { overlappingLibraries as findOverlaps } from "./lib/roots";
+import { settleTrickplay } from "./lib/trickplay";
 import { endAuthSession } from "./lib/viewer";
 import {
   HOST_ABANDON_TIMEOUT_MS,
@@ -121,20 +122,22 @@ export const releaseExpiredLeases = internalMutation({
       .withIndex("by_status", (q) => q.eq("status", "running"))
       .collect();
 
+    const expired = running.filter((job) => (job.leaseExpiresAt ?? 0) <= now);
+
     await Promise.all(
-      running.flatMap((job) =>
-        (job.leaseExpiresAt ?? 0) <= now
-          ? [
-              ctx.db.patch(job._id, {
-                status: job.attempts >= MAX_JOB_ATTEMPTS ? "failed" : "pending",
-                error: "The worker stopped responding",
-                leaseOwner: undefined,
-                leaseExpiresAt: undefined,
-                finishedAt: job.attempts >= MAX_JOB_ATTEMPTS ? now : null,
-              }),
-            ]
-          : [],
-      ),
+      expired.map(async (job) => {
+        const failed = job.attempts >= MAX_JOB_ATTEMPTS;
+
+        await ctx.db.patch(job._id, {
+          status: failed ? "failed" : "pending",
+          error: "The worker stopped responding",
+          leaseOwner: undefined,
+          leaseExpiresAt: undefined,
+          finishedAt: failed ? now : null,
+        });
+
+        if (failed) await settleTrickplay(ctx, job, "failed");
+      }),
     );
 
     return null;

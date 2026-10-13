@@ -5,12 +5,14 @@ import type { Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import type { QueryCtx } from "./_generated/server";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { visibleLibraryIds } from "./lib/access";
+import { inSequence } from "./lib/catalog";
 import { fail } from "./lib/errors";
 import { checkDisplayName } from "./lib/bounds";
 import { enqueueJob } from "./lib/jobs";
 import { checkRoots } from "./lib/roots";
+import { queueTrickplay } from "./lib/trickplay";
 import { presentLibrary, presentLibraryDetail } from "./lib/present";
 import {
   library,
@@ -131,9 +133,10 @@ export const update = mutation({
     name: v.optional(v.string()),
     roots: v.optional(v.array(v.string())),
     access: v.optional(libraryAccess),
+    trickplay: v.optional(v.boolean()),
   },
   returns: libraryDetail,
-  handler: async (ctx, { libraryId, name, roots, access }) => {
+  handler: async (ctx, { libraryId, name, roots, access, trickplay }) => {
     const viewer = await authorize(ctx, "manage");
     const current = await ctx.db.get(libraryId);
 
@@ -144,6 +147,7 @@ export const update = mutation({
       name: name === undefined ? current.name : checkName(name),
       roots: nextRoots,
       access: access ?? current.access,
+      trickplay: trickplay ?? current.trickplay,
     });
 
     if (roots !== undefined) {
@@ -214,6 +218,64 @@ export const scan = mutation({
     );
 
     return { jobId };
+  },
+});
+
+/** Files one `queueTrickplayPage` run looks at before it schedules the next page. */
+const TRICKPLAY_PAGE = 200;
+
+/**
+ * Queues scrub thumbnails for every present file of a library that has none for its current
+ * contents, including files whose last attempt failed. Large libraries are queued in pages in the
+ * background, so this returns at once.
+ */
+export const generateTrickplay = mutation({
+  args: { libraryId: v.id("libraries") },
+  returns: ok,
+  handler: async (ctx, { libraryId }) => {
+    const viewer = await authorize(ctx, "manage");
+
+    if ((await ctx.db.get(libraryId)) === null) return fail("not_found", "No such library");
+
+    await ctx.scheduler.runAfter(0, internal.libraries.queueTrickplayPage, {
+      libraryId,
+      cursor: null,
+      requestedBy: viewer.userId,
+    });
+
+    return { ok: true as const };
+  },
+});
+
+/** One page of `generateTrickplay`; schedules the next page until the library is done. */
+export const queueTrickplayPage = internalMutation({
+  args: {
+    libraryId: v.id("libraries"),
+    cursor: v.union(v.string(), v.null()),
+    requestedBy: v.id("users"),
+  },
+  returns: v.null(),
+  handler: async (ctx, { libraryId, cursor, requestedBy }) => {
+    if ((await ctx.db.get(libraryId)) === null) return null;
+
+    const result = await ctx.db
+      .query("mediaFiles")
+      .withIndex("by_library_path", (q) => q.eq("libraryId", libraryId))
+      .paginate({ numItems: TRICKPLAY_PAGE, cursor });
+
+    await inSequence(result.page, (file) =>
+      queueTrickplay(ctx, file, { retryFailed: true, requestedBy }),
+    );
+
+    if (!result.isDone) {
+      await ctx.scheduler.runAfter(0, internal.libraries.queueTrickplayPage, {
+        libraryId,
+        cursor: result.continueCursor,
+        requestedBy,
+      });
+    }
+
+    return null;
   },
 });
 

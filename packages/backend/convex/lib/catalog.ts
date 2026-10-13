@@ -11,6 +11,7 @@ import type { MutationCtx } from "../_generated/server";
 import { fail } from "./errors";
 import { syncTitleGenres } from "./genres";
 import { NO_EXTERNAL_IDS } from "./present";
+import { queueTrickplay } from "./trickplay";
 import type { scannedEpisode, scannedItem, scannedTitle, upsertedFile } from "./validators";
 
 /** Text the title search index matches: names, the year, and any override name. */
@@ -342,12 +343,17 @@ export const upsertEpisode = async (
   return created ?? fail("internal", "An episode vanished right after it was created");
 };
 
-/** Inserts or updates one scanned file with its title and episode. */
+/**
+ * Inserts or updates one scanned file with its title and episode, and queues scrub thumbnails for
+ * it when the library makes them and the file is new or changed.
+ */
 export const upsertScannedItem = async (
   ctx: MutationCtx,
-  libraryId: Id<"libraries">,
+  library: Doc<"libraries">,
   item: Infer<typeof scannedItem>,
 ): Promise<Infer<typeof upsertedFile>> => {
+  const libraryId = library._id;
+
   const existingFile = await ctx.db
     .query("mediaFiles")
     .withIndex("by_library_path", (q) => q.eq("libraryId", libraryId).eq("path", item.file.path))
@@ -392,11 +398,13 @@ export const upsertScannedItem = async (
     });
 
     await adjustPresent(ctx, title._id, episodeId, 1);
+    await queueTrickplayFor(ctx, library, fileId);
 
     return { path: item.file.path, fileId, ...landed };
   }
 
   await ctx.db.patch(existingFile._id, { ...fields, missingSince: undefined });
+  await queueTrickplayFor(ctx, library, existingFile._id);
   const moved = existingFile.titleId !== title._id || existingFile.episodeId !== episodeId;
 
   if (!existingFile.missing && moved) {
@@ -408,7 +416,21 @@ export const upsertScannedItem = async (
   return { path: item.file.path, fileId: existingFile._id, ...landed };
 };
 
-/** Marks a file missing. Its title and episode stay, with any history pointing at them. */
+/** Queues scrub thumbnails for a file just scanned into `library`, when the library makes them. */
+const queueTrickplayFor = async (
+  ctx: MutationCtx,
+  library: Doc<"libraries">,
+  fileId: Id<"mediaFiles">,
+): Promise<void> => {
+  const file = library.trickplay === false ? null : await ctx.db.get(fileId);
+
+  if (file !== null) await queueTrickplay(ctx, file, { retryFailed: false, requestedBy: null });
+};
+
+/**
+ * Marks a file missing. Its title and episode stay, with any history pointing at them; its scrub
+ * thumbnails are forgotten (the media service deletes them), so a file that returns gets new ones.
+ */
 export const markFileMissing = async (
   ctx: MutationCtx,
   libraryId: Id<"libraries">,
@@ -420,7 +442,7 @@ export const markFileMissing = async (
     .unique();
 
   if (file === null || file.missing) return false;
-  await ctx.db.patch(file._id, { missing: true, missingSince: Date.now() });
+  await ctx.db.patch(file._id, { missing: true, missingSince: Date.now(), trickplay: undefined });
   await adjustPresent(ctx, file.titleId, file.episodeId, -1);
 
   return true;
