@@ -850,6 +850,9 @@ export const upsertedFile = v.object({
   fileId: v.id("mediaFiles"),
   titleId: v.id("titles"),
   episodeId: nullable(v.id("episodes")),
+  titleCreditsHash: nullable(v.string()),
+  episodeCreditsHash: nullable(v.string()),
+  collectionHash: nullable(v.string()),
 });
 
 /** Mirrors `IndexedFile` in `@movies/contracts`. */

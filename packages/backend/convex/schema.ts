@@ -200,6 +200,8 @@ export default defineSchema({
     recommendations: v.optional(v.array(v.string())),
     /** Digest of the title's own credits, so unchanged rescans skip rewriting them. */
     creditsHash: v.optional(v.string()),
+    /** Digest of the collection the title's metadata names, likewise. */
+    collectionHash: v.optional(v.string()),
   })
     .index("by_library_match", ["libraryId", "matchKey"])
     .index("by_kind_tmdb", ["kind", "externalIds.tmdb"])
@@ -212,6 +214,28 @@ export default defineSchema({
     .index("by_added", ["addedAt"])
     .index("by_year", ["year"])
     .searchIndex("search_text", { searchField: "searchText", filterFields: ["kind"] }),
+
+  /**
+   * One row per title and genre, so browsing a genre reads only its titles: Convex cannot index
+   * array members. Rows copy the title's sort fields; `lib/genres.ts` keeps them in step with
+   * every write of a title's genres or sort fields.
+   */
+  titleGenres: defineTable({
+    titleId: v.id("titles"),
+    /** The genre, trimmed and lowercased. */
+    genre: v.string(),
+    kind: titleKind,
+    sortKey: v.string(),
+    addedAt: v.number(),
+    year: nullable(v.number()),
+  })
+    .index("by_title", ["titleId"])
+    .index("by_genre_sort", ["genre", "sortKey"])
+    .index("by_genre_added", ["genre", "addedAt"])
+    .index("by_genre_year", ["genre", "year"])
+    .index("by_kind_genre_sort", ["kind", "genre", "sortKey"])
+    .index("by_kind_genre_added", ["kind", "genre", "addedAt"])
+    .index("by_kind_genre_year", ["kind", "genre", "year"]),
 
   seasons: defineTable({
     titleId: v.id("titles"),

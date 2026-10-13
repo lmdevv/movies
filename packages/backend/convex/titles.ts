@@ -10,6 +10,7 @@ import type { QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
 import { canSee, loadAudience, loadVisibleTitle } from "./lib/access";
 import { countGenres, isFiltered, matchesFilter, rankBySimilarity } from "./lib/discovery";
+import { genreKey } from "./lib/genres";
 import { CREDIT_LIMIT, creditsOf, presentCredits } from "./lib/people";
 import {
   findProgress,
@@ -129,46 +130,62 @@ export const list = query({
     const order = sort ?? "name";
     const titles = ctx.db.query("titles");
 
-    const { yearFrom, yearTo } = filters;
-
-    // Sorted by year, a year filter narrows the index range itself, so its pages stay full; titles
-    // without a year fall outside any range.
-    const lowest = yearFrom ?? Number.MIN_SAFE_INTEGER;
-    const highest = yearTo ?? Number.MAX_SAFE_INTEGER;
-    const ranged = yearFrom !== undefined || yearTo !== undefined;
-
     const indexed =
       kind === undefined
         ? order === "name"
           ? titles.withIndex("by_sort")
           : order === "added"
             ? titles.withIndex("by_added")
-            : ranged
-              ? titles.withIndex("by_year", (q) => q.gte("year", lowest).lte("year", highest))
-              : titles.withIndex("by_year")
+            : titles.withIndex("by_year")
         : order === "name"
           ? titles.withIndex("by_kind_sort", (q) => q.eq("kind", kind))
           : order === "added"
             ? titles.withIndex("by_kind_added", (q) => q.eq("kind", kind))
-            : ranged
-              ? titles.withIndex("by_kind_year", (q) =>
-                  q.eq("kind", kind).gte("year", lowest).lte("year", highest),
-                )
-              : titles.withIndex("by_kind_year", (q) => q.eq("kind", kind));
+            : titles.withIndex("by_kind_year", (q) => q.eq("kind", kind));
+
+    const visible = (title: Doc<"titles">): boolean =>
+      canSee(audience, title) &&
+      (libraryId === undefined || title.libraryId === libraryId) &&
+      (!isFiltered(filters) || matchesFilter(filters, title));
+
+    // A genre pages through its own index rows, so a rare genre's pages are not mostly empty.
+    if (filters.genre !== undefined) {
+      const genre = genreKey(filters.genre);
+      const rows = ctx.db.query("titleGenres");
+
+      const byGenre =
+        kind === undefined
+          ? order === "name"
+            ? rows.withIndex("by_genre_sort", (q) => q.eq("genre", genre))
+            : order === "added"
+              ? rows.withIndex("by_genre_added", (q) => q.eq("genre", genre))
+              : rows.withIndex("by_genre_year", (q) => q.eq("genre", genre))
+          : order === "name"
+            ? rows.withIndex("by_kind_genre_sort", (q) => q.eq("kind", kind).eq("genre", genre))
+            : order === "added"
+              ? rows.withIndex("by_kind_genre_added", (q) => q.eq("kind", kind).eq("genre", genre))
+              : rows.withIndex("by_kind_genre_year", (q) => q.eq("kind", kind).eq("genre", genre));
+
+      const result = await byGenre
+        .order(order === "name" ? "asc" : "desc")
+        .paginate({ numItems, cursor: cursor ?? null });
+
+      const found = await Promise.all(result.page.map((row) => ctx.db.get(row.titleId)));
+
+      return {
+        items: found
+          .flatMap((title) => (title !== null && visible(title) ? [title] : []))
+          .map(presentTitleCard),
+        nextCursor: result.isDone ? null : result.continueCursor,
+      };
+    }
 
     const result = await indexed
       .order(order === "name" ? "asc" : "desc")
       .paginate({ numItems, cursor: cursor ?? null });
 
     return {
-      items: result.page
-        .filter(
-          (title) =>
-            canSee(audience, title) &&
-            (libraryId === undefined || title.libraryId === libraryId) &&
-            (!isFiltered(filters) || matchesFilter(filters, title)),
-        )
-        .map(presentTitleCard),
+      items: result.page.filter(visible).map(presentTitleCard),
       nextCursor: result.isDone ? null : result.continueCursor,
     };
   },

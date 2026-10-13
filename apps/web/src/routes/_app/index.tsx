@@ -147,13 +147,13 @@ function HomeRows({ home }: { readonly home: Home }) {
 
 /** Collections on Home: shown once any collection holds a title the profile may see. */
 function CollectionsRow({ profileId }: { readonly profileId: ProfileId }) {
-  const collections = useCommandQuery("collections.list", { profileId });
+  const collections = useCommandQuery("collections.list", { profileId, limit: ROW_COLLECTIONS });
 
   if (collections.status !== "success" || collections.data.length === 0) return null;
 
   return (
     <MediaRow title="Collections" seeAll={<Link to="/collections" />}>
-      {collections.data.slice(0, ROW_COLLECTIONS).map((collection) => (
+      {collections.data.map((collection) => (
         <CollectionCard key={collection.id} collection={collection} />
       ))}
     </MediaRow>

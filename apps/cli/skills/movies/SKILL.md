@@ -261,7 +261,7 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies titles get [--profile-id <id>] <title-id>`: Show a movie or show. (scope read)
 - `movies titles episodes [--profile-id <id>] --title-id <id> --season-number <int>`: List a season's episodes. (scope read)
 - `movies libraries list`: List the libraries this account can see. (scope read)
-- `movies collections list [--profile-id <id>]`: Show collections and the titles a profile may see in each. (scope read)
+- `movies collections list [--profile-id <id>] [--limit <int>]`: Show collections and the titles a profile may see in each. (scope read)
 - `movies collections get [--profile-id <id>] <collection-id>`: Show a collection and the titles a profile may see in it. (scope read)
 - `movies people get [--profile-id <id>] <person-id>`: Show a person and the titles a profile may see them in. (scope read)
 - `movies people search [--profile-id <id>] <query> [--limit <int>]`: Search cast and crew by name. (scope read)

@@ -37,6 +37,9 @@ const failed =
   (cause: unknown): LibrarySink.LibrarySinkFailed =>
     new LibrarySink.LibrarySinkFailed({ operation, cause });
 
+/** Credit and collection writes in flight at once during a scan. */
+const DETAIL_CONCURRENCY = 8;
+
 /** Titles and episodes whose last write digest the sink remembers before starting over. */
 const SENT_CAPACITY = 50_000;
 
@@ -86,21 +89,28 @@ const make = Effect.gen(function* () {
     );
   });
 
-  /** Sends `write` unless `key` last sent the same `digest`. */
-  const once = <E>(key: string, digest: string, write: Effect.Effect<unknown, E>) =>
-    Effect.suspend(() =>
-      sent.get(key) === digest
-        ? Effect.void
-        : write.pipe(
-            Effect.tap(() =>
-              Effect.sync(() => {
-                if (sent.size >= SENT_CAPACITY) sent.clear();
-                sent.set(key, digest);
-              }),
-            ),
-            Effect.asVoid,
-          ),
-    );
+  /**
+   * Sends `write` unless Convex already stores `digest` (`stored`) or this scan already sent it
+   * for `key`. The key is marked before the write, so concurrent writes of one batch send once;
+   * a failed write unmarks it for the next scan.
+   */
+  const once = <E>(
+    key: string,
+    digest: string,
+    stored: string | null,
+    write: Effect.Effect<unknown, E>,
+  ) =>
+    Effect.suspend(() => {
+      if (stored === digest || sent.get(key) === digest) return Effect.void;
+
+      if (sent.size >= SENT_CAPACITY) sent.clear();
+      sent.set(key, digest);
+
+      return write.pipe(
+        Effect.tapError(() => Effect.sync(() => sent.delete(key))),
+        Effect.asVoid,
+      );
+    });
 
   /** Credits and the collection of each title (and episode) a batch touched. */
   const writeDetails = Effect.fn("ConvexLibrarySink.writeDetails")(function* (
@@ -116,11 +126,13 @@ const make = Effect.gen(function* () {
         const titleCredits = yield* toScannedCredits(folder, file.title.credits, keys.seal);
         const collection = yield* toScannedCollection(folder, file.title.collection, keys.seal);
         const titleHash = digestOf(titleCredits);
+        const collectionHash = digestOf(collection);
 
         const titleWrites = [
           once(
             `credits:${upserted.titleId}`,
             titleHash,
+            upserted.titleCreditsHash,
             backend.call("mediaService.applyCredits", {
               titleId: upserted.titleId,
               episodeId: null,
@@ -130,8 +142,13 @@ const make = Effect.gen(function* () {
           ),
           once(
             `collection:${upserted.titleId}`,
-            digestOf(collection),
-            backend.call("mediaService.applyCollection", { titleId: upserted.titleId, collection }),
+            collectionHash,
+            upserted.collectionHash,
+            backend.call("mediaService.applyCollection", {
+              titleId: upserted.titleId,
+              collection,
+              hash: collectionHash,
+            }),
           ),
         ];
 
@@ -139,11 +156,16 @@ const make = Effect.gen(function* () {
         const episodeCredits = yield* toScannedCredits(folder, file.episode.credits, keys.seal);
         const episodeHash = digestOf(episodeCredits);
 
+        // An episode without credits that never had any needs no write either.
+        const stored =
+          upserted.episodeCreditsHash ?? (episodeCredits.length === 0 ? episodeHash : null);
+
         return [
           ...titleWrites,
           once(
             `credits:${upserted.episodeId}`,
             episodeHash,
+            stored,
             backend.call("mediaService.applyCredits", {
               titleId: upserted.titleId,
               episodeId: upserted.episodeId,
@@ -155,9 +177,10 @@ const make = Effect.gen(function* () {
       }),
     );
 
-    // Episodes of one show repeat its title writes; `once` lets only the first through, so the
-    // writes of one batch run in order.
-    yield* Effect.forEach(writes.flat(), (write) => write, { discard: true });
+    yield* Effect.forEach(writes.flat(), (write) => write, {
+      concurrency: DETAIL_CONCURRENCY,
+      discard: true,
+    });
   });
 
   const upsertBatch = Effect.fn("ConvexLibrarySink.upsertBatch")(function* (

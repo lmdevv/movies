@@ -9,8 +9,9 @@ import type { Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { fail } from "./errors";
+import { syncTitleGenres } from "./genres";
 import { NO_EXTERNAL_IDS } from "./present";
-import type { scannedEpisode, scannedItem, scannedTitle } from "./validators";
+import type { scannedEpisode, scannedItem, scannedTitle, upsertedFile } from "./validators";
 
 /** Text the title search index matches: names, the year, and any override name. */
 export const searchTextOf = (title: {
@@ -226,7 +227,11 @@ const upsertTitle = async (
       searchText: searchTextOf({ ...fields, overrides: existing.overrides }),
     });
 
-    return { ...existing, ...fields, matchStatus: merged.matchStatus };
+    const updated = { ...existing, ...fields, matchStatus: merged.matchStatus };
+
+    await syncTitleGenres(ctx, updated);
+
+    return updated;
   }
 
   const titleId = await ctx.db.insert("titles", {
@@ -243,9 +248,13 @@ const upsertTitle = async (
   const library = await ctx.db.get(libraryId);
 
   if (library !== null) await ctx.db.patch(libraryId, { titleCount: library.titleCount + 1 });
-  const created = await ctx.db.get(titleId);
 
-  return created ?? fail("internal", "A title vanished right after it was created");
+  const created =
+    (await ctx.db.get(titleId)) ?? fail("internal", "A title vanished right after it was created");
+
+  await syncTitleGenres(ctx, created);
+
+  return created;
 };
 
 /** Finds or creates a show's season and episode, updating their names and artwork. */
@@ -338,12 +347,7 @@ export const upsertScannedItem = async (
   ctx: MutationCtx,
   libraryId: Id<"libraries">,
   item: Infer<typeof scannedItem>,
-): Promise<{
-  readonly path: string;
-  readonly fileId: Id<"mediaFiles">;
-  readonly titleId: Id<"titles">;
-  readonly episodeId: Id<"episodes"> | null;
-}> => {
+): Promise<Infer<typeof upsertedFile>> => {
   const existingFile = await ctx.db
     .query("mediaFiles")
     .withIndex("by_library_path", (q) => q.eq("libraryId", libraryId).eq("path", item.file.path))
@@ -358,6 +362,14 @@ export const upsertScannedItem = async (
       : null;
 
   const episodeId = episode?._id ?? null;
+
+  const landed = {
+    titleId: title._id,
+    episodeId,
+    titleCreditsHash: title.creditsHash ?? null,
+    episodeCreditsHash: episode?.creditsHash ?? null,
+    collectionHash: title.collectionHash ?? null,
+  };
 
   const fields = {
     titleId: title._id,
@@ -381,7 +393,7 @@ export const upsertScannedItem = async (
 
     await adjustPresent(ctx, title._id, episodeId, 1);
 
-    return { path: item.file.path, fileId, titleId: title._id, episodeId };
+    return { path: item.file.path, fileId, ...landed };
   }
 
   await ctx.db.patch(existingFile._id, { ...fields, missingSince: undefined });
@@ -393,7 +405,7 @@ export const upsertScannedItem = async (
 
   if (existingFile.missing || moved) await adjustPresent(ctx, title._id, episodeId, 1);
 
-  return { path: item.file.path, fileId: existingFile._id, titleId: title._id, episodeId };
+  return { path: item.file.path, fileId: existingFile._id, ...landed };
 };
 
 /** Marks a file missing. Its title and episode stay, with any history pointing at them. */

@@ -155,6 +155,13 @@ export const UpsertedFile = Schema.Struct({
   fileId: MediaFileId,
   titleId: TitleId,
   episodeId: Schema.NullOr(EpisodeId),
+  /**
+   * Digests of what the title's credits, the episode's credits, and the title's collection last
+   * stored, so a scan sends only what changed; null where nothing was written yet.
+   */
+  titleCreditsHash: Schema.NullOr(Schema.String),
+  episodeCreditsHash: Schema.NullOr(Schema.String),
+  collectionHash: Schema.NullOr(Schema.String),
 });
 
 /** Where an upserted file landed. */

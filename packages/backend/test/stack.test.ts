@@ -1703,11 +1703,13 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       await service(fixture.mediaService, "mediaService.applyCollection", {
         titleId: fixture.titles.adult,
         collection,
+        hash: "saga-v1",
       });
 
       await service(fixture.mediaService, "mediaService.applyCollection", {
         titleId: fixture.titles.allAges,
         collection,
+        hash: "saga-v1",
       });
     }, 60_000);
 
@@ -1869,6 +1871,57 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         metacritic: 73,
       });
       expect(title.externalIds.tmdb).toBe(`all${id}`);
+    });
+
+    it("lets a refresh fill credits but not replace a scan's, nor describe others' people", async () => {
+      const { jobId } = await run(fixture.owner, "metadata.refresh", {
+        titleId: fixture.titles.allAges,
+      });
+
+      const workerId = `refresher-${id}`;
+
+      await service(fixture.mediaService, "mediaService.claimJob", {
+        jobId,
+        workerId,
+        leaseMs: 60_000,
+      });
+
+      const lease = { jobId, workerId };
+
+      const refreshed = await service(fixture.mediaService, "mediaService.applyCredits", {
+        titleId: fixture.titles.allAges,
+        episodeId: null,
+        credits: [actor("Provider Only", "99", 0)],
+        hash: "refresh-v1",
+        lease,
+      });
+
+      // The scan's credits stay; the people already credited come back for their details.
+      expect(refreshed.written).toBe(false);
+      expect(refreshed.people.map((person) => person.tmdbId)).toContain(`1${id}`);
+
+      const grown = await findPerson(fixture.owner, fixture.ownerProfile, "Grown");
+
+      expect(
+        await outcome(
+          service(fixture.mediaService, "mediaService.applyPerson", {
+            ...lease,
+            personId: grown,
+            details: {
+              name: `Grown ${TOKEN}`,
+              externalIds: { tmdb: null, imdb: null, tvdb: null },
+              profile: null,
+              biography: "Not theirs to write.",
+              birthDate: null,
+              deathDate: null,
+              birthPlace: null,
+              knownFor: null,
+            },
+          }),
+        ),
+      ).toBe("invalid_args");
+
+      await service(fixture.mediaService, "mediaService.completeJob", lease);
     });
 
     it("writes credits again only when their digest changes", async () => {
@@ -2087,6 +2140,7 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       await service(fixture.mediaService, "mediaService.applyCollection", {
         titleId: fixture.titles.allAges,
         collection: null,
+        hash: "none",
       });
 
       expect(

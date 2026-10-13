@@ -198,8 +198,17 @@ export const mediaServiceFunctions = {
     }),
     result: Schema.Struct({
       written: Schema.Boolean,
-      /** The credited people in `credits` order; `needsDetails` when nobody fetched them yet. */
-      people: Schema.Array(Schema.Struct({ personId: PersonId, needsDetails: Schema.Boolean })),
+      /**
+       * The credited people in billing order, with their TMDB ID; `needsDetails` when nobody
+       * fetched their details yet.
+       */
+      people: Schema.Array(
+        Schema.Struct({
+          personId: PersonId,
+          tmdbId: Schema.NullOr(Schema.String),
+          needsDetails: Schema.Boolean,
+        }),
+      ),
     }),
     function: "mediaService:applyCredits",
   }),
@@ -210,6 +219,8 @@ export const mediaServiceFunctions = {
     args: Schema.Struct({
       titleId: TitleId,
       collection: Schema.NullOr(ScannedCollection),
+      /** A digest of `collection`, stored with the title so an unchanged rescan sends nothing. */
+      hash: Schema.String,
       lease: OptionalLease,
     }),
     result: Ok,

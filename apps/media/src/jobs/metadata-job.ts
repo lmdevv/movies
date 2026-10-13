@@ -270,21 +270,20 @@ export const handler: Effect.Effect<
             lease,
           });
 
-          return written.people.map((person, index) => ({
-            personId: person.personId,
-            needsDetails: person.needsDetails,
-            tmdb: scannedCredits[index]?.person.externalIds.tmdb ?? null,
-          }));
+          return written.people;
         });
 
       const cast = yield* writeCredits(null, metadata.credits).pipe(
         Effect.mapError(backendFailure),
       );
 
+      const scannedCollection = yield* toScannedCollection(folder, metadata.collection, keys.seal);
+
       yield* backend
         .call("mediaService.applyCollection", {
           titleId: target.titleId,
-          collection: yield* toScannedCollection(folder, metadata.collection, keys.seal),
+          collection: scannedCollection,
+          hash: digestOf(scannedCollection),
           lease,
         })
         .pipe(Effect.mapError(backendFailure));
@@ -301,7 +300,7 @@ export const handler: Effect.Effect<
         cast
           .slice(0, TOP_BILLED)
           .flatMap((person) =>
-            person.needsDetails && person.tmdb !== null ? [{ person, tmdb: person.tmdb }] : [],
+            person.needsDetails && person.tmdbId !== null ? [{ person, tmdb: person.tmdbId }] : [],
           ),
         ({ person, tmdb }) =>
           plugin.personDetails(tmdb).pipe(

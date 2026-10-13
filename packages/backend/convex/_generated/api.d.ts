@@ -26,6 +26,7 @@ import type * as lib_crypto from "../lib/crypto.js";
 import type * as lib_discovery from "../lib/discovery.js";
 import type * as lib_env from "../lib/env.js";
 import type * as lib_errors from "../lib/errors.js";
+import type * as lib_genres from "../lib/genres.js";
 import type * as lib_jobs from "../lib/jobs.js";
 import type * as lib_migrationValidators from "../lib/migrationValidators.js";
 import type * as lib_people from "../lib/people.js";
@@ -79,6 +80,7 @@ declare const fullApi: ApiFromModules<{
   "lib/discovery": typeof lib_discovery;
   "lib/env": typeof lib_env;
   "lib/errors": typeof lib_errors;
+  "lib/genres": typeof lib_genres;
   "lib/jobs": typeof lib_jobs;
   "lib/migrationValidators": typeof lib_migrationValidators;
   "lib/people": typeof lib_people;

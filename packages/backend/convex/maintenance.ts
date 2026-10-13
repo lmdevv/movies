@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
 import { enqueueJob, MAX_JOB_ATTEMPTS } from "./lib/jobs";
+import { removeTitleGenres, syncTitleGenres } from "./lib/genres";
 import { removeTitleCredits } from "./lib/people";
 import { endAuthSession } from "./lib/viewer";
 import {
@@ -182,6 +183,34 @@ export const requestNightlyBackup = internalMutation({
   },
 });
 
+/** Titles whose genre rows one backfill step writes. */
+const GENRE_BACKFILL_BATCH = 100;
+
+/**
+ * Writes the genre rows of every title, a batch at a time, rescheduling itself until done. Titles
+ * stored before the `titleGenres` table existed need it once; `scripts/configure.ts` runs it on
+ * every deploy, and a pass over titles already in step writes nothing.
+ */
+export const backfillTitleGenres = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.null(),
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db
+      .query("titles")
+      .paginate({ numItems: GENRE_BACKFILL_BATCH, cursor: cursor ?? null });
+
+    await Promise.all(page.page.map((title) => syncTitleGenres(ctx, title)));
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.maintenance.backfillTitleGenres, {
+        cursor: page.continueCursor,
+      });
+    }
+
+    return null;
+  },
+});
+
 /** Deletes a removed library's catalog in batches, rescheduling until it is gone. History stays. */
 export const purgeLibrary = internalMutation({
   args: { libraryId: v.id("libraries") },
@@ -227,6 +256,7 @@ export const purgeLibrary = internalMutation({
           .collect();
 
         await Promise.all([...seasons, ...episodes].map((doc) => ctx.db.delete(doc._id)));
+        await removeTitleGenres(ctx, title._id);
         await ctx.db.delete(title._id);
       }),
     );

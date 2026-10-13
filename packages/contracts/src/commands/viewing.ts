@@ -219,7 +219,11 @@ export const browseCommands = {
     summary: "Show collections and the titles a profile may see in each",
     group: "browse",
     scope: "read",
-    args: Schema.Struct(OnProfile),
+    args: Schema.Struct({
+      ...OnProfile,
+      /** Most collections to show, 1 to 200; all of them (up to 200) when omitted. */
+      limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 200 }))),
+    }),
     result: Schema.Array(Collection),
     function: "collections:list",
   }),

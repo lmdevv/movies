@@ -19,7 +19,8 @@ import {
 } from "./lib/catalog";
 import { fail } from "./lib/errors";
 import { MAX_JOB_ATTEMPTS, requireLease, requireLeaseOf } from "./lib/jobs";
-import { CREDIT_LIMIT, replaceCredits } from "./lib/people";
+import { syncTitleGenres } from "./lib/genres";
+import { CREDIT_LIMIT, creditsOf, personKeyOf, replaceCredits } from "./lib/people";
 import { presentJob } from "./lib/present";
 import {
   backupArchive,
@@ -425,6 +426,10 @@ export const applyMetadata = mutation({
       searchText: searchTextOf({ ...metadata, overrides: current.overrides }),
     });
 
+    const updated = await ctx.db.get(titleId);
+
+    if (updated !== null) await syncTitleGenres(ctx, updated);
+
     if (current.kind === "show") {
       await inSequence(checkBatch(episodes), (episode) => upsertEpisode(ctx, titleId, episode));
     }
@@ -462,7 +467,13 @@ export const applyCredits = mutation({
   },
   returns: v.object({
     written: v.boolean(),
-    people: v.array(v.object({ personId: v.id("people"), needsDetails: v.boolean() })),
+    people: v.array(
+      v.object({
+        personId: v.id("people"),
+        tmdbId: nullable(v.string()),
+        needsDetails: v.boolean(),
+      }),
+    ),
   }),
   handler: async (ctx, { titleId, episodeId, credits, hash, lease }) => {
     await authorize(ctx, "media-service");
@@ -478,10 +489,38 @@ export const applyCredits = mutation({
       return fail("not_found", "No such episode of this title");
     }
 
-    const unchanged = (episode === null ? title.creditsHash : episode.creditsHash) === hash;
+    const stored = episode === null ? title.creditsHash : episode.creditsHash;
 
-    if (unchanged || !(await mayWriteMetadata(ctx, title, lease))) {
+    if (stored === hash || !(await mayWriteMetadata(ctx, title, lease))) {
       return { written: false, people: [] };
+    }
+
+    // A refresh fills credits nobody wrote yet; it never replaces a scan's (often an NFO's cast,
+    // which would only come back at the next scan). A hand-picked match replaces them.
+    if (lease !== undefined && stored !== undefined) {
+      const held = await requireLeaseOf(ctx, lease.jobId, lease.workerId, "metadata");
+
+      if (held.payload.match === null) {
+        // The people already credited still get their details fetched by the refresh.
+        const rows = await creditsOf(ctx, titleId, episodeId, CREDIT_LIMIT);
+        const people = await Promise.all(rows.map((row) => ctx.db.get(row.personId)));
+
+        return {
+          written: false,
+          people: people.flatMap((person) =>
+            person === null
+              ? []
+              : [
+                  {
+                    personId: person._id,
+                    tmdbId: person.externalIds.tmdb,
+                    needsDetails:
+                      person.detailsFetchedAt === null && person.externalIds.tmdb !== null,
+                  },
+                ],
+          ),
+        };
+      }
     }
 
     const people = await replaceCredits(ctx, titleId, episodeId, credits);
@@ -493,6 +532,7 @@ export const applyCredits = mutation({
       written: true,
       people: people.map((person) => ({
         personId: person._id,
+        tmdbId: person.externalIds.tmdb,
         needsDetails: person.detailsFetchedAt === null && person.externalIds.tmdb !== null,
       })),
     };
@@ -508,13 +548,22 @@ const positionOf = (title: Doc<"titles">): number => title.overrides?.year ?? ti
  * an import created is reused, so a TMDB collection and a Jellyfin box set become one.
  */
 export const applyCollection = mutation({
-  args: { titleId: v.id("titles"), collection: nullable(scannedCollection), lease: optionalLease },
+  args: {
+    titleId: v.id("titles"),
+    collection: nullable(scannedCollection),
+    hash: v.string(),
+    lease: optionalLease,
+  },
   returns: ok,
-  handler: async (ctx, { titleId, collection, lease }) => {
+  handler: async (ctx, { titleId, collection, hash, lease }) => {
     await authorize(ctx, "media-service");
     const title = (await ctx.db.get(titleId)) ?? fail("not_found", "No such title");
 
-    if (!(await mayWriteMetadata(ctx, title, lease))) return { ok: true as const };
+    if (title.collectionHash === hash || !(await mayWriteMetadata(ctx, title, lease))) {
+      return { ok: true as const };
+    }
+
+    await ctx.db.patch(titleId, { collectionHash: hash });
     const now = Date.now();
 
     const target =
@@ -524,10 +573,14 @@ export const applyCollection = mutation({
             .query("collections")
             .withIndex("by_source_key", (q) => q.eq("sourceKey", collection.sourceKey))
             .first()) ??
-          (await ctx.db
-            .query("collections")
-            .withIndex("by_sort", (q) => q.eq("sortKey", collection.name.trim().toLowerCase()))
-            .first()));
+          // A box set or NFO set of the same name joins it; another TMDB collection never does.
+          (
+            await ctx.db
+              .query("collections")
+              .withIndex("by_sort", (q) => q.eq("sortKey", collection.name.trim().toLowerCase()))
+              .take(10)
+          ).find((candidate) => !(candidate.sourceKey?.startsWith("tmdb:") ?? false)) ??
+          null);
 
     const collectionId =
       collection === null
@@ -609,15 +662,33 @@ export const applyPerson = mutation({
       return fail("invalid_args", "This job is for another person");
     }
 
+    // A metadata job describes the people credited on its own title, and nobody else.
+    if (held.payload.kind === "metadata") {
+      const { titleId } = held.payload;
+
+      const credited = await ctx.db
+        .query("credits")
+        .withIndex("by_title_episode", (q) => q.eq("titleId", titleId).eq("episodeId", null))
+        .collect();
+
+      if (!credited.some((row) => row.personId === personId)) {
+        return fail("invalid_args", "This person is not credited on the job's title");
+      }
+    }
+
     const person = (await ctx.db.get(personId)) ?? fail("not_found", "No such person");
+
+    // IDs already stored win, as they do for credits; the provider fills the ones missing.
+    const externalIds = {
+      tmdb: person.externalIds.tmdb ?? details.externalIds.tmdb,
+      imdb: person.externalIds.imdb ?? details.externalIds.imdb,
+      tvdb: person.externalIds.tvdb ?? details.externalIds.tvdb,
+    };
 
     await ctx.db.patch(personId, {
       name: details.name,
-      externalIds: {
-        tmdb: person.externalIds.tmdb ?? details.externalIds.tmdb,
-        imdb: details.externalIds.imdb ?? person.externalIds.imdb,
-        tvdb: details.externalIds.tvdb ?? person.externalIds.tvdb,
-      },
+      personKey: personKeyOf({ name: person.name, externalIds }),
+      externalIds,
       profile: details.profile ?? person.profile,
       biography: details.biography,
       birthDate: details.birthDate,

@@ -59,24 +59,30 @@ const presentCollection = async (
  * are read up to a shared budget, so later collections may show fewer titles in a huge catalog.
  */
 export const list = query({
-  args: { profileId: v.id("profiles") },
+  args: { profileId: v.id("profiles"), limit: v.optional(v.number()) },
   returns: v.array(collection),
-  handler: async (ctx, { profileId }) => {
+  handler: async (ctx, { profileId, limit }) => {
     const viewer = await authorize(ctx, "read");
     const audience = await loadAudience(ctx, viewer, profileId);
+    const wanted = Math.min(Math.max(1, Math.floor(limit ?? LIST_LIMIT)), LIST_LIMIT);
     const collections = await ctx.db.query("collections").withIndex("by_sort").take(LIST_LIMIT);
 
     let budget = MEMBER_BUDGET;
+    let shown = 0;
 
+    // Collections with nothing visible are skipped; reading stops once `wanted` are found.
     const listed = await inSequence(collections, async (doc) => {
+      if (shown >= wanted) return null;
       const presented = await presentCollection(ctx, audience, doc, Math.min(TITLE_LIMIT, budget));
 
       budget -= presented.read;
 
+      if (presented.collection.titles.length > 0) shown += 1;
+
       return presented.collection;
     });
 
-    return listed.filter((entry) => entry.titles.length > 0);
+    return listed.flatMap((entry) => (entry !== null && entry.titles.length > 0 ? [entry] : []));
   },
 });
 
