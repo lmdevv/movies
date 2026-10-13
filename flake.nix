@@ -27,7 +27,14 @@
             pkgs.pnpm
             # ffmpeg-full carries libvpl (Intel QSV); the default ffmpeg does not.
             pkgs.ffmpeg-full
+            # scripts/demo-library.sh: downloads, Blender zips, and spumux with a known font for
+            # the image (VobSub) subtitle.
+            pkgs.curl
+            pkgs.unzip
+            pkgs.dvdauthor
+            pkgs.fontconfig
           ];
+          FONTCONFIG_FILE = pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; };
         };
       });
 

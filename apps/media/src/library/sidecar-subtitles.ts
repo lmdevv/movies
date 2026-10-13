@@ -57,6 +57,7 @@ const LANGUAGES: ReadonlyMap<string, string> = new Map(
       ["ukr", "uk", "ukrainian"],
       ["ara", "ar", "arabic"],
       ["heb", "he", "hebrew"],
+      ["per", "fa", "fas", "persian", "farsi"],
       ["hin", "hi", "hindi"],
       ["jpn", "ja", "japanese"],
       ["kor", "ko", "korean"],
