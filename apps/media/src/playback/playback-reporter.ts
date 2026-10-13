@@ -9,9 +9,13 @@ import { Context, Effect, Layer, Ref, Schema } from "effect";
 import { MediaFileId, PlaybackSessionId } from "@movies/contracts/ids";
 import { StreamId } from "@movies/contracts/media-playback";
 
-/** Why an HLS stream closed. `session-ended` follows the playback session ending in Convex. */
+/**
+ * Why an HLS stream closed. `session-ended` follows the playback session ending in Convex;
+ * `abandoned` is a negotiation whose caller went away before the first segment was ready.
+ */
 const StreamEndReason = Schema.Literals([
   "stopped",
+  "abandoned",
   "idle",
   "replaced",
   "failed",

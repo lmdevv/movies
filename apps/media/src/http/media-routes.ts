@@ -20,7 +20,7 @@ import {
   UnsupportedPlayback,
 } from "@movies/contracts/media-playback";
 import { PlaybackTokenInvalid } from "@movies/contracts/playback-token";
-import { Effect, FileSystem, Layer, Match, Option, Path, Redacted, Schema, Stream } from "effect";
+import { Effect, FileSystem, Layer, Match, Option, Path, Redacted, Schema } from "effect";
 import { HttpPlatform, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import * as MediaConfig from "../media-config.ts";
@@ -125,6 +125,18 @@ const CONTENT_TYPES: Readonly<Record<Container, string>> = {
 };
 
 const SEGMENT_CACHE = "private, max-age=3600";
+
+const concatBytes = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
+  const out = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
+  let offset = 0;
+
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+
+  return out;
+};
 
 const matchesEtag = (header: string, etag: string): boolean =>
   header.trim() === "*" ||
@@ -281,30 +293,24 @@ export const layer: Layer.Layer<
 
       if (file !== "init.mp4" && segmentMatch === null)
         return yield* new SegmentNotFound({ index: -1 });
+      const segmentIndex = segmentMatch === null ? -1 : Number(segmentMatch[1]);
 
       const parts =
         segmentMatch === null
           ? yield* sessions.init(streamId, generation, grant)
-          : yield* sessions.segment(streamId, generation, Number(segmentMatch[1]), grant);
+          : yield* sessions.segment(streamId, generation, segmentIndex, grant);
 
-      const [only] = parts.paths;
-
-      if (parts.paths.length === 1 && only !== undefined) {
-        return yield* platform
-          .fileResponse(only, {
-            headers: { "content-type": "video/mp4", "cache-control": SEGMENT_CACHE },
-          })
-          .pipe(Effect.mapError(() => new SegmentNotReady({ index: -1 })));
-      }
-
-      return HttpServerResponse.stream(
-        Stream.fromIterable(parts.paths).pipe(Stream.flatMap((part) => fs.stream(part))),
-        {
-          contentType: "video/mp4",
-          contentLength: parts.sizeBytes,
-          headers: { "cache-control": SEGMENT_CACHE },
-        },
+      // Read every part before answering: a seek may delete this generation's folder at any
+      // moment, and a body cut short under a promised length breaks the player's parser.
+      const body = yield* Effect.forEach(parts.paths, (part) => fs.readFile(part)).pipe(
+        Effect.map(concatBytes),
+        Effect.mapError(() => new SegmentNotReady({ index: segmentIndex })),
       );
+
+      return HttpServerResponse.uint8Array(body, {
+        contentType: "video/mp4",
+        headers: { "cache-control": SEGMENT_CACHE },
+      });
     }).pipe(Effect.catch(errorResponse), Effect.withSpan("MediaRoutes.hls"));
 
     const subtitle = Effect.gen(function* () {

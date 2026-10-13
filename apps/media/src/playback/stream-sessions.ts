@@ -37,6 +37,7 @@ import {
   Layer,
   Option,
   Path,
+  Predicate,
   Ref,
   Schedule,
   Scope,
@@ -99,8 +100,9 @@ type StreamRequestError =
   | TranscodeFailed
   | UnsupportedPlayback;
 
-/** Failures of starting a stream. */
+/** Failures of starting a stream. `StreamNotFound`: a newer negotiation replaced it meanwhile. */
 export type StartError =
+  | StreamNotFound
   | TranscodeCapacityReached
   | InsufficientTranscodeSpace
   | UnsupportedPlayback
@@ -211,6 +213,8 @@ interface Produced {
 
 const isEncode = VideoPlan.$is("Encode");
 
+const isClosed = (scope: Scope.Scope): boolean => Predicate.isTagged(scope.state, "Closed");
+
 /** Builds the session manager. */
 const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
@@ -223,6 +227,7 @@ const make = Effect.gen(function* () {
   const reporter = yield* PlaybackReporter.Service;
   const sessions = yield* Ref.make<ReadonlyMap<StreamId, Session>>(new Map());
   const transcodes = yield* Ref.make(0);
+  const copies = yield* Ref.make(0);
   const registry = yield* Semaphore.make(1);
 
   // Leftovers of a previous process are never served again.
@@ -337,9 +342,20 @@ const make = Effect.gen(function* () {
   ) {
     const directory = path.join(config.transcodeDir, session.streamId, String(number));
     const scope = yield* Scope.fork(session.scope, "sequential");
+    const closed = new StreamNotFound({ streamId: session.streamId });
 
+    // A closed session hands out a closed scope, whose finalizers would run before the folder exists.
+    if (isClosed(scope)) return yield* closed;
     yield* Scope.addFinalizer(scope, fs.remove(directory, { recursive: true }).pipe(Effect.ignore));
     yield* fs.makeDirectory(directory, { recursive: true }).pipe(Effect.orDie);
+
+    // The session may have closed while the folder was made; its finalizers already ran.
+    if (isClosed(scope)) {
+      yield* fs.remove(directory, { recursive: true }).pipe(Effect.ignore);
+
+      return yield* closed;
+    }
+
     const video = session.file.probe.video;
     const from = session.plan.starts[startSegment] ?? session.plan.end;
     const videoPlan = yield* Ref.get(session.video);
@@ -442,7 +458,9 @@ const make = Effect.gen(function* () {
 
   /**
    * Handles an ffmpeg run that exited before producing segment `index`: a QSV run falls back to
-   * software and restarts there (`StreamGenerationGone`); any other mode fails the stream.
+   * software and restarts there (`StreamGenerationGone`); any other mode fails the stream. Runs
+   * under the session lock and only restarts the generation that failed, so requests waiting on
+   * the same run, or a seek racing the failure, never start two runs with one number.
    */
   const encoderFailed = Effect.fn("StreamSessions.encoderFailed")(function* (
     session: Session,
@@ -450,19 +468,32 @@ const make = Effect.gen(function* () {
     index: number,
     detail: string,
   ) {
-    const mode = yield* Ref.get(session.mode);
+    const restarted = yield* session.lock.withPermits(1)(
+      Effect.gen(function* () {
+        const current = yield* Ref.get(session.generation);
 
-    yield* Effect.annotateCurrentSpan({ streamId: session.streamId, mode, segmentIndex: index });
-    yield* Effect.logWarning("StreamSessions.encoder_failed", detail).pipe(
-      Effect.annotateLogs({ streamId: session.streamId, mode, generation: generation.number }),
+        // Another request already handled this failure, or a seek replaced the run.
+        if (current.number !== generation.number) return current;
+        const mode = yield* Ref.get(session.mode);
+
+        yield* Effect.annotateCurrentSpan({
+          streamId: session.streamId,
+          mode,
+          segmentIndex: index,
+        });
+        yield* Effect.logWarning("StreamSessions.encoder_failed", detail).pipe(
+          Effect.annotateLogs({ streamId: session.streamId, mode, generation: generation.number }),
+        );
+
+        if (mode !== "transcode-qsv") {
+          return yield* new TranscodeFailed({ streamId: session.streamId, mode, detail });
+        }
+
+        yield* fallBackToSoftware(session, detail);
+
+        return yield* startGeneration(session, generation.number + 1, index);
+      }),
     );
-
-    if (mode !== "transcode-qsv") {
-      return yield* new TranscodeFailed({ streamId: session.streamId, mode, detail });
-    }
-
-    yield* fallBackToSoftware(session, detail);
-    const restarted = yield* startGeneration(session, generation.number + 1, index);
 
     return yield* new StreamGenerationGone({
       streamId: session.streamId,
@@ -484,6 +515,8 @@ const make = Effect.gen(function* () {
     const deadline = (yield* Clock.currentTimeMillis) + Duration.toMillis(maxWait);
 
     for (;;) {
+      // Stopped, replaced, or idle meanwhile: its encoder is gone and nothing will arrive.
+      if (isClosed(session.scope)) return yield* new StreamNotFound({ streamId: session.streamId });
       const current = yield* Ref.get(session.generation);
 
       // A seek replaced this generation while the request waited; its output is gone.
@@ -638,7 +671,6 @@ const make = Effect.gen(function* () {
           StreamGenerationGone: () => Effect.succeed(false),
           SegmentNotReady: () => Effect.succeed(true),
         }),
-        Effect.tapError(() => closeSession(session, "failed")),
       );
 
       if (ready) break;
@@ -650,22 +682,62 @@ const make = Effect.gen(function* () {
     return generation;
   });
 
+  /**
+   * Takes a slot for `transcoding` (a video encode) or a copy stream, released when `scope` closes.
+   * Taking the slot and registering its release cannot be interrupted apart.
+   */
+  const acquireSlot = (scope: Scope.Scope, transcoding: boolean) => {
+    const slots = transcoding ? transcodes : copies;
+    const limit = transcoding ? config.maxConcurrentTranscodes : config.maxConcurrentRemuxes;
+
+    return Ref.modify(slots, (running) =>
+      running < limit ? ([true, running + 1] as const) : ([false, running] as const),
+    ).pipe(
+      Effect.tap((acquired) =>
+        acquired
+          ? Scope.addFinalizer(
+              scope,
+              Ref.update(slots, (running) => running - 1),
+            )
+          : Effect.void,
+      ),
+      Effect.uninterruptible,
+      Effect.flatMap((acquired) =>
+        acquired ? Effect.void : Effect.fail(new TranscodeCapacityReached({ limit })),
+      ),
+    );
+  };
+
   const start = Effect.fn("StreamSessions.start")(function* (request: StartRequest) {
+    const scope = yield* Scope.make("sequential");
+    const registered = yield* Ref.make(Option.none<Session>());
+
+    return yield* startIn(scope, registered, request).pipe(
+      // A failed start, or a caller that went away before the first segment, leaves nothing behind.
+      Effect.onExit((exit) =>
+        Exit.isSuccess(exit)
+          ? Effect.void
+          : Ref.get(registered).pipe(
+              Effect.flatMap(
+                Option.match({
+                  onNone: () => Scope.close(scope, Exit.void),
+                  onSome: (session) =>
+                    closeSession(session, Exit.hasInterrupts(exit) ? "abandoned" : "failed"),
+                }),
+              ),
+            ),
+      ),
+    );
+  });
+
+  const startIn = Effect.fnUntraced(function* (
+    scope: Scope.Closeable,
+    registered: Ref.Ref<Option.Option<Session>>,
+    request: StartRequest,
+  ) {
     const { grant, file, plan } = request;
-    const transcoding = isEncode(plan.video);
 
-    if (transcoding) {
-      const acquired = yield* Ref.modify(transcodes, (running) =>
-        running < config.maxConcurrentTranscodes
-          ? ([true, running + 1] as const)
-          : ([false, running] as const),
-      );
-
-      if (!acquired)
-        return yield* new TranscodeCapacityReached({ limit: config.maxConcurrentTranscodes });
-    }
-
-    const release = transcoding ? Ref.update(transcodes, (running) => running - 1) : Effect.void;
+    yield* acquireSlot(scope, isEncode(plan.video));
 
     const available = yield* Effect.tryPromise(() => freeBytes(config.transcodeDir)).pipe(
       Effect.tapError((error) =>
@@ -677,8 +749,6 @@ const make = Effect.gen(function* () {
     );
 
     if (available < config.minFreeTranscodeBytes) {
-      yield* release;
-
       return yield* new InsufficientTranscodeSpace({
         freeBytes: available,
         requiredBytes: config.minFreeTranscodeBytes,
@@ -688,15 +758,13 @@ const make = Effect.gen(function* () {
     const segmentPlan = isEncode(plan.video)
       ? planGridSegments(file.probe.startSeconds, file.probe.durationSeconds)
       : planKeyframeSegments(
-          yield* keyframes.keyframes(file).pipe(Effect.tapError(() => release)),
+          yield* keyframes.keyframes(file),
           file.probe.startSeconds,
           file.probe.durationSeconds,
         );
 
     const streamId = yield* newStreamId;
-    const scope = yield* Scope.make("sequential");
 
-    yield* Scope.addFinalizer(scope, release);
     yield* Scope.addFinalizer(
       scope,
       fs.remove(path.join(config.transcodeDir, streamId), { recursive: true }).pipe(Effect.ignore),
@@ -749,7 +817,7 @@ const make = Effect.gen(function* () {
         next.set(streamId, session);
 
         return [previous, next] as const;
-      }),
+      }).pipe(Effect.tap(() => Ref.set(registered, Option.some(session)))),
     );
 
     for (const previous of replaced) {

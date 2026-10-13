@@ -352,6 +352,7 @@ export const NegotiateErrors = [
   InsufficientTranscodeSpace,
   TranscodeFailed,
   KeyframeIndexFailed,
+  StreamNotFound,
 ] as const;
 
 /** Failures of `POST /api/playback/seek`. */
@@ -378,7 +379,6 @@ export const StopErrors = [
 /** Every failure the playback API answers with, for decoding error bodies. */
 export const PlaybackApiError = Schema.Union([
   ...NegotiateErrors,
-  StreamNotFound,
   StreamAccessDenied,
   StreamGenerationGone,
   SegmentNotFound,
