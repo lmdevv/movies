@@ -247,6 +247,68 @@ export const artwork = v.object({
   logo: nullable(v.string()),
 });
 
+/** Mirrors `CommunityRating` in `@movies/contracts`. */
+export const communityRating = v.object({ value: v.number(), votes: nullable(v.number()) });
+
+/** Mirrors `Ratings` in `@movies/contracts`. */
+export const ratings = v.object({
+  tmdb: nullable(communityRating),
+  imdb: nullable(communityRating),
+  rottenTomatoes: nullable(v.number()),
+  metacritic: nullable(v.number()),
+});
+
+/** Mirrors `Trailer` in `@movies/contracts`. */
+export const trailer = v.object({
+  site: v.literal("youtube"),
+  key: v.string(),
+  name: nullable(v.string()),
+});
+
+/** Mirrors `ShowStatus` in `@movies/contracts`. */
+export const showStatus = v.union(
+  v.literal("returning"),
+  v.literal("ended"),
+  v.literal("canceled"),
+  v.literal("in-production"),
+  v.literal("planned"),
+);
+
+/** Mirrors `CreditKind` in `@movies/contracts`. */
+export const creditKind = v.union(
+  v.literal("actor"),
+  v.literal("guest-star"),
+  v.literal("director"),
+  v.literal("writer"),
+  v.literal("creator"),
+  v.literal("producer"),
+  v.literal("composer"),
+);
+
+/** Mirrors `Credit` in `@movies/contracts`. */
+export const credit = v.object({
+  personId: v.id("people"),
+  name: v.string(),
+  kind: creditKind,
+  role: nullable(v.string()),
+  profile: nullable(v.string()),
+  order: v.number(),
+});
+
+/** Mirrors `PersonCard` in `@movies/contracts`. */
+export const personCard = v.object({
+  id: v.id("people"),
+  name: v.string(),
+  profile: nullable(v.string()),
+  knownFor: nullable(v.string()),
+});
+
+/** Mirrors `CollectionRef` in `@movies/contracts`. */
+export const collectionRef = v.object({ id: v.id("collections"), name: v.string() });
+
+/** Mirrors `GenreCount` in `@movies/contracts`. */
+export const genreCount = v.object({ name: v.string(), count: v.number() });
+
 const titleCardFields = {
   id: v.id("titles"),
   kind: titleKind,
@@ -407,9 +469,14 @@ export const episode = v.object({
   airDate: nullable(v.string()),
   runtimeMs: nullable(v.number()),
   still: nullable(v.string()),
+  rating: nullable(v.number()),
+  externalIds,
   available: v.boolean(),
   progress: nullable(progress),
 });
+
+/** Mirrors `SeasonEpisode` in `@movies/contracts`. */
+export const seasonEpisode = v.object({ ...episode.fields, credits: v.array(credit) });
 
 /** Mirrors `Season` in `@movies/contracts`. */
 export const season = v.object({
@@ -418,6 +485,7 @@ export const season = v.object({
   name: v.string(),
   poster: nullable(v.string()),
   episodeCount: v.number(),
+  externalIds,
 });
 
 /** Mirrors `TitleDetail` in `@movies/contracts`. */
@@ -429,6 +497,18 @@ export const titleDetail = v.object({
   tagline: nullable(v.string()),
   externalIds,
   matchStatus,
+  originalName: nullable(v.string()),
+  releaseDate: nullable(v.string()),
+  status: nullable(showStatus),
+  originalLanguage: nullable(v.string()),
+  studios: v.array(v.string()),
+  countries: v.array(v.string()),
+  tags: v.array(v.string()),
+  ratings,
+  trailer: nullable(trailer),
+  collection: nullable(collectionRef),
+  cast: v.array(credit),
+  crew: v.array(credit),
   seasons: v.array(season),
   files: v.array(mediaFile),
   progress: nullable(progress),
@@ -601,6 +681,7 @@ export const hostControlArgs = {
 export const jobKind = v.union(
   v.literal("scan"),
   v.literal("metadata"),
+  v.literal("person"),
   v.literal("backup"),
   v.literal("migration"),
 );
@@ -631,6 +712,7 @@ export const jobPayload = v.union(
     titleId: v.id("titles"),
     match: nullable(v.object({ provider: v.literal("tmdb"), providerId: v.string() })),
   }),
+  v.object({ kind: v.literal("person"), personId: v.id("people") }),
   v.object({ kind: v.literal("backup"), trigger: backupTrigger }),
   v.object({
     kind: v.literal("migration"),
@@ -717,6 +799,16 @@ export const scannedTitle = v.object({
   artwork,
   externalIds,
   matchStatus: v.union(v.literal("matched"), v.literal("unmatched")),
+  originalName: v.optional(nullable(v.string())),
+  releaseDate: v.optional(nullable(v.string())),
+  status: v.optional(nullable(showStatus)),
+  originalLanguage: v.optional(nullable(v.string())),
+  studios: v.optional(v.array(v.string())),
+  countries: v.optional(v.array(v.string())),
+  tags: v.optional(v.array(v.string())),
+  ratings: v.optional(ratings),
+  trailer: v.optional(nullable(trailer)),
+  recommendations: v.optional(v.array(v.string())),
 });
 
 /** Mirrors `ScannedEpisode` in `@movies/contracts`. */
@@ -730,6 +822,9 @@ export const scannedEpisode = v.object({
   still: nullable(v.string()),
   seasonName: nullable(v.string()),
   seasonPoster: nullable(v.string()),
+  rating: v.optional(nullable(communityRating)),
+  externalIds: v.optional(externalIds),
+  seasonExternalIds: v.optional(externalIds),
 });
 
 /** Mirrors `ScannedFile` in `@movies/contracts`. */
@@ -755,6 +850,9 @@ export const upsertedFile = v.object({
   fileId: v.id("mediaFiles"),
   titleId: v.id("titles"),
   episodeId: nullable(v.id("episodes")),
+  titleCreditsHash: nullable(v.string()),
+  episodeCreditsHash: nullable(v.string()),
+  collectionHash: nullable(v.string()),
 });
 
 /** Mirrors `IndexedFile` in `@movies/contracts`. */
@@ -796,5 +894,72 @@ export const metadataTarget = v.object({
   year: nullable(v.number()),
   externalIds,
   artwork,
-  episodes: v.array(v.object({ seasonNumber: v.number(), episodeNumber: v.number() })),
+  episodes: v.array(
+    v.object({ episodeId: v.id("episodes"), seasonNumber: v.number(), episodeNumber: v.number() }),
+  ),
+});
+
+/** Mirrors `ScannedPerson` in `@movies/contracts`. */
+export const scannedPerson = v.object({
+  name: v.string(),
+  externalIds,
+  profile: nullable(v.string()),
+});
+
+/** Mirrors `ScannedCredit` in `@movies/contracts`. */
+export const scannedCredit = v.object({
+  person: scannedPerson,
+  kind: creditKind,
+  role: nullable(v.string()),
+  order: v.number(),
+});
+
+/** Mirrors `ScannedCollection` in `@movies/contracts`. */
+export const scannedCollection = v.object({
+  sourceKey: v.string(),
+  name: v.string(),
+  overview: nullable(v.string()),
+  poster: nullable(v.string()),
+  backdrop: nullable(v.string()),
+});
+
+/** Mirrors `ScannedPersonDetails` in `@movies/contracts`. */
+export const scannedPersonDetails = v.object({
+  name: v.string(),
+  externalIds,
+  profile: nullable(v.string()),
+  biography: nullable(v.string()),
+  birthDate: nullable(v.string()),
+  deathDate: nullable(v.string()),
+  birthPlace: nullable(v.string()),
+  knownFor: nullable(v.string()),
+});
+
+/** Mirrors `PersonTarget` in `@movies/contracts`. */
+export const personTarget = v.object({
+  personId: v.id("people"),
+  name: v.string(),
+  externalIds,
+});
+
+/** Mirrors `PersonDetail` in `@movies/contracts`. */
+export const personDetail = v.object({
+  id: v.id("people"),
+  name: v.string(),
+  profile: nullable(v.string()),
+  externalIds,
+  biography: nullable(v.string()),
+  birthDate: nullable(v.string()),
+  deathDate: nullable(v.string()),
+  birthPlace: nullable(v.string()),
+  knownFor: nullable(v.string()),
+  detailsPending: v.boolean(),
+  credits: v.array(
+    v.object({
+      title: titleCard,
+      kind: creditKind,
+      role: nullable(v.string()),
+      episodeCount: v.number(),
+    }),
+  ),
 });

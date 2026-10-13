@@ -135,6 +135,7 @@ setting LIBRARY_ROOTS "${LIBRARY_ROOTS:-/media}"
 optional_settings=(
   BACKUP_RETENTION_DAYS
   TMDB_API_KEY
+  OMDB_API_KEY
   OTEL_EXPORTER_OTLP_ENDPOINT
   HARDWARE_ACCELERATION
   QSV_DEVICE
@@ -148,7 +149,8 @@ optional_settings=(
 for name in "${optional_settings[@]}"; do
   setting "$name" "${!name:-}"
 done
-unset admin_key media_service_api_key playback_token_secret CONVEX_SELF_HOSTED_ADMIN_KEY TMDB_API_KEY
+unset admin_key media_service_api_key playback_token_secret CONVEX_SELF_HOSTED_ADMIN_KEY TMDB_API_KEY \
+  OMDB_API_KEY
 
 log "starting the media service at $public_url"
 cd /app/media

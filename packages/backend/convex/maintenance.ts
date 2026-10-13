@@ -5,6 +5,8 @@ import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { endPlaybackSession, endRoom, endTitlePlayback } from "./lib/endings";
 import { enqueueJob, MAX_JOB_ATTEMPTS } from "./lib/jobs";
+import { removeTitleGenres, syncTitleGenres } from "./lib/genres";
+import { removeTitleCredits } from "./lib/people";
 import { overlappingLibraries as findOverlaps } from "./lib/roots";
 import { endAuthSession } from "./lib/viewer";
 import {
@@ -177,6 +179,34 @@ export const requestNightlyBackup = internalMutation({
   },
 });
 
+/** Titles whose genre rows one backfill step writes. */
+const GENRE_BACKFILL_BATCH = 100;
+
+/**
+ * Writes the genre rows of every title, a batch at a time, rescheduling itself until done. Titles
+ * stored before the `titleGenres` table existed need it once; `scripts/configure.ts` runs it on
+ * every deploy, and a pass over titles already in step writes nothing.
+ */
+export const backfillTitleGenres = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.null(),
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db
+      .query("titles")
+      .paginate({ numItems: GENRE_BACKFILL_BATCH, cursor: cursor ?? null });
+
+    await Promise.all(page.page.map((title) => syncTitleGenres(ctx, title)));
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.maintenance.backfillTitleGenres, {
+        cursor: page.continueCursor,
+      });
+    }
+
+    return null;
+  },
+});
+
 /**
  * Deletes a removed library's catalog in batches, rescheduling until it is gone: files, then
  * titles with their seasons, episodes, and collection memberships. Each batch first ends the
@@ -211,6 +241,20 @@ export const purgeLibrary = internalMutation({
       .withIndex("by_library", (q) => q.eq("libraryId", libraryId))
       .take(20);
 
+    // Credits go in passes of their own, a share of the batch per title, so a pass that deletes
+    // credits never also deletes titles with their seasons and episodes.
+    const removed = await Promise.all(
+      titles.map((title) =>
+        removeTitleCredits(ctx, title._id, Math.max(1, Math.floor(PURGE_BATCH / titles.length))),
+      ),
+    );
+
+    if (removed.some((count) => count > 0)) {
+      await ctx.scheduler.runAfter(0, internal.maintenance.purgeLibrary, { libraryId });
+
+      return null;
+    }
+
     await Promise.all(
       titles.map(async (title) => {
         const seasons = await ctx.db
@@ -232,6 +276,7 @@ export const purgeLibrary = internalMutation({
         await Promise.all(
           [...seasons, ...episodes, ...memberships].map((doc) => ctx.db.delete(doc._id)),
         );
+        await removeTitleGenres(ctx, title._id);
         await ctx.db.delete(title._id);
       }),
     );

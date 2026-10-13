@@ -9,7 +9,9 @@ import type { Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { fail } from "./errors";
-import type { scannedEpisode, scannedItem, scannedTitle } from "./validators";
+import { syncTitleGenres } from "./genres";
+import { NO_EXTERNAL_IDS } from "./present";
+import type { scannedEpisode, scannedItem, scannedTitle, upsertedFile } from "./validators";
 
 /** Text the title search index matches: names, the year, and any override name. */
 export const searchTextOf = (title: {
@@ -69,11 +71,74 @@ const adjustPresent = async (
   }
 };
 
+/** The shape of a YouTube video ID; `YOUTUBE_KEY_PATTERN` in contracts. */
+export const YOUTUBE_KEY = /^[\w-]{6,20}$/u;
+
+/** Only a well-formed key reaches the embed URL the web app builds. */
+const checkedTrailer = (trailer: Infer<typeof scannedTitle>["trailer"]) =>
+  trailer === undefined || trailer === null || YOUTUBE_KEY.test(trailer.key) ? trailer : null;
+
+/** Title fields only metadata-aware writers send; a writer that omits one leaves it as stored. */
+type RichMetadata = Partial<
+  Pick<
+    Doc<"titles">,
+    | "originalName"
+    | "releaseDate"
+    | "status"
+    | "originalLanguage"
+    | "studios"
+    | "countries"
+    | "tags"
+    | "ratings"
+    | "trailer"
+    | "recommendations"
+  >
+>;
+
+/** The rich metadata fields a scanned title carries, bounded and checked. */
+const richMetadata = (scanned: Infer<typeof scannedTitle>): RichMetadata => {
+  const rich: RichMetadata = {};
+  const trailer = checkedTrailer(scanned.trailer);
+
+  if (scanned.originalName !== undefined) rich.originalName = scanned.originalName;
+
+  if (scanned.releaseDate !== undefined) rich.releaseDate = scanned.releaseDate;
+
+  if (scanned.status !== undefined) rich.status = scanned.status;
+
+  if (scanned.originalLanguage !== undefined) rich.originalLanguage = scanned.originalLanguage;
+
+  if (scanned.studios !== undefined) rich.studios = scanned.studios.slice(0, TITLE_LIST_LIMIT);
+
+  if (scanned.countries !== undefined) {
+    rich.countries = scanned.countries.slice(0, TITLE_LIST_LIMIT);
+  }
+
+  if (scanned.tags !== undefined) rich.tags = scanned.tags.slice(0, TITLE_TAG_LIMIT);
+
+  if (scanned.ratings !== undefined) rich.ratings = scanned.ratings;
+
+  if (trailer !== undefined) rich.trailer = trailer;
+
+  if (scanned.recommendations !== undefined) {
+    rich.recommendations = scanned.recommendations.slice(0, TITLE_LIST_LIMIT);
+  }
+
+  return rich;
+};
+
+/** Most studios, countries, or recommendations a title keeps; `TITLE_LIST_LIMIT` in contracts. */
+export const TITLE_LIST_LIMIT = 20;
+
+/** Most keywords a title keeps; `TITLE_TAG_LIMIT` in contracts. */
+export const TITLE_TAG_LIMIT = 40;
+
 /** The fields a scan or metadata job writes onto a title. */
 export const titleMetadata = (scanned: Infer<typeof scannedTitle>) => {
   const sortName = scanned.sortName ?? scanned.name;
 
   return {
+    ...richMetadata(scanned),
     kind: scanned.kind,
     name: scanned.name,
     sortName,
@@ -88,6 +153,47 @@ export const titleMetadata = (scanned: Infer<typeof scannedTitle>) => {
     artwork: scanned.artwork,
     externalIds: scanned.externalIds,
   };
+};
+
+/**
+ * What a write keeps of the title it replaces: a provider ID the write does not know (one a
+ * migration imported, or a metadata job found) and a site score it could not fetch (OMDb
+ * unreachable, paused, or over its daily limit) stay as stored, and a title with such IDs stays
+ * matched. A write that knows a value replaces it.
+ */
+export const keepKnown = (
+  scanned: Infer<typeof scannedTitle>,
+  existing: Doc<"titles">,
+): Infer<typeof scannedTitle> => {
+  const externalIds = {
+    tmdb: scanned.externalIds.tmdb ?? existing.externalIds.tmdb,
+    imdb: scanned.externalIds.imdb ?? existing.externalIds.imdb,
+    tvdb: scanned.externalIds.tvdb ?? existing.externalIds.tvdb,
+  };
+
+  const identified = Object.values(externalIds).some((id) => id !== null);
+  const stored = existing.ratings;
+
+  const ratings =
+    scanned.ratings === undefined || stored === undefined
+      ? scanned.ratings
+      : {
+          tmdb: scanned.ratings.tmdb ?? stored.tmdb,
+          imdb: scanned.ratings.imdb ?? stored.imdb,
+          rottenTomatoes: scanned.ratings.rottenTomatoes ?? stored.rottenTomatoes,
+          metacritic: scanned.ratings.metacritic ?? stored.metacritic,
+        };
+
+  const kept = {
+    ...scanned,
+    externalIds,
+    matchStatus:
+      identified && existing.matchStatus !== "unmatched" ? "matched" : scanned.matchStatus,
+  } satisfies Infer<typeof scannedTitle>;
+
+  if (ratings !== undefined) kept.ratings = ratings;
+
+  return kept;
 };
 
 const upsertTitle = async (
@@ -111,15 +217,21 @@ const upsertTitle = async (
 
   if (existing !== null) {
     if (existing.matchStatus === "manual") return existing;
+    const merged = keepKnown(scanned, existing);
+    const fields = titleMetadata(merged);
 
     await ctx.db.patch(existing._id, {
-      ...metadata,
-      matchStatus: scanned.matchStatus,
+      ...fields,
+      matchStatus: merged.matchStatus,
       updatedAt: now,
-      searchText: searchTextOf({ ...metadata, overrides: existing.overrides }),
+      searchText: searchTextOf({ ...fields, overrides: existing.overrides }),
     });
 
-    return { ...existing, ...metadata, matchStatus: scanned.matchStatus };
+    const updated = { ...existing, ...fields, matchStatus: merged.matchStatus };
+
+    await syncTitleGenres(ctx, updated);
+
+    return updated;
   }
 
   const titleId = await ctx.db.insert("titles", {
@@ -136,9 +248,13 @@ const upsertTitle = async (
   const library = await ctx.db.get(libraryId);
 
   if (library !== null) await ctx.db.patch(libraryId, { titleCount: library.titleCount + 1 });
-  const created = await ctx.db.get(titleId);
 
-  return created ?? fail("internal", "A title vanished right after it was created");
+  const created =
+    (await ctx.db.get(titleId)) ?? fail("internal", "A title vanished right after it was created");
+
+  await syncTitleGenres(ctx, created);
+
+  return created;
 };
 
 /** Finds or creates a show's season and episode, updating their names and artwork. */
@@ -166,12 +282,19 @@ export const upsertEpisode = async (
       name: seasonName,
       poster: scanned.seasonPoster,
       episodeCount: 0,
+      externalIds: scanned.seasonExternalIds ?? NO_EXTERNAL_IDS,
     }));
 
-  if (season !== null && (scanned.seasonName !== null || scanned.seasonPoster !== null)) {
+  if (
+    season !== null &&
+    (scanned.seasonName !== null ||
+      scanned.seasonPoster !== null ||
+      scanned.seasonExternalIds !== undefined)
+  ) {
     await ctx.db.patch(season._id, {
       name: scanned.seasonName ?? season.name,
       poster: scanned.seasonPoster ?? season.poster,
+      externalIds: scanned.seasonExternalIds ?? season.externalIds,
     });
   }
 
@@ -191,6 +314,8 @@ export const upsertEpisode = async (
     airDate: scanned.airDate ?? existing?.airDate ?? null,
     runtimeMs: scanned.runtimeMs ?? existing?.runtimeMs ?? null,
     still: scanned.still ?? existing?.still ?? null,
+    rating: scanned.rating ?? existing?.rating ?? null,
+    externalIds: scanned.externalIds ?? existing?.externalIds ?? NO_EXTERNAL_IDS,
   };
 
   if (existing !== null) {
@@ -222,12 +347,7 @@ export const upsertScannedItem = async (
   ctx: MutationCtx,
   libraryId: Id<"libraries">,
   item: Infer<typeof scannedItem>,
-): Promise<{
-  readonly path: string;
-  readonly fileId: Id<"mediaFiles">;
-  readonly titleId: Id<"titles">;
-  readonly episodeId: Id<"episodes"> | null;
-}> => {
+): Promise<Infer<typeof upsertedFile>> => {
   const existingFile = await ctx.db
     .query("mediaFiles")
     .withIndex("by_library_path", (q) => q.eq("libraryId", libraryId).eq("path", item.file.path))
@@ -242,6 +362,14 @@ export const upsertScannedItem = async (
       : null;
 
   const episodeId = episode?._id ?? null;
+
+  const landed = {
+    titleId: title._id,
+    episodeId,
+    titleCreditsHash: title.creditsHash ?? null,
+    episodeCreditsHash: episode?.creditsHash ?? null,
+    collectionHash: title.collectionHash ?? null,
+  };
 
   const fields = {
     titleId: title._id,
@@ -265,7 +393,7 @@ export const upsertScannedItem = async (
 
     await adjustPresent(ctx, title._id, episodeId, 1);
 
-    return { path: item.file.path, fileId, titleId: title._id, episodeId };
+    return { path: item.file.path, fileId, ...landed };
   }
 
   await ctx.db.patch(existingFile._id, { ...fields, missingSince: undefined });
@@ -277,7 +405,7 @@ export const upsertScannedItem = async (
 
   if (existingFile.missing || moved) await adjustPresent(ctx, title._id, episodeId, 1);
 
-  return { path: item.file.path, fileId: existingFile._id, titleId: title._id, episodeId };
+  return { path: item.file.path, fileId: existingFile._id, ...landed };
 };
 
 /** Marks a file missing. Its title and episode stay, with any history pointing at them. */

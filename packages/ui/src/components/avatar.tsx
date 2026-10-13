@@ -25,12 +25,18 @@ const MONOGRAMS = {
 /** Avatar dimensions, from the 28px compact bar up to the 160px profile picker. */
 export type AvatarSize = keyof typeof SIZES;
 
+/** The letter an avatar without a picture shows: the name's first, upper-cased. */
+export const monogramOf = (name: string): string => name.trim().slice(0, 1).toUpperCase();
+
 /**
  * A profile picture. Without an image, or with `monogram`, it shows the name's first letter in the
- * bottom-left corner the way the profile picker draws it.
+ * bottom-left corner the way the profile picker draws it, or in the middle with `centered`.
  *
  * @param image - Picture URL; omit for a plain raised tile.
  * @param round - Draw a circle, as on phones; otherwise a square with 4px corners, as on desktop.
+ * @param centered - Put the letter in the middle, as a person's photo placeholder does.
+ * @param decorative - Hide the avatar from assistive technology, for when the name is already
+ *   written next to it, as in a link that would otherwise read the name twice.
  * @param monogramClassName - Extra classes for the letter, such as hiding it on phones.
  */
 export function Avatar({
@@ -39,6 +45,8 @@ export function Avatar({
   size = "sm",
   round = false,
   monogram = false,
+  centered = false,
+  decorative = false,
   className,
   monogramClassName,
 }: {
@@ -47,6 +55,8 @@ export function Avatar({
   readonly size?: AvatarSize;
   readonly round?: boolean;
   readonly monogram?: boolean;
+  readonly centered?: boolean;
+  readonly decorative?: boolean;
   readonly className?: string;
   readonly monogramClassName?: string | undefined;
 }) {
@@ -55,10 +65,12 @@ export function Avatar({
   return (
     <span
       data-slot="avatar"
-      role="img"
-      aria-label={name}
+      role={decorative ? undefined : "img"}
+      aria-label={decorative ? undefined : name}
+      aria-hidden={decorative ? true : undefined}
       className={cn(
-        "relative flex shrink-0 items-end overflow-hidden bg-surface-raised bg-cover bg-center select-none",
+        "relative flex shrink-0 overflow-hidden bg-surface-raised bg-cover bg-center select-none",
+        centered ? "items-center justify-center" : "items-end",
         SIZES[size],
         round ? "rounded-pill" : "rounded-poster",
         className,
@@ -75,7 +87,7 @@ export function Avatar({
             monogramClassName,
           )}
         >
-          {name.slice(0, 1).toUpperCase()}
+          {monogramOf(name)}
         </span>
       ) : null}
     </span>

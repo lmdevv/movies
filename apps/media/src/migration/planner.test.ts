@@ -177,6 +177,31 @@ describe("planMigration", () => {
     ]);
   });
 
+  it("carries provider IDs and keeps overrides when two source items match one title", () => {
+    const plan = planMigration(
+      input({
+        items: [
+          item("heat-4k", "movie", ["/data/movies/Heat.mkv"], {
+            overrides: { sortName: "Heat 1995" },
+            ids: { tmdb: null, imdb: "tt0113277", tvdb: null },
+          }),
+          item("heat-copy", "movie", ["/data/movies/Heat.mkv"], {
+            ids: { tmdb: "949", imdb: null, tvdb: null },
+          }),
+          item("alien", "movie", ["/data/movies/Alien.mkv"]),
+        ],
+      }),
+    );
+
+    assert.deepStrictEqual(plan.overrides, [
+      {
+        titleId: TitleId.make("heat"),
+        overrides: { sortName: "Heat 1995" },
+        externalIds: { tmdb: "949", imdb: "tt0113277", tvdb: null },
+      },
+    ]);
+  });
+
   it("shares added libraries as the source did, with imported users only", () => {
     const plan = planMigration(input({}));
 

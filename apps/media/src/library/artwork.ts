@@ -111,3 +111,13 @@ export const episodeThumb = (mediaPath: string, listing: FolderListing): string 
 
   return findImage(listing, [`${stem}-thumb`, stem]);
 };
+
+/** The folder Kodi and Jellyfin keep actor photos in, next to the NFO. */
+export const ACTORS_FOLDER = ".actors";
+
+/**
+ * An actor's photo in an `.actors` folder listing: `Jane_Doe.jpg`, as Kodi names them, or
+ * `Jane Doe.jpg`.
+ */
+export const actorImage = (listing: FolderListing, name: string): string | undefined =>
+  findImage(listing, [name.replaceAll(" ", "_"), name]);

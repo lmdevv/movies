@@ -33,6 +33,8 @@ import * as MediaTools from "../media/media-tools.ts";
 import * as MetadataResolver from "../metadata/title-metadata.ts";
 import { type EntryKind, errorCode, listEntries } from "../platform/node-directories.ts";
 import {
+  ACTORS_FOLDER,
+  actorImage,
   episodeThumb,
   type FolderListing,
   movieArtwork,
@@ -463,6 +465,33 @@ const make = Effect.gen(function* () {
           : Cache.get(nfoCache, [join(folder, found), kind, episode] as const);
       };
 
+      // `.actors` folders are hidden, so the walk skips them; they are listed on first use, and
+      // only when they stay inside the root.
+      const actorsCache = yield* Cache.make({
+        capacity: 10_000,
+        lookup: (folder: string) => {
+          const relative = join(folder, ACTORS_FOLDER);
+          const present = listing(folder).names.some((name) => name === ACTORS_FOLDER);
+
+          return present
+            ? fs.realPath(absolute(relative)).pipe(
+                Effect.filterOrFail((real) => isWithin(realRoot, real, path.sep)),
+                Effect.flatMap((real) => fs.readDirectory(real)),
+                Effect.map((names): FolderListing => ({ folder: relative, names })),
+                Effect.orElseSucceed((): FolderListing => ({ folder: relative, names: [] })),
+              )
+            : Effect.succeed<FolderListing>({ folder: relative, names: [] });
+        },
+      });
+
+      /** Finds actor photos in the `.actors` folders of `folders`, nearest first. */
+      const actorImagesIn = Effect.fnUntraced(function* (folders: ReadonlyArray<string>) {
+        const listings = yield* Effect.forEach(folders, (folder) => Cache.get(actorsCache, folder));
+
+        return (name: string): string | undefined =>
+          listings.map((found) => actorImage(found, name)).find((image) => image !== undefined);
+      });
+
       const showCache = yield* Cache.make({
         capacity: 10_000,
         lookup: ([showFolder, showTitle, showYear, tvdb, tmdb, imdb]: readonly [
@@ -486,6 +515,7 @@ const make = Effect.gen(function* () {
               nameIds: { tvdb, tmdb, imdb },
               local: Option.getOrUndefined(local),
               artwork: showFolder === undefined ? {} : showArtwork(listing(showFolder)),
+              actorImages: yield* actorImagesIn(showFolder === undefined ? [] : [showFolder]),
             });
           }),
       });
@@ -512,6 +542,7 @@ const make = Effect.gen(function* () {
           nameIds: name.ids,
           local: Option.getOrUndefined(local),
           artwork: movieArtwork(relativePath, listing(folder), ownFolder),
+          actorImages: yield* actorImagesIn([folder]),
         });
 
         return { title: resolved.metadata, episode: undefined };
@@ -546,6 +577,9 @@ const make = Effect.gen(function* () {
           name,
           local: Option.getOrUndefined(local),
           still: episodeThumb(relativePath, listing(folder)),
+          actorImages: yield* actorImagesIn(
+            showFolder === undefined || showFolder === folder ? [folder] : [folder, showFolder],
+          ),
           seasonPoster:
             showFolder === undefined
               ? undefined

@@ -65,6 +65,7 @@ services:
       # list, the entrypoint's, and .env.example in step.
       LIBRARY_ROOTS: ${LIBRARY_ROOTS:-}
       TMDB_API_KEY: ${TMDB_API_KEY:-}
+      OMDB_API_KEY: ${OMDB_API_KEY:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       HARDWARE_ACCELERATION: ${HARDWARE_ACCELERATION:-}
       QSV_DEVICE: ${QSV_DEVICE:-}

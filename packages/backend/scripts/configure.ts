@@ -7,7 +7,8 @@
  * defaults when unset), so rerunning it after a restore does not reset them.
  *
  * Sets JWT_PRIVATE_KEY and JWKS for Convex Auth, SITE_URL, MEDIA_BASE_URL, PLAYBACK_TOKEN_SECRET,
- * and MEDIA_SERVICE_API_KEY; makes sure the media service's account and key exist; then prints
+ * and MEDIA_SERVICE_API_KEY; makes sure the media service's account and key exist; starts the
+ * genre index backfill (`maintenance:backfillTitleGenres`, a no-op once done); then prints
  * `MEDIA_SERVICE_API_KEY=...` and `PLAYBACK_TOKEN_SECRET=...` on stdout for the media service's
  * environment. Everything else goes to stderr. It runs this package's `convex` CLI, so it targets
  * whatever deployment the CLI targets (`.env.local`, or `CONVEX_SELF_HOSTED_*` variables).
@@ -103,6 +104,9 @@ const ensured = convex([
 ]);
 
 log(`media service key: ${ensured.includes("true") ? "registered" : "already registered"}`);
+
+// Genre rows for titles stored before they existed; a no-op once every title has them.
+convex(["run", "maintenance:backfillTitleGenres", "{}"]);
 
 process.stdout.write(
   `MEDIA_SERVICE_API_KEY=${serviceKey}\nPLAYBACK_TOKEN_SECRET=${playbackSecret}\n`,

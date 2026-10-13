@@ -11,6 +11,7 @@
 #     convexPublicUrl = "http://nas.tailnet.ts.net:3210";
 #     hardwareAcceleration = "qsv";
 #     tmdbApiKeyFile = "/run/secrets/tmdb-api-key";
+#     omdbApiKeyFile = "/run/secrets/omdb-api-key";
 #   };
 #
 # Every startup derives the Convex admin key from the backend's instance secret, backs up before
@@ -126,6 +127,9 @@ let
         printf 'CONVEX_SELF_HOSTED_ADMIN_KEY=%s\n' "$admin_key"
         ${lib.optionalString (cfg.tmdbApiKeyFile != null) ''
           printf 'TMDB_API_KEY=%s\n' "$(cat ${lib.escapeShellArg cfg.tmdbApiKeyFile})"
+        ''}
+        ${lib.optionalString (cfg.omdbApiKeyFile != null) ''
+          printf 'OMDB_API_KEY=%s\n' "$(cat ${lib.escapeShellArg cfg.omdbApiKeyFile})"
         ''}
       } >>"$env_file"
     '';
@@ -298,6 +302,16 @@ in
       description = ''
         File holding a TMDB v3 API key or v4 read access token, for metadata and artwork. Read at
         startup by root; keep it out of the Nix store (agenix, sops-nix, or a root-only file).
+      '';
+    };
+
+    omdbApiKeyFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      example = "/run/secrets/omdb-api-key";
+      description = ''
+        File holding an OMDb API key, for IMDb, Rotten Tomatoes, and Metacritic scores; without it
+        titles show TMDB's score only. Read at startup by root; keep it out of the Nix store.
       '';
     };
 

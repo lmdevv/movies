@@ -1,3 +1,4 @@
+import type { ProfileId } from "@movies/contracts/ids";
 import type { Home, TitleCard } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
@@ -5,6 +6,7 @@ import { CalmState } from "@movies/ui/components/calm-state";
 import { MediaRow } from "@movies/ui/components/media-row";
 import { Link, createFileRoute } from "@tanstack/react-router";
 
+import { CollectionCard } from "@/components/browse/collection-card";
 import { HomeHero } from "@/components/browse/home-hero";
 import { EmptyLibrary, NothingToWatch, ScanningLibrary } from "@/components/browse/library-states";
 import { HeroSkeleton, RowSkeleton } from "@/components/browse/skeletons";
@@ -23,6 +25,9 @@ export const Route = createFileRoute("/_app/")({
   staticData: { hero: true },
   component: HomePage,
 });
+
+/** Collections the Home row shows; "See all" lists the rest. */
+const ROW_COLLECTIONS = 20;
 
 /** While a scan runs, Home keeps the scanning layout until this many titles have arrived. */
 const SCANNING_UNTIL = 8;
@@ -146,7 +151,23 @@ function HomeRows({ home }: { readonly home: Home }) {
             {titleRow(home.myList)}
           </MediaRow>
         )}
+        <CollectionsRow profileId={profile.id} />
       </div>
     </div>
+  );
+}
+
+/** Collections on Home: shown once any collection holds a title the profile may see. */
+function CollectionsRow({ profileId }: { readonly profileId: ProfileId }) {
+  const collections = useCommandQuery("collections.list", { profileId, limit: ROW_COLLECTIONS });
+
+  if (collections.status !== "success" || collections.data.length === 0) return null;
+
+  return (
+    <MediaRow title="Collections" seeAll={<Link to="/collections" />}>
+      {collections.data.map((collection) => (
+        <CollectionCard key={collection.id} collection={collection} />
+      ))}
+    </MediaRow>
   );
 }

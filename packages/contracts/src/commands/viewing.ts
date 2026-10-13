@@ -3,10 +3,12 @@ import { Schema } from "effect";
 
 import { AgeRating } from "../content-rating";
 import {
+  CollectionId,
   DeviceId,
   EpisodeId,
   LibraryId,
   MediaFileId,
+  PersonId,
   PlaybackSessionId,
   ProfileId,
   RoomId,
@@ -15,15 +17,19 @@ import {
 import {
   ContinueWatchingItem,
   Episode,
+  GenreCount,
   HistoryEntry,
   Home,
   Library,
+  PersonCard,
+  SeasonEpisode,
   TitleCard,
   TitleDetail,
   TitleKind,
   TitleSort,
 } from "../models/catalog";
 import { Collection } from "../models/collections";
+import { PersonDetail } from "../models/people";
 import { DisplayName, NoArgs, Ok, Page, PageArgs } from "../models/common";
 import {
   PlaybackSession,
@@ -37,6 +43,15 @@ import { Milliseconds } from "../units";
 import { mutation, query } from "./command";
 
 const OnProfile = { profileId: ProfileId };
+
+/** A year a title came out in, for filters. */
+const FilterYear = Schema.Int.check(Schema.isBetween({ minimum: 1800, maximum: 3000 }));
+
+/** A short free-text filter value, such as a genre or studio name. */
+const FilterText = Schema.Trimmed.check(Schema.isMinLength(1), Schema.isMaxLength(100));
+
+/** How many results a lookup returns, 1 to 50. */
+const ResultLimit = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 50 }));
 
 const TitleOnProfile = Schema.Struct({ ...OnProfile, titleId: TitleId });
 
@@ -133,9 +148,36 @@ export const browseCommands = {
       kind: Schema.optionalKey(TitleKind),
       libraryId: Schema.optionalKey(LibraryId),
       sort: Schema.optionalKey(TitleSort),
+      /** Only titles with this genre, matched without regard to case. */
+      genre: Schema.optionalKey(FilterText),
+      /** Only titles from this year on; with `yearTo`, a decade is 1990 to 1999. */
+      yearFrom: Schema.optionalKey(FilterYear),
+      yearTo: Schema.optionalKey(FilterYear),
+      /** Only titles from this studio or network, matched without regard to case. */
+      studio: Schema.optionalKey(FilterText),
+      /** Only titles whose IMDb score (else TMDB score) is at least this, on a 0–10 scale. */
+      minRating: Schema.optionalKey(
+        Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 10 })),
+      ),
     }),
     result: Page(TitleCard),
     function: "titles:list",
+  }),
+  "titles.genres": query({
+    summary: "List genres of the titles a profile may see, most common first",
+    group: "browse",
+    scope: "read",
+    args: Schema.Struct({ ...OnProfile, kind: Schema.optionalKey(TitleKind) }),
+    result: Schema.Array(GenreCount),
+    function: "titles:genres",
+  }),
+  "titles.similar": query({
+    summary: "Show titles like this one that a profile may see",
+    group: "browse",
+    scope: "read",
+    args: Schema.Struct({ ...OnProfile, titleId: TitleId, limit: Schema.optionalKey(ResultLimit) }),
+    result: Schema.Array(TitleCard),
+    function: "titles:similar",
   }),
   "titles.search": query({
     summary: "Search titles by name",
@@ -162,7 +204,7 @@ export const browseCommands = {
     group: "browse",
     scope: "read",
     args: Schema.Struct({ ...OnProfile, titleId: TitleId, seasonNumber: Schema.Int }),
-    result: Schema.Array(Episode),
+    result: Schema.Array(SeasonEpisode),
     function: "titles:episodes",
   }),
   "libraries.list": query({
@@ -177,9 +219,49 @@ export const browseCommands = {
     summary: "Show collections and the titles a profile may see in each",
     group: "browse",
     scope: "read",
-    args: Schema.Struct(OnProfile),
+    args: Schema.Struct({
+      ...OnProfile,
+      /** Most collections to show, 1 to 200; all of them (up to 200) when omitted. */
+      limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 200 }))),
+    }),
     result: Schema.Array(Collection),
     function: "collections:list",
+  }),
+  "collections.get": query({
+    summary: "Show a collection and the titles a profile may see in it",
+    group: "browse",
+    scope: "read",
+    args: Schema.Struct({ ...OnProfile, collectionId: CollectionId }),
+    result: Collection,
+    function: "collections:get",
+  }),
+  "people.get": query({
+    summary: "Show a person and the titles a profile may see them in",
+    group: "browse",
+    scope: "read",
+    args: Schema.Struct({ ...OnProfile, personId: PersonId }),
+    result: PersonDetail,
+    function: "people:get",
+  }),
+  "people.search": query({
+    summary: "Search cast and crew by name",
+    group: "browse",
+    scope: "read",
+    args: Schema.Struct({
+      ...OnProfile,
+      query: Schema.String.check(Schema.isMaxLength(200)),
+      limit: Schema.optionalKey(ResultLimit),
+    }),
+    result: Schema.Array(PersonCard),
+    function: "people:search",
+  }),
+  "people.requestDetails": mutation({
+    summary: "Fetch a person's biography and dates if they are missing",
+    group: "browse",
+    scope: "read",
+    args: Schema.Struct({ ...OnProfile, personId: PersonId }),
+    result: Ok,
+    function: "people:requestDetails",
   }),
 };
 

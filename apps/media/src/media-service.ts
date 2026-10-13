@@ -12,6 +12,7 @@ import * as DiskCache from "./disk-cache.ts";
 import * as LibraryScanner from "./library/library-scanner.ts";
 import * as MediaTools from "./media/media-tools.ts";
 import * as MetadataResolver from "./metadata/title-metadata.ts";
+import * as Omdb from "./metadata/omdb.ts";
 import * as Tmdb from "./metadata/tmdb.ts";
 import * as HardwareAcceleration from "./playback/hardware-acceleration.ts";
 import * as KeyframeIndex from "./playback/keyframe-index.ts";
@@ -34,6 +35,7 @@ export const servicesLayer = Layer.mergeAll(
   Layer.provideMerge(ArtworkStore.layer),
   Layer.provideMerge(ArtworkKeys.layer),
   Layer.provideMerge(Tmdb.layer),
+  Layer.provideMerge(Omdb.layer),
   Layer.provideMerge(PlaybackToken.layer),
   Layer.provideMerge(EndedSessions.layer),
   Layer.provideMerge(DiskCache.layer),

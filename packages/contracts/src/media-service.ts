@@ -7,23 +7,37 @@
 import { Schema } from "effect";
 
 import { mutation, query } from "./commands/command";
-import { BackupId, LibraryId, MediaFileId, PlaybackSessionId, TitleId } from "./ids";
+import {
+  BackupId,
+  EpisodeId,
+  LibraryId,
+  MediaFileId,
+  PersonId,
+  PlaybackSessionId,
+  TitleId,
+} from "./ids";
 import { migrationServiceFunctions } from "./migration-service";
 import { NoArgs, Ok, Page, PageArgs } from "./models/common";
 import { BACKUP_SYNC_LIMIT, BackupArchive, Job, JobProgress } from "./models/jobs";
 import { PlaybackMode } from "./models/playback";
 import {
   ClaimedJob,
+  CREDIT_BATCH_LIMIT,
   EndedSession,
   IndexedFile,
   LeaseArgs,
   LeaseMs,
   MediaLibrary,
   MetadataTarget,
+  OptionalLease,
+  PersonTarget,
   ResolvedFile,
   SCAN_BATCH_LIMIT,
+  ScannedCollection,
+  ScannedCredit,
   ScannedEpisode,
   ScannedItem,
+  ScannedPersonDetails,
   ScannedTitle,
   SessionStatus,
   UpsertedFile,
@@ -167,6 +181,66 @@ export const mediaServiceFunctions = {
     }),
     result: Ok,
     function: "mediaService:applyMetadata",
+  }),
+  "mediaService.applyCredits": mutation({
+    summary:
+      "Replace the credits of a title (episodeId null) or one episode; skipped when `hash` is unchanged",
+    group: "media-service",
+    scope: "media-service",
+    args: Schema.Struct({
+      titleId: TitleId,
+      episodeId: Schema.NullOr(EpisodeId),
+      credits: Schema.Array(ScannedCredit).check(Schema.isMaxLength(CREDIT_BATCH_LIMIT)),
+      /** A digest of `credits`, so an unchanged rescan writes nothing. */
+      hash: Schema.String,
+      /** A metadata job's lease, which may also write titles an admin matched by hand. */
+      lease: OptionalLease,
+    }),
+    result: Schema.Struct({
+      written: Schema.Boolean,
+      /**
+       * The credited people in billing order, with their TMDB ID; `needsDetails` when nobody
+       * fetched their details yet.
+       */
+      people: Schema.Array(
+        Schema.Struct({
+          personId: PersonId,
+          tmdbId: Schema.NullOr(Schema.String),
+          needsDetails: Schema.Boolean,
+        }),
+      ),
+    }),
+    function: "mediaService:applyCredits",
+  }),
+  "mediaService.applyCollection": mutation({
+    summary: "Put a title in its collection (or take it out with null), creating the collection",
+    group: "media-service",
+    scope: "media-service",
+    args: Schema.Struct({
+      titleId: TitleId,
+      collection: Schema.NullOr(ScannedCollection),
+      /** A digest of `collection`, stored with the title so an unchanged rescan sends nothing. */
+      hash: Schema.String,
+      lease: OptionalLease,
+    }),
+    result: Ok,
+    function: "mediaService:applyCollection",
+  }),
+  "mediaService.personTarget": query({
+    summary: "What a person job should look up",
+    group: "media-service",
+    scope: "media-service",
+    args: Schema.Struct({ personId: PersonId }),
+    result: PersonTarget,
+    function: "mediaService:personTarget",
+  }),
+  "mediaService.applyPerson": mutation({
+    summary: "Write a person's details during a person or metadata job",
+    group: "media-service",
+    scope: "media-service",
+    args: Schema.Struct({ ...LeaseArgs, personId: PersonId, details: ScannedPersonDetails }),
+    result: Ok,
+    function: "mediaService:applyPerson",
   }),
   "mediaService.recordBackup": mutation({
     summary: "Record a finished backup archive",

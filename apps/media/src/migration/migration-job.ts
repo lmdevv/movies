@@ -299,7 +299,10 @@ export const runMigrationJob = Effect.fn("MigrationJob.run")(function* (
 
     for (const batch of batchesOf(plan.overrides, from, MigrationBackend.BATCH_SIZE)) {
       yield* backend.importOverrides(lease, batch.items);
-      yield* add({ overrides: batch.items.length });
+      // Entries that only carry provider IDs are not overrides.
+      yield* add({
+        overrides: batch.items.filter((item) => Object.keys(item.overrides).length > 0).length,
+      });
       const cursor = batch.start + batch.items.length;
 
       yield* save(
