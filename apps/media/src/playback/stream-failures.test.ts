@@ -6,7 +6,12 @@ import { HttpClient, HttpClientRequest } from "effect/http";
 
 import { type ClientCapabilities, NegotiateResponse } from "@movies/contracts/media-playback";
 
-import { writeFakeFfmpeg } from "../testing/fake-ffmpeg.ts";
+import { LibraryId } from "@movies/contracts/ids";
+
+import * as LibraryScanner from "../library/library-scanner.ts";
+import * as MemoryLibrary from "../library/memory-library.ts";
+import * as MediaTools from "../media/media-tools.ts";
+import { writeFakeFfmpeg, writeSlowFfprobe } from "../testing/fake-ffmpeg.ts";
 import { ffmpegAvailable } from "../testing/fixture-library.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
 import * as MediaTestServer from "../testing/media-test-server.ts";
@@ -20,8 +25,47 @@ const failingQsv = await writeFakeFfmpeg({
   qsvFailsAfterSeconds: 6,
 });
 
-/** Every HLS run takes three seconds to start. */
-const slowStart = await writeFakeFfmpeg({ hlsDelayMs: 3000 });
+/** Every HLS run takes ten seconds to start. */
+const slowStart = await writeFakeFfmpeg({ hlsDelayMs: 10_000 });
+
+/** A Quick Sync run that takes three seconds to fail, as a missing device does here. */
+const slowQsv = await writeFakeFfmpeg({ hlsDelayMs: 3000, qsvFailsAfterSeconds: 0 });
+
+/** Keyframe scans take twelve seconds, as for a large file on a slow share. */
+const slowScan = await writeSlowFfprobe(12_000);
+
+/** A library holding the direct fixture as MPEG-TS, which has no keyframe index of its own. */
+const TS_LIBRARY = LibraryId.make("transport-streams");
+
+const TS_FILE = "Transport (2020)/Transport (2020).ts";
+
+const addTransportStream = Effect.gen(function* () {
+  const workspace = yield* FixtureWorkspace.Service;
+  const tools = yield* MediaTools.Service;
+  const scanner = yield* LibraryScanner.Service;
+  const fs = yield* FileSystem.FileSystem;
+  const root = join(workspace.root, "transport");
+  const output = join(root, TS_FILE);
+
+  yield* fs.makeDirectory(join(root, "Transport (2020)"), { recursive: true });
+  yield* tools.ffmpeg([
+    "-hide_banner",
+    "-nostdin",
+    "-v",
+    "error",
+    "-y",
+    "-i",
+    join(workspace.library.moviesRoot, workspace.library.directMovie),
+    "-c",
+    "copy",
+    "-f",
+    "mpegts",
+    output,
+  ]);
+  yield* scanner.scan({ libraryId: TS_LIBRARY, root, mode: "incremental" });
+
+  return MemoryLibrary.fileIdOf(TS_LIBRARY, TS_FILE);
+});
 
 /** A small screen forces a transcode of the H.264 fixture. */
 const smallScreen: ClientCapabilities = {
@@ -96,9 +140,10 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
           assert.strictEqual(negotiated.generation, 1);
           const playlist = new URL(local(server.baseUrl, negotiated.url));
 
-          // Segment 2 lies past what the run wrote before it died; both requests wait on that run.
+          // The plan starts 0, 1, 2, 4, 6, and 8 s; segment 5 lies past what the run wrote before it
+          // died, and every request waits on that run.
           const answers = yield* Effect.forEach(
-            [2, 2, 2],
+            [5, 5, 5],
             (index) =>
               HttpClient.get(new URL(`${index}.m4s${playlist.search}`, playlist).toString()).pipe(
                 Effect.flatMap((segment) =>
@@ -135,8 +180,10 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
   });
 
   layer(
+    // Only a hardware encoder's negotiation waits for the first segment, as it may fall back.
     MediaTestServer.layer({
-      FFMPEG_PATH: slowStart,
+      FFMPEG_PATH: slowQsv,
+      HARDWARE_ACCELERATION: "qsv",
       MAX_CONCURRENT_TRANSCODES: "1",
       STREAM_IDLE_SECONDS: "600",
     }),
@@ -180,31 +227,26 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
         }),
       30_000,
     );
+  });
 
+  layer(MediaTestServer.layer({ FFMPEG_PATH: slowQsv, HARDWARE_ACCELERATION: "qsv" }), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })((it) => {
     it.effect(
       "answers a negotiation replaced while it waits, and leaves no folder behind",
       () =>
         Effect.gen(function* () {
           const server = yield* MediaTestServer.Service;
           const { library } = yield* FixtureWorkspace.Service;
-          const fileId = server.fileId("movies", library.remuxMovie);
+          const fileId = server.fileId("movies", library.directMovie);
           const token = signTestToken({ fid: fileId, sid: "replaced" });
-
-          const remux: ClientCapabilities = {
-            containers: [],
-            videoCodecs: [{ codec: "h264" }],
-            audioCodecs: [{ codec: "aac" }, { codec: "ac3", maxChannels: 6 }],
-            maxWidth: 1920,
-            maxHeight: 1080,
-            hls: false,
-            mse: true,
-          };
 
           const before = yield* streamFolders();
 
           const request = HttpClient.execute(
             HttpClientRequest.post(`${server.baseUrl}/api/playback/negotiate`).pipe(
-              HttpClientRequest.bodyJsonUnsafe({ token, capabilities: remux }),
+              HttpClientRequest.bodyJsonUnsafe({ token, capabilities: smallScreen }),
             ),
           ).pipe(Effect.orDie);
 
@@ -224,6 +266,97 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
           assert.sameMembers(yield* streamFolders(), [...before, negotiated.streamId ?? ""]);
         }),
       30_000,
+    );
+  });
+
+  layer(MediaTestServer.layer({ FFPROBE_PATH: slowScan }), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })((it) => {
+    it.effect(
+      "encodes while a slow keyframe scan runs, and copies once the scan is cached",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+          const fileId = yield* addTransportStream.pipe(Effect.orDie);
+
+          const fullScreen: ClientCapabilities = {
+            containers: ["mp4"],
+            videoCodecs: [{ codec: "h264", maxBitDepth: 8 }],
+            audioCodecs: [{ codec: "aac" }],
+            maxWidth: 1920,
+            maxHeight: 1080,
+            hls: false,
+            mse: true,
+          };
+
+          const negotiate = (sid: string) =>
+            HttpClient.execute(
+              HttpClientRequest.post(`${server.baseUrl}/api/playback/negotiate`).pipe(
+                HttpClientRequest.bodyJsonUnsafe({
+                  token: signTestToken({ fid: fileId, sid }),
+                  capabilities: fullScreen,
+                }),
+              ),
+            ).pipe(
+              Effect.flatMap((response) => response.json),
+              Effect.flatMap(decodeNegotiation),
+              Effect.orDie,
+              Effect.timed,
+            );
+
+          // The video could be copied, but its keyframes are not known yet: encode now.
+          const [took, first] = yield* negotiate("first");
+
+          assert.strictEqual(first.mode, "transcode-software");
+          assert.isBelow(Duration.toMillis(took), 10_000);
+
+          // The scan finishes in the background; a later negotiation copies.
+          yield* Effect.sleep(Duration.seconds(12));
+
+          const [, later] = yield* negotiate("later");
+
+          assert.strictEqual(later.mode, "remux");
+        }),
+      60_000,
+    );
+  });
+
+  layer(MediaTestServer.layer({ FFMPEG_PATH: slowStart }), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })((it) => {
+    it.effect(
+      "answers a software negotiation before the encoder writes anything",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+          const { library } = yield* FixtureWorkspace.Service;
+          const token = signTestToken({ fid: server.fileId("movies", library.directMovie) });
+
+          const negotiation = yield* negotiateRequest(server.baseUrl, token).pipe(
+            Effect.flatMap((response) => response.json),
+            Effect.flatMap(decodeNegotiation),
+            Effect.orDie,
+            Effect.timed,
+          );
+
+          const [took, negotiated] = negotiation;
+
+          // The encoder takes ten seconds to start; negotiation does not wait for it.
+          assert.strictEqual(negotiated.mode, "transcode-software");
+          assert.isBelow(Duration.toMillis(took), 8000);
+
+          const playlist = new URL(local(server.baseUrl, negotiated.url));
+
+          const first = yield* HttpClient.get(
+            new URL(`0.m4s${playlist.search}`, playlist).toString(),
+          );
+
+          assert.strictEqual(first.status, 200);
+          assert.isAbove((yield* first.arrayBuffer.pipe(Effect.orDie)).byteLength, 0);
+        }),
+      60_000,
     );
   });
 

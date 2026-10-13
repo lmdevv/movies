@@ -356,15 +356,19 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         assert.include(text, '#EXT-X-MAP:URI="init.mp4?token=');
         const durations = [...text.matchAll(/#EXTINF:([\d.]+),/g)].map((match) => Number(match[1]));
 
-        // Keyframes every 2 s grouped into 4 s segments; ffmpeg builds differ by a few milliseconds.
-        assert.strictEqual(durations.length, 3);
+        // Keyframes every 2 s: one per segment for the first eight seconds, so playback starts
+        // on a short segment, then grouped into 4 s; ffmpeg builds differ by a few milliseconds.
+        assert.strictEqual(durations.length, 5);
 
-        for (const duration of durations) assert.approximately(duration, 4, 0.05);
+        for (const [index, duration] of durations.entries()) {
+          assert.approximately(duration, index < 4 ? 2 : 4, 0.05);
+        }
+
         assert.include(text, "#EXT-X-ENDLIST");
 
         const parts = [];
 
-        for (let index = 0; index < 3; index += 1) {
+        for (let index = 0; index < durations.length; index += 1) {
           const { init, segment } = yield* fetchSegment(playlistUrl, index);
 
           assert.strictEqual(segment.status, 200);

@@ -32,7 +32,7 @@ import {
   offersResume,
 } from "./playback-policy";
 import type { AttachedStream, StreamFailure } from "./stream-attachment";
-import { attachStream } from "./stream-attachment";
+import { attachStream, preloadHlsJs } from "./stream-attachment";
 import { RENEW_BEFORE_MS, inGeneration, runSdk } from "./sdk-calls";
 import type { Runtime } from "./sdk-calls";
 import { SwitchablePlayer } from "./switchable-player";
@@ -260,6 +260,10 @@ export class PlaybackController {
 
   async #negotiate(started: StartedPlayback, positionMs: number, play = true): Promise<void> {
     this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.35 }) });
+
+    // Most streams this browser plays through hls.js need it; load it while negotiating. A failed
+    // download surfaces when the stream attaches.
+    if (this.#hlsJs) void preloadHlsJs().catch(() => undefined);
 
     const negotiated = await runSdk(
       this.#runtime,

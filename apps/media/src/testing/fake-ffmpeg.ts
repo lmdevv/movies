@@ -1,7 +1,8 @@
 /**
- * A stand-in `FFMPEG_PATH` for tests that need ffmpeg to misbehave in ways real hardware does: a
- * Quick Sync run that dies partway through (a GPU hang, a driver reset), or an encoder that is slow
- * to write its first segment. It is a small Node script that runs the real ffmpeg; nothing in the
+ * Stand-ins for `FFMPEG_PATH` and `FFPROBE_PATH` for tests that need the tools to misbehave in
+ * ways real hardware and storage do: a Quick Sync run that dies partway through (a GPU hang, a
+ * driver reset), an encoder that is slow to write its first segment, or a keyframe scan of a file
+ * on a slow share. It is a small Node script that runs the real ffmpeg; nothing in the
  * service is replaced, only the process it starts.
  */
 import { chmod, mkdtemp, writeFile } from "node:fs/promises";
@@ -75,6 +76,36 @@ export const writeFakeFfmpeg = async (behavior: FakeFfmpegBehavior): Promise<str
   const file = join(await mkdtemp(join(tmpdir(), "movies-fake-ffmpeg-")), "ffmpeg.mjs");
 
   await writeFile(file, script(process.env["FFMPEG_PATH"] ?? "ffmpeg", behavior));
+  await chmod(file, 0o755);
+
+  return file;
+};
+
+const ffprobeScript = (
+  realFfprobe: string,
+  packetScanDelayMs: number,
+): string => `#!/usr/bin/env node
+import { spawnSync } from "node:child_process";
+
+const args = process.argv.slice(2);
+
+if (args.includes("packet=pts_time,flags")) {
+  await new Promise((resolve) => setTimeout(resolve, ${String(packetScanDelayMs)}));
+}
+
+const result = spawnSync(${JSON.stringify(realFfprobe)}, args, { stdio: "inherit" });
+
+process.exit(result.status ?? 1);
+`;
+
+/**
+ * Writes a stand-in `FFPROBE_PATH` whose packet scans (keyframe indexing) take
+ * `packetScanDelayMs` longer, as on a large file over a slow share; returns its path.
+ */
+export const writeSlowFfprobe = async (packetScanDelayMs: number): Promise<string> => {
+  const file = join(await mkdtemp(join(tmpdir(), "movies-fake-ffprobe-")), "ffprobe.mjs");
+
+  await writeFile(file, ffprobeScript(process.env["FFPROBE_PATH"] ?? "ffprobe", packetScanDelayMs));
   await chmod(file, 0o755);
 
   return file;

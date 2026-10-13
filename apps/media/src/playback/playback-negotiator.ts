@@ -13,13 +13,14 @@ import {
   UnsupportedPlayback,
 } from "@movies/contracts/media-playback";
 import type { PlaybackTokenInvalid } from "@movies/contracts/playback-token";
-import { Context, Effect, FileSystem, Layer, Path, Redacted } from "effect";
+import { Context, Duration, Effect, FileSystem, Layer, Option, Path, Redacted } from "effect";
 
 import * as MediaConfig from "../media-config.ts";
 import { subtitleTracks } from "../subtitles/subtitle-tracks.ts";
 import * as FileResolver from "./file-resolver.ts";
 import { resolveInsideRoots } from "./file-resolver.ts";
 import * as HardwareAcceleration from "./hardware-acceleration.ts";
+import * as KeyframeIndex from "./keyframe-index.ts";
 import { AudioPlan, decidePlayback, PlaybackPlan, VideoPlan } from "./playback-decision.ts";
 import * as PlaybackReporter from "./playback-reporter.ts";
 import * as PlaybackToken from "./playback-token.ts";
@@ -46,6 +47,13 @@ export class Service extends Context.Service<Service, Interface>()(
   "@movies/media/PlaybackNegotiator",
 ) {}
 
+/**
+ * How long negotiation waits for a copy's keyframe index before it encodes instead. Matroska and
+ * MP4 files answer from their own index at once; a packet scan of a large file on a slow share can
+ * take minutes, and it goes on in the background for the next negotiation.
+ */
+const KEYFRAME_WAIT = Duration.seconds(2);
+
 /** Media URLs carry the token because `<video>` and segment fetches cannot set headers. */
 export const withToken = (url: string, token: Redacted.Redacted): string =>
   `${url}?token=${encodeURIComponent(Redacted.value(token))}`;
@@ -58,6 +66,7 @@ const make = Effect.gen(function* () {
   const hardware = yield* HardwareAcceleration.Service;
   const reporter = yield* PlaybackReporter.Service;
   const resolver = yield* FileResolver.Service;
+  const keyframes = yield* KeyframeIndex.Service;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
@@ -76,10 +85,41 @@ const make = Effect.gen(function* () {
     yield* Effect.annotateCurrentSpan({ fileId: grant.fileId, sessionId: grant.sessionId });
     const qsv = yield* hardware.qsvAvailable;
 
-    const plan = decidePlayback(file.probe, request.capabilities, {
+    const decision = {
       audioIndex: request.audioStreamIndex,
       hardwareTranscoding: qsv,
-    });
+    };
+
+    const preferred = decidePlayback(file.probe, request.capabilities, decision);
+
+    // A copy needs the file's keyframes. When they take long to find, encode on a grid at once if
+    // this client can take an encode; else wait for them.
+    const copied =
+      PlaybackPlan.$is("Hls")(preferred) && VideoPlan.$is("Copy")(preferred.video)
+        ? yield* keyframes.keyframesWithin(file, KEYFRAME_WAIT)
+        : Option.none<ReadonlyArray<number>>();
+
+    const encoded =
+      PlaybackPlan.$is("Hls")(preferred) &&
+      VideoPlan.$is("Copy")(preferred.video) &&
+      Option.isNone(copied)
+        ? decidePlayback(file.probe, request.capabilities, { ...decision, copyVideo: false })
+        : undefined;
+
+    const indexing = encoded !== undefined && PlaybackPlan.$is("Hls")(encoded);
+
+    if (indexing) {
+      yield* Effect.logInfo("PlaybackNegotiator.encoding_while_indexing").pipe(
+        Effect.annotateLogs({ fileId: grant.fileId }),
+      );
+    }
+
+    const plan = indexing ? encoded : preferred;
+
+    const knownKeyframes =
+      PlaybackPlan.$is("Hls")(plan) && VideoPlan.$is("Copy")(plan.video)
+        ? Option.getOrUndefined(copied)
+        : undefined;
 
     const video = file.probe.video;
 
@@ -165,6 +205,7 @@ const make = Effect.gen(function* () {
       client: request.capabilities,
       audioIndex: request.audioStreamIndex,
       startSeconds,
+      keyframes: knownKeyframes,
     });
 
     const outputVideo =
@@ -205,6 +246,7 @@ export const layer: Layer.Layer<
   | HardwareAcceleration.Service
   | PlaybackReporter.Service
   | FileResolver.Service
+  | KeyframeIndex.Service
   | FileSystem.FileSystem
   | Path.Path
 > = Layer.effect(Service, make);

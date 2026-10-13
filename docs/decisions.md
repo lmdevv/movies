@@ -166,6 +166,16 @@ choices made while implementing them. Update it in the same PR that changes a de
   within half of that. A remux copies at disk speed, and without the pause every play wrote most of
   its file into `TRANSCODE_DIR` within minutes. Segments behind the player stay until the stream
   closes, so a stream watched to the end still holds about the file's size.
+- Starting fast: the eight seconds from where a session starts are cut into short segments (1, 1,
+  2, 2, and 2 seconds on a transcode's 4-second grid; one keyframe each for a copy), and the plan
+  returns to its normal length after them; the plan is fixed for the session. Negotiation answers
+  as soon as ffmpeg is started, so the player loads hls.js, the playlist, and the init segment while
+  the first segment is encoded; only a hardware encode waits for its first segment, since a failure
+  there falls back to software and changes the mode the answer names.
+- Keyframes for copies come from the container's own index (Matroska Cues, MP4 sample tables) in
+  a few reads, else from an ffprobe packet scan of the whole file, cached on disk. Negotiation
+  waits at most two seconds for a scan; past that it encodes when the client can take an encode,
+  and the scan finishes in the background for the next negotiation.
 
 ## Artwork
 

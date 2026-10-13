@@ -67,6 +67,8 @@ interface StartRequest {
   readonly client: ClientCapabilities;
   readonly audioIndex: number | undefined;
   readonly startSeconds: number;
+  /** The file's keyframes, when negotiation already has them; copies index the file otherwise. */
+  readonly keyframes: ReadonlyArray<number> | undefined;
 }
 
 /** A started stream. `mode` reflects any fallback that happened while starting. */
@@ -161,7 +163,7 @@ const THROTTLE_INTERVAL = Duration.seconds(1);
 /** Tolerance when comparing fragment start times with planned boundaries. */
 const TIME_EPSILON = 0.005;
 
-const POLL_INTERVAL = Duration.millis(100);
+const POLL_INTERVAL = Duration.millis(50);
 
 const SEGMENT_WAIT = Duration.seconds(30);
 
@@ -426,9 +428,11 @@ const make = Effect.gen(function* () {
   ) {
     yield* hardware.markQsvUnavailable(detail);
 
+    // The session already encodes on a grid plan; it keeps encoding, now in software.
     const plan = decidePlayback(session.file.probe, session.client, {
       audioIndex: session.audioIndex,
       hardwareTranscoding: false,
+      copyVideo: false,
     });
 
     if (!PlaybackPlan.$is("Hls")(plan)) {
@@ -654,8 +658,9 @@ const make = Effect.gen(function* () {
   });
 
   /**
-   * Starts the first generation at `segmentIndex` and waits for that segment, so the client can
-   * start at once; a QSV failure falls back to software here. Returns the generation serving it.
+   * Starts the first generation at `segmentIndex` and waits for that segment, so a hardware
+   * encoder that fails falls back to software before the client sees the stream. Returns the
+   * generation serving it.
    */
   const firstSegment = Effect.fn("StreamSessions.firstSegment")(function* (
     session: Session,
@@ -755,12 +760,15 @@ const make = Effect.gen(function* () {
       });
     }
 
+    const quickStart = file.probe.startSeconds + request.startSeconds;
+
     const segmentPlan = isEncode(plan.video)
-      ? planGridSegments(file.probe.startSeconds, file.probe.durationSeconds)
+      ? planGridSegments(file.probe.startSeconds, file.probe.durationSeconds, { quickStart })
       : planKeyframeSegments(
-          yield* keyframes.keyframes(file),
+          request.keyframes ?? (yield* keyframes.keyframes(file)),
           file.probe.startSeconds,
           file.probe.durationSeconds,
+          { quickStart },
         );
 
     const streamId = yield* newStreamId;
@@ -833,8 +841,14 @@ const make = Effect.gen(function* () {
       );
     }
 
-    const segmentIndex = segmentAt(segmentPlan, file.probe.startSeconds + request.startSeconds);
-    const generation = yield* firstSegment(session, segmentIndex);
+    const segmentIndex = segmentAt(segmentPlan, quickStart);
+
+    // Only a hardware encoder can fail over, and its answer may name another mode; any other
+    // stream answers at once, and the player's first requests overlap the encoder's first segment.
+    const generation =
+      plan.mode === "transcode-qsv"
+        ? yield* firstSegment(session, segmentIndex)
+        : yield* startGeneration(session, 1, segmentIndex);
 
     const mode = yield* Ref.get(session.mode);
 

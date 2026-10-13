@@ -58,6 +58,11 @@ export interface DecisionOptions {
   /** ffmpeg stream index of the requested audio track; the default track when absent. */
   readonly audioIndex: number | undefined;
   readonly hardwareTranscoding: boolean;
+  /**
+   * Whether the video may be copied (remux, audio-only transcode); false when the session must
+   * encode, such as while the file's keyframes are still being indexed. Direct play is unaffected.
+   */
+  readonly copyVideo?: boolean;
 }
 
 const HLS_VIDEO_CODECS: ReadonlySet<string> = new Set(["h264", "hevc", "av1", "vp9"]);
@@ -197,7 +202,7 @@ export const decidePlayback = (
         ? AudioPlan.Copy({ index: audio.index })
         : AudioPlan.Aac({ index: audio.index });
 
-  if (videoOk && HLS_VIDEO_CODECS.has(canonical(video.codec))) {
+  if (videoOk && HLS_VIDEO_CODECS.has(canonical(video.codec)) && options.copyVideo !== false) {
     return PlaybackPlan.Hls({
       mode: audioCopyable || audio === undefined ? "remux" : "audio-transcode",
       video: VideoPlan.Copy(),
