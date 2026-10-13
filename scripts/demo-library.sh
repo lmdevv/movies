@@ -523,9 +523,8 @@ EOF
   <actor><name>Halina Reijn</name><role>Sintel (voice)</role><order>0</order></actor>
   <mpaa>NR</mpaa>
   <tag>test</tag>
-  <!-- It is Sintel, so providers match Sintel; the title and plot above still win. -->
-  <uniqueid type="imdb" default="true">tt1727587</uniqueid>
-  <uniqueid type="tmdb">45745</uniqueid>
+  <!-- No provider ids: Sintel's would merge this title into Sintel's. A provider match needs
+       the same title and year, so "Feature Test" (2010) stays unmatched. -->
 </movie>
 EOF
 }
