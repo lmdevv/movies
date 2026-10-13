@@ -365,6 +365,13 @@ cosmos_laundromat() {
 EOF
 }
 
+# xml_attr VALUE: VALUE escaped for an XML attribute.
+xml_attr() {
+  local value="$1"
+  value="${value//&/&amp;}" value="${value//</&lt;}" value="${value//>/&gt;}"
+  printf '%s' "${value//\"/&quot;}"
+}
+
 # image_subtitle VIDEO OUT: renders VIDEO's English text subtitle as a VobSub track in OUT. ffmpeg
 # can't turn text into bitmaps, so spumux (dvdauthor) renders the SRT onto a DVD stream and ffmpeg
 # lifts the subtitle track out.
@@ -377,7 +384,7 @@ image_subtitle() {
   ff "$srt" -i "$video" -map 0:s:m:language:eng || return 1
   ff "$dvd" -f lavfi -i "color=c=black:s=720x576:r=25" -t 300 -target pal-dvd -an || return 1
   cat >"$cache/spumux.xml" <<EOF
-<subpictures format="PAL"><stream><textsub filename="$srt" characterset="UTF-8" font="$font"
+<subpictures format="PAL"><stream><textsub filename="$(xml_attr "$srt")" characterset="UTF-8" font="$(xml_attr "$font")"
   fontsize="28.0" horizontal-alignment="center" vertical-alignment="bottom" left-margin="60"
   right-margin="60" bottom-margin="40" subtitle-fps="25" movie-fps="25" movie-width="720"
   movie-height="576"/></stream></subpictures>

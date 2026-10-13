@@ -228,15 +228,16 @@ const isMainVideo =
     isMediaFile(name) && !MediaName.guards.Extra(parseMediaPath(join(folder, name)));
 
 /**
- * Whether a folder holds a single movie: one main video, or several that name the same movie, such
- * as its editions or parts. Generic names like `movie.nfo` and `poster.jpg` then belong to it.
+ * Whether a folder holds a single movie: one main video, or several whose file names name the same
+ * movie, such as its editions or parts. Generic names like `movie.nfo` and `poster.jpg` then belong to it.
  */
 const holdsOneMovie = (folder: string, names: ReadonlyArray<string>): boolean => {
   const movies = new Set(
     names.flatMap((name) => {
       if (!isMainVideo(folder)(name)) return [];
 
-      const parsed = parseMediaPath(join(folder, name));
+      // The file name alone: a year-bearing folder would otherwise lend every file its title.
+      const parsed = parseMediaPath(name);
 
       return [
         MediaName.guards.Movie(parsed)

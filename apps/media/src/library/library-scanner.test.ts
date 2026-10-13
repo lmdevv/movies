@@ -266,6 +266,30 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
             path: `${folder}/poster.jpg`,
           });
         }
+
+        // Different films in a year-bearing folder don't share its generic metadata.
+        const anthology = "Anthology (2020)";
+
+        yield* fs.makeDirectory(path.join(target.movies, anthology));
+
+        for (const film of ["Film A (2018)", "Film B (2019)"]) {
+          yield* fs.copyFile(source, path.join(target.movies, anthology, `${film}.mp4`));
+        }
+
+        yield* fs.writeFileString(
+          path.join(target.movies, anthology, "movie.nfo"),
+          "<movie><title>Anthology</title><plot>Not about either film.</plot></movie>",
+        );
+        yield* scanner.scan({ libraryId, root: target.movies, mode: "incremental" });
+
+        const films = [...(yield* scanned(libraryId)).values()].filter((file) =>
+          file.record.relativePath.startsWith(`${anthology}/`),
+        );
+
+        assert.deepStrictEqual(
+          films.map((file) => file.record.title?.plot),
+          [undefined, undefined],
+        );
       }),
     );
 
