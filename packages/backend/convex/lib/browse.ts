@@ -58,163 +58,31 @@ const parseNumber = (text: string): number => {
 const cursorOf = (title: Doc<"titles">, value: string): string =>
   `${String(title._creationTime)}:${value}`;
 
-/** Titles with the cursor's value created after it, then titles past that value. */
-const continueAfter = async (
-  tie: () => Promise<Array<Doc<"titles">>>,
-  rest: (count: number) => Promise<Array<Doc<"titles">>>,
-  count: number,
-): Promise<Array<Doc<"titles">>> => {
-  const tied = await tie();
+/**
+ * Where a range starts: the beginning, titles with the cursor's value created after its title,
+ * or titles past the cursor's value.
+ */
+type Bound<Value> =
+  | { readonly kind: "start" }
+  | { readonly kind: "tie"; readonly value: Value; readonly time: number }
+  | { readonly kind: "past"; readonly value: Value };
 
-  return tied.length >= count ? tied : [...tied, ...(await rest(count - tied.length))];
-};
+const titlesOf = (ctx: ReadCtx) => ctx.db.query("titles");
 
-const nameReader =
-  (ctx: ReadCtx, { kind, libraryId }: TitleScope): Reader =>
-  async (cursor, count) => {
-    const titles = ctx.db.query("titles");
+/** A query over titles with an index range chosen, before its order. */
+type TitlesQuery = ReturnType<ReturnType<typeof titlesOf>["fullTableScan"]>;
 
-    if (cursor === null) {
-      const start =
-        libraryId !== undefined
-          ? titles.withIndex("by_library_sort", (q) => q.eq("libraryId", libraryId))
-          : kind === undefined
-            ? titles.withIndex("by_sort")
-            : titles.withIndex("by_kind_sort", (q) => q.eq("kind", kind));
-
-      return start.order("asc").take(count);
-    }
-
-    const { value, creationTime: time } = parseCursor(cursor);
-
-    return continueAfter(
-      () =>
-        (libraryId !== undefined
-          ? titles.withIndex("by_library_sort", (q) =>
-              q.eq("libraryId", libraryId).eq("sortKey", value).gt("_creationTime", time),
-            )
-          : kind === undefined
-            ? titles.withIndex("by_sort", (q) => q.eq("sortKey", value).gt("_creationTime", time))
-            : titles.withIndex("by_kind_sort", (q) =>
-                q.eq("kind", kind).eq("sortKey", value).gt("_creationTime", time),
-              )
-        )
-          .order("asc")
-          .take(count),
-      (left) =>
-        (libraryId !== undefined
-          ? titles.withIndex("by_library_sort", (q) =>
-              q.eq("libraryId", libraryId).gt("sortKey", value),
-            )
-          : kind === undefined
-            ? titles.withIndex("by_sort", (q) => q.gt("sortKey", value))
-            : titles.withIndex("by_kind_sort", (q) => q.eq("kind", kind).gt("sortKey", value))
-        )
-          .order("asc")
-          .take(left),
-      count,
-    );
-  };
-
-const addedReader =
-  (ctx: ReadCtx, { kind, libraryId }: TitleScope): Reader =>
-  async (cursor, count) => {
-    const titles = ctx.db.query("titles");
-
-    if (cursor === null) {
-      const start =
-        libraryId !== undefined
-          ? titles.withIndex("by_library_added", (q) => q.eq("libraryId", libraryId))
-          : kind === undefined
-            ? titles.withIndex("by_added")
-            : titles.withIndex("by_kind_added", (q) => q.eq("kind", kind));
-
-      return start.order("desc").take(count);
-    }
-
-    const after = parseCursor(cursor);
-    const value = parseNumber(after.value);
-    const time = after.creationTime;
-
-    return continueAfter(
-      () =>
-        (libraryId !== undefined
-          ? titles.withIndex("by_library_added", (q) =>
-              q.eq("libraryId", libraryId).eq("addedAt", value).lt("_creationTime", time),
-            )
-          : kind === undefined
-            ? titles.withIndex("by_added", (q) => q.eq("addedAt", value).lt("_creationTime", time))
-            : titles.withIndex("by_kind_added", (q) =>
-                q.eq("kind", kind).eq("addedAt", value).lt("_creationTime", time),
-              )
-        )
-          .order("desc")
-          .take(count),
-      (left) =>
-        (libraryId !== undefined
-          ? titles.withIndex("by_library_added", (q) =>
-              q.eq("libraryId", libraryId).lt("addedAt", value),
-            )
-          : kind === undefined
-            ? titles.withIndex("by_added", (q) => q.lt("addedAt", value))
-            : titles.withIndex("by_kind_added", (q) => q.eq("kind", kind).lt("addedAt", value))
-        )
-          .order("desc")
-          .take(left),
-      count,
-    );
-  };
-
-const yearReader =
-  (ctx: ReadCtx, { kind, libraryId }: TitleScope): Reader =>
-  async (cursor, count) => {
-    const titles = ctx.db.query("titles");
-
-    if (cursor === null) {
-      const start =
-        libraryId !== undefined
-          ? titles.withIndex("by_library_year", (q) => q.eq("libraryId", libraryId))
-          : kind === undefined
-            ? titles.withIndex("by_year")
-            : titles.withIndex("by_kind_year", (q) => q.eq("kind", kind));
-
-      return start.order("desc").take(count);
-    }
-
-    const after = parseCursor(cursor);
-    // An empty value is a title without a year.
-    const value = after.value === "" ? null : parseNumber(after.value);
-    const time = after.creationTime;
-
-    // Titles without a year sort below every year, so they come last.
-    return continueAfter(
-      () =>
-        (libraryId !== undefined
-          ? titles.withIndex("by_library_year", (q) =>
-              q.eq("libraryId", libraryId).eq("year", value).lt("_creationTime", time),
-            )
-          : kind === undefined
-            ? titles.withIndex("by_year", (q) => q.eq("year", value).lt("_creationTime", time))
-            : titles.withIndex("by_kind_year", (q) =>
-                q.eq("kind", kind).eq("year", value).lt("_creationTime", time),
-              )
-        )
-          .order("desc")
-          .take(count),
-      (left) =>
-        (libraryId !== undefined
-          ? titles.withIndex("by_library_year", (q) =>
-              q.eq("libraryId", libraryId).lt("year", value),
-            )
-          : kind === undefined
-            ? titles.withIndex("by_year", (q) => q.lt("year", value))
-            : titles.withIndex("by_kind_year", (q) => q.eq("kind", kind).lt("year", value))
-        )
-          .order("desc")
-          .take(left),
-      count,
-    );
-  };
+/**
+ * One sort order: its direction, how its value reads from a cursor and a title, and its index
+ * ranges for each scope. Convex types each index's range by its own field names, so every order
+ * spells out its three indexes; everything else is shared by `planOf`.
+ */
+interface SortSpec<Value> {
+  readonly order: "asc" | "desc";
+  readonly parse: (text: string) => Value;
+  readonly text: (title: Doc<"titles">) => string;
+  readonly range: (ctx: ReadCtx, scope: TitleScope, bound: Bound<Value>) => TitlesQuery;
+}
 
 /** How a page reads titles in one order, and the cursor that resumes after a title. */
 interface SortPlan {
@@ -222,14 +90,151 @@ interface SortPlan {
   readonly cursorAfter: (title: Doc<"titles">) => string;
 }
 
-const SORT_PLANS = {
-  name: { reader: nameReader, cursorAfter: (title) => cursorOf(title, title.sortKey) },
-  added: { reader: addedReader, cursorAfter: (title) => cursorOf(title, String(title.addedAt)) },
-  year: {
-    reader: yearReader,
-    cursorAfter: (title) => cursorOf(title, title.year === null ? "" : String(title.year)),
+/** Reads from the start, or the cursor's ties and then the titles past its value. */
+const planOf = <Value>(spec: SortSpec<Value>): SortPlan => ({
+  reader: (ctx, scope) => async (cursor, count) => {
+    const read = (bound: Bound<Value>, limit: number) =>
+      spec.range(ctx, scope, bound).order(spec.order).take(limit);
+
+    if (cursor === null) return read({ kind: "start" }, count);
+    const after = parseCursor(cursor);
+    const value = spec.parse(after.value);
+    const tied = await read({ kind: "tie", value, time: after.creationTime }, count);
+
+    return tied.length >= count
+      ? tied
+      : [...tied, ...(await read({ kind: "past", value }, count - tied.length))];
   },
-} as const satisfies { readonly [Sort in TitleSort]: SortPlan };
+  cursorAfter: (title) => cursorOf(title, spec.text(title)),
+});
+
+const byName = planOf<string>({
+  order: "asc",
+  parse: (text) => text,
+  text: (title) => title.sortKey,
+  range: (ctx, { kind, libraryId }, bound) => {
+    const titles = titlesOf(ctx);
+
+    if (libraryId !== undefined) {
+      return titles.withIndex("by_library_sort", (q) => {
+        const scoped = q.eq("libraryId", libraryId);
+
+        if (bound.kind === "start") return scoped;
+
+        if (bound.kind === "past") return scoped.gt("sortKey", bound.value);
+
+        return scoped.eq("sortKey", bound.value).gt("_creationTime", bound.time);
+      });
+    }
+
+    if (kind !== undefined) {
+      return titles.withIndex("by_kind_sort", (q) => {
+        const scoped = q.eq("kind", kind);
+
+        if (bound.kind === "start") return scoped;
+
+        if (bound.kind === "past") return scoped.gt("sortKey", bound.value);
+
+        return scoped.eq("sortKey", bound.value).gt("_creationTime", bound.time);
+      });
+    }
+
+    return titles.withIndex("by_sort", (q) => {
+      if (bound.kind === "start") return q;
+
+      if (bound.kind === "past") return q.gt("sortKey", bound.value);
+
+      return q.eq("sortKey", bound.value).gt("_creationTime", bound.time);
+    });
+  },
+});
+
+const byAdded = planOf<number>({
+  order: "desc",
+  parse: parseNumber,
+  text: (title) => String(title.addedAt),
+  range: (ctx, { kind, libraryId }, bound) => {
+    const titles = titlesOf(ctx);
+
+    if (libraryId !== undefined) {
+      return titles.withIndex("by_library_added", (q) => {
+        const scoped = q.eq("libraryId", libraryId);
+
+        if (bound.kind === "start") return scoped;
+
+        if (bound.kind === "past") return scoped.lt("addedAt", bound.value);
+
+        return scoped.eq("addedAt", bound.value).lt("_creationTime", bound.time);
+      });
+    }
+
+    if (kind !== undefined) {
+      return titles.withIndex("by_kind_added", (q) => {
+        const scoped = q.eq("kind", kind);
+
+        if (bound.kind === "start") return scoped;
+
+        if (bound.kind === "past") return scoped.lt("addedAt", bound.value);
+
+        return scoped.eq("addedAt", bound.value).lt("_creationTime", bound.time);
+      });
+    }
+
+    return titles.withIndex("by_added", (q) => {
+      if (bound.kind === "start") return q;
+
+      if (bound.kind === "past") return q.lt("addedAt", bound.value);
+
+      return q.eq("addedAt", bound.value).lt("_creationTime", bound.time);
+    });
+  },
+});
+
+// Titles without a year sort below every year, so they come last; an empty value is no year.
+const byYear = planOf<number | null>({
+  order: "desc",
+  parse: (text) => (text === "" ? null : parseNumber(text)),
+  text: (title) => (title.year === null ? "" : String(title.year)),
+  range: (ctx, { kind, libraryId }, bound) => {
+    const titles = titlesOf(ctx);
+
+    if (libraryId !== undefined) {
+      return titles.withIndex("by_library_year", (q) => {
+        const scoped = q.eq("libraryId", libraryId);
+
+        if (bound.kind === "start") return scoped;
+
+        if (bound.kind === "past") return scoped.lt("year", bound.value);
+
+        return scoped.eq("year", bound.value).lt("_creationTime", bound.time);
+      });
+    }
+
+    if (kind !== undefined) {
+      return titles.withIndex("by_kind_year", (q) => {
+        const scoped = q.eq("kind", kind);
+
+        if (bound.kind === "start") return scoped;
+
+        if (bound.kind === "past") return scoped.lt("year", bound.value);
+
+        return scoped.eq("year", bound.value).lt("_creationTime", bound.time);
+      });
+    }
+
+    return titles.withIndex("by_year", (q) => {
+      if (bound.kind === "start") return q;
+
+      if (bound.kind === "past") return q.lt("year", bound.value);
+
+      return q.eq("year", bound.value).lt("_creationTime", bound.time);
+    });
+  },
+});
+
+const SORT_PLANS = { name: byName, added: byAdded, year: byYear } as const satisfies {
+  readonly [Sort in TitleSort]: SortPlan;
+};
 
 /**
  * One page of the titles in `scope` the audience may see, in `sort` order. Reads in batches until

@@ -6,6 +6,7 @@ import { getAuthSessionId, getAuthUserId } from "@convex-dev/auth/server";
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { endPlaybackSession } from "./endings";
 import { fail } from "./errors";
 import { sessionScopes } from "./scopes";
 import type { Scope } from "./scopes";
@@ -162,9 +163,7 @@ export const endAuthSession = async (
 
   await Promise.all(
     playback.flatMap((session) =>
-      session.status === "active"
-        ? [ctx.db.patch(session._id, { status: "ended", endedAt: now })]
-        : [],
+      session.status === "active" ? [endPlaybackSession(ctx, session, now)] : [],
     ),
   );
 

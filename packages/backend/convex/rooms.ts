@@ -9,8 +9,15 @@ import type { Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { canSee, loadAudience, loadVisibleTitle, visibleLibraryIds } from "./lib/access";
+import {
+  canSee,
+  isProfileUnlocked,
+  loadAudience,
+  loadVisibleTitle,
+  visibleLibraryIds,
+} from "./lib/access";
 import { checkDeviceId, checkMilliseconds } from "./lib/bounds";
+import { endRoom } from "./lib/endings";
 import { fail } from "./lib/errors";
 import { resolvePlayable } from "./lib/playable";
 import { presentEpisode, presentRoomClock, presentTitleCard } from "./lib/present";
@@ -177,11 +184,7 @@ export const create = mutation({
         const previous = await ctx.db.get(member.roomId);
 
         if (previous !== null && member.role === "host" && previous.status !== "ended") {
-          await ctx.db.patch(previous._id, {
-            status: "ended",
-            endedAt: now,
-            revision: previous.revision + 1,
-          });
+          await endRoom(ctx, previous, now);
         }
 
         await ctx.db.delete(member._id);
@@ -241,10 +244,17 @@ export const get = query({
         : fail("not_found", "No such room");
     }
 
-    if (profileId === undefined) return fail("not_found", "No such room");
-    const audience = await loadAudience(ctx, viewer, profileId);
+    // Any profile that cannot be used here (another account's, or PIN-locked on this session)
+    // answers as a missing room does, so the reply never tells whether the room exists.
+    const profile = profileId === undefined ? null : await ctx.db.get(profileId);
 
-    if (!canSee(audience, title)) return fail("not_found", "No such room");
+    if (profile?.userId !== viewer.userId || !isProfileUnlocked(viewer, profile)) {
+      return fail("not_found", "No such room");
+    }
+
+    const libraryIds = await visibleLibraryIds(ctx, viewer);
+
+    if (!canSee({ viewer, profile, libraryIds }, title)) return fail("not_found", "No such room");
 
     return { ...(await presentRoom(ctx, found)), members: [] };
   },
@@ -308,18 +318,6 @@ export const join = mutation({
   },
 });
 
-const endRoom = async (ctx: MutationCtx, doc: Doc<"rooms">): Promise<void> => {
-  const now = Date.now();
-
-  await ctx.db.patch(doc._id, {
-    status: "ended",
-    positionAtAnchorMs: livePosition(doc, now),
-    anchorServerTime: now,
-    revision: doc.revision + 1,
-    endedAt: now,
-  });
-};
-
 /** Leaves the room. A guest leaving changes nothing else; the host leaving ends the room. */
 export const leave = mutation({
   args: { roomId: v.id("rooms"), deviceId: v.string() },
@@ -336,7 +334,7 @@ export const leave = mutation({
     if (member?.userId !== viewer.userId) return { ok: true as const };
     await ctx.db.delete(member._id);
 
-    if (member.role === "host" && found.status !== "ended") await endRoom(ctx, found);
+    if (member.role === "host" && found.status !== "ended") await endRoom(ctx, found, Date.now());
 
     return { ok: true as const };
   },
@@ -495,7 +493,7 @@ export const end = mutation({
       return fail("forbidden", "Only the host's device can end the room");
     }
 
-    if (found.status !== "ended") await endRoom(ctx, found);
+    if (found.status !== "ended") await endRoom(ctx, found, Date.now());
 
     return { ok: true as const };
   },

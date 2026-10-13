@@ -168,7 +168,7 @@ const followingEpisodes = async (
   return [...sameSeason, ...later];
 };
 
-/** The first of `episodes` the profile has not watched, and how many it looked at. */
+/** The first of `episodes` the profile has not watched, and how many progress rows it read. */
 const firstUnwatched = async (
   ctx: ReadCtx,
   profileId: Id<"profiles">,
@@ -185,13 +185,17 @@ const firstUnwatched = async (
     : { episode: next, examined: index + 1 };
 };
 
+/** Episodes `scanUnwatched` reads at a time; most next episodes are the first one read. */
+const SCAN_BATCH = 10;
+
 /**
  * The first episode after `episode` the profile has not watched, or null when none remains. Reads
- * the following episodes in one range and checks each one's progress by index. After `maxSkipped`
- * watched episodes in a row it stops: with `giveUp` it returns the next one anyway, as for a long
- * finished run; without, null, for a caller whose read budget cut the search short.
+ * the following episodes a few at a time, widening only while every one read is watched, and
+ * checks each one's progress by index. After `maxSkipped` watched episodes in a row it stops:
+ * with `giveUp` it returns the next one anyway, as for a long finished run; without, null, for a
+ * caller whose read budget cut the search short.
  *
- * @returns The episode and how many episodes it read, for callers that share a read budget.
+ * @returns The episode and how many documents it read, for callers that share a read budget.
  */
 const scanUnwatched = async (
   ctx: ReadCtx,
@@ -199,13 +203,36 @@ const scanUnwatched = async (
   episode: Doc<"episodes">,
   maxSkipped: number,
   giveUp: boolean,
-): Promise<{ readonly episode: Doc<"episodes"> | null; readonly examined: number }> => {
-  const following = await followingEpisodes(ctx, episode, maxSkipped + 1);
-  const found = await firstUnwatched(ctx, profileId, following.slice(0, maxSkipped), 0);
+): Promise<{ readonly episode: Doc<"episodes"> | null; readonly reads: number }> => {
+  const step = async (
+    after: Doc<"episodes">,
+    skipped: number,
+    reads: number,
+  ): Promise<{ readonly episode: Doc<"episodes"> | null; readonly reads: number }> => {
+    const left = maxSkipped - skipped;
+    // The last batch reads one past the run, the episode returned when giving up.
+    const wanted = left <= SCAN_BATCH ? left + 1 : SCAN_BATCH;
+    const batch = await followingEpisodes(ctx, after, wanted);
+    const found = await firstUnwatched(ctx, profileId, batch.slice(0, left), 0);
+    const spent = reads + batch.length + found.examined;
 
-  if (found.episode !== null || following.length <= maxSkipped || !giveUp) return found;
+    if (found.episode !== null) return { episode: found.episode, reads: spent };
 
-  return { episode: following[maxSkipped] ?? null, examined: following.length };
+    // Every episode read is watched: none remain, the run is too long, or read further.
+    if (batch.length < wanted) return { episode: null, reads: spent };
+
+    if (found.examined >= left) {
+      return { episode: giveUp ? (batch[left] ?? null) : null, reads: spent };
+    }
+
+    const last = batch.at(-1);
+
+    return last === undefined
+      ? { episode: null, reads: spent }
+      : step(last, skipped + found.examined, spent);
+  };
+
+  return step(episode, 0, 0);
 };
 
 /** The first episode after `episode` the profile has not watched, or null when none remains. */
@@ -262,8 +289,8 @@ const CONTINUE_LIMIT = 20;
 const CONTINUE_SCAN = 200;
 
 /**
- * Episodes continue watching may look at in all while finding next episodes, so a profile with
- * many finished shows cannot push one query past Convex's read limits.
+ * Documents (episodes and their progress rows) continue watching may read in all while finding
+ * next episodes, so a profile with many finished shows cannot push one query past Convex's limits.
  */
 const NEXT_EPISODE_BUDGET = 500;
 
@@ -332,10 +359,10 @@ const nextItemOf = async (
   title: Doc<"titles">,
   episode: Doc<"episodes">,
   budget: number,
-): Promise<{ readonly item: ContinueItem | null; readonly examined: number }> => {
-  if (budget <= 0) return { item: null, examined: 0 };
+): Promise<{ readonly item: ContinueItem | null; readonly reads: number }> => {
+  if (budget <= 0) return { item: null, reads: 0 };
 
-  const { episode: next, examined } = await scanUnwatched(
+  const { episode: next, reads } = await scanUnwatched(
     ctx,
     audience.profile._id,
     episode,
@@ -343,7 +370,7 @@ const nextItemOf = async (
     budget >= MAX_SKIPPED_EPISODES,
   );
 
-  if (next === null || next.presentFileCount === 0) return { item: null, examined };
+  if (next === null || next.presentFileCount === 0) return { item: null, reads };
   const nextProgress = await findProgress(ctx, audience.profile._id, title._id, next._id);
 
   return {
@@ -353,7 +380,7 @@ const nextItemOf = async (
       episode: presentEpisode(next, nextProgress),
       progress: null,
     },
-    examined,
+    reads,
   };
 };
 
@@ -399,7 +426,7 @@ export const continueWatching = async (
 
     if (candidate.kind === "item") return collect(index + 1, [...items, candidate.item], budget);
 
-    const { item, examined } = await nextItemOf(
+    const { item, reads } = await nextItemOf(
       ctx,
       audience,
       candidate.title,
@@ -407,7 +434,7 @@ export const continueWatching = async (
       budget,
     );
 
-    return collect(index + 1, item === null ? items : [...items, item], budget - examined);
+    return collect(index + 1, item === null ? items : [...items, item], budget - reads);
   };
 
   return collect(0, [], NEXT_EPISODE_BUDGET);

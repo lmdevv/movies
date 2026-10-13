@@ -25,6 +25,7 @@ import type * as lib_bounds from "../lib/bounds.js";
 import type * as lib_browse from "../lib/browse.js";
 import type * as lib_catalog from "../lib/catalog.js";
 import type * as lib_crypto from "../lib/crypto.js";
+import type * as lib_endings from "../lib/endings.js";
 import type * as lib_env from "../lib/env.js";
 import type * as lib_errors from "../lib/errors.js";
 import type * as lib_jobs from "../lib/jobs.js";
@@ -77,6 +78,7 @@ declare const fullApi: ApiFromModules<{
   "lib/browse": typeof lib_browse;
   "lib/catalog": typeof lib_catalog;
   "lib/crypto": typeof lib_crypto;
+  "lib/endings": typeof lib_endings;
   "lib/env": typeof lib_env;
   "lib/errors": typeof lib_errors;
   "lib/jobs": typeof lib_jobs;

@@ -10,7 +10,7 @@ import { LibraryId, ProfileId } from "./ids";
 import { NoArgs, Page, PageArgs } from "./models/common";
 import { LibraryKind, LibraryRoot } from "./models/catalog";
 import { JobProgress, QueuedJob } from "./models/jobs";
-import { MigrationImported, PlannedLibraryAccess } from "./models/migration";
+import { MigrationImported } from "./models/migration";
 import {
   CatalogFile,
   COLLECTION_BATCH_LIMIT,
@@ -94,8 +94,6 @@ export const migrationServiceFunctions = {
       name: Schema.String,
       kind: LibraryKind,
       roots: Schema.Array(LibraryRoot).check(Schema.isMinLength(1), Schema.isMaxLength(20)),
-      /** Who sees the library if this call adds it; absent means admins only. */
-      access: Schema.optionalKey(PlannedLibraryAccess),
     }),
     result: Schema.Struct({ libraryIds: Schema.Array(LibraryId), created: Schema.Boolean }),
     function: "migrationService:ensureLibrary",

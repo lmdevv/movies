@@ -1663,6 +1663,9 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       expect(await outcome(create([`/stack-${id}/open/inner`]))).toBe("invalid_args");
       expect(await outcome(create([`/stack-${id}`]))).toBe("invalid_args");
       expect(await outcome(create([`//stack-${id}//open/`]))).toBe("conflict");
+      expect(await outcome(create([`/stack-${id}/own`, `/stack-${id}/own/inner`]))).toBe(
+        "invalid_args",
+      );
       expect(
         await outcome(
           run(fixture.owner, "libraries.update", {
@@ -1671,6 +1674,32 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           }),
         ),
       ).toBe("invalid_args");
+    });
+
+    it("reports libraries that overlapped before folders were kept apart", async () => {
+      const ownerId = (await run(fixture.owner, "account.viewer", {})).user.id;
+
+      importDocuments("libraries", [
+        JSON.stringify({
+          name: `Legacy ${id}`,
+          kind: "movies",
+          roots: [`/stack-${id}/open/legacy`],
+          access: "restricted",
+          createdBy: ownerId,
+          titleCount: 0,
+          lastScanAt: null,
+        }),
+      ]);
+
+      expect(runInternal("maintenance:overlappingLibraries")).toContain(`Legacy ${id}`);
+
+      const legacy = (await run(fixture.owner, "libraries.listDetails", {})).find(
+        (library) => library.name === `Legacy ${id}`,
+      );
+
+      if (legacy !== undefined) {
+        await run(fixture.owner, "libraries.remove", { libraryId: legacy.id });
+      }
     });
 
     it("renames, opens, and removes a library", async () => {
@@ -1712,10 +1741,27 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         requestedBy: owner,
         source: "jellyfin",
         serverName: "Jellyfin",
-        plan: plan(serverId, [
-          { sourceUserId: "source-owner", profileId: fixture.ownerProfile },
-          { sourceUserId: "source-member", profileId: fixture.memberProfile },
-        ]),
+        plan: {
+          ...plan(serverId, [
+            { sourceUserId: "source-owner", profileId: fixture.ownerProfile },
+            { sourceUserId: "source-member", profileId: fixture.memberProfile },
+          ]),
+          // Access comes from the stored plan; `migrated-unknown` is not in it.
+          libraries: [
+            {
+              name: "migrated-all",
+              kind: "movies",
+              roots: [`/stack-${id}/migrated-all`],
+              access: { kind: "everyone" },
+            },
+            {
+              name: "migrated-some",
+              kind: "movies",
+              roots: [`/stack-${id}/migrated-some/`],
+              access: { kind: "users", sourceUserIds: ["source-member", "gone"] },
+            },
+          ],
+        },
       });
 
       const workerId = `migrator-${serverId}`;
@@ -1726,18 +1772,14 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         leaseMs: 60_000,
       });
 
-      const ensure = async (
-        folder: string,
-        access?: { kind: "everyone" } | { kind: "users"; sourceUserIds: Array<string> },
-      ) => {
-        const args = { jobId, workerId, name: folder, kind: "movies" as const };
-        const roots = [`/stack-${id}/${folder}`];
-
-        const result = await service(
-          fixture.mediaService,
-          "migrationService.ensureLibrary",
-          access === undefined ? { ...args, roots } : { ...args, roots, access },
-        );
+      const ensure = async (folder: string) => {
+        const result = await service(fixture.mediaService, "migrationService.ensureLibrary", {
+          jobId,
+          workerId,
+          name: folder,
+          kind: "movies",
+          roots: [`/stack-${id}/${folder}`],
+        });
 
         const [libraryId] = result.libraryIds;
 
@@ -1746,13 +1788,14 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         return run(fixture.owner, "libraries.get", { libraryId });
       };
 
-      expect(await ensure("migrated-all", { kind: "everyone" })).toMatchObject({
+      expect(await ensure("migrated-all")).toMatchObject({
         access: "everyone",
         grantedUserIds: [],
       });
-      expect(
-        await ensure("migrated-some", { kind: "users", sourceUserIds: ["source-member", "gone"] }),
-      ).toMatchObject({ access: "restricted", grantedUserIds: [memberId] });
+      expect(await ensure("migrated-some")).toMatchObject({
+        access: "restricted",
+        grantedUserIds: [memberId],
+      });
 
       const unknown = await ensure("migrated-unknown");
 
@@ -1916,6 +1959,12 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       expect(await outcome(run(fixture.member, "rooms.get", { roomId: room.id }))).toBe(
         "not_found",
       );
+      // Another account's profile answers as a missing room does, not with its own error.
+      expect(
+        await outcome(
+          run(fixture.member, "rooms.get", { roomId: room.id, profileId: fixture.ownerProfile }),
+        ),
+      ).toBe("not_found");
 
       const preview = await run(fixture.member, "rooms.get", {
         roomId: room.id,

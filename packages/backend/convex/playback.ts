@@ -10,6 +10,7 @@ import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { loadAudience, loadVisibleTitle } from "./lib/access";
 import { checkDeviceId, checkDisplayName, checkMilliseconds } from "./lib/bounds";
+import { endPlaybackSession } from "./lib/endings";
 import { fail } from "./lib/errors";
 import { resolvePlayable } from "./lib/playable";
 import {
@@ -152,11 +153,7 @@ export const createSession = mutation({
       ...otherDevices.slice(MAX_ACTIVE_SESSIONS - 1),
     ];
 
-    await Promise.all(
-      ending.map((session) =>
-        ctx.db.patch(session._id, { status: "ended" as const, endedAt: now }),
-      ),
-    );
+    await Promise.all(ending.map((session) => endPlaybackSession(ctx, session, now)));
 
     const sessionId = await ctx.db.insert("playbackSessions", {
       userId: viewer.userId,

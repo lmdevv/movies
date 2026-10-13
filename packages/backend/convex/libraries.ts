@@ -10,8 +10,8 @@ import { visibleLibraryIds } from "./lib/access";
 import { fail } from "./lib/errors";
 import { checkDisplayName } from "./lib/bounds";
 import { inSequence } from "./lib/catalog";
+import { endPlaybackSession, endRoom } from "./lib/endings";
 import { enqueueJob } from "./lib/jobs";
-import { livePosition } from "./lib/roomClock";
 import { checkRoots } from "./lib/roots";
 import { presentLibrary, presentLibraryDetail } from "./lib/present";
 import {
@@ -184,7 +184,7 @@ const endLibraryPlayback = async (ctx: MutationCtx, libraryId: Id<"libraries">):
 
   await inSequence(sessions, async (session) => {
     if (await inLibrary(session.titleId)) {
-      await ctx.db.patch(session._id, { status: "ended", state: "paused", endedAt: now });
+      await endPlaybackSession(ctx, session, now);
     }
   });
 
@@ -201,13 +201,7 @@ const endLibraryPlayback = async (ctx: MutationCtx, libraryId: Id<"libraries">):
 
   await inSequence(rooms, async (room) => {
     if (await inLibrary(room.titleId)) {
-      await ctx.db.patch(room._id, {
-        status: "ended",
-        positionAtAnchorMs: livePosition(room, now),
-        anchorServerTime: now,
-        revision: room.revision + 1,
-        endedAt: now,
-      });
+      await endRoom(ctx, room, now);
     }
   });
 };

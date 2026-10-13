@@ -25,13 +25,18 @@ import {
   migrationState,
   migrationTarget,
   overrideImport,
-  plannedLibraryAccess,
   storedMigrationPlan,
   watchStateImport,
   watchStateImported,
 } from "./lib/migrationValidators";
 import { findProgress } from "./lib/present";
-import { checkRoots, isInside, normalizeRoot } from "./lib/roots";
+import {
+  checkAbsolute,
+  checkRoots,
+  librariesOverlapping,
+  normalizeRoot,
+  outermostRoots,
+} from "./lib/roots";
 import { isAdminRole } from "./lib/scopes";
 import {
   jobProgress,
@@ -294,6 +299,18 @@ export const saveCheckpoint = mutation({
   },
 });
 
+/** A set of folders as one comparable string, whatever their order and spelling. */
+const folderSetKey = (folders: ReadonlyArray<string>): string =>
+  JSON.stringify([...new Set(folders.map(normalizeRoot))].toSorted());
+
+/**
+ * Who sees a library added for these folders, from the stored plan the admin reviewed: the
+ * planned library with the same folders. A call naming folders the plan does not list gets none,
+ * so the library is admins-only.
+ */
+const plannedAccessOf = (plan: Doc<"migrations">["plan"], roots: ReadonlyArray<string>) =>
+  plan.libraries.find((library) => folderSetKey(library.roots) === folderSetKey(roots))?.access;
+
 /**
  * The accounts an added library is granted to: those whose profiles receive the history of the
  * listed source users. Source users the plan does not import get nothing.
@@ -319,7 +336,8 @@ const grantedAccounts = async (
 that library, since libraries never nest; files outside it stay unmatched. An added library
  * is open to everyone only when the source showed it to every user; otherwise it is restricted,
  * granted to the accounts of the imported users who could see it (none when the source did not
- * say, or for plans stored before access was recorded). Libraries already here keep their access.
+ * say, or for plans stored before access was recorded). Access comes from the stored plan, never
+ * from the caller. Libraries already here keep their access.
  */
 export const ensureLibrary = mutation({
   args: {
@@ -327,30 +345,19 @@ export const ensureLibrary = mutation({
     name: v.string(),
     kind: libraryKind,
     roots: v.array(v.string()),
-    access: v.optional(plannedLibraryAccess),
   },
   returns: v.object({ libraryIds: v.array(v.id("libraries")), created: v.boolean() }),
-  handler: async (ctx, { jobId, workerId, name, kind, roots, access }) => {
+  handler: async (ctx, { jobId, workerId, name, kind, roots }) => {
     await authorize(ctx, "media-service");
     const doc = await requireLeaseOf(ctx, jobId, workerId, "migration");
     const row = await migrationOf(ctx, jobId);
-    const wanted = [...new Set(roots.map(normalizeRoot))];
+    // Folders inside another of these folders are covered by it: one library never nests.
+    const wanted = outermostRoots([...new Set(roots.map(normalizeRoot))]);
 
-    const invalid = wanted.find(
-      (root) => !root.startsWith("/") || root.split("/").some((part) => part === ".."),
-    );
-
-    if (invalid !== undefined) {
-      return fail("invalid_args", `Folders must be absolute paths: ${invalid}`);
-    }
-
+    checkAbsolute(wanted);
     const existing = await ctx.db.query("libraries").collect();
-
     // A library whose folder holds this one, or lies inside it: adding another would nest them.
-    const coveringOf = (root: string) =>
-      existing.filter((library) =>
-        library.roots.some((known) => isInside(root, known) || isInside(known, root)),
-      );
+    const coveringOf = (root: string) => librariesOverlapping(root, existing);
 
     const covering = wanted.flatMap((root) => coveringOf(root).map((library) => library._id));
     const uncovered = wanted.filter((root) => coveringOf(root).length === 0);
@@ -367,6 +374,7 @@ export const ensureLibrary = mutation({
     }
 
     const added = await checkRoots(ctx, uncovered, null);
+    const access = plannedAccessOf(row.plan, roots);
 
     const libraryId = await ctx.db.insert("libraries", {
       name: name.trim() || "Imported library",

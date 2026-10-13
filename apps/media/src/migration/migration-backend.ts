@@ -5,7 +5,7 @@
  */
 import type { JobId, LibraryId, ProfileId } from "@movies/contracts/ids";
 import type { JobProgress } from "@movies/contracts/models/jobs";
-import type { MigrationImported, PlannedLibraryAccess } from "@movies/contracts/models/migration";
+import type { MigrationImported } from "@movies/contracts/models/migration";
 import type {
   CatalogFile,
   CollectionImport,
@@ -35,8 +35,6 @@ interface LibraryRequest {
   readonly name: string;
   readonly kind: "movies" | "shows" | "mixed";
   readonly roots: ReadonlyArray<string>;
-  /** Who sees the library if the call adds it; absent for plans stored before it was recorded. */
-  readonly access?: PlannedLibraryAccess;
 }
 
 /** What one watch state batch changed. */
@@ -143,7 +141,12 @@ export const layer: Layer.Layer<Service, never, MediaBackend.Service> = Layer.ef
           Effect.map((saved) => saved.cancelled),
         ),
       ensureLibrary: (lease, library) =>
-        call("migrationService.ensureLibrary", { ...lease, ...library }),
+        call("migrationService.ensureLibrary", {
+          ...lease,
+          name: library.name,
+          kind: library.kind,
+          roots: library.roots,
+        }),
       scansPending: (libraryIds) =>
         call("migrationService.scansPending", { libraryIds }).pipe(
           Effect.map((result) => result.pending),

@@ -2,8 +2,10 @@
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import { internalMutation } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
+import { endPlaybackSession, endRoom } from "./lib/endings";
 import { enqueueJob, MAX_JOB_ATTEMPTS } from "./lib/jobs";
+import { overlappingLibraries as findOverlaps } from "./lib/roots";
 import { endAuthSession } from "./lib/viewer";
 import {
   HOST_ABANDON_TIMEOUT_MS,
@@ -47,13 +49,7 @@ export const sweepRooms = internalMutation({
         const silentFor = now - room.hostLastSeenAt;
 
         if (silentFor > HOST_ABANDON_TIMEOUT_MS) {
-          await ctx.db.patch(room._id, {
-            status: "ended",
-            positionAtAnchorMs: livePosition(room, now),
-            anchorServerTime: now,
-            revision: room.revision + 1,
-            endedAt: now,
-          });
+          await endRoom(ctx, room, now);
         } else if (silentFor > HOST_PRESENCE_TIMEOUT_MS && room.status !== "paused") {
           await ctx.db.patch(room._id, {
             status: "paused",
@@ -161,7 +157,7 @@ export const endIdlePlayback = internalMutation({
         const signedOut = (await ctx.db.get(session.authSessionId)) === null;
 
         if (idle || signedOut) {
-          await ctx.db.patch(session._id, { status: "ended", state: "paused", endedAt: now });
+          await endPlaybackSession(ctx, session, now);
         }
       }),
     );
@@ -320,4 +316,15 @@ export const clearProfilePin = internalMutation({
 
     return { cleared: true };
   },
+});
+
+/**
+ * Lists libraries whose folders overlap, for the operator: `convex run
+ * maintenance:overlappingLibraries`. New folders can no longer overlap, but libraries made before
+ * that rule may; a grant on either exposes the other's files until one's folders change.
+ */
+export const overlappingLibraries = internalQuery({
+  args: {},
+  returns: v.array(v.object({ outer: v.string(), inner: v.string(), folder: v.string() })),
+  handler: async (ctx) => findOverlaps(await ctx.db.query("libraries").collect()),
 });
