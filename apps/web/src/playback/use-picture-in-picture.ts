@@ -30,16 +30,14 @@ export const usePictureInPicture = (video: HTMLVideoElement | null): PictureInPi
     const onChange = (): void =>
       setActive(document.pictureInPictureElement === video || video.webkitPresentationMode === PIP);
 
-    const types = [
-      "enterpictureinpicture",
-      "leavepictureinpicture",
-      "webkitpresentationmodechanged",
-    ];
-
-    for (const type of types) video.addEventListener(type, onChange);
+    video.addEventListener("enterpictureinpicture", onChange);
+    video.addEventListener("leavepictureinpicture", onChange);
+    video.addEventListener("webkitpresentationmodechanged", onChange);
 
     return () => {
-      for (const type of types) video.removeEventListener(type, onChange);
+      video.removeEventListener("enterpictureinpicture", onChange);
+      video.removeEventListener("leavepictureinpicture", onChange);
+      video.removeEventListener("webkitpresentationmodechanged", onChange);
     };
   }, [video, supported]);
 

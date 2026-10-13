@@ -64,31 +64,33 @@ export const useRemotePlayback = (video: HTMLVideoElement | null): SystemTarget 
     let disposed = false;
     const onState = (): void => setActive(remote.state !== "disconnected");
 
-    // Rejects for sources it cannot send (Media Source streams) and where it is turned off.
-    const start = async (): Promise<void> => {
-      try {
-        const id = await remote.watchAvailability((found) => setAvailable(found));
-
-        if (disposed) await remote.cancelWatchAvailability(id);
-        else watch = id;
-      } catch {
-        setAvailable(false);
-      }
+    const onAvailability = (found: boolean): void => {
+      if (!disposed) setAvailable(found);
     };
 
-    void start();
+    // Rejects for sources it cannot send (Media Source streams) and where it is turned off.
+    remote.watchAvailability(onAvailability).then(
+      (id) => {
+        if (disposed) void remote.cancelWatchAvailability(id).catch(() => undefined);
+        else watch = id;
 
-    for (const type of ["connecting", "connect", "disconnect"])
-      remote.addEventListener(type, onState);
+        return id;
+      },
+      () => onAvailability(false),
+    );
+
+    remote.addEventListener("connecting", onState);
+    remote.addEventListener("connect", onState);
+    remote.addEventListener("disconnect", onState);
 
     return () => {
       disposed = true;
 
       if (watch !== null) void remote.cancelWatchAvailability(watch).catch(() => undefined);
 
-      for (const type of ["connecting", "connect", "disconnect"]) {
-        remote.removeEventListener(type, onState);
-      }
+      remote.removeEventListener("connecting", onState);
+      remote.removeEventListener("connect", onState);
+      remote.removeEventListener("disconnect", onState);
     };
   }, [remote]);
 

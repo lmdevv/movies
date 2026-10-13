@@ -7,7 +7,14 @@
  */
 import { useMoviesRuntime } from "@movies/sdk/react";
 import { Result } from "effect";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { toast } from "sonner";
 
 import type { PlaybackController } from "@/playback/playback-controller";
@@ -121,8 +128,12 @@ export const useCast = (
   const stateRef = useRef(state);
   const itemRef = useRef(item);
 
-  stateRef.current = state;
-  itemRef.current = item;
+  // Layout effects run before passive cleanups, so the casting effect's cleanup reads this
+  // render's state when it decides whether a disconnect ended the cast.
+  useLayoutEffect(() => {
+    stateRef.current = state;
+    itemRef.current = item;
+  });
 
   const connected = state === "CONNECTED";
   const castable = readyFor !== null && readyFor === controller ? controller : null;

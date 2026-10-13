@@ -4,7 +4,7 @@
  * handlers that act on the session's output, so they also drive a cast device. Previous and next
  * track move between episodes.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 /** What the system shows and what its buttons do. */
 export interface MediaSessionInput {
@@ -36,7 +36,9 @@ const mediaSession = (): MediaSession | null =>
 export const useMediaSession = (input: MediaSessionInput | null): void => {
   const latest = useRef(input);
 
-  latest.current = input;
+  useLayoutEffect(() => {
+    latest.current = input;
+  });
 
   const title = input?.title;
   const artist = input?.artist;
@@ -116,10 +118,12 @@ export const useMediaSession = (input: MediaSessionInput | null): void => {
   // Whole seconds, so the system's position updates once a second, not with every frame.
   const second = Math.floor(input?.positionSeconds ?? 0);
 
+  const open = input !== null;
+
   useEffect(() => {
     const session = mediaSession();
 
-    if (session === null || input === null) return;
+    if (session === null || !open) return;
     session.playbackState = paused ? "paused" : "playing";
 
     if (duration > 0 && "setPositionState" in session) {
@@ -129,5 +133,5 @@ export const useMediaSession = (input: MediaSessionInput | null): void => {
         position: Math.min(duration, Math.max(0, second)),
       });
     }
-  }, [input === null, paused, duration, second]);
+  }, [open, paused, duration, second]);
 };
