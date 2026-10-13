@@ -165,14 +165,6 @@ export const useMoviesRuntime = (): Runtime => {
 
 export type { QueryState } from "./query-watch";
 
-const LOADING = { status: "loading" } as const;
-
-/** A skipped query: loading, with nothing to subscribe to. */
-const SKIPPED: QueryWatch.QueryWatch<never> = {
-  subscribe: () => () => undefined,
-  getSnapshot: () => LOADING,
-};
-
 /**
  * Subscribes to a query command, re-rendering on every change. Pass `"skip"` to wait. Arguments
  * the schema rejects report an `InvalidArgs` error without subscribing. Network failures and
@@ -188,7 +180,7 @@ export const useCommandQuery = <Name extends QueryName>(
 
   const watch = useMemo(
     (): QueryWatch.QueryWatch<CommandResult<Name>> =>
-      args === "skip" ? SKIPPED : QueryWatch.make(runtime, name, args),
+      args === "skip" ? QueryWatch.skipped : QueryWatch.make(runtime, name, args),
     [runtime, key],
   );
 

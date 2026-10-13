@@ -24,7 +24,7 @@ const dropped = new TransportError({
 
 const crashed = new Internal({ message: "The server failed while running libraries:list" });
 
-const missing = new NotFound({ message: "No such record in libraries" });
+const missing = new NotFound({ message: "No such item: nothing has that ID" });
 
 /**
  * Runs each `libraries.list` subscription from the next attempt in `script` (the last repeats),
@@ -156,6 +156,22 @@ describe("QueryWatch", () => {
 
     expect(watch.getSnapshot()).toStrictEqual({ status: "success", data: [] });
     expect(seen).toStrictEqual(["error", "loading", "success"]);
+    expect(counts.opened).toBe(2);
+  });
+
+  it("starts afresh, without the old failure, when a listener comes back", async () => {
+    const { counts, watch, advance } = scripted([{ values: [], error: missing }, { values: [] }]);
+
+    const leave = watch.subscribe(() => undefined);
+
+    await advance(100);
+    leave();
+
+    expect(watch.getSnapshot()).toMatchObject({ status: "error" });
+
+    watch.subscribe(() => undefined);
+
+    expect(watch.getSnapshot()).toStrictEqual({ status: "loading" });
     expect(counts.opened).toBe(2);
   });
 

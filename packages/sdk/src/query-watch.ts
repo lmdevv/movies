@@ -36,6 +36,12 @@ export interface QueryWatch<A> {
 
 const LOADING = { status: "loading" } as const;
 
+/** A query that waits, such as one passed `"skip"`: loading, with nothing to subscribe to. */
+export const skipped: QueryWatch<never> = {
+  subscribe: () => () => undefined,
+  getSnapshot: () => LOADING,
+};
+
 /** Failures a query retries by itself: they may pass without anyone changing anything. */
 const isTransient = (error: CallError): boolean =>
   Predicate.isTagged(error, "TransportError") ||
@@ -102,7 +108,11 @@ export const make = <Name extends QueryName>(
     subscribe: (onChange) => {
       listeners.add(onChange);
 
-      if (listeners.size === 1) start();
+      // Coming back after everyone left subscribes afresh; an old failure would offer a stale retry.
+      if (listeners.size === 1) {
+        if (state.status === "error") state = LOADING;
+        start();
+      }
 
       return () => {
         listeners.delete(onChange);

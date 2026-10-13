@@ -44,15 +44,15 @@ describe("translateFailure", () => {
 
     expect(translateFailure("titles:get", overHttp)).toMatchObject({
       _tag: "NotFound",
-      message: "No such record in titles",
+      message: "No such item: nothing has that ID",
     });
     expect(translateFailure("titles:get", overWebSocket)).toMatchObject({
       _tag: "NotFound",
-      message: "No such record in profiles",
+      message: "No such item: nothing has that ID",
     });
     expect(translateFailure("titles:get", fromAnotherTable)).toMatchObject({
       _tag: "NotFound",
-      message: "No such record in titles",
+      message: "No such item: nothing has that ID",
     });
   });
 

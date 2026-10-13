@@ -39,6 +39,12 @@ type LoadedPage = {
   readonly nextCursor: string | null;
 };
 
+/** A page that failed to load, and the way to load it again. */
+interface GridFailure {
+  readonly cause: unknown;
+  readonly retry: () => void;
+}
+
 /** Subscribes to one page and reports it; the grid draws every page's titles together. */
 function PageSubscription({
   profileId,
@@ -55,13 +61,13 @@ function PageSubscription({
   readonly cursor: string | null;
   readonly index: number;
   readonly onPage: (index: number, page: LoadedPage) => void;
-  readonly onError: (cause: unknown, retry: () => void) => void;
+  readonly onError: (index: number, failure: GridFailure) => void;
 }) {
   const page = useCommandQuery("titles.list", { profileId, kind, sort, cursor, limit: PAGE_SIZE });
 
   useEffect(() => {
     if (page.status === "success") onPage(index, page.data);
-    else if (page.status === "error") onError(page.error, page.retry);
+    else if (page.status === "error") onError(index, { cause: page.error, retry: page.retry });
   }, [page, index, onPage, onError]);
 
   return null;
@@ -137,12 +143,6 @@ export function PosterGrid({ children }: { readonly children: ReactNode }) {
   );
 }
 
-/** A page that failed to load, and the way to load it again. */
-interface GridFailure {
-  readonly cause: unknown;
-  readonly retry: () => void;
-}
-
 /** Movies or Shows: every title of `kind` the profile may see. */
 export function TitleGridPage({ kind }: { readonly kind: TitleKind }) {
   const { profile } = useActiveProfile();
@@ -150,13 +150,15 @@ export function TitleGridPage({ kind }: { readonly kind: TitleKind }) {
   const [genre, setGenre] = useState<string | null>(null);
   const [pages, setPages] = useState<ReadonlyArray<LoadedPage | undefined>>([]);
   const [cursors, setCursors] = useState<ReadonlyArray<string | null>>([null]);
-  const [failure, setFailure] = useState<GridFailure | null>(null);
+  // Failed pages by index; Try again reloads all of them.
+  const [failures, setFailures] = useState<ReadonlyMap<number, GridFailure>>(new Map());
 
   // A new sort starts over from the first page.
   const changeSort = (next: TitleSort): void => {
     setSort(next);
     setPages([]);
     setCursors([null]);
+    setFailures(new Map());
   };
 
   const onPage = useCallback((index: number, page: LoadedPage) => {
@@ -169,10 +171,17 @@ export function TitleGridPage({ kind }: { readonly kind: TitleKind }) {
     });
   }, []);
 
-  const onError = useCallback(
-    (cause: unknown, retry: () => void) => setFailure({ cause, retry }),
-    [],
-  );
+  const onError = useCallback((index: number, failure: GridFailure) => {
+    setFailures((current) => new Map(current).set(index, failure));
+  }, []);
+
+  const retryFailed = (): void => {
+    for (const failure of failures.values()) failure.retry();
+
+    setFailures(new Map());
+  };
+
+  const failure = failures.values().next().value;
 
   const loaded = pages.flatMap((page) => page?.items ?? []);
   const last = pages[cursors.length - 1];
@@ -245,21 +254,12 @@ export function TitleGridPage({ kind }: { readonly kind: TitleKind }) {
           ))}
         </div>
       )}
-      {failure !== null ? (
+      {failure !== undefined ? (
         <CalmState
           className="py-24"
           title={`${label} didn't load`}
           description={describeFailure(failure.cause)}
-          actions={
-            <Button
-              onClick={() => {
-                setFailure(null);
-                failure.retry();
-              }}
-            >
-              Try again
-            </Button>
-          }
+          actions={<Button onClick={retryFailed}>Try again</Button>}
         />
       ) : !firstLoaded ? (
         <PosterGridSkeleton />

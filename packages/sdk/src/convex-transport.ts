@@ -154,7 +154,7 @@ export const translateFailure = (operation: string, cause: unknown): CallError =
 
   const table = rejectedIdTable(cause.message);
 
-  if (table !== null) return new NotFound({ message: `No such record in ${table}` });
+  if (table !== null) return new NotFound({ message: "No such item: nothing has that ID" });
 
   if (cause.message.includes("Server Error")) {
     return new Internal({ message: `The server failed while running ${operation}` });
