@@ -396,4 +396,6 @@ choices made while implementing them. Update it in the same PR that changes a de
 - The admin browser suites (`apps/web/e2e/admin`) run as a Playwright project that depends on the
   stack project and sign in as the owner it creates, so both share one fresh stack without racing
   for the first owner. Library scans run on the real media service with generated clips, and the
-  backups suite runs a real backup job: the media service exports the stack into its backup folder.
+  backups suite runs a real backup job in its own project last, since each suite that runs a
+  media service owns the stack's port while it runs: the service exports the stack into its backup
+  folder.
