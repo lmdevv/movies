@@ -168,7 +168,7 @@ export type { QueryState } from "./query-watch";
 /**
  * Subscribes to a query command, re-rendering on every change. Pass `"skip"` to wait. Arguments
  * the schema rejects report an `InvalidArgs` error without subscribing. Network failures and
- * crashed functions retry with backoff first; a failure carries `retry` for a Try again button.
+ * rate limiting retry with backoff first; a failure carries `retry` for a Try again button.
  */
 export const useCommandQuery = <Name extends QueryName>(
   name: Name,
