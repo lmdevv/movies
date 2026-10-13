@@ -77,7 +77,9 @@ describe("disk cache", () => {
         Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem;
           const path = yield* Path.Path;
-          const roots = cacheDirectories(dataDir, path);
+          // Only file names mark abandoned writes, not a folder that happens to contain ".part".
+          const root = path.join(dataDir, "movies.parts");
+          const roots = cacheDirectories(root, path);
           const hour = 60 * 60;
           const now = 10 * 24 * hour;
 
@@ -89,7 +91,7 @@ describe("disk cache", () => {
             kilobytes: number,
             hoursAgo: number,
           ) {
-            const target = path.join(dataDir, relative);
+            const target = path.join(root, relative);
 
             yield* fs.makeDirectory(path.dirname(target), { recursive: true });
             yield* fs.writeFile(target, new Uint8Array(kilobytes * 1024));

@@ -575,7 +575,13 @@ const make = Effect.gen(function* () {
             onFailure: (cause) => String(cause),
           }).slice(-300);
 
-          return yield* encoderFailed(session, generation, index, detail);
+          // A run that failed before writing anything is a stream that cannot start: close it now,
+          // freeing its slot and reporting it failed, rather than holding it until it idles out.
+          return yield* encoderFailed(session, generation, index, detail).pipe(
+            Effect.tapErrorTag("TranscodeFailed", () =>
+              fragments.length === 0 ? closeSession(session, "failed") : Effect.void,
+            ),
+          );
         }
       }
 

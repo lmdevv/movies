@@ -215,26 +215,41 @@ const make = Effect.gen(function* () {
       } satisfies NegotiateResponse;
     }
 
-    const started = yield* sessions.start({
-      grant,
-      file,
-      plan,
-      client: request.capabilities,
-      audioIndex: request.audioStreamIndex,
-      startSeconds,
-      quality: request.quality,
-      burnSubtitle,
-      keyframes: knownKeyframes,
-    });
+    const startWith = (chosen: typeof plan, keyframeTimes: ReadonlyArray<number> | undefined) =>
+      sessions
+        .start({
+          grant,
+          file,
+          plan: chosen,
+          client: request.capabilities,
+          audioIndex: request.audioStreamIndex,
+          startSeconds,
+          quality: request.quality,
+          burnSubtitle,
+          keyframes: keyframeTimes,
+        })
+        .pipe(Effect.map((started) => ({ started, chosen })));
+
+    // An encode chosen only because the index was slow needs a transcode slot the copy does not;
+    // with none free, wait for the index and copy instead.
+    const { started, chosen } = yield* startWith(plan, knownKeyframes).pipe(
+      Effect.catchTag("TranscodeCapacityReached", (full) =>
+        indexing && PlaybackPlan.$is("Hls")(preferred)
+          ? keyframes
+              .keyframes(file)
+              .pipe(Effect.flatMap((keyframeTimes) => startWith(preferred, keyframeTimes)))
+          : Effect.fail(full),
+      ),
+    );
 
     const outputVideo =
-      VideoPlan.$is("Encode")(plan.video) &&
+      VideoPlan.$is("Encode")(chosen.video) &&
       started.mode !== "remux" &&
       started.mode !== "audio-transcode"
         ? {
             codec: "h264",
-            width: plan.video.width,
-            height: plan.video.height,
+            width: chosen.video.width,
+            height: chosen.video.height,
             dynamicRange: "sdr" as const,
           }
         : common.video;

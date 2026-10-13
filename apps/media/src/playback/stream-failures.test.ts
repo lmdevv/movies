@@ -31,6 +31,9 @@ const slowStart = await writeFakeFfmpeg({ hlsDelayMs: 10_000 });
 /** A Quick Sync run that takes three seconds to fail, as a missing device does here. */
 const slowQsv = await writeFakeFfmpeg({ hlsDelayMs: 3000, qsvFailsAfterSeconds: 0 });
 
+/** Every HLS run fails before writing anything. */
+const brokenStart = await writeFakeFfmpeg({ hlsFailsAtStart: true });
+
 /** Keyframe scans take twelve seconds, as for a large file on a slow share. */
 const slowScan = await writeSlowFfprobe(12_000);
 
@@ -510,6 +513,92 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
           assert.strictEqual(yield* status(signTestToken({ fid: fileId, sid: "other" }), 0), 503);
         }),
       30_000,
+    );
+  });
+
+  layer(MediaTestServer.layer({ FFMPEG_PATH: brokenStart, MAX_CONCURRENT_TRANSCODES: "1" }), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })((it) => {
+    it.effect(
+      "closes a stream whose encoder fails before writing anything, and frees its slot",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+          const { library } = yield* FixtureWorkspace.Service;
+          const fileId = server.fileId("movies", library.directMovie);
+
+          const negotiate = (sid: string) =>
+            negotiateRequest(server.baseUrl, signTestToken({ fid: fileId, sid })).pipe(
+              Effect.flatMap((response) => response.json),
+              Effect.flatMap(decodeNegotiation),
+              Effect.orDie,
+            );
+
+          const negotiated = yield* negotiate("broken");
+          const playlist = new URL(local(server.baseUrl, negotiated.url));
+
+          const first = yield* HttpClient.get(
+            new URL(`0.m4s${playlist.search}`, playlist).toString(),
+          );
+
+          assert.strictEqual(first.status, 500);
+          yield* awaitNoStreams("5 seconds");
+
+          // The only transcode slot is free again for another viewer.
+          assert.strictEqual((yield* negotiate("next")).mode, "transcode-software");
+        }),
+      60_000,
+    );
+  });
+
+  layer(MediaTestServer.layer({ FFPROBE_PATH: slowScan, MAX_CONCURRENT_TRANSCODES: "1" }), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })((it) => {
+    it.effect(
+      "copies once the scan finishes when no transcode slot is free to encode meanwhile",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+          const { library } = yield* FixtureWorkspace.Service;
+          const fileId = yield* addTransportStream.pipe(Effect.orDie);
+
+          // Another viewer holds the only transcode slot.
+          const busy = yield* negotiateRequest(
+            server.baseUrl,
+            signTestToken({ fid: server.fileId("movies", library.directMovie), sid: "busy" }),
+          ).pipe(Effect.orDie);
+
+          assert.strictEqual(busy.status, 200);
+
+          const response = yield* HttpClient.execute(
+            HttpClientRequest.post(`${server.baseUrl}/api/playback/negotiate`).pipe(
+              HttpClientRequest.bodyJsonUnsafe({
+                token: signTestToken({ fid: fileId, sid: "waits" }),
+                capabilities: {
+                  containers: ["mp4"],
+                  videoCodecs: [{ codec: "h264", maxBitDepth: 8 }],
+                  audioCodecs: [{ codec: "aac" }],
+                  maxWidth: 1920,
+                  maxHeight: 1080,
+                  hls: false,
+                  mse: true,
+                },
+              }),
+            ),
+          ).pipe(Effect.orDie);
+
+          assert.strictEqual(response.status, 200);
+
+          const negotiated = yield* response.json.pipe(
+            Effect.flatMap(decodeNegotiation),
+            Effect.orDie,
+          );
+
+          assert.strictEqual(negotiated.mode, "remux");
+        }),
+      60_000,
     );
   });
 });

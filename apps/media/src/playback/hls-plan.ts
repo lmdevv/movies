@@ -29,6 +29,9 @@ const QUICK_GRID_OFFSETS: ReadonlyArray<number> = [1, 2, 4, 6];
 /** How long after the start keyframe copies keep one keyframe per segment. */
 const QUICK_COPY_SECONDS = 8;
 
+/** The shortest quick copy segment, so sources with a keyframe every frame are not cut per frame. */
+const QUICK_COPY_MIN_SECONDS = 1;
+
 /** Where a session starts, which its first segments are cut short around. */
 export interface PlanOptions {
   /** Start position on the source timeline; none plans plain segments throughout. */
@@ -78,7 +81,7 @@ export const planGridSegments = (
 /**
  * Keyframe-aligned segments: each starts on a keyframe and lasts at least the target length,
  * except the last. From the keyframe at or before `options.quickStart`, segments hold one
- * keyframe each for eight seconds. `keyframes` must be ascending.
+ * keyframe each (at least a second) for eight seconds. `keyframes` must be ascending.
  */
 export const planKeyframeSegments = (
   keyframes: ReadonlyArray<number>,
@@ -107,7 +110,7 @@ export const planKeyframeSegments = (
     if (
       previous === undefined ||
       time === quickFrom ||
-      isQuick(previous) ||
+      (isQuick(previous) && time >= previous + QUICK_COPY_MIN_SECONDS) ||
       time >= previous + SEGMENT_SECONDS
     ) {
       starts.push(time);

@@ -76,12 +76,13 @@ export const prune = Effect.fn("CachePruner.prune")(function* (
   maxBytes: number,
 ) {
   const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const now = yield* Clock.currentTimeMillis;
   const files = yield* listFiles(roots);
   const abandonedBefore = now - Duration.toMillis(ABANDONED_AFTER);
 
   const abandoned = files.filter(
-    (file) => file.path.includes(".part") && file.modifiedAt < abandonedBefore,
+    (file) => path.basename(file.path).includes(".part") && file.modifiedAt < abandonedBefore,
   );
 
   const live = files

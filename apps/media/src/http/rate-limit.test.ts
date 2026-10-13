@@ -29,4 +29,16 @@ describe("rate limit", () => {
 
     assert.deepStrictEqual(after, [true, true, true, false]);
   });
+
+  it("forgets the least recently used address when full, never a busy one", () => {
+    const take = makeLimiter(3);
+
+    // "busy" spends its burst, then many new addresses arrive while it stays active.
+    for (let index = 0; index < 3; index += 1) take("busy", budget, 0);
+
+    for (let index = 0; index < 100; index += 1) {
+      take(`new-${index}`, budget, 0);
+      assert.isTrue(Option.isSome(take("busy", budget, 0)));
+    }
+  });
 });

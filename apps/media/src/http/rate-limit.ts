@@ -23,7 +23,7 @@ const BUDGETS: ReadonlyArray<readonly [prefix: string, budget: Budget]> = [
   ["/api/health", { burst: 60, perSecond: 10 }],
 ];
 
-/** Buckets kept before idle ones are forgotten. */
+/** Buckets kept before the least recently used are forgotten. */
 const MAX_BUCKETS = 10_000;
 
 interface Bucket {
@@ -31,14 +31,26 @@ interface Bucket {
   readonly updatedAt: number;
 }
 
-/** Token buckets by key, refilled lazily. */
-export const makeLimiter = () => {
+/**
+ * Token buckets by key, refilled lazily. At `maxBuckets` the least recently used bucket is
+ * forgotten (a quiet address, which has refilled anyway), so many new addresses cannot reset the
+ * busy ones.
+ */
+export const makeLimiter = (maxBuckets = MAX_BUCKETS) => {
+  // Kept in order of last use: every take moves its key to the end.
   const buckets = new Map<string, Bucket>();
 
   /** Takes a token for `key`; returns the seconds to wait when none is left. */
   return (key: string, budget: Budget, now: number): Option.Option<number> => {
-    if (buckets.size >= MAX_BUCKETS) buckets.clear();
     const previous = buckets.get(key) ?? { tokens: budget.burst, updatedAt: now };
+
+    buckets.delete(key);
+
+    if (buckets.size >= maxBuckets) {
+      const oldest = buckets.keys().next();
+
+      if (oldest.done !== true) buckets.delete(oldest.value);
+    }
 
     const tokens = Math.min(
       budget.burst,

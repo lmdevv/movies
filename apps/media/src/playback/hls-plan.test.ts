@@ -51,6 +51,13 @@ describe("HLS segment plans", () => {
     expect(resumed).toStrictEqual([0, 4, 8, 12, 16, 20, 22, 24, 26, 28, 32, 36]);
     expect(resumed.every((time) => keyframes.includes(time))).toBe(true);
 
+    // A keyframe every frame (all-intra sources): quick segments still last a second.
+    const everyFrame = Array.from({ length: 24 * 20 }, (_, index) => index / 24);
+
+    expect(planKeyframeSegments(everyFrame, 0, 20, { quickStart: 0 }).starts).toStrictEqual([
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16,
+    ]);
+
     // Audio primed 5 ms ahead puts the file's start before its first keyframe.
     expect(
       planKeyframeSegments(keyframes, -0.005, 40, { quickStart: -0.005 }).starts,

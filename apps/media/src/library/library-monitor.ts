@@ -208,14 +208,7 @@ const make = Effect.fn("LibraryMonitor.make")(function* (debounce: Duration.Dura
           );
 
           return yield* new WatchEnded();
-        }).pipe(
-          Effect.tapError((error) =>
-            Ref.update(restarts, (count) => count + 1).pipe(
-              Effect.andThen(Effect.logWarning("LibraryMonitor.watch_failed", error)),
-            ),
-          ),
-          Effect.retry(watchRestart),
-        );
+        });
 
       // Each poll costs one `stat` per folder; a share that is away is skipped until it returns.
       const poll = Effect.fnUntraced(function* (root: string) {
@@ -231,13 +224,23 @@ const make = Effect.fn("LibraryMonitor.make")(function* (debounce: Duration.Dura
         }
       });
 
-      const watch = Effect.fnUntraced(function* (root: string) {
-        const mode = yield* watchModeOf(root);
+      // The mode is chosen again on every restart: a share mounted over the folder after startup
+      // (seen as the folder being replaced) is polled from then on.
+      const watch = (root: string) =>
+        Effect.gen(function* () {
+          const mode = yield* watchModeOf(root);
 
-        yield* Effect.logInfo("LibraryMonitor.watching").pipe(Effect.annotateLogs({ mode }));
+          yield* Effect.logInfo("LibraryMonitor.watching").pipe(Effect.annotateLogs({ mode }));
 
-        return yield* mode === "poll" ? poll(root) : watchEvents(root);
-      });
+          return yield* mode === "poll" ? poll(root) : watchEvents(root);
+        }).pipe(
+          Effect.tapError((error) =>
+            Ref.update(restarts, (count) => count + 1).pipe(
+              Effect.andThen(Effect.logWarning("LibraryMonitor.watch_failed", error)),
+            ),
+          ),
+          Effect.retry(watchRestart),
+        );
 
       // Watch before the startup scan, so a change made while it runs is not missed.
       const watching = yield* Effect.forkChild(

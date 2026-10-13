@@ -124,14 +124,15 @@ const compositionOffsets = (
   const offsets = Array.from({ length: samples }, () => 0);
 
   if (ctts === undefined) return offsets;
-  const signed = versionOf(view, ctts) === 1;
   const count = entryCount(view, ctts, 8);
   let index = 0;
 
   for (let entry = 0; entry < count; entry += 1) {
     const offset = ctts.start + 8 + entry * 8;
     const run = uint32(view, offset);
-    const value = signed ? view.getInt32(offset + 4) : uint32(view, offset + 4);
+    // Signed in both versions, as players read them: muxers write negative offsets into
+    // version 0 boxes too.
+    const value = view.getInt32(offset + 4);
 
     for (let sample = 0; sample < run && index < samples; sample += 1) {
       offsets[index] = value;

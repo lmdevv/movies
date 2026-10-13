@@ -18,6 +18,8 @@ export interface FakeFfmpegBehavior {
   readonly qsvFailsAfterSeconds?: number;
   /** HLS runs wait this long before starting, as a slow disk or a busy encoder would. */
   readonly hlsDelayMs?: number;
+  /** HLS runs exit with status 1 before writing anything, as a broken source or codec would. */
+  readonly hlsFailsAtStart?: boolean;
 }
 
 /** Arguments of a Quick Sync run that have no software equivalent, each followed by a value. */
@@ -40,6 +42,11 @@ const qsv = args.includes("h264_qsv") && behavior.qsvFailsAfterSeconds !== undef
 
 if (hls && behavior.hlsDelayMs !== undefined) {
   await new Promise((resolve) => setTimeout(resolve, behavior.hlsDelayMs));
+}
+
+if (hls && behavior.hlsFailsAtStart === true) {
+  console.error("Conversion failed!");
+  process.exit(1);
 }
 
 if (qsv) {
