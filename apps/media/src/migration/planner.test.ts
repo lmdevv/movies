@@ -62,10 +62,34 @@ const input = (overrides: Partial<PlanInput>): PlanInput => ({
   source: "jellyfin",
   server: { serverId: "server", name: "Home", version: "10.10.7" },
   libraries: [
-    { libraryId: "lib", name: "Movies", kind: "movies", paths: ["/data/movies"] },
-    { libraryId: "new", name: "Kids", kind: "movies", paths: ["/data/kids"] },
-    { libraryId: "music", name: "Music", kind: "other", paths: ["/data/music"] },
-    { libraryId: "lost", name: "Lost", kind: "shows", paths: ["/offline/shows"] },
+    {
+      libraryId: "lib",
+      name: "Movies",
+      kind: "movies",
+      paths: ["/data/movies"],
+      access: { kind: "everyone" },
+    },
+    {
+      libraryId: "new",
+      name: "Kids",
+      kind: "movies",
+      paths: ["/data/kids"],
+      access: { kind: "users", userIds: ["u1", "u2"] },
+    },
+    {
+      libraryId: "music",
+      name: "Music",
+      kind: "other",
+      paths: ["/data/music"],
+      access: { kind: "unknown" },
+    },
+    {
+      libraryId: "lost",
+      name: "Lost",
+      kind: "shows",
+      paths: ["/offline/shows"],
+      access: { kind: "unknown" },
+    },
   ],
   items: [
     item("heat", "movie", ["/data/movies/Heat.mkv"], { overrides: { sortName: "Heat 1995" } }),
@@ -151,6 +175,21 @@ describe("planMigration", () => {
     assert.deepStrictEqual(plan.unmatchedSamples, [
       { name: "ghost", path: "/offline/shows/Ghost.mkv", reason: "path_unmapped" },
     ]);
+  });
+
+  it("shares added libraries as the source did, with imported users only", () => {
+    const plan = planMigration(input({}));
+
+    assert.deepStrictEqual(
+      plan.libraries.map((library) => [library.name, library.access]),
+      [
+        ["Movies", { kind: "everyone" }],
+        // Bob is not imported, so only Alice's account is granted the library.
+        ["Kids", { kind: "users", sourceUserIds: ["u1"] }],
+        // The source does not say who sees it: admins only.
+        ["Lost", { kind: "users", sourceUserIds: [] }],
+      ],
+    );
   });
 
   it("counts what items in folders being added will import, but writes only matched items", () => {

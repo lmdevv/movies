@@ -7,6 +7,7 @@ import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import { query } from "./_generated/server";
+import { listTitles } from "./lib/browse";
 import { canSee, loadAudience, loadVisibleTitle } from "./lib/access";
 import {
   findProgress,
@@ -96,35 +97,17 @@ export const list = query({
     const viewer = await authorize(ctx, "read");
     const audience = await loadAudience(ctx, viewer, profileId);
     const numItems = Math.min(Math.max(1, Math.floor(limit ?? DEFAULT_PAGE)), MAX_PAGE);
-    const order = sort ?? "name";
-    const titles = ctx.db.query("titles");
 
-    const indexed =
-      kind === undefined
-        ? order === "name"
-          ? titles.withIndex("by_sort")
-          : order === "added"
-            ? titles.withIndex("by_added")
-            : titles.withIndex("by_year")
-        : order === "name"
-          ? titles.withIndex("by_kind_sort", (q) => q.eq("kind", kind))
-          : order === "added"
-            ? titles.withIndex("by_kind_added", (q) => q.eq("kind", kind))
-            : titles.withIndex("by_kind_year", (q) => q.eq("kind", kind));
+    const result = await listTitles(
+      ctx,
+      audience,
+      { kind, libraryId },
+      sort ?? "name",
+      cursor ?? null,
+      numItems,
+    );
 
-    const result = await indexed
-      .order(order === "name" ? "asc" : "desc")
-      .paginate({ numItems, cursor: cursor ?? null });
-
-    return {
-      items: result.page
-        .filter(
-          (title) =>
-            canSee(audience, title) && (libraryId === undefined || title.libraryId === libraryId),
-        )
-        .map(presentTitleCard),
-      nextCursor: result.isDone ? null : result.continueCursor,
-    };
+    return { items: result.items.map(presentTitleCard), nextCursor: result.nextCursor };
   },
 });
 

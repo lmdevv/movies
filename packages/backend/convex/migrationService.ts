@@ -12,9 +12,10 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import { BATCH_LIMIT, COLLECTION_BATCH_LIMIT, COLLECTION_MEMBER_BATCH_LIMIT } from "./lib/bounds";
 import { inSequence, searchTextOf } from "./lib/catalog";
 import { fail } from "./lib/errors";
-import { enqueueJob, requireLease, requireLeaseOf } from "./lib/jobs";
+import { enqueueJob, requireLeaseOf } from "./lib/jobs";
 import {
   catalogFile,
   collectionImport,
@@ -24,12 +25,13 @@ import {
   migrationState,
   migrationTarget,
   overrideImport,
+  plannedLibraryAccess,
   storedMigrationPlan,
   watchStateImport,
   watchStateImported,
 } from "./lib/migrationValidators";
 import { findProgress } from "./lib/present";
-import { checkRoots } from "./lib/roots";
+import { checkRoots, isInside, normalizeRoot } from "./lib/roots";
 import { isAdminRole } from "./lib/scopes";
 import {
   jobProgress,
@@ -44,20 +46,8 @@ import { authorize } from "./lib/viewer";
 import type { ReadCtx } from "./lib/viewer";
 import { writeProgress } from "./lib/viewing";
 
-/** Most items one import write may carry; `SCAN_BATCH_LIMIT` in contracts. */
-const BATCH_LIMIT = 100;
-
 /** Most members one imported collection keeps. */
 const COLLECTION_LIMIT = 1000;
-
-/**
- * Most collections, and members in all, one `importCollections` call may carry, so its deletes
- * and inserts stay inside one mutation's limits; `COLLECTION_BATCH_LIMIT` and
- * `COLLECTION_MEMBER_BATCH_LIMIT` in contracts.
- */
-const COLLECTION_BATCH_LIMIT = 10;
-
-const COLLECTION_MEMBER_BATCH_LIMIT = 2000;
 
 const NOTHING_IMPORTED = {
   librariesAdded: 0,
@@ -304,21 +294,46 @@ export const saveCheckpoint = mutation({
   },
 });
 
-const isInside = (path: string, root: string): boolean =>
-  path === root || path.startsWith(root === "/" ? root : `${root}/`);
+/**
+ * The accounts an added library is granted to: those whose profiles receive the history of the
+ * listed source users. Source users the plan does not import get nothing.
+ */
+const grantedAccounts = async (
+  ctx: ReadCtx,
+  plan: Doc<"migrations">["plan"],
+  sourceUserIds: ReadonlyArray<string>,
+): Promise<Array<Id<"users">>> => {
+  const listed = new Set(sourceUserIds);
+
+  const accounts = await inSequence(
+    plan.users.filter((user) => listed.has(user.sourceUserId)),
+    async (user) => (await ctx.db.get(user.profileId))?.userId ?? null,
+  );
+
+  return [...new Set(accounts.flatMap((userId) => (userId === null ? [] : [userId])))];
+};
 
 /**
  * Finds the libraries covering these folders, or adds one for the folders no library covers yet
- * and queues its scan. Folders inside another library's folder count as covered.
+ * and queues its scan. Folders inside another library's folder count as covered. An added library
+ * is open to everyone only when the source showed it to every user; otherwise it is restricted,
+ * granted to the accounts of the imported users who could see it (none when the source did not
+ * say, or for plans stored before access was recorded). Libraries already here keep their access.
  */
 export const ensureLibrary = mutation({
-  args: { ...leaseArgs, name: v.string(), kind: libraryKind, roots: v.array(v.string()) },
+  args: {
+    ...leaseArgs,
+    name: v.string(),
+    kind: libraryKind,
+    roots: v.array(v.string()),
+    access: v.optional(plannedLibraryAccess),
+  },
   returns: v.object({ libraryIds: v.array(v.id("libraries")), created: v.boolean() }),
-  handler: async (ctx, { jobId, workerId, name, kind, roots }) => {
+  handler: async (ctx, { jobId, workerId, name, kind, roots, access }) => {
     await authorize(ctx, "media-service");
     const doc = await requireLeaseOf(ctx, jobId, workerId, "migration");
     const row = await migrationOf(ctx, jobId);
-    const wanted = [...new Set(roots.map((root) => root.trim().replace(/\/+$/u, "") || "/"))];
+    const wanted = [...new Set(roots.map(normalizeRoot))];
 
     const invalid = wanted.find(
       (root) => !root.startsWith("/") || root.split("/").some((part) => part === ".."),
@@ -358,11 +373,16 @@ export const ensureLibrary = mutation({
       name: name.trim() || "Imported library",
       kind,
       roots: added,
-      access: "everyone",
+      access: access?.kind === "everyone" ? "everyone" : "restricted",
       createdBy: doc.requestedBy,
       titleCount: 0,
       lastScanAt: null,
     });
+
+    const granted =
+      access?.kind === "users" ? await grantedAccounts(ctx, row.plan, access.sourceUserIds) : [];
+
+    await inSequence(granted, (userId) => ctx.db.insert("libraryGrants", { userId, libraryId }));
 
     await enqueueJob(ctx, { kind: "scan", libraryId, mode: "full" }, doc.requestedBy);
     const libraryIds = [...known, libraryId];
@@ -542,7 +562,7 @@ export const importCollections = mutation({
   returns: v.object({ imported: v.number() }),
   handler: async (ctx, { jobId, workerId, items }) => {
     await authorize(ctx, "media-service");
-    await requireLease(ctx, jobId, workerId);
+    await requireLeaseOf(ctx, jobId, workerId, "migration");
     const now = Date.now();
     const memberCount = items.reduce((total, item) => total + item.titleIds.length, 0);
 

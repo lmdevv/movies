@@ -9,6 +9,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { loadAudience, loadVisibleTitle } from "./lib/access";
+import { checkDeviceId, checkDisplayName, checkMilliseconds } from "./lib/bounds";
 import { fail } from "./lib/errors";
 import { resolvePlayable } from "./lib/playable";
 import {
@@ -106,6 +107,7 @@ export const createSession = mutation({
   returns: startedPlayback,
   handler: async (ctx, args) => {
     const viewer = await authorize(ctx, "play");
+    checkDeviceId(args.deviceId);
     const audience = await loadAudience(ctx, viewer, args.profileId);
     const title = await loadVisibleTitle(ctx, audience, args.titleId);
 
@@ -161,7 +163,8 @@ export const createSession = mutation({
       profileId: args.profileId,
       authSessionId: viewer.session._id,
       deviceId: args.deviceId,
-      deviceName: args.deviceName?.trim() ?? null,
+      deviceName:
+        args.deviceName === undefined ? null : checkDisplayName(args.deviceName, "Device names"),
       titleId: title._id,
       episodeId,
       fileId: playable.file._id,
@@ -253,11 +256,11 @@ export const reportProgress = mutation({
     const viewer = await authorize(ctx, "play");
     const session = await loadOwnSession(ctx, viewer, sessionId);
 
-    if (session.status !== "active") return { applied: false, watched: false };
+    checkMilliseconds(positionMs, "Positions");
 
-    if (!Number.isFinite(positionMs) || positionMs < 0) {
-      return fail("invalid_args", "Positions are zero or more milliseconds");
-    }
+    if (durationMs !== undefined) checkMilliseconds(durationMs, "Durations");
+
+    if (session.status !== "active") return { applied: false, watched: false };
 
     await ctx.db.patch(sessionId, {
       positionMs,
@@ -278,9 +281,7 @@ export const endSession = mutation({
 
     if (session.status === "ended") return { ok: true as const };
 
-    if (!Number.isFinite(positionMs) || positionMs < 0) {
-      return fail("invalid_args", "Positions are zero or more milliseconds");
-    }
+    checkMilliseconds(positionMs, "Positions");
 
     await recordPosition(ctx, session, positionMs, undefined, false);
     const now = Date.now();

@@ -184,6 +184,10 @@ export default defineSchema({
     .index("by_library_match", ["libraryId", "matchKey"])
     .index("by_library", ["libraryId"])
     .index("by_library_status", ["libraryId", "matchStatus"])
+    // `titles.list` filtered by library, in each of its orders.
+    .index("by_library_sort", ["libraryId", "sortKey"])
+    .index("by_library_added", ["libraryId", "addedAt"])
+    .index("by_library_year", ["libraryId", "year"])
     .index("by_kind_sort", ["kind", "sortKey"])
     .index("by_kind_added", ["kind", "addedAt"])
     .index("by_kind_year", ["kind", "year"])

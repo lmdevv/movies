@@ -2,12 +2,15 @@ import { v } from "convex/values";
 import type { Infer } from "convex/values";
 
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { action, internalMutation, mutation, query } from "./_generated/server";
+import { checkDisplayName } from "./lib/bounds";
 import { randomSecret, sha256Hex } from "./lib/crypto";
 import { fail } from "./lib/errors";
 import { presentApiKey } from "./lib/present";
 import { apiKey, apiKeyScope, createdApiKey, ok } from "./lib/validators";
 import { authorize, endAuthSession } from "./lib/viewer";
+import type { ReadCtx, Viewer } from "./lib/viewer";
 
 /** How long one sign-in session of a key lasts; the next sign-in after it opens a new one. */
 const KEY_SESSION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -43,7 +46,13 @@ export const insert = internalMutation({
       return fail("invalid_args", "Keys expire after 1 to 365 days");
     }
 
-    const key = { userId: viewer.userId, name: name.trim(), prefix, hash, scopes: requested };
+    const key = {
+      userId: viewer.userId,
+      name: checkDisplayName(name, "Key names"),
+      prefix,
+      hash,
+      scopes: requested,
+    };
 
     const keyId = await ctx.db.insert(
       "apiKeys",
@@ -82,6 +91,22 @@ export const create = action({
   },
 });
 
+/**
+ * Whether the viewer may see and revoke `owner`'s keys: their own, or as an admin another account's
+ * except the owner's, which `users.ts` protects from other admins the same way.
+ */
+const managesKeysOf = async (
+  ctx: ReadCtx,
+  viewer: Viewer,
+  owner: Id<"users">,
+): Promise<boolean> => {
+  if (owner === viewer.userId) return true;
+
+  if (!viewer.scopes.has("admin")) return false;
+
+  return (await ctx.db.get(owner))?.role !== "owner";
+};
+
 export const list = query({
   args: { userId: v.optional(v.id("users")) },
   returns: v.array(apiKey),
@@ -89,8 +114,8 @@ export const list = query({
     const viewer = await authorize(ctx, "account");
     const owner = userId ?? viewer.userId;
 
-    if (owner !== viewer.userId && !viewer.scopes.has("admin")) {
-      return fail("forbidden", "Only admins can list another account's keys");
+    if (!(await managesKeysOf(ctx, viewer, owner))) {
+      return fail("forbidden", "Only admins can list another account's keys, and not the owner's");
     }
 
     const keys = await ctx.db
@@ -109,11 +134,7 @@ export const revoke = mutation({
     const viewer = await authorize(ctx, "account");
     const key = await ctx.db.get(apiKeyId);
 
-    if (
-      key === null ||
-      key.service === true ||
-      (key.userId !== viewer.userId && !viewer.scopes.has("admin"))
-    ) {
+    if (key === null || key.service === true || !(await managesKeysOf(ctx, viewer, key.userId))) {
       return fail("not_found", "No such API key");
     }
 
@@ -171,7 +192,8 @@ export const redeem = internalMutation({
 
     const sessionId = await ctx.db.insert("authSessions", {
       userId: found.userId,
-      expirationTime: now + KEY_SESSION_MS,
+      // A key's session ends with the key, so a refresh token cannot carry it past its expiry.
+      expirationTime: Math.min(now + KEY_SESSION_MS, found.expiresAt ?? Number.POSITIVE_INFINITY),
       grant: {
         kind: "apikey",
         scopes: isServiceKey ? ["media-service"] : found.scopes,

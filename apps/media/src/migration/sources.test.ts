@@ -89,11 +89,17 @@ layer(FetchHttpClient.layer, { excludeTestServices: true })(
             ],
           );
           assert.deepStrictEqual(
-            session.libraries.map((library) => [library.name, library.kind, library.paths]),
+            session.libraries.map((library) => [
+              library.name,
+              library.kind,
+              library.paths,
+              library.access,
+            ]),
             [
-              ["Shows", "shows", ["/media/shows"]],
-              ["Movies", "movies", ["/media/movies"]],
-              ["Collections", "other", ["/config/data/collections"]],
+              // Both users' policies enable every folder.
+              ["Shows", "shows", ["/media/shows"], { kind: "everyone" }],
+              ["Movies", "movies", ["/media/movies"], { kind: "everyone" }],
+              ["Collections", "other", ["/config/data/collections"], { kind: "everyone" }],
             ],
           );
 
@@ -233,11 +239,11 @@ layer(FetchHttpClient.layer, { excludeTestServices: true })(
                 ],
               );
               assert.deepStrictEqual(
-                session.libraries.map((library) => [library.name, library.kind]),
+                session.libraries.map((library) => [library.name, library.kind, library.access]),
                 [
-                  ["Movies", "movies"],
-                  ["TV Shows", "shows"],
-                  ["Music", "other"],
+                  ["Movies", "movies", { kind: "unknown" }],
+                  ["TV Shows", "shows", { kind: "unknown" }],
+                  ["Music", "other", { kind: "unknown" }],
                 ],
               );
 

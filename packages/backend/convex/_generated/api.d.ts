@@ -21,6 +21,8 @@ import type * as http from "../http.js";
 import type * as invites from "../invites.js";
 import type * as jobs from "../jobs.js";
 import type * as lib_access from "../lib/access.js";
+import type * as lib_bounds from "../lib/bounds.js";
+import type * as lib_browse from "../lib/browse.js";
 import type * as lib_catalog from "../lib/catalog.js";
 import type * as lib_crypto from "../lib/crypto.js";
 import type * as lib_env from "../lib/env.js";
@@ -71,6 +73,8 @@ declare const fullApi: ApiFromModules<{
   invites: typeof invites;
   jobs: typeof jobs;
   "lib/access": typeof lib_access;
+  "lib/bounds": typeof lib_bounds;
+  "lib/browse": typeof lib_browse;
   "lib/catalog": typeof lib_catalog;
   "lib/crypto": typeof lib_crypto;
   "lib/env": typeof lib_env;

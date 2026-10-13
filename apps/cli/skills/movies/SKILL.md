@@ -283,7 +283,7 @@ and newer [movies] progress is kept unless the source played the item more recen
 ### rooms
 
 - `movies call rooms.create --json <object>`: Start a watch room for what this device is playing. (scope play)
-- `movies rooms get <room-id>`: Show a room's members and committed clock. (scope read)
+- `movies rooms get <room-id> [--profile-id <id>]`: Show a room's members and committed clock. (scope read)
 - `movies rooms current [--device-id <id>]`: Show the room this device is in. (scope read)
 - `movies call rooms.join --json <object>`: Join a room on this device. (scope play)
 - `movies call rooms.leave --json <object>`: Leave a room; the host and other guests keep watching. (scope play)

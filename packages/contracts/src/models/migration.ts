@@ -123,6 +123,23 @@ export const SourceFolder = Schema.Struct({
   localPath: Schema.NullOr(LibraryRoot),
 });
 
+/**
+ * Who sees a library the import adds: `everyone`, when every source user could see the source
+ * library; otherwise only admins and the accounts of the listed imported source users, which get
+ * a library grant. A source that does not say who sees a library yields an empty list, so the
+ * library starts admins-only.
+ */
+export const PlannedLibraryAccess = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("everyone") }),
+  Schema.Struct({
+    kind: Schema.Literal("users"),
+    sourceUserIds: Schema.Array(Schema.String).check(Schema.isMaxLength(200)),
+  }),
+]);
+
+/** Who sees a library the import adds. */
+export type PlannedLibraryAccess = typeof PlannedLibraryAccess.Type;
+
 /** A source library and its folders. */
 export const SourceLibrary = Schema.Struct({
   sourceLibraryId: Schema.String,
@@ -246,6 +263,8 @@ export const MigrationReport = Schema.Struct({
       existingLibraryId: Schema.NullOr(LibraryId),
       /** Source folders without a local folder; their items stay unmatched. */
       unmappedFolders: Schema.Array(SourcePath),
+      /** Who sees the library when the import adds it. */
+      access: PlannedLibraryAccess,
     }),
   ),
   /** At most 25 unmatched items, for the Review screen. */

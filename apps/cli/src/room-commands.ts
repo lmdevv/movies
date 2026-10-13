@@ -44,7 +44,13 @@ const resolveRoom = Effect.fn("Rooms.resolve")(function* (
 
   if (Option.isSome(named)) {
     return yield* connection.withSession(
-      connection.client.query("rooms.get", { roomId: RoomId.make(named.value) }),
+      connection.client.query(
+        "rooms.get",
+        Option.match(connection.viewingProfileId, {
+          onNone: () => ({ roomId: RoomId.make(named.value) }),
+          onSome: (profileId) => ({ roomId: RoomId.make(named.value), profileId }),
+        }),
+      ),
     );
   }
 

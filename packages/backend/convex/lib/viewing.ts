@@ -137,29 +137,82 @@ export const firstEpisode = async (
   );
 };
 
-/** Most episodes `nextUnwatchedAfter` steps over, so a long finished run cannot exhaust a query. */
-const MAX_SKIPPED_EPISODES = 500;
+/** Most watched episodes `nextUnwatchedAfter` steps over, so a long finished run stays cheap. */
+const MAX_SKIPPED_EPISODES = 100;
+
+/** Up to `count` episodes after `episode` in the order `nextEpisodeAfter` walks, in two reads. */
+const followingEpisodes = async (
+  ctx: ReadCtx,
+  episode: Doc<"episodes">,
+  count: number,
+): Promise<Array<Doc<"episodes">>> => {
+  const sameSeason = await ctx.db
+    .query("episodes")
+    .withIndex("by_title_order", (q) =>
+      q
+        .eq("titleId", episode.titleId)
+        .eq("seasonNumber", episode.seasonNumber)
+        .gt("episodeNumber", episode.episodeNumber),
+    )
+    .take(count);
+
+  if (sameSeason.length >= count || episode.seasonNumber === 0) return sameSeason;
+
+  const later = await ctx.db
+    .query("episodes")
+    .withIndex("by_title_order", (q) =>
+      q.eq("titleId", episode.titleId).gt("seasonNumber", episode.seasonNumber),
+    )
+    .take(count - sameSeason.length);
+
+  return [...sameSeason, ...later];
+};
+
+/** The first of `episodes` the profile has not watched, and how many it looked at. */
+const firstUnwatched = async (
+  ctx: ReadCtx,
+  profileId: Id<"profiles">,
+  episodes: ReadonlyArray<Doc<"episodes">>,
+  index: number,
+): Promise<{ readonly episode: Doc<"episodes"> | null; readonly examined: number }> => {
+  const next = episodes[index];
+
+  if (next === undefined) return { episode: null, examined: index };
+  const progress = await findProgress(ctx, profileId, next.titleId, next._id);
+
+  return progress?.watched === true
+    ? firstUnwatched(ctx, profileId, episodes, index + 1)
+    : { episode: next, examined: index + 1 };
+};
+
+/**
+ * The first episode after `episode` the profile has not watched, or null when none remains. After
+ * `maxSkipped` watched episodes in a row it gives up and returns the next one anyway. Reads the
+ * following episodes in one range and checks each one's progress by index.
+ *
+ * @returns The episode and how many episodes it read, for callers that share a read budget.
+ */
+const scanUnwatched = async (
+  ctx: ReadCtx,
+  profileId: Id<"profiles">,
+  episode: Doc<"episodes">,
+  maxSkipped: number,
+): Promise<{ readonly episode: Doc<"episodes"> | null; readonly examined: number }> => {
+  const following = await followingEpisodes(ctx, episode, maxSkipped + 1);
+  const found = await firstUnwatched(ctx, profileId, following.slice(0, maxSkipped), 0);
+
+  if (found.episode !== null || following.length <= maxSkipped) return found;
+
+  return { episode: following[maxSkipped] ?? null, examined: following.length };
+};
 
 /** The first episode after `episode` the profile has not watched, or null when none remains. */
 export const nextUnwatchedAfter = async (
   ctx: ReadCtx,
   profileId: Id<"profiles">,
   episode: Doc<"episodes">,
-): Promise<Doc<"episodes"> | null> => {
-  const step = async (
-    current: Doc<"episodes">,
-    skipped: number,
-  ): Promise<Doc<"episodes"> | null> => {
-    const next = await nextEpisodeAfter(ctx, current);
-
-    if (next === null || skipped >= MAX_SKIPPED_EPISODES) return next;
-    const progress = await findProgress(ctx, profileId, next.titleId, next._id);
-
-    return progress?.watched === true ? step(next, skipped + 1) : next;
-  };
-
-  return step(episode, 0);
-};
+): Promise<Doc<"episodes"> | null> =>
+  (await scanUnwatched(ctx, profileId, episode, MAX_SKIPPED_EPISODES)).episode;
 
 /** The profile's most recently played episode progress of a show, if any. */
 const latestShowProgress = async (
@@ -207,13 +260,88 @@ const CONTINUE_LIMIT = 20;
 const CONTINUE_SCAN = 200;
 
 /**
+ * Episodes continue watching may look at in all while finding next episodes, so a profile with
+ * many finished shows cannot push one query past Convex's read limits.
+ */
+const NEXT_EPISODE_BUDGET = 500;
+
+type ContinueItem = Infer<typeof continueWatchingItem>;
+
+/** What one progress row adds to continue watching, and the episodes it looked at. */
+const continueItemOf = async (
+  ctx: ReadCtx,
+  audience: Audience,
+  row: Doc<"watchProgress">,
+  budget: number,
+): Promise<{ readonly item: ContinueItem | null; readonly examined: number }> => {
+  const nothing = { item: null, examined: 0 };
+  const title = await ctx.db.get(row.titleId);
+
+  if (title === null || !canSee(audience, title)) return nothing;
+  const finished = isFinished(row);
+
+  if (row.episodeId === null) {
+    return finished || row.positionMs <= 0
+      ? nothing
+      : {
+          item: {
+            reason: "resume",
+            title: presentTitleCard(title),
+            episode: null,
+            progress: presentProgress(row),
+          },
+          examined: 0,
+        };
+  }
+
+  const episode = await ctx.db.get(row.episodeId);
+
+  if (episode === null) return nothing;
+
+  if (!finished && row.positionMs > 0) {
+    return {
+      item: {
+        reason: "resume",
+        title: presentTitleCard(title),
+        episode: presentEpisode(episode, row),
+        progress: presentProgress(row),
+      },
+      examined: 0,
+    };
+  }
+
+  if (budget <= 0) return nothing;
+
+  const { episode: next, examined } = await scanUnwatched(
+    ctx,
+    audience.profile._id,
+    episode,
+    Math.min(MAX_SKIPPED_EPISODES, budget),
+  );
+
+  if (next === null || next.presentFileCount === 0) return { item: null, examined };
+  const nextProgress = await findProgress(ctx, audience.profile._id, title._id, next._id);
+
+  return {
+    item: {
+      reason: "next",
+      title: presentTitleCard(title),
+      episode: presentEpisode(next, nextProgress),
+      progress: null,
+    },
+    examined,
+  };
+};
+
+/**
  * Continue watching for a profile, most recent first: movies and episodes in progress, and for
- * shows whose latest episode is finished, the next one. Each title appears once.
+ * shows whose latest episode is finished, the next one. Each title appears once. Rows are resolved
+ * one at a time until the row is full, and next-episode lookups share one read budget.
  */
 export const continueWatching = async (
   ctx: ReadCtx,
   audience: Audience,
-): Promise<Array<Infer<typeof continueWatchingItem>>> => {
+): Promise<Array<ContinueItem>> => {
   const rows = await ctx.db
     .query("watchProgress")
     .withIndex("by_profile_played", (q) => q.eq("profileId", audience.profile._id))
@@ -221,7 +349,6 @@ export const continueWatching = async (
     .take(CONTINUE_SCAN);
 
   const seen = new Set<Id<"titles">>();
-  const items: Array<Infer<typeof continueWatchingItem>> = [];
 
   const candidates = rows.filter((row) => {
     if (seen.has(row.titleId)) return false;
@@ -230,56 +357,20 @@ export const continueWatching = async (
     return true;
   });
 
-  const resolved = await Promise.all(
-    candidates.map(async (row) => {
-      const title = await ctx.db.get(row.titleId);
+  const collect = async (
+    index: number,
+    items: ReadonlyArray<ContinueItem>,
+    budget: number,
+  ): Promise<Array<ContinueItem>> => {
+    const row = candidates[index];
 
-      if (title === null || !canSee(audience, title)) return null;
-      const finished = isFinished(row);
+    if (row === undefined || items.length >= CONTINUE_LIMIT) return [...items];
+    const { item, examined } = await continueItemOf(ctx, audience, row, budget);
 
-      if (row.episodeId === null) {
-        return finished || row.positionMs <= 0
-          ? null
-          : {
-              reason: "resume" as const,
-              title: presentTitleCard(title),
-              episode: null,
-              progress: presentProgress(row),
-            };
-      }
+    return collect(index + 1, item === null ? items : [...items, item], budget - examined);
+  };
 
-      const episode = await ctx.db.get(row.episodeId);
-
-      if (episode === null) return null;
-
-      if (!finished && row.positionMs > 0) {
-        return {
-          reason: "resume" as const,
-          title: presentTitleCard(title),
-          episode: presentEpisode(episode, row),
-          progress: presentProgress(row),
-        };
-      }
-
-      const next = await nextUnwatchedAfter(ctx, audience.profile._id, episode);
-
-      if (next === null || next.presentFileCount === 0) return null;
-      const nextProgress = await findProgress(ctx, audience.profile._id, title._id, next._id);
-
-      return {
-        reason: "next" as const,
-        title: presentTitleCard(title),
-        episode: presentEpisode(next, nextProgress),
-        progress: null,
-      };
-    }),
-  );
-
-  for (const item of resolved) {
-    if (item !== null && items.length < CONTINUE_LIMIT) items.push(item);
-  }
-
-  return items;
+  return collect(0, [], NEXT_EPISODE_BUDGET);
 };
 
 /**

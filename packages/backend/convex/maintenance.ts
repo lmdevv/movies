@@ -181,7 +181,10 @@ export const requestNightlyBackup = internalMutation({
   },
 });
 
-/** Deletes a removed library's catalog in batches, rescheduling until it is gone. History stays. */
+/**
+ * Deletes a removed library's catalog in batches, rescheduling until it is gone: files, then
+ * titles with their seasons, episodes, and collection memberships. History stays.
+ */
 export const purgeLibrary = internalMutation({
   args: { libraryId: v.id("libraries") },
   returns: v.null(),
@@ -215,7 +218,14 @@ export const purgeLibrary = internalMutation({
           .withIndex("by_title_order", (q) => q.eq("titleId", title._id))
           .collect();
 
-        await Promise.all([...seasons, ...episodes].map((doc) => ctx.db.delete(doc._id)));
+        const memberships = await ctx.db
+          .query("collectionItems")
+          .withIndex("by_title", (q) => q.eq("titleId", title._id))
+          .collect();
+
+        await Promise.all(
+          [...seasons, ...episodes, ...memberships].map((doc) => ctx.db.delete(doc._id)),
+        );
         await ctx.db.delete(title._id);
       }),
     );

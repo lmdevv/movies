@@ -9,7 +9,8 @@ import type { Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { loadAudience, loadVisibleTitle, visibleLibraryIds } from "./lib/access";
+import { canSee, loadAudience, loadVisibleTitle, visibleLibraryIds } from "./lib/access";
+import { checkDeviceId, checkMilliseconds } from "./lib/bounds";
 import { fail } from "./lib/errors";
 import { resolvePlayable } from "./lib/playable";
 import { presentEpisode, presentRoomClock, presentTitleCard } from "./lib/present";
@@ -75,14 +76,36 @@ const presentRoom = async (ctx: QueryCtx, doc: Doc<"rooms">): Promise<Infer<type
   };
 };
 
-/** Whether the viewer is in the room on any device. */
-const isMember = async (ctx: QueryCtx, viewer: Viewer, roomId: Id<"rooms">): Promise<boolean> => {
+/** The viewer's memberships of the room, one per device it joined on. */
+const membershipsOf = async (
+  ctx: QueryCtx,
+  viewer: Viewer,
+  roomId: Id<"rooms">,
+): Promise<Array<Doc<"roomMembers">>> => {
   const members = await ctx.db
     .query("roomMembers")
     .withIndex("by_room_device", (q) => q.eq("roomId", roomId))
     .collect();
 
-  return members.some((member) => member.userId === viewer.userId);
+  return members.filter((member) => member.userId === viewer.userId);
+};
+
+/**
+ * Whether one of the profiles the viewer joined with may still see the room's title: the host can
+ * switch the room to a title a guest's profile may not see, and then that guest stops seeing it.
+ */
+const membersMaySee = async (
+  ctx: QueryCtx,
+  viewer: Viewer,
+  memberships: ReadonlyArray<Doc<"roomMembers">>,
+  title: Doc<"titles">,
+): Promise<boolean> => {
+  const libraryIds = await visibleLibraryIds(ctx, viewer);
+  const profiles = await Promise.all(memberships.map((member) => ctx.db.get(member.profileId)));
+
+  return profiles.some(
+    (profile) => profile !== null && canSee({ viewer, profile, libraryIds }, title),
+  );
 };
 
 /**
@@ -119,10 +142,7 @@ const hostCommand = async (
   return presentRoomClock(await loadRoom(ctx, current._id));
 };
 
-const checkPosition = (positionMs: number): number =>
-  Number.isFinite(positionMs) && positionMs >= 0
-    ? positionMs
-    : fail("invalid_args", "Positions are zero or more milliseconds");
+const checkPosition = (positionMs: number): number => checkMilliseconds(positionMs, "Positions");
 
 export const create = mutation({
   args: {
@@ -136,6 +156,7 @@ export const create = mutation({
   returns: roomResult,
   handler: async (ctx, args) => {
     const viewer = await authorize(ctx, "play");
+    checkDeviceId(args.deviceId);
     const audience = await loadAudience(ctx, viewer, args.profileId);
     const title = await loadVisibleTitle(ctx, audience, args.titleId);
 
@@ -197,24 +218,35 @@ export const create = mutation({
   },
 });
 
-/** A room as members and account holders who can see its title see it. */
+/**
+ * A room as its members see it, while a profile they joined with may see its title. Someone with
+ * the room's link who has not joined names the profile they would join with: when that profile may
+ * see the title they get the room without its members, so the link page can open the player.
+ * Everyone else gets `not_found`, as for a missing room.
+ */
 export const get = query({
-  args: { roomId: v.id("rooms") },
+  args: { roomId: v.id("rooms"), profileId: v.optional(v.id("profiles")) },
   returns: roomResult,
-  handler: async (ctx, { roomId }) => {
+  handler: async (ctx, { roomId, profileId }) => {
     const viewer = await authorize(ctx, "read");
     const found = await loadRoom(ctx, roomId);
     const title = await ctx.db.get(found.titleId);
-    const libraries = await visibleLibraryIds(ctx, viewer);
 
-    if (
-      !(await isMember(ctx, viewer, roomId)) &&
-      (title === null || !libraries.has(title.libraryId))
-    ) {
-      return fail("not_found", "No such room");
+    if (title === null) return fail("not_found", "No such room");
+    const memberships = await membershipsOf(ctx, viewer, roomId);
+
+    if (memberships.length > 0) {
+      return (await membersMaySee(ctx, viewer, memberships, title))
+        ? presentRoom(ctx, found)
+        : fail("not_found", "No such room");
     }
 
-    return presentRoom(ctx, found);
+    if (profileId === undefined) return fail("not_found", "No such room");
+    const audience = await loadAudience(ctx, viewer, profileId);
+
+    if (!canSee(audience, title)) return fail("not_found", "No such room");
+
+    return { ...(await presentRoom(ctx, found)), members: [] };
   },
 });
 
@@ -241,6 +273,7 @@ export const join = mutation({
   returns: roomResult,
   handler: async (ctx, { roomId, profileId, deviceId }) => {
     const viewer = await authorize(ctx, "play");
+    checkDeviceId(deviceId);
     const found = await loadRoom(ctx, roomId);
 
     if (found.status === "ended") return fail("conflict", "This room has ended");

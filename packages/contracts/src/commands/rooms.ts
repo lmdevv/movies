@@ -26,7 +26,14 @@ export const roomCommands = {
     summary: "Show a room's members and committed clock",
     group: "rooms",
     scope: "read",
-    args: Schema.Struct({ roomId: RoomId }),
+    args: Schema.Struct({
+      roomId: RoomId,
+      /**
+       * The profile that would join, for a room this account is not in yet: when it may see the
+       * room's title, the room comes back without its members.
+       */
+      profileId: Schema.optionalKey(ProfileId),
+    }),
     result: Room,
     function: "rooms:get",
   }),

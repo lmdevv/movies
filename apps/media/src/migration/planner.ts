@@ -9,6 +9,7 @@ import type {
   MigrationReport,
   MigrationSummary,
   PathMapping,
+  PlannedLibraryAccess,
   UnmatchedReason,
 } from "@movies/contracts/models/migration";
 import type {
@@ -29,6 +30,7 @@ import type {
   SourceItem,
   SourceItemState,
   SourceLibrary,
+  SourceLibraryAccess,
   SourceServer,
 } from "./source-plugin.ts";
 
@@ -55,6 +57,8 @@ interface PlannedLibrary {
   /** Local folders no [movies] library covers yet; the import adds a library for them. */
   readonly newRoots: ReadonlyArray<string>;
   readonly unmappedFolders: ReadonlyArray<string>;
+  /** Who sees the library if the import adds it. */
+  readonly access: PlannedLibraryAccess;
 }
 
 /** Everything a plan is computed from. */
@@ -102,6 +106,21 @@ const libraryKindOf = (kind: SourceLibrary["kind"]): LibraryKind | null => {
   return kind;
 };
 
+/**
+ * Who sees an added library: everyone when every source user could see it; otherwise the imported
+ * users who could, and nobody but admins when the source does not say.
+ */
+const plannedAccess = (
+  access: SourceLibraryAccess,
+  imported: ReadonlySet<string>,
+): PlannedLibraryAccess => {
+  if (access.kind === "everyone") return { kind: "everyone" };
+
+  if (access.kind === "unknown") return { kind: "users", sourceUserIds: [] };
+
+  return { kind: "users", sourceUserIds: access.userIds.filter((userId) => imported.has(userId)) };
+};
+
 /** The [movies] library whose folders hold `folder`. */
 const coveringLibrary = (existing: ReadonlyArray<MediaLibrary>, folder: string) =>
   existing.find((candidate) => candidate.roots.some((root) => isInside(folder, root)));
@@ -112,6 +131,7 @@ const planLibraries = (
   mappings: ReadonlyArray<PathMapping>,
   roots: ReadonlyArray<string>,
   existing: ReadonlyArray<MediaLibrary>,
+  imported: ReadonlySet<string>,
 ): ReadonlyArray<PlannedLibrary> =>
   libraries.flatMap((library) => {
     const kind = libraryKindOf(library.kind);
@@ -144,6 +164,7 @@ const planLibraries = (
         unmappedFolders: folders.flatMap(({ path, local: found }) =>
           found === null ? [path] : [],
         ),
+        access: plannedAccess(library.access, imported),
       },
     ];
   });
@@ -215,6 +236,11 @@ export const planMigration = (input: PlanInput): MigrationPlan => {
     input.mappings,
     input.roots,
     input.existingLibraries,
+    new Set(
+      input.users.flatMap((user) =>
+        user.action === "import" && user.profileId !== null ? [user.sourceUserId] : [],
+      ),
+    ),
   );
 
   const pendingRoots = libraries.flatMap((library) => library.newRoots);
@@ -426,6 +452,7 @@ export const reportOf = (
     roots: library.roots,
     existingLibraryId: library.newRoots.length === 0 ? library.existingLibraryId : null,
     unmappedFolders: library.unmappedFolders,
+    access: library.access,
   })),
   unmatchedSamples: plan.unmatchedSamples,
 });

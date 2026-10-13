@@ -471,7 +471,14 @@ const make = Effect.gen(function* () {
         libraries: ready.plan.libraries.flatMap((library) =>
           library.roots.length === 0
             ? []
-            : [{ name: library.name, kind: library.kind, roots: library.roots }],
+            : [
+                {
+                  name: library.name,
+                  kind: library.kind,
+                  roots: library.roots,
+                  access: library.access,
+                },
+              ],
         ),
         pathMappings: connection.mappings,
       },

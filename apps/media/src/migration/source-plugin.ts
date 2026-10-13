@@ -55,12 +55,20 @@ export interface SourceUser {
   readonly history: "full" | "plays";
 }
 
+/** Which source users can see a library: all of them, the listed ones, or unknown. */
+export type SourceLibraryAccess =
+  | { readonly kind: "everyone" }
+  | { readonly kind: "users"; readonly userIds: ReadonlyArray<string> }
+  | { readonly kind: "unknown" };
+
 /** A library and its folders, as the source reports them. */
 export interface SourceLibrary {
   readonly libraryId: string;
   readonly name: string;
   readonly kind: "movies" | "shows" | "mixed" | "other";
   readonly paths: ReadonlyArray<string>;
+  /** Who could see it on the source; the import shares an added library the same way. */
+  readonly access: SourceLibraryAccess;
 }
 
 /** Provider identifiers the source knows for an item. */

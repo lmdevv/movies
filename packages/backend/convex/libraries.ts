@@ -4,11 +4,14 @@ import type { Infer } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { visibleLibraryIds } from "./lib/access";
 import { fail } from "./lib/errors";
+import { checkDisplayName } from "./lib/bounds";
+import { inSequence } from "./lib/catalog";
 import { enqueueJob } from "./lib/jobs";
+import { livePosition } from "./lib/roomClock";
 import { checkRoots } from "./lib/roots";
 import { presentLibrary, presentLibraryDetail } from "./lib/present";
 import {
@@ -54,15 +57,7 @@ const grantedUsers = async (ctx: QueryCtx, libraryId: Id<"libraries">) => {
 const detail = async (ctx: QueryCtx, doc: Doc<"libraries">) =>
   presentLibraryDetail(doc, await isScanning(ctx, doc._id), await grantedUsers(ctx, doc._id));
 
-const checkName = (name: string): string => {
-  const trimmed = name.trim();
-
-  if (trimmed.length === 0 || trimmed.length > 80) {
-    return fail("invalid_args", "Library names have 1 to 80 characters");
-  }
-
-  return trimmed;
-};
+const checkName = (name: string): string => checkDisplayName(name, "Library names");
 
 /** Libraries the account can see. */
 export const list = query({
@@ -165,7 +160,62 @@ export const update = mutation({
   },
 });
 
-/** Removes a library from [movies]. Files on disk are untouched; its catalog is purged in batches. */
+/**
+ * Ends the playback sessions and watch rooms playing a library's titles, so its streams stop when
+ * the library goes instead of when they go idle.
+ */
+const endLibraryPlayback = async (ctx: MutationCtx, libraryId: Id<"libraries">): Promise<void> => {
+  const libraryOf = new Map<Id<"titles">, Id<"libraries"> | null>();
+
+  const inLibrary = async (titleId: Id<"titles">): Promise<boolean> => {
+    const known = libraryOf.get(titleId);
+    const owner = known === undefined ? ((await ctx.db.get(titleId))?.libraryId ?? null) : known;
+    libraryOf.set(titleId, owner);
+
+    return owner === libraryId;
+  };
+
+  const now = Date.now();
+
+  const sessions = await ctx.db
+    .query("playbackSessions")
+    .withIndex("by_status_report", (q) => q.eq("status", "active"))
+    .collect();
+
+  await inSequence(sessions, async (session) => {
+    if (await inLibrary(session.titleId)) {
+      await ctx.db.patch(session._id, { status: "ended", state: "paused", endedAt: now });
+    }
+  });
+
+  const rooms = (
+    await Promise.all(
+      (["playing", "buffering", "paused"] as const).map((status) =>
+        ctx.db
+          .query("rooms")
+          .withIndex("by_status", (q) => q.eq("status", status))
+          .collect(),
+      ),
+    )
+  ).flat();
+
+  await inSequence(rooms, async (room) => {
+    if (await inLibrary(room.titleId)) {
+      await ctx.db.patch(room._id, {
+        status: "ended",
+        positionAtAnchorMs: livePosition(room, now),
+        anchorServerTime: now,
+        revision: room.revision + 1,
+        endedAt: now,
+      });
+    }
+  });
+};
+
+/**
+ * Removes a library from [movies]. Files on disk are untouched; playback and rooms on it end, and
+ * its catalog is purged in batches.
+ */
 export const remove = mutation({
   args: { libraryId: v.id("libraries") },
   returns: ok,
@@ -196,6 +246,7 @@ export const remove = mutation({
       ),
     ]);
 
+    await endLibraryPlayback(ctx, libraryId);
     await ctx.db.delete(libraryId);
     await ctx.scheduler.runAfter(0, internal.maintenance.purgeLibrary, { libraryId });
 

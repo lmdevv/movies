@@ -8,6 +8,7 @@ import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { loadOwnProfile, loadUnlockedProfile } from "./lib/access";
+import { checkAvatar, checkDisplayName, KIDS_DEFAULT_MAX_AGE } from "./lib/bounds";
 import { constantTimeEqual, hashPin, randomSecret } from "./lib/crypto";
 import { fail } from "./lib/errors";
 import { presentProfile } from "./lib/present";
@@ -17,9 +18,6 @@ import { authorize } from "./lib/viewer";
 
 /** Most profiles one account may have. */
 const MAX_PROFILES = 10;
-
-/** The age a kids profile allows unless the account picks another; `KIDS_DEFAULT_MAX_AGE` in contracts. */
-const KIDS_DEFAULT_MAX_AGE = 7;
 
 /** Wrong PINs in a row before the profile locks. */
 const MAX_PIN_FAILURES = 5;
@@ -36,14 +34,31 @@ const checkAgeRating = (age: number | null): number | null => {
   return age;
 };
 
-const checkName = (name: string): string => {
-  const trimmed = name.trim();
+const checkName = (name: string): string => checkDisplayName(name, "Profile names");
 
-  if (trimmed.length === 0 || trimmed.length > 80) {
-    return fail("invalid_args", "Profile names have 1 to 80 characters");
+/**
+ * The rating limit after an update. A kids profile always has one: turning kids on without a
+ * limit applies the default, and clearing the limit requires turning kids off.
+ */
+const nextAgeRating = (
+  current: Doc<"profiles">,
+  kids: boolean | undefined,
+  maxAgeRating: number | null | undefined,
+): number | null => {
+  const nextKids = kids ?? current.kids;
+
+  const requested =
+    maxAgeRating === undefined
+      ? kids === true && !current.kids
+        ? (current.maxAgeRating ?? KIDS_DEFAULT_MAX_AGE)
+        : current.maxAgeRating
+      : checkAgeRating(maxAgeRating);
+
+  if (nextKids && requested === null) {
+    return fail("invalid_args", "A kids profile needs an age limit; turn kids off to clear it");
   }
 
-  return trimmed;
+  return requested;
 };
 
 const setUnlocked = async (
@@ -97,7 +112,7 @@ export const create = mutation({
     const profileId = await ctx.db.insert("profiles", {
       userId: viewer.userId,
       name: checkName(name),
-      avatar,
+      avatar: checkAvatar(avatar),
       kids,
       maxAgeRating: checkAgeRating(maxAgeRating ?? (kids ? KIDS_DEFAULT_MAX_AGE : null)),
       pinFailures: 0,
@@ -122,10 +137,9 @@ export const update = mutation({
 
     await ctx.db.patch(profileId, {
       name: name === undefined ? current.name : checkName(name),
-      avatar: avatar ?? current.avatar,
+      avatar: avatar === undefined ? current.avatar : checkAvatar(avatar),
       kids: kids ?? current.kids,
-      maxAgeRating:
-        maxAgeRating === undefined ? current.maxAgeRating : checkAgeRating(maxAgeRating),
+      maxAgeRating: nextAgeRating(current, kids, maxAgeRating),
     });
 
     return presentProfile(viewer, await loadOwnProfile(ctx, viewer, profileId));

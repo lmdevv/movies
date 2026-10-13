@@ -9,7 +9,7 @@ import { useEffect } from "react";
 
 import { RoomDenied } from "@/components/player/room-states";
 import { describeFailure } from "@/lib/failure";
-import { RequireProfile, RequireSignedIn } from "@/session/guards";
+import { RequireProfile, RequireSignedIn, useActiveProfile } from "@/session/guards";
 
 const decodeRoomId = Schema.decodeSync(RoomId);
 
@@ -41,7 +41,8 @@ const home = (className: string) => (
 function RoomLinkPage() {
   const { roomId } = Route.useParams();
   const navigate = useNavigate();
-  const room = useCommandQuery("rooms.get", { roomId });
+  const { profile } = useActiveProfile();
+  const room = useCommandQuery("rooms.get", { roomId, profileId: profile.id });
   const open = room.status === "success" && room.data.clock.status !== "ended" ? room.data : null;
 
   useEffect(() => {

@@ -8,6 +8,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import { BACKUP_SYNC_LIMIT, BATCH_LIMIT } from "./lib/bounds";
 import {
   inSequence,
   markFileMissing,
@@ -41,12 +42,6 @@ import {
   upsertedFile,
 } from "./lib/validators";
 import { authorize } from "./lib/viewer";
-
-/** Most items one scan or import write may carry; `SCAN_BATCH_LIMIT` in contracts. */
-const BATCH_LIMIT = 100;
-
-/** Most archives one backup sync may carry; `BACKUP_SYNC_LIMIT` in contracts. */
-const BACKUP_SYNC_LIMIT = 1000;
 
 const MIN_LEASE_MS = 5_000;
 
