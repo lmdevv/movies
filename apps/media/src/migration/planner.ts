@@ -332,27 +332,42 @@ export const planMigration = (input: PlanInput): MigrationPlan => {
     }))
     .filter((collection) => collection.titleIds.length > 0);
 
-  // Overrides, and the source's provider IDs so titles [movies] could not match get them.
-  const overrides = [
-    ...new Map(
-      input.items.flatMap((item): Array<[string, OverrideImport]> => {
-        const match = matchedOf(item.itemId);
-        const hasOverrides = Object.keys(item.overrides).length > 0;
-        const hasIds = Object.values(item.ids).some((id) => id !== null);
+  // Overrides, and the source's provider IDs so titles [movies] could not match get them. Several
+  // source items may match one title (versions, duplicates): the last overrides win as before,
+  // and IDs fill in from every item without dropping any item's overrides.
+  const overridesByTitle = new Map<string, OverrideImport>();
 
-        if (item.kind === "episode" || match === null || (!hasOverrides && !hasIds)) return [];
+  for (const item of input.items) {
+    const match = matchedOf(item.itemId);
+    const hasOverrides = Object.keys(item.overrides).length > 0;
+    const hasIds = Object.values(item.ids).some((id) => id !== null);
 
-        return [
-          [
-            match.titleId,
-            hasIds
-              ? { titleId: match.titleId, overrides: item.overrides, externalIds: item.ids }
-              : { titleId: match.titleId, overrides: item.overrides },
-          ],
-        ];
-      }),
-    ).values(),
-  ];
+    if (item.kind === "episode" || match === null || (!hasOverrides && !hasIds)) continue;
+    const previous = overridesByTitle.get(match.titleId);
+    const known = previous?.externalIds;
+
+    const merged: OverrideImport = {
+      titleId: match.titleId,
+      overrides: hasOverrides ? item.overrides : (previous?.overrides ?? {}),
+    };
+
+    overridesByTitle.set(
+      match.titleId,
+      known === undefined && !hasIds
+        ? merged
+        : {
+            titleId: merged.titleId,
+            overrides: merged.overrides,
+            externalIds: {
+              tmdb: known?.tmdb ?? item.ids.tmdb,
+              imdb: known?.imdb ?? item.ids.imdb,
+              tvdb: known?.tvdb ?? item.ids.tvdb,
+            },
+          },
+    );
+  }
+
+  const overrides = [...overridesByTitle.values()];
 
   // The summary counts what the job will import: items matched now and items in folders it
   // adds, which match by path once their library's first scan finishes.

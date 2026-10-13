@@ -153,6 +153,31 @@ describe("planMigration", () => {
     ]);
   });
 
+  it("carries provider IDs and keeps overrides when two source items match one title", () => {
+    const plan = planMigration(
+      input({
+        items: [
+          item("heat-4k", "movie", ["/data/movies/Heat.mkv"], {
+            overrides: { sortName: "Heat 1995" },
+            ids: { tmdb: null, imdb: "tt0113277", tvdb: null },
+          }),
+          item("heat-copy", "movie", ["/data/movies/Heat.mkv"], {
+            ids: { tmdb: "949", imdb: null, tvdb: null },
+          }),
+          item("alien", "movie", ["/data/movies/Alien.mkv"]),
+        ],
+      }),
+    );
+
+    assert.deepStrictEqual(plan.overrides, [
+      {
+        titleId: TitleId.make("heat"),
+        overrides: { sortName: "Heat 1995" },
+        externalIds: { tmdb: "949", imdb: "tt0113277", tvdb: null },
+      },
+    ]);
+  });
+
   it("counts what items in folders being added will import, but writes only matched items", () => {
     const watched = planMigration(input({ states: fresh({ played: true, playCount: 1 }) }));
     const partial = planMigration(input({ states: fresh({ positionMs: 5_000, favorite: true }) }));

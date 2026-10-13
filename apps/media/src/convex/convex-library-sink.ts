@@ -46,9 +46,18 @@ const make = Effect.gen(function* () {
   const keys = yield* ArtworkKeys.Service;
   const progress = yield* Ref.make<ReadonlyMap<LibraryId, LibrarySink.ScanProgress>>(new Map());
 
+  /**
+   * What this scan sent per title or episode, so it writes a show's credits once rather than once
+   * per episode file. It starts empty with every scan (`previousIndex`), because a metadata
+   * refresh may have changed what Convex holds since; Convex compares digests itself.
+   */
+  const sent = new Map<string, string>();
+
   const previousIndex = Effect.fn("ConvexLibrarySink.previousIndex")(function* (
     folder: LibrarySink.LibraryFolder,
   ) {
+    sent.clear();
+
     const pages = Stream.paginate(Option.none<string>(), (cursor) =>
       backend
         .call("mediaService.fileIndex", {
@@ -76,12 +85,6 @@ const make = Effect.gen(function* () {
       }),
     );
   });
-
-  /**
-   * What this process last sent per title or episode, so a scan writes a show's credits once
-   * rather than once per episode file; Convex compares digests too, so a restart costs a read.
-   */
-  const sent = new Map<string, string>();
 
   /** Sends `write` unless `key` last sent the same `digest`. */
   const once = <E>(key: string, digest: string, write: Effect.Effect<unknown, E>) =>
@@ -178,6 +181,8 @@ const make = Effect.gen(function* () {
       })
       .pipe(Effect.mapError(failed("upsertBatch")));
 
+    // Credits and collections are extras: the files are stored, so a failed extra is logged and
+    // written again by the next scan of the title, without failing this one.
     yield* writeDetails(
       folder,
       items.flatMap((entry, index) => {
@@ -185,7 +190,13 @@ const make = Effect.gen(function* () {
 
         return result === undefined ? [] : [{ file: entry.file, upserted: result }];
       }),
-    ).pipe(Effect.mapError(failed("upsertBatch")));
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("ConvexLibrarySink.details_failed", error.message).pipe(
+          Effect.annotateLogs({ libraryId: folder.libraryId }),
+        ),
+      ),
+    );
   });
 
   const markMissing = Effect.fn("ConvexLibrarySink.markMissing")(function* (

@@ -2,6 +2,7 @@
  * Reads Kodi/Jellyfin-style NFO files: `movie.nfo` or `<file>.nfo` for movies, `tvshow.nfo` for
  * shows, and `<episode file>.nfo` for episodes. Local NFO values win over metadata providers.
  */
+import { YOUTUBE_KEY_PATTERN } from "@movies/contracts/models/catalog";
 import { Schema } from "effect";
 
 import { childrenNamed, childText, parseXml, type XmlElement } from "./xml.ts";
@@ -44,8 +45,6 @@ const STATUSES: ReadonlyMap<string, ShowStatus> = new Map([
 export const showStatusOf = (text: string | undefined): ShowStatus | undefined =>
   text === undefined ? undefined : STATUSES.get(text.trim().toLowerCase());
 
-const YOUTUBE_KEY = /^[\w-]{6,20}$/u;
-
 const YOUTUBE_URLS: ReadonlyArray<RegExp> = [
   /[?&]video_?id=([\w-]{6,20})/u,
   /youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/)([\w-]{6,20})/u,
@@ -60,7 +59,7 @@ export const youtubeKeyOf = (text: string | undefined): string | undefined => {
   if (text === undefined) return undefined;
   const trimmed = text.trim();
 
-  if (YOUTUBE_KEY.test(trimmed)) return trimmed;
+  if (YOUTUBE_KEY_PATTERN.test(trimmed)) return trimmed;
 
   return YOUTUBE_URLS.map((pattern) => pattern.exec(trimmed)?.[1]).find((key) => key !== undefined);
 };

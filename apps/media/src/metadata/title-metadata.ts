@@ -258,21 +258,25 @@ const fromNfo = (
   person: Pick<NfoActor, "name" | "role" | "thumb" | "ids">,
 ): Omit<MergedCredit, "order"> => {
   const wanted = normaliseName(person.name);
-  const match = sources.provider.find((credit) => normaliseName(credit.name) === wanted);
+  const named = sources.provider.filter((credit) => normaliseName(credit.name) === wanted);
+  // The role comes only from a credit of the same kind (an actor's character is no writer's job);
+  // the person's ID and photo come from any of their credits.
+  const sameKind = named.find((credit) => credit.kind === kind);
+  const anyKind = sameKind ?? named[0];
 
   return {
     name: person.name,
     ids: {
-      tmdb: person.ids.tmdb ?? match?.personId,
+      tmdb: person.ids.tmdb ?? anyKind?.personId,
       imdb: person.ids.imdb,
       tvdb: person.ids.tvdb,
     },
     profile:
       local(sources.actorImages(person.name)) ??
       providerImage(person.thumb) ??
-      providerImage(match?.profile),
+      providerImage(anyKind?.profile),
     kind,
-    role: person.role ?? match?.role,
+    role: person.role ?? sameKind?.role,
   };
 };
 

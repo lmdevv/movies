@@ -118,13 +118,7 @@ function PersonPage() {
               {line}
             </p>
           ))}
-          {data.biography === null ? (
-            data.detailsPending ? (
-              <p aria-busy className="text-body/body text-text-muted">
-                Loading biography…
-              </p>
-            ) : null
-          ) : (
+          {data.biography === null ? null : (
             <p className="text-lead/6.75 whitespace-pre-line text-text">{data.biography}</p>
           )}
           <ExternalLinks links={personLinks(data.externalIds)} />

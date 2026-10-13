@@ -2,12 +2,13 @@
  * Display text and links for rich metadata: scores (`IMDb 7.9`, `Rotten Tomatoes 88%`), provider
  * links, `Directed by` lines, dates, languages, and the trailer embed URL.
  */
-import type {
-  Credit,
-  CreditKind,
-  ExternalIds,
-  Ratings,
-  TitleKind,
+import {
+  type Credit,
+  type CreditKind,
+  type ExternalIds,
+  type Ratings,
+  type TitleKind,
+  YOUTUBE_KEY_PATTERN,
 } from "@movies/contracts/models/catalog";
 
 /** One site's score, ready to draw. */
@@ -191,11 +192,9 @@ export const languageName = (code: string): string => {
   }
 };
 
-const YOUTUBE_KEY = /^[\w-]{6,20}$/u;
-
 /** The privacy-enhanced YouTube player for a trailer; the only frame the CSP allows. */
 export const trailerEmbedUrl = (key: string): string | undefined =>
-  YOUTUBE_KEY.test(key)
+  YOUTUBE_KEY_PATTERN.test(key)
     ? `https://www.youtube-nocookie.com/embed/${key}?autoplay=1&rel=0&modestbranding=1`
     : undefined;
 

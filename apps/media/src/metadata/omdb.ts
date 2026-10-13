@@ -4,7 +4,7 @@
  * allows 1,000 requests a day); without it every lookup finds nothing. Answers are cached on disk
  * for a day, so a title's scores refresh at most daily, and a failure never fails a scan.
  */
-import { Context, Duration, Effect, Layer, Option, Redacted, Schema } from "effect";
+import { Clock, Context, Duration, Effect, Layer, Option, Redacted, Ref, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import * as DiskCache from "../disk-cache.ts";
@@ -56,6 +56,15 @@ const Answer = Schema.Struct({
 });
 
 const decodeAnswer = Schema.decodeEffect(Schema.fromJsonString(Answer));
+
+/** How long lookups stop after OMDb refuses the key, such as when the daily limit is reached. */
+const REFUSED_PAUSE = Duration.hours(1);
+
+/** Statuses that mean the key is refused: wrong, or over its daily limit. */
+const REFUSALS: ReadonlySet<number> = new Set([401, 403, 429]);
+
+/** Lookups are paused after OMDb refused the key; they find nothing without asking. */
+class OmdbPaused extends Schema.TaggedError<OmdbPaused>()("OmdbPaused", {}) {}
 
 /** OMDb answered with an error status. Lookups log it and find nothing. */
 class OmdbRequestFailed extends Schema.TaggedError<OmdbRequestFailed>()("OmdbRequestFailed", {
@@ -115,11 +124,17 @@ const make = Effect.fn("Omdb.make")(function* (options: OmdbOptions) {
     yield* HttpClient.HttpClient,
   );
 
+  /** Until when lookups are paused after a refusal, in milliseconds since the epoch. */
+  const pausedUntil = yield* Ref.make(0);
+
   /** The answer body for `imdbId`, from the cache or OMDb. */
   const fetchBody = Effect.fn("Omdb.fetch")(function* (key: string, imdbId: string) {
     const cached = yield* cache.read(NAMESPACE, imdbId, options.cacheMaxAge);
 
     if (Option.isSome(cached)) return cached.value;
+    const now = yield* Clock.currentTimeMillis;
+
+    if (now < (yield* Ref.get(pausedUntil))) return yield* new OmdbPaused();
     const query = new URLSearchParams({ i: imdbId, apikey: key });
 
     const response = yield* client
@@ -135,6 +150,10 @@ const make = Effect.fn("Omdb.make")(function* (options: OmdbOptions) {
       );
 
     if (response.status < 200 || response.status >= 300) {
+      if (REFUSALS.has(response.status)) {
+        yield* Ref.set(pausedUntil, now + Duration.toMillis(REFUSED_PAUSE));
+      }
+
       return yield* new OmdbRequestFailed({ status: response.status });
     }
 
@@ -153,6 +172,7 @@ const make = Effect.fn("Omdb.make")(function* (options: OmdbOptions) {
           ? fetchBody(Redacted.value(key), imdbId).pipe(
               Effect.flatMap(decodeAnswer),
               Effect.map(ratingsOfAnswer),
+              Effect.catchTag("OmdbPaused", () => Effect.succeed({})),
               Effect.catch((error) =>
                 Effect.logWarning("Omdb.lookup_failed", error.message).pipe(
                   Effect.annotateLogs({ imdbId }),

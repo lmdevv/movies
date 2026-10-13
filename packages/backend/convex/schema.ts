@@ -263,6 +263,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_key", ["personKey"])
+    .index("by_name", ["name"])
     .index("by_tmdb", ["externalIds.tmdb"])
     .searchIndex("search_name", { searchField: "name" }),
 

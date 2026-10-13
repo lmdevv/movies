@@ -129,18 +129,32 @@ export const list = query({
     const order = sort ?? "name";
     const titles = ctx.db.query("titles");
 
+    const { yearFrom, yearTo } = filters;
+
+    // Sorted by year, a year filter narrows the index range itself, so its pages stay full; titles
+    // without a year fall outside any range.
+    const lowest = yearFrom ?? Number.MIN_SAFE_INTEGER;
+    const highest = yearTo ?? Number.MAX_SAFE_INTEGER;
+    const ranged = yearFrom !== undefined || yearTo !== undefined;
+
     const indexed =
       kind === undefined
         ? order === "name"
           ? titles.withIndex("by_sort")
           : order === "added"
             ? titles.withIndex("by_added")
-            : titles.withIndex("by_year")
+            : ranged
+              ? titles.withIndex("by_year", (q) => q.gte("year", lowest).lte("year", highest))
+              : titles.withIndex("by_year")
         : order === "name"
           ? titles.withIndex("by_kind_sort", (q) => q.eq("kind", kind))
           : order === "added"
             ? titles.withIndex("by_kind_added", (q) => q.eq("kind", kind))
-            : titles.withIndex("by_kind_year", (q) => q.eq("kind", kind));
+            : ranged
+              ? titles.withIndex("by_kind_year", (q) =>
+                  q.eq("kind", kind).gte("year", lowest).lte("year", highest),
+                )
+              : titles.withIndex("by_kind_year", (q) => q.eq("kind", kind));
 
     const result = await indexed
       .order(order === "name" ? "asc" : "desc")

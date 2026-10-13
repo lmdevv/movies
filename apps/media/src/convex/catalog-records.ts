@@ -9,7 +9,7 @@ import type { ArtworkKey } from "@movies/contracts/artwork";
 import { ageRatingFromCertification } from "@movies/contracts/content-rating";
 import { Container, type DynamicRange } from "@movies/contracts/media-playback";
 import type { ExternalSubtitle, HdrFormat, Probe } from "@movies/contracts/models/catalog";
-import type { Ratings, Trailer } from "@movies/contracts/models/catalog";
+import { type Ratings, type Trailer, YOUTUBE_KEY_PATTERN } from "@movies/contracts/models/catalog";
 import {
   CREDIT_BATCH_LIMIT,
   type ResolvedFile,
@@ -270,10 +270,8 @@ const toRatings = (ratings: SiteRatings): Ratings => ({
   metacritic: percentScore(ratings.metacritic),
 });
 
-const YOUTUBE_KEY = /^[\w-]{6,20}$/u;
-
 const toTrailer = (trailer: TitleMetadata["trailer"]): Trailer | null =>
-  trailer === undefined || !YOUTUBE_KEY.test(trailer.key)
+  trailer === undefined || !YOUTUBE_KEY_PATTERN.test(trailer.key)
     ? null
     : { site: "youtube", key: trailer.key, name: trailer.name ?? null };
 
@@ -288,7 +286,8 @@ const distinct = (values: ReadonlyArray<string>, limit: number): Array<string> =
     ),
   ].slice(0, limit);
 
-const idsOrNull = (ids: TitleMetadata["ids"]) => ({
+/** Provider IDs as the catalog stores them: null where unknown. */
+export const idsOrNull = (ids: TitleMetadata["ids"]) => ({
   tmdb: ids.tmdb ?? null,
   imdb: ids.imdb ?? null,
   tvdb: ids.tvdb ?? null,

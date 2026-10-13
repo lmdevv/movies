@@ -170,21 +170,27 @@ choices made while implementing them. Update it in the same PR that changes a de
   for shows, keywords, videos, recommendations, similar, release dates or content ratings, external
   IDs), one per season (guest stars and episode crew come with it), one per collection, and one per
   person. Requests time out after 20 seconds, share a 20 per second budget, and are cached on disk
-  for a week; OMDb answers for a day, so scores refresh at most daily. Without a key either
-  provider is simply absent.
+  for a week; OMDb answers for a day, so scores refresh at most daily, and OMDb is not asked again
+  for an hour after it refuses the key (wrong, or over the free tier's daily limit). Without a key
+  either provider is simply absent.
 - Titles keep bounded lists (20 studios, countries, and recommendations, 40 keywords) and a
   ratings object; credits live in their own table, one row per person and role, indexed by title
   and episode and by person. People are keyed `tmdb:<id>`, then `imdb:<id>`, then
-  `name:<normalized name>`; a name-keyed person gains provider IDs in place when a credit carries
-  them. Credits of a title or an episode are replaced as a set, skipped when the media service's
+  `name:<normalized name>`; a credit whose key finds nobody joins a person of the same name whose
+  IDs do not contradict it, and that person gains the credit's IDs in place. Credits of a title or an episode are replaced as a set, skipped when the media service's
   digest of them is unchanged, so rescans write nothing.
 - Credits travel in `mediaService.applyCredits` (per title, and per episode for guest stars and
   episode crew) and collections in `mediaService.applyCollection`, after the scan's
-  `upsertScanned` batch, once per title per scan. A scan never changes a manually matched title;
-  a metadata job may, with its lease.
+  `upsertScanned` batch, once per title per scan. They are extras: a failed one is logged and
+  written by the next scan, without failing the scan. A scan never changes a manually matched
+  title; a metadata job may, with its lease. A metadata refresh writes the provider's data, as it
+  always has for the title's other fields; the next scan that reads the title's NFO puts the NFO's
+  values back, unless the refresh matched the title by hand.
 - A person's biography, dates, birthplace, and photo are fetched lazily: opening a person page
   calls `people.requestDetails` (scope `read`), which queues a `person` job at most once per person
-  every six hours. A metadata refresh also fetches the ten top-billed people nobody fetched yet.
+  every six hours. A metadata refresh also fetches the ten top-billed people nobody fetched yet. A
+  person the provider cannot describe (no key, or TMDB no longer has them) is recorded as fetched
+  with nothing to show, so nobody asks again.
 - People are visible only through titles: `people.get` lists the person's credits on titles the
   profile may see, and a person with none looks missing; `people.search` leaves them out.
 - Collections: TMDB's `belongs_to_collection` (`tmdb:<id>`) or an NFO `<set>` (`tmdb:<id>` from
@@ -197,7 +203,9 @@ choices made while implementing them. Update it in the same PR that changes a de
   added later appear without a refresh; topped up by shared genres (twice), keywords, and studios
   among the 300 most recently added titles of the kind. Visibility applies on read.
 - `titles.list` filters (genre, years, studio, minimum score) apply after the index page is read,
-  like `libraryId`, so a filtered page may hold fewer items than asked for; the score is IMDb's,
+  like `libraryId`, so a filtered page may hold fewer items than asked for (sorted by year, a year
+  filter narrows the index range instead); the web grid asks for 100 at a time while filtering and
+  keeps reading while its end is in view; the score is IMDb's,
   else TMDB's. `titles.genres` counts genres across the 1,000 most recently added titles.
 - Trailers: the official YouTube trailer from TMDB videos, or a YouTube ID or URL in the NFO
   `<trailer>`. Keys are checked (`[\w-]{6,20}`) in the media service and again in Convex, and the

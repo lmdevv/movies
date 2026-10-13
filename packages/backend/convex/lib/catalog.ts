@@ -70,7 +70,8 @@ const adjustPresent = async (
   }
 };
 
-const YOUTUBE_KEY = /^[\w-]{6,20}$/u;
+/** The shape of a YouTube video ID; `YOUTUBE_KEY_PATTERN` in contracts. */
+export const YOUTUBE_KEY = /^[\w-]{6,20}$/u;
 
 /** Only a well-formed key reaches the embed URL the web app builds. */
 const checkedTrailer = (trailer: Infer<typeof scannedTitle>["trailer"]) =>

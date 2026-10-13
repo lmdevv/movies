@@ -13,6 +13,9 @@ import type { credit, externalIds, scannedCredit, scannedPerson } from "./valida
 
 type ExternalIds = Infer<typeof externalIds>;
 
+/** People of one name looked at when a credit's IDs find nobody. */
+const NAMESAKES = 10;
+
 /** Most credits a title or episode keeps; `CREDIT_BATCH_LIMIT` in contracts. */
 export const CREDIT_LIMIT = 100;
 
@@ -55,9 +58,18 @@ const mergeIds = (current: ExternalIds, found: ExternalIds): ExternalIds => ({
   tvdb: current.tvdb ?? found.tvdb,
 });
 
+/** Whether two sets of IDs could name one person: no provider gives them different IDs. */
+const compatible = (left: ExternalIds, right: ExternalIds): boolean =>
+  (["tmdb", "imdb", "tvdb"] as const).every(
+    (provider) =>
+      left[provider] === null || right[provider] === null || left[provider] === right[provider],
+  );
+
 /**
- * Finds or creates the person a credit names. A person known only by name gains provider IDs (and
- * a better key) when a later credit carries them; a photo fills in only where none is stored.
+ * Finds or creates the person a credit names: by key, else someone of the same name whose IDs do
+ * not contradict the credit's (an NFO actor without IDs, or a TMDB credit for someone an NFO
+ * named with an IMDb ID). The person gains the credit's IDs (and a better key); a photo fills in
+ * only where none is stored.
  */
 export const upsertPerson = async (
   ctx: MutationCtx,
@@ -65,18 +77,16 @@ export const upsertPerson = async (
 ): Promise<Doc<"people">> => {
   const name = person.name.trim();
   const key = personKeyOf({ name, externalIds: person.externalIds });
-  const nameKey = personKeyOf({ name, externalIds: { tmdb: null, imdb: null, tvdb: null } });
 
-  const existing =
-    (await findByKey(ctx, key)) ??
-    (key === nameKey
-      ? null
-      : await findByKey(ctx, nameKey).then((named) =>
-          // Only a person nobody has identified may be upgraded, or two namesakes would merge.
-          named !== null && named.externalIds.tmdb === null && named.externalIds.imdb === null
-            ? named
-            : null,
-        ));
+  const namesakes = async (): Promise<Doc<"people"> | null> =>
+    (
+      await ctx.db
+        .query("people")
+        .withIndex("by_name", (q) => q.eq("name", name))
+        .take(NAMESAKES)
+    ).find((candidate) => compatible(candidate.externalIds, person.externalIds)) ?? null;
+
+  const existing = (await findByKey(ctx, key)) ?? (await namesakes());
 
   if (existing === null) {
     const personId = await ctx.db.insert("people", {

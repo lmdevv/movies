@@ -4,11 +4,12 @@
  * biography, dates, birthplace, department, and photo with `mediaService:applyPerson`.
  */
 import type { ScannedPersonDetails } from "@movies/contracts/models/scan";
-import { Effect, Match } from "effect";
+import { Effect, Match, Option } from "effect";
 
 import type { ArtworkKey } from "@movies/contracts/artwork";
 import { ArtworkSource } from "../artwork/artwork-keys.ts";
 import * as ArtworkKeys from "../artwork/artwork-keys.ts";
+import { idsOrNull } from "../convex/catalog-records.ts";
 import * as MediaBackend from "../convex/media-backend.ts";
 import * as MetadataPlugin from "../metadata/metadata-plugin.ts";
 import type { ProviderPerson } from "../metadata/metadata-plugin.ts";
@@ -17,10 +18,21 @@ import { JobFailed, type JobHandler } from "./job-worker.ts";
 const providerFailure = Match.type<MetadataPlugin.MetadataError>().pipe(
   Match.tagsExhaustive({
     MetadataProviderUnavailable: (error) => new JobFailed({ message: error.message, retry: false }),
-    MetadataRequestFailed: (error) =>
-      // TMDB answers 404 for a person it no longer has; asking again will not help.
-      new JobFailed({ message: error.message, retry: error.status !== 404 }),
+    MetadataRequestFailed: (error) => new JobFailed({ message: error.message, retry: true }),
     PluginPermissionDenied: (error) => new JobFailed({ message: error.message, retry: false }),
+  }),
+);
+
+/**
+ * Whether the provider will never describe this person: it has no key, or it answers 404 for
+ * someone it no longer has. The person is then recorded as fetched with nothing more to show, so
+ * their page stops waiting and nobody queues the lookup again.
+ */
+const isFinal = Match.type<MetadataPlugin.MetadataError>().pipe(
+  Match.tagsExhaustive({
+    MetadataProviderUnavailable: () => true,
+    MetadataRequestFailed: (error) => error.status === 404,
+    PluginPermissionDenied: () => false,
   }),
 );
 
@@ -35,11 +47,7 @@ export const personDetailsOf = Effect.fnUntraced(function* (
 ) {
   return {
     name: person.name,
-    externalIds: {
-      tmdb: person.ids.tmdb ?? null,
-      imdb: person.ids.imdb ?? null,
-      tvdb: person.ids.tvdb ?? null,
-    },
+    externalIds: idsOrNull(person.ids),
     profile:
       person.profile === undefined
         ? null
@@ -82,20 +90,37 @@ export const handler: Effect.Effect<
         });
       }
 
-      const found = yield* plugin
-        .personDetails(target.externalIds.tmdb)
-        .pipe(Effect.mapError(providerFailure));
+      const found = yield* plugin.personDetails(target.externalIds.tmdb).pipe(
+        Effect.asSome,
+        Effect.catchIf(isFinal, () => Effect.succeedNone),
+        Effect.mapError(providerFailure),
+      );
+
+      const details = Option.isSome(found)
+        ? yield* personDetailsOf(found.value, keys.seal)
+        : {
+            name: target.name,
+            externalIds: target.externalIds,
+            profile: null,
+            biography: null,
+            birthDate: null,
+            deathDate: null,
+            birthPlace: null,
+            knownFor: null,
+          };
 
       yield* backend
         .call("mediaService.applyPerson", {
           jobId: claim.job.id,
           workerId,
           personId: payload.personId,
-          details: yield* personDetailsOf(found, keys.seal),
+          details,
         })
         .pipe(Effect.mapError(backendFailure));
 
-      return `Fetched details of ${found.name}`;
+      return Option.isSome(found)
+        ? `Fetched details of ${found.value.name}`
+        : `No details for ${target.name} at the metadata provider`;
     }),
   } satisfies JobHandler;
 });

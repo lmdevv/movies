@@ -142,8 +142,11 @@ export const NO_RATINGS: Ratings = {
   metacritic: null,
 };
 
+/** The shape of a YouTube video ID; Convex checks the same pattern (`YOUTUBE_KEY` there). */
+export const YOUTUBE_KEY_PATTERN = /^[\w-]{6,20}$/u;
+
 /** A YouTube video ID: what `youtube-nocookie.com/embed/<key>` plays. */
-export const YouTubeKey = Schema.String.check(Schema.isPattern(/^[\w-]{6,20}$/u));
+export const YouTubeKey = Schema.String.check(Schema.isPattern(YOUTUBE_KEY_PATTERN));
 
 /** A title's trailer on YouTube, from TMDB videos or an NFO `<trailer>`. */
 export const Trailer = Schema.Struct({

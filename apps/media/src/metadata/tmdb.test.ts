@@ -159,6 +159,20 @@ const omdbLayer = Layer.unwrap(
   }).pipe(Effect.orDie),
 );
 
+/** OMDb with a key it refuses, as when the daily limit is reached. */
+const refusedOmdbLayer = Layer.unwrap(
+  Effect.gen(function* () {
+    const server = yield* FixtureServer;
+    const fs = yield* FileSystem.FileSystem;
+    const dataDir = yield* fs.makeTempDirectoryScoped({ prefix: "movies-omdb-refused-" });
+
+    return Omdb.layerWithOptions({
+      ...Omdb.defaultOptions(Option.some(Redacted.make("wrong-key"))),
+      apiBaseUrl: server.baseUrl.replace(/\/3$/u, ""),
+    }).pipe(Layer.provide(DiskCache.layer), Layer.provide(testConfigLayer({ DATA_DIR: dataDir })));
+  }).pipe(Effect.orDie),
+);
+
 /** NFO metadata that states nothing but `fields`. */
 const nfo = (kind: LocalMetadata["kind"], fields: Partial<LocalMetadata> = {}): LocalMetadata => ({
   kind,
@@ -391,6 +405,26 @@ describe("TMDB plugin", () => {
           );
         }),
       );
+
+      it.layer(refusedOmdbLayer)((withRefused) => {
+        withRefused.effect("stops asking OMDb for an hour once it refuses the key", () =>
+          Effect.gen(function* () {
+            const server = yield* FixtureServer;
+            const omdb = yield* Omdb.Service;
+
+            const asked = () =>
+              Ref.get(server.requests).pipe(
+                Effect.map((paths) => paths.filter((path) => path === "/").length),
+              );
+
+            const before = yield* asked();
+
+            assert.deepStrictEqual(yield* omdb.ratings("tt5000001"), {});
+            assert.deepStrictEqual(yield* omdb.ratings("tt5000002"), {});
+            assert.strictEqual((yield* asked()) - before, 1);
+          }),
+        );
+      });
 
       it.layer(Layer.provide(MetadataResolver.layer, omdbLayer))((withResolver) => {
         withResolver.effect("merges a movie: NFO first, then OMDb scores, then TMDB", () =>

@@ -1744,6 +1744,62 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       ]);
     });
 
+    it("keeps one person when an IMDb-only credit and a TMDB credit name them", async () => {
+      const imdbOnly = {
+        person: {
+          name: `Twice ${TOKEN}`,
+          externalIds: { tmdb: null, imdb: `nm${id}`, tvdb: null },
+          profile: null,
+        },
+        kind: "actor" as const,
+        role: null,
+        order: 0,
+      };
+
+      const tmdbOnly = {
+        ...imdbOnly,
+        person: { ...imdbOnly.person, externalIds: { tmdb: `twice${id}`, imdb: null, tvdb: null } },
+      };
+
+      await service(fixture.mediaService, "mediaService.applyCredits", {
+        titleId: fixture.titles.unrated,
+        episodeId: null,
+        credits: [imdbOnly],
+        hash: "twice-v1",
+      });
+
+      await service(fixture.mediaService, "mediaService.applyCredits", {
+        titleId: fixture.titles.show,
+        episodeId: null,
+        credits: [tmdbOnly],
+        hash: "twice-v2",
+      });
+
+      // Search matches any word, so only this name counts.
+      const found = (
+        await run(fixture.owner, "people.search", {
+          profileId: fixture.ownerProfile,
+          query: `Twice ${TOKEN}`,
+        })
+      ).filter((person) => person.name === `Twice ${TOKEN}`);
+
+      expect(found).toHaveLength(1);
+
+      const twice = found[0]?.id;
+
+      if (twice === undefined) throw new Error("Nobody was credited");
+
+      const detail = await run(fixture.owner, "people.get", {
+        profileId: fixture.ownerProfile,
+        personId: twice,
+      });
+
+      expect(detail.externalIds).toStrictEqual({ tmdb: `twice${id}`, imdb: `nm${id}`, tvdb: null });
+      expect(detail.credits.map((entry) => entry.title.id).toSorted()).toStrictEqual(
+        [fixture.titles.unrated, fixture.titles.show].toSorted(),
+      );
+    });
+
     it("writes credits again only when their digest changes", async () => {
       const again = await service(fixture.mediaService, "mediaService.applyCredits", {
         titleId: fixture.titles.adult,
