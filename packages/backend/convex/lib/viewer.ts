@@ -6,6 +6,7 @@ import { getAuthSessionId, getAuthUserId } from "@convex-dev/auth/server";
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { endPlaybackSession } from "./endings";
 import { fail } from "./errors";
 import { sessionScopes } from "./scopes";
 import type { Scope } from "./scopes";
@@ -60,9 +61,32 @@ const guardianLocked = async (
 };
 
 /**
+ * Whether an API key session's key still allows it. Revoking a key also deletes its session, but
+ * checking the key here keeps a session from outliving its key however it ended: revoked, deleted,
+ * or past its expiry while a token issued before then is still valid.
+ */
+const keyAllows = async (
+  ctx: ReadCtx,
+  session: Doc<"authSessions">,
+  now: number,
+): Promise<boolean> => {
+  if (session.grant?.kind !== "apikey") return true;
+
+  const key =
+    session.grant.apiKeyId === undefined ? null : await ctx.db.get(session.grant.apiKeyId);
+
+  return (
+    key !== null &&
+    key.revokedAt === undefined &&
+    (key.expiresAt === undefined || key.expiresAt > now)
+  );
+};
+
+/**
  * Loads the viewer or fails with `unauthenticated`. Convex Auth's JWTs live an hour, so the session
  * row is checked on every call: deleting a session (sign-out, key revocation, disabling the account)
- * cuts off every token issued for it at once.
+ * cuts off every token issued for it at once, and so does the session reaching its expiration
+ * time or, for an API key session, its key being revoked, deleted, or expired.
  */
 export const loadViewer = async (ctx: ReadCtx): Promise<Viewer> => {
   const userId = await getAuthUserId(ctx);
@@ -71,7 +95,13 @@ export const loadViewer = async (ctx: ReadCtx): Promise<Viewer> => {
   const sessionId = ctx.db.normalizeId("authSessions", (await getAuthSessionId(ctx)) ?? "");
   const session = sessionId === null ? null : await ctx.db.get(sessionId);
 
-  if (session?.userId !== userId) {
+  const now = Date.now();
+
+  if (
+    session?.userId !== userId ||
+    session.expirationTime <= now ||
+    !(await keyAllows(ctx, session, now))
+  ) {
     return fail("unauthenticated", "This session has ended; sign in again");
   }
 
@@ -133,9 +163,7 @@ export const endAuthSession = async (
 
   await Promise.all(
     playback.flatMap((session) =>
-      session.status === "active"
-        ? [ctx.db.patch(session._id, { status: "ended", endedAt: now })]
-        : [],
+      session.status === "active" ? [endPlaybackSession(ctx, session, now)] : [],
     ),
   );
 

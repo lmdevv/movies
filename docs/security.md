@@ -36,6 +36,34 @@ Each finding says what was wrong, how it was fixed or why it stays, and where th
 | 11  | Low        | Playback checked a file's real path against `LIBRARY_ROOTS` and then opened the original path, so a link swapped in between could redirect ffmpeg. A folder swapped above the file remains (see Accepted).                                                                                                                                        | Playback opens the canonical path it checked.                                                                                                                                                                                                                                                                                                                                  | `apps/media/src/playback/file-resolver.ts`                                                                                       |
 | 12  | Low        | `playback.renewToken` renewed a token without checking access again, so a revoked library grant, a lowered rating limit, or a re-locked PIN profile still got six more hours.                                                                                                                                                                     | Renewal checks the profile, its unlock, its limits, and the library grant.                                                                                                                                                                                                                                                                                                     | Stack test "stops renewing a token once the profile may no longer see the title"                                                 |
 
+## Backend findings fixed later
+
+A review of `packages/backend` found these after the table above; each has a stack test in
+`packages/backend/test/stack.test.ts` that fails against the earlier functions.
+
+- **High: API key expiry was not enforced on live sessions.** A key's session lasted 30 days
+  whatever the key's `expiresAt`, and calls never looked at the key again. The session now ends at
+  the key's expiry (Convex Auth refuses to refresh an expired session), and `loadViewer` refuses an
+  `apikey` session whose key is missing, revoked, or expired, and any session past its expiration
+  time. Test "ends a key's session when the key expires".
+- **Medium: nested library folders bypassed grants.** A restricted library's folder could sit
+  inside an open library's, exposing its files through the open one. Folders may no longer be
+  inside, or contain, another library's (`lib/roots.ts`). Test "refuses folders inside or around".
+- **Medium: migrated libraries were always open to everyone.** They now follow the source's
+  access (see Migration in `docs/decisions.md`). Test "shares an added library as the source did".
+- **Medium: admins could list and revoke the owner's API keys**, while the owner's account is
+  otherwise protected from other admins. Test "keeps the owner's keys from other admins".
+- **Medium: `rooms.get` showed member profile names and device IDs to any account that could see
+  the room's library, without a rating check.** It now needs membership (checked against the
+  joined profile's rating limit) or, for a room link, the joining profile, which sees the room
+  without its members. Test "shows a room to non-members only through a profile".
+- **Low: `manage` without `admin` could read and cancel backup and migration jobs.** Test "keeps
+  backup and migration jobs from sessions without admin".
+- **Low: a kids profile could clear its age limit**, and **argument bounds in the contracts were
+  not enforced server-side** (names, avatars, device IDs, folders, progress values). Tests "always
+  keeps an age limit on a kids profile" and "refuses names, avatars, device IDs, folders".
+- **Low: `importCollections` accepted any job's lease**, not only a migration job's.
+
 ## Verified without changes
 
 - **Every public Convex function enforces its scope.** `packages/backend/test/stack.test.ts`

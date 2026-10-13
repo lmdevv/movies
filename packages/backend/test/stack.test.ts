@@ -6,6 +6,9 @@
  * Skipped unless `MOVIES_STACK_TESTS=1` (the `test:stack` script sets it). On an empty backend the
  * first test races two sign-ups for the owner account; later runs sign in as whichever won.
  */
+import { createHash } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
+
 import type { AnyCommand } from "@movies/contracts/command";
 import { commands } from "@movies/contracts/commands";
 import type {
@@ -30,6 +33,7 @@ import { mediaServiceFunctions } from "@movies/contracts/media-service";
 import type { CommandAccess } from "@movies/contracts/scopes";
 import { Bytes, EpochMillis, Milliseconds } from "@movies/contracts/units";
 import { makeFunctionReference } from "convex/server";
+import type { Value } from "convex/values";
 import { Effect, Match, Redacted, Schema } from "effect";
 import { beforeAll, describe, expect, it } from "vitest";
 
@@ -37,7 +41,7 @@ import type { Session, SignInParams } from "./harness";
 import { anonymous, outcome, run, runId, service, signIn, trySignIn } from "./harness";
 import type { PublicFunction } from "./public-functions";
 import { publicFunctions, sampleValue, tablesIn } from "./public-functions";
-import { findStack, importDocuments, sampleIds } from "./stack-env";
+import { findStack, importDocuments, runInternal, sampleIds, tableLines } from "./stack-env";
 
 const stack = findStack();
 
@@ -58,6 +62,31 @@ const decodeItem = Schema.decodeUnknownSync(ScannedItem);
 const toArgs = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown));
 
 const ms = (value: number): Milliseconds => Milliseconds.make(value);
+
+/** Calls a function directly, past the contract's encoding, as any client could. */
+const direct = (
+  session: Session,
+  kind: "mutation" | "action",
+  path: string,
+  args: Record<string, Value>,
+) =>
+  kind === "mutation"
+    ? session.client.mutation(makeFunctionReference<"mutation", typeof args>(path), args)
+    : session.client.action(makeFunctionReference<"action", typeof args>(path), args);
+
+/** A string of `length` characters. */
+const long = (length: number): string => "x".repeat(length);
+
+/** SHA-256 of a secret, hex, as the backend stores keys, invites, and device codes. */
+const sha256 = (secret: string): string => createHash("sha256").update(secret).digest("hex");
+
+const decodeRow = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Struct({ status: Schema.String })),
+);
+
+/** The status of the first row of `table` whose JSON contains `needle`, read as an admin. */
+const rowOf = (table: string, needle: string) =>
+  decodeRow(tableLines(table).find((line) => line.includes(needle)) ?? "{}");
 
 const device = (name: string): DeviceId => DeviceIdSchema.make(`${name}-${id}`);
 
@@ -1524,6 +1553,848 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         ),
       ).toBe("not_found");
     });
+  });
+
+  describe("API key lifetimes and ownership", () => {
+    it("ends a key's session when the key expires, even with a token still valid", async () => {
+      const memberId = (await run(fixture.member, "account.viewer", {})).user.id;
+      const secret = `mk_expiring_${id}_${"k".repeat(32)}`;
+      const expiresAt = Date.now() + 20_000;
+
+      importDocuments("apiKeys", [
+        JSON.stringify({
+          userId: memberId,
+          name: `Expiring ${id}`,
+          prefix: "mk_expiring",
+          hash: sha256(secret),
+          scopes: ["read"],
+          expiresAt,
+        }),
+      ]);
+
+      const agent = await signIn(url, { provider: "apikey", params: { key: secret } });
+
+      expect(await outcome(run(agent, "account.viewer", {}))).toBe("succeeded");
+      await sleep(expiresAt - Date.now() + 1_000);
+      expect(await outcome(run(agent, "account.viewer", {}))).toBe("unauthenticated");
+      expect(await trySignIn(url, { provider: "apikey", params: { key: secret } })).toBeNull();
+    }, 60_000);
+
+    it("keeps the owner's keys from other admins", async () => {
+      const email = `keys-admin-${id}@movies.test`;
+      const invite = await run(fixture.owner, "invites.create", { email, role: "admin" });
+      const admin = await signIn(url, password(email, "signUp", invite.code));
+      const ownerId = (await run(fixture.owner, "account.viewer", {})).user.id;
+      const memberId = (await run(fixture.member, "account.viewer", {})).user.id;
+
+      const ownerKey = await run(fixture.owner, "apiKeys.create", {
+        name: `Owner ${id}`,
+        scopes: ["read"],
+      });
+
+      expect(await outcome(run(admin, "apiKeys.list", { userId: ownerId }))).toBe("forbidden");
+      expect(await outcome(run(admin, "apiKeys.revoke", { apiKeyId: ownerKey.apiKey.id }))).toBe(
+        "not_found",
+      );
+      expect(await outcome(run(admin, "apiKeys.list", { userId: memberId }))).toBe("succeeded");
+
+      const agent = await signIn(url, { provider: "apikey", params: { key: ownerKey.secret } });
+
+      expect(await outcome(run(agent, "account.viewer", {}))).toBe("succeeded");
+      await run(fixture.owner, "apiKeys.revoke", { apiKeyId: ownerKey.apiKey.id });
+    });
+  });
+
+  describe("admin jobs", () => {
+    it("keeps backup and migration jobs from sessions without admin", async () => {
+      const owner = (await run(fixture.owner, "account.viewer", {})).user.id;
+      const { jobId, worker } = await claimMigration(fixture, owner, `server-jobs-${id}`);
+
+      const created = await run(fixture.owner, "apiKeys.create", {
+        name: `Manager ${id}`,
+        scopes: ["manage"],
+      });
+
+      const manager = await signIn(url, { provider: "apikey", params: { key: created.secret } });
+      const listed = await run(manager, "jobs.list", { limit: 100 });
+
+      expect(listed.filter((job) => job.kind === "migration" || job.kind === "backup")).toEqual([]);
+      expect(await outcome(run(manager, "jobs.list", { kind: "migration" }))).toBe("forbidden");
+      expect(await outcome(run(manager, "jobs.get", { jobId }))).toBe("forbidden");
+      expect(await outcome(run(manager, "jobs.cancel", { jobId }))).toBe("forbidden");
+      expect((await run(fixture.owner, "jobs.get", { jobId })).status).toBe("running");
+
+      await service(fixture.mediaService, "mediaService.completeJob", { jobId, workerId: worker });
+      await run(fixture.owner, "apiKeys.revoke", { apiKeyId: created.apiKey.id });
+    });
+
+    it("fills a manager's job list past many newer backup jobs", async () => {
+      const { jobId } = await run(fixture.owner, "metadata.refresh", {
+        titleId: fixture.titles.show,
+      });
+
+      // More backup jobs, all newer than the metadata job, than one batch read used to reach.
+      importDocuments(
+        "jobs",
+        Array.from({ length: 520 }, () =>
+          JSON.stringify({
+            kind: "backup",
+            status: "succeeded",
+            payload: { kind: "backup", trigger: "manual" },
+            progress: { done: 1, total: 1, message: null },
+            error: null,
+            requestedBy: null,
+            attempts: 1,
+            startedAt: Date.now(),
+            finishedAt: Date.now(),
+          }),
+        ),
+      );
+
+      const created = await run(fixture.owner, "apiKeys.create", {
+        name: `Pager ${id}`,
+        scopes: ["manage"],
+      });
+
+      const manager = await signIn(url, { provider: "apikey", params: { key: created.secret } });
+      const listed = await run(manager, "jobs.list", { limit: 5 });
+
+      expect(listed.map((job) => job.id)).toContain(jobId);
+      expect(listed.filter((job) => job.kind === "backup")).toEqual([]);
+
+      await run(fixture.owner, "jobs.cancel", { jobId });
+      await run(fixture.owner, "apiKeys.revoke", { apiKeyId: created.apiKey.id });
+    });
+
+    it("imports collections only under a migration job's lease", async () => {
+      const { jobId } = await run(fixture.owner, "metadata.refresh", {
+        titleId: fixture.titles.allAges,
+      });
+
+      const workerId = `metadata-${id}`;
+
+      await service(fixture.mediaService, "mediaService.claimJob", {
+        jobId,
+        workerId,
+        leaseMs: 60_000,
+      });
+
+      expect(
+        await outcome(
+          service(fixture.mediaService, "migrationService.importCollections", {
+            jobId,
+            workerId,
+            items: [],
+          }),
+        ),
+      ).toBe("invalid_args");
+
+      await service(fixture.mediaService, "mediaService.completeJob", { jobId, workerId });
+    });
+  });
+
+  describe("library folders", () => {
+    it("refuses folders inside or around another library's", async () => {
+      const create = (roots: ReadonlyArray<string>) =>
+        run(fixture.owner, "libraries.create", { name: `Nested ${id}`, kind: "movies", roots });
+
+      expect(await outcome(create([`/stack-${id}/open/inner`]))).toBe("invalid_args");
+      expect(await outcome(create([`/stack-${id}`]))).toBe("invalid_args");
+      expect(await outcome(create([`//stack-${id}//open/`]))).toBe("conflict");
+      expect(await outcome(create([`/stack-${id}/own`, `/stack-${id}/own/inner`]))).toBe(
+        "invalid_args",
+      );
+      expect(
+        await outcome(
+          run(fixture.owner, "libraries.update", {
+            libraryId: fixture.restrictedLibrary,
+            roots: [`/stack-${id}/open/moved`],
+          }),
+        ),
+      ).toBe("invalid_args");
+    });
+
+    it("reports libraries that overlapped before folders were kept apart", async () => {
+      const ownerId = (await run(fixture.owner, "account.viewer", {})).user.id;
+
+      importDocuments("libraries", [
+        JSON.stringify({
+          name: `Legacy ${id}`,
+          kind: "movies",
+          roots: [`/stack-${id}/open/legacy`],
+          access: "restricted",
+          createdBy: ownerId,
+          titleCount: 0,
+          lastScanAt: null,
+        }),
+      ]);
+
+      expect(runInternal("maintenance:overlappingLibraries")).toContain(`Legacy ${id}`);
+
+      const legacy = (await run(fixture.owner, "libraries.listDetails", {})).find(
+        (library) => library.name === `Legacy ${id}`,
+      );
+
+      if (legacy !== undefined) {
+        await run(fixture.owner, "libraries.remove", { libraryId: legacy.id });
+      }
+    });
+
+    it("renames, opens, and removes a library", async () => {
+      const created = await run(fixture.owner, "libraries.create", {
+        name: `Spare ${id}`,
+        kind: "movies",
+        roots: [`/stack-${id}/spare`],
+        access: "restricted",
+      });
+
+      const updated = await run(fixture.owner, "libraries.update", {
+        libraryId: created.libraryId,
+        name: `Renamed ${id}`,
+        access: "everyone",
+      });
+
+      expect(updated).toMatchObject({ name: `Renamed ${id}`, access: "everyone" });
+      expect(
+        (await run(fixture.member, "libraries.list", {})).map((library) => library.id),
+      ).toContain(created.libraryId);
+
+      await run(fixture.owner, "libraries.remove", { libraryId: created.libraryId });
+      expect(
+        (await run(fixture.member, "libraries.list", {})).map((library) => library.id),
+      ).not.toContain(created.libraryId);
+      expect(
+        await outcome(run(fixture.owner, "libraries.get", { libraryId: created.libraryId })),
+      ).toBe("not_found");
+    });
+  });
+
+  describe("migrated library access", () => {
+    it("shares an added library as the source did, and with admins only when it does not say", async () => {
+      const owner = (await run(fixture.owner, "account.viewer", {})).user.id;
+      const memberId = (await run(fixture.member, "account.viewer", {})).user.id;
+      const serverId = `server-access-${id}`;
+
+      const { jobId } = await service(fixture.mediaService, "migrationService.start", {
+        requestedBy: owner,
+        source: "jellyfin",
+        serverName: "Jellyfin",
+        plan: {
+          ...plan(serverId, [
+            { sourceUserId: "source-owner", profileId: fixture.ownerProfile },
+            { sourceUserId: "source-member", profileId: fixture.memberProfile },
+          ]),
+          // Access comes from the stored plan; `migrated-unknown` is not in it.
+          libraries: [
+            {
+              name: "migrated-all",
+              kind: "movies",
+              roots: [`/stack-${id}/migrated-all`],
+              access: { kind: "everyone" },
+            },
+            {
+              name: "migrated-some",
+              kind: "movies",
+              roots: [`/stack-${id}/migrated-some/`],
+              access: { kind: "users", sourceUserIds: ["source-member", "gone"] },
+            },
+          ],
+        },
+      });
+
+      const workerId = `migrator-${serverId}`;
+
+      await service(fixture.mediaService, "mediaService.claimJob", {
+        jobId,
+        workerId,
+        leaseMs: 60_000,
+      });
+
+      const ensure = async (folder: string) => {
+        const result = await service(fixture.mediaService, "migrationService.ensureLibrary", {
+          jobId,
+          workerId,
+          name: folder,
+          kind: "movies",
+          roots: [`/stack-${id}/${folder}`],
+        });
+
+        const [libraryId] = result.libraryIds;
+
+        if (libraryId === undefined) throw new Error("ensureLibrary returned no library");
+
+        return run(fixture.owner, "libraries.get", { libraryId });
+      };
+
+      expect(await ensure("migrated-all")).toMatchObject({
+        access: "everyone",
+        grantedUserIds: [],
+      });
+      expect(await ensure("migrated-some")).toMatchObject({
+        access: "restricted",
+        grantedUserIds: [memberId],
+      });
+
+      const unknown = await ensure("migrated-unknown");
+
+      expect(unknown).toMatchObject({ access: "restricted", grantedUserIds: [] });
+      expect(
+        (await run(fixture.member, "libraries.list", {})).map((library) => library.name),
+      ).toEqual(expect.arrayContaining(["migrated-all", "migrated-some"]));
+      expect(
+        (await run(fixture.member, "libraries.list", {})).map((library) => library.id),
+      ).not.toContain(unknown.id);
+
+      // A folder holding other libraries' folders reuses them instead of nesting a new library.
+      expect(
+        await service(fixture.mediaService, "migrationService.ensureLibrary", {
+          jobId,
+          workerId,
+          name: "Around",
+          kind: "movies",
+          roots: [`/stack-${id}`],
+        }),
+      ).toMatchObject({ created: false });
+
+      await service(fixture.mediaService, "mediaService.completeJob", { jobId, workerId });
+    });
+  });
+
+  describe("kids profiles", () => {
+    it("always keeps an age limit on a kids profile", async () => {
+      const profile = await run(fixture.member, "profiles.create", {
+        name: `Growing ${id}`,
+        avatar: "owl",
+        kids: false,
+      });
+
+      expect(profile.maxAgeRating).toBeNull();
+
+      const kids = await run(fixture.member, "profiles.update", {
+        profileId: profile.id,
+        kids: true,
+      });
+
+      expect(kids.maxAgeRating).toBe(7);
+      expect(
+        await outcome(
+          run(fixture.member, "profiles.update", { profileId: profile.id, maxAgeRating: null }),
+        ),
+      ).toBe("invalid_args");
+      expect(
+        await run(fixture.member, "profiles.update", {
+          profileId: profile.id,
+          kids: false,
+          maxAgeRating: null,
+        }),
+      ).toMatchObject({ kids: false, maxAgeRating: null });
+    });
+
+    it("removes a profile with its list and progress, but never the last one", async () => {
+      const email = `single-${id}@movies.test`;
+      const single = await inviteMember(fixture.owner, email);
+      const only = await firstProfile(single);
+
+      expect(await outcome(run(single, "profiles.remove", { profileId: only }))).toBe("conflict");
+
+      const spare = await run(single, "profiles.create", {
+        name: `Spare ${id}`,
+        avatar: "fox",
+        kids: false,
+      });
+
+      await run(single, "myList.add", { profileId: spare.id, titleId: fixture.titles.allAges });
+      await run(single, "profiles.remove", { profileId: spare.id });
+      expect((await run(single, "profiles.list", {})).map((profile) => profile.id)).toStrictEqual([
+        only,
+      ]);
+      expect(await outcome(run(single, "titles.home", { profileId: spare.id }))).toBe("not_found");
+    });
+  });
+
+  describe("argument bounds", () => {
+    it("refuses names, avatars, device IDs, folders, and positions outside the contract", async () => {
+      const started = await run(fixture.member, "playback.createSession", {
+        profileId: fixture.memberProfile,
+        deviceId: device("bounds"),
+        titleId: fixture.titles.allAges,
+      });
+
+      const progress = (positionMs: number, durationMs: number) =>
+        direct(fixture.member, "mutation", "playback:reportProgress", {
+          sessionId: started.sessionId,
+          positionMs,
+          durationMs,
+          event: "tick",
+        });
+
+      const calls = {
+        clientNameLong: direct(anonymous(url), "action", "deviceAuth:request", {
+          clientName: long(81),
+        }),
+        clientNameBlank: direct(anonymous(url), "action", "deviceAuth:request", {
+          clientName: "   ",
+        }),
+        avatarEmpty: direct(fixture.member, "mutation", "profiles:create", {
+          name: `Bounds ${id}`,
+          avatar: "",
+          kids: false,
+        }),
+        avatarLong: direct(fixture.member, "mutation", "profiles:create", {
+          name: `Bounds ${id}`,
+          avatar: long(41),
+          kids: false,
+        }),
+        keyName: direct(fixture.member, "action", "apiKeys:create", {
+          name: "  ",
+          scopes: ["read"],
+        }),
+        folder: direct(fixture.owner, "mutation", "libraries:create", {
+          name: `Bounds ${id}`,
+          kind: "movies",
+          roots: [`/${long(1024)}`],
+        }),
+        playbackDevice: direct(fixture.member, "mutation", "playback:createSession", {
+          profileId: fixture.memberProfile,
+          deviceId: long(129),
+          titleId: fixture.titles.allAges,
+        }),
+        roomDevice: direct(fixture.member, "mutation", "rooms:create", {
+          profileId: fixture.memberProfile,
+          deviceId: long(129),
+          titleId: fixture.titles.allAges,
+          positionMs: 0,
+        }),
+        negativeDuration: progress(1_000, -1),
+        infiniteDuration: progress(1_000, Number.POSITIVE_INFINITY),
+      };
+
+      const codes = Object.fromEntries(
+        await Promise.all(
+          Object.entries(calls).map(async ([name, call]) => [name, await outcome(call)] as const),
+        ),
+      );
+
+      expect(Object.entries(codes).filter(([, code]) => code !== "invalid_args")).toStrictEqual([]);
+      await run(fixture.member, "playback.endSession", {
+        sessionId: started.sessionId,
+        positionMs: ms(0),
+      });
+    });
+  });
+
+  describe("room links", () => {
+    it("shows a room to non-members only through a profile that may see it, and without members", async () => {
+      const hostDevice = device("link-host");
+
+      const room = await run(fixture.owner, "rooms.create", {
+        profileId: fixture.ownerProfile,
+        deviceId: hostDevice,
+        titleId: fixture.titles.allAges,
+        positionMs: ms(0),
+      });
+
+      expect(await outcome(run(fixture.member, "rooms.get", { roomId: room.id }))).toBe(
+        "not_found",
+      );
+      // Another account's profile answers as a missing room does, not with its own error.
+      expect(
+        await outcome(
+          run(fixture.member, "rooms.get", { roomId: room.id, profileId: fixture.ownerProfile }),
+        ),
+      ).toBe("not_found");
+
+      const preview = await run(fixture.member, "rooms.get", {
+        roomId: room.id,
+        profileId: fixture.memberProfile,
+      });
+
+      expect(preview.members).toStrictEqual([]);
+      expect(preview.title.id).toBe(fixture.titles.allAges);
+
+      const guestDevice = device("link-guest");
+
+      await run(fixture.member, "rooms.join", {
+        roomId: room.id,
+        profileId: fixture.kidsProfile,
+        deviceId: guestDevice,
+      });
+      expect((await run(fixture.member, "rooms.get", { roomId: room.id })).members).toHaveLength(2);
+
+      // The host switches to a title the guest's kids profile may not see: the room disappears.
+      await run(fixture.owner, "rooms.setMedia", {
+        roomId: room.id,
+        deviceId: hostDevice,
+        revision: (await run(fixture.owner, "rooms.get", { roomId: room.id })).clock.revision,
+        titleId: fixture.titles.adult,
+      });
+      expect(await outcome(run(fixture.member, "rooms.get", { roomId: room.id }))).toBe(
+        "not_found",
+      );
+      expect(
+        await outcome(
+          run(fixture.member, "rooms.get", { roomId: room.id, profileId: fixture.kidsProfile }),
+        ),
+      ).toBe("not_found");
+      expect(await run(fixture.member, "rooms.current", { deviceId: guestDevice })).toBeNull();
+
+      await run(fixture.member, "rooms.leave", { roomId: room.id, deviceId: guestDevice });
+      await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
+    });
+  });
+
+  describe("room membership and PINs", () => {
+    it("hides a room joined with a PIN profile from sessions that have not entered the PIN", async () => {
+      const hostDevice = device("pin-host");
+      const guestDevice = device("pin-guest");
+
+      const room = await run(fixture.owner, "rooms.create", {
+        profileId: fixture.ownerProfile,
+        deviceId: hostDevice,
+        titleId: fixture.titles.allAges,
+        positionMs: ms(0),
+      });
+
+      const guarded = await run(fixture.member, "profiles.create", {
+        name: `Guarded ${id}`,
+        avatar: "owl",
+        kids: false,
+      });
+
+      await run(fixture.member, "profiles.setPin", { profileId: guarded.id, pin: "1357" });
+      await run(fixture.member, "rooms.join", {
+        roomId: room.id,
+        profileId: guarded.id,
+        deviceId: guestDevice,
+      });
+      expect((await run(fixture.member, "rooms.get", { roomId: room.id })).members).toHaveLength(2);
+
+      const fresh = await signIn(url, password(fixture.memberEmail, "signIn"));
+
+      expect(await outcome(run(fresh, "rooms.get", { roomId: room.id }))).toBe("not_found");
+      expect(await run(fresh, "rooms.current", { deviceId: guestDevice })).toBeNull();
+
+      await run(fresh, "profiles.unlock", { profileId: guarded.id, pin: "1357" });
+      expect((await run(fresh, "rooms.get", { roomId: room.id })).members).toHaveLength(2);
+
+      await run(fixture.member, "rooms.leave", { roomId: room.id, deviceId: guestDevice });
+      await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
+    });
+  });
+
+  describe("title pages", () => {
+    it("fills each page for a limited profile and reads a library through its own index", async () => {
+      const created = await run(fixture.owner, "libraries.create", {
+        name: `Paging ${id}`,
+        kind: "movies",
+        roots: [`/stack-${id}/paging`],
+      });
+
+      const movies = [
+        ["A", 0],
+        ["B", 17],
+        ["C", 17],
+        ["D", 0],
+        ["E", 17],
+        ["F", 17],
+        ["G", 17],
+        ["H", 0],
+        ["I", 17],
+      ] as const;
+
+      await service(fixture.mediaService, "mediaService.upsertScanned", {
+        libraryId: created.libraryId,
+        items: movies.map(([letter, ageRating]) =>
+          scanned(
+            `/stack-${id}/paging/${letter}.mp4`,
+            { kind: "movie", name: `Paging ${letter} ${TOKEN}`, ageRating },
+            null,
+          ),
+        ),
+      });
+
+      const pages = async (
+        session: Session,
+        profileId: ProfileId,
+        sort: "name" | "added" | "year",
+      ): Promise<ReadonlyArray<ReadonlyArray<string>>> => {
+        const read = async (
+          cursor: string | null,
+          found: ReadonlyArray<ReadonlyArray<string>>,
+        ): Promise<ReadonlyArray<ReadonlyArray<string>>> => {
+          const args = { profileId, libraryId: created.libraryId, sort, limit: 2 };
+
+          const page = await run(
+            session,
+            "titles.list",
+            cursor === null ? args : { ...args, cursor },
+          );
+
+          const all = [...found, page.items.map((title) => title.name)];
+
+          return page.nextCursor === null || all.length > 20 ? all : read(page.nextCursor, all);
+        };
+
+        return read(null, []);
+      };
+
+      expect(await pages(fixture.member, fixture.kidsProfile, "name")).toStrictEqual([
+        [`Paging A ${TOKEN}`, `Paging D ${TOKEN}`],
+        [`Paging H ${TOKEN}`],
+      ]);
+
+      const everyOrder = await Promise.all(
+        (["name", "added", "year"] as const).map(async (sort) =>
+          (await pages(fixture.owner, fixture.ownerProfile, sort)).flat().toSorted(),
+        ),
+      );
+
+      const all = movies.map(([letter]) => `Paging ${letter} ${TOKEN}`).toSorted();
+
+      expect(everyOrder).toStrictEqual([all, all, all]);
+
+      await run(fixture.owner, "libraries.remove", { libraryId: created.libraryId });
+    });
+  });
+
+  describe("removing a library", () => {
+    it("ends its playback and rooms and purges its collection memberships", async () => {
+      const created = await run(fixture.owner, "libraries.create", {
+        name: `Doomed ${id}`,
+        kind: "movies",
+        roots: [`/stack-${id}/doomed`],
+      });
+
+      await service(fixture.mediaService, "mediaService.upsertScanned", {
+        libraryId: created.libraryId,
+        items: [
+          scanned(
+            `/stack-${id}/doomed/doomed.mp4`,
+            { kind: "movie", name: `Doomed ${TOKEN}`, ageRating: 0 },
+            null,
+          ),
+        ],
+      });
+
+      const titleId = (await titleNamed(fixture.owner, fixture.ownerProfile, `Doomed ${TOKEN}`)).id;
+
+      const owner = (await run(fixture.owner, "account.viewer", {})).user.id;
+      const { jobId, worker } = await claimMigration(fixture, owner, `server-doomed-${id}`);
+
+      await service(fixture.mediaService, "migrationService.importCollections", {
+        jobId,
+        workerId: worker,
+        items: [
+          { sourceKey: `doomed:${id}`, name: `Doomed ${id}`, sortName: null, titleIds: [titleId] },
+        ],
+      });
+      await service(fixture.mediaService, "mediaService.completeJob", { jobId, workerId: worker });
+
+      const started = await run(fixture.member, "playback.createSession", {
+        profileId: fixture.memberProfile,
+        deviceId: device("doomed"),
+        titleId,
+      });
+
+      const hostDevice = device("doomed-host");
+
+      const room = await run(fixture.owner, "rooms.create", {
+        profileId: fixture.ownerProfile,
+        deviceId: hostDevice,
+        titleId,
+        positionMs: ms(0),
+      });
+
+      await run(fixture.owner, "libraries.remove", { libraryId: created.libraryId });
+
+      // The scheduled purge ends them, batch by batch, as it deletes the library's files.
+      await expect
+        .poll(
+          () =>
+            outcome(run(fixture.member, "playback.renewToken", { sessionId: started.sessionId })),
+          { timeout: 30_000 },
+        )
+        .toBe("conflict");
+      await expect.poll(() => rowOf("rooms", room.id).status, { timeout: 30_000 }).toBe("ended");
+
+      const memberships = async () =>
+        tableLines("collectionItems").filter((line) => line.includes(titleId)).length;
+
+      const until = Date.now() + 30_000;
+
+      const purged = async (): Promise<number> => {
+        const left = await memberships();
+
+        if (left === 0 || Date.now() > until) return left;
+        await sleep(1_000);
+
+        return purged();
+      };
+
+      expect(await purged()).toBe(0);
+    }, 60_000);
+  });
+
+  describe("invites", () => {
+    it("refuses expired and revoked invites", async () => {
+      const ownerId = (await run(fixture.owner, "account.viewer", {})).user.id;
+      const expiredCode = `expired-invite-${id}`;
+
+      importDocuments("invites", [
+        JSON.stringify({
+          codeHash: sha256(expiredCode),
+          email: null,
+          role: "member",
+          createdBy: ownerId,
+          expiresAt: Date.now() - 1_000,
+        }),
+      ]);
+
+      expect(await run(anonymous(url), "invites.lookup", { code: expiredCode })).toMatchObject({
+        state: "expired",
+      });
+      expect(
+        await outcome(signIn(url, password(`late-${id}@movies.test`, "signUp", expiredCode))),
+      ).not.toBe("succeeded");
+
+      const created = await run(fixture.owner, "invites.create", { role: "member" });
+
+      await run(fixture.owner, "invites.revoke", { inviteId: created.invite.id });
+      expect(await run(anonymous(url), "invites.lookup", { code: created.code })).toStrictEqual({
+        state: "invalid",
+      });
+      expect(
+        (await run(fixture.owner, "invites.list", {})).find(
+          (invite) => invite.id === created.invite.id,
+        )?.state,
+      ).toBe("revoked");
+      expect(
+        await outcome(signIn(url, password(`revoked-${id}@movies.test`, "signUp", created.code))),
+      ).not.toBe("succeeded");
+    });
+  });
+
+  describe("history", () => {
+    it("lists what a profile played, newest first", async () => {
+      const email = `history-${id}@movies.test`;
+      const viewer = await inviteMember(fixture.owner, email);
+      const profileId = await firstProfile(viewer);
+
+      const play = async (titleId: TitleId) => {
+        const started = await run(viewer, "playback.createSession", {
+          profileId,
+          deviceId: device(`history-${titleId}`),
+          titleId,
+        });
+
+        await run(viewer, "playback.reportProgress", {
+          sessionId: started.sessionId,
+          positionMs: ms(60_000),
+          event: "pause",
+        });
+      };
+
+      await play(fixture.titles.allAges);
+      await play(fixture.titles.adult);
+
+      const page = await run(viewer, "history.list", { profileId, limit: 10 });
+
+      expect(page.items.map((entry) => entry.title.id)).toStrictEqual([
+        fixture.titles.adult,
+        fixture.titles.allAges,
+      ]);
+      expect(page.items[0]?.progress.positionMs).toBe(60_000);
+    });
+  });
+
+  describe("scheduled upkeep", () => {
+    it("returns lapsed leases, ends idle playback, expires device codes, and sweeps rooms", async () => {
+      const { jobId } = await run(fixture.owner, "metadata.refresh", {
+        titleId: fixture.titles.unrated,
+      });
+
+      await service(fixture.mediaService, "mediaService.claimJob", {
+        jobId,
+        workerId: `lapsing-${id}`,
+        leaseMs: 5_000,
+      });
+
+      const viewer = await run(fixture.member, "account.viewer", {});
+      const file = await fileAt(fixture, `/stack-${id}/open/all-ages.mp4`);
+      const idleDevice = `idle-${id}`;
+      const codeHash = sha256(`lapsed-code-${id}`);
+      const longAgo = Date.now() - 2 * 60 * 60 * 1000;
+
+      importDocuments("playbackSessions", [
+        JSON.stringify({
+          userId: viewer.user.id,
+          profileId: fixture.memberProfile,
+          authSessionId: viewer.sessionId,
+          deviceId: idleDevice,
+          deviceName: null,
+          titleId: fixture.titles.allAges,
+          episodeId: null,
+          fileId: file.fileId,
+          roomId: null,
+          mode: null,
+          status: "active",
+          state: "playing",
+          positionMs: 0,
+          startedAt: longAgo,
+          lastReportAt: longAgo,
+          endedAt: null,
+        }),
+      ]);
+      importDocuments("deviceCodes", [
+        JSON.stringify({
+          deviceCodeHash: codeHash,
+          userCode: `YYYY-${id
+            .toUpperCase()
+            .replaceAll(/[^A-Z]/gu, "C")
+            .padEnd(4, "C")
+            .slice(0, 4)}`,
+          clientName: `Lapsed ${id}`,
+          status: "pending",
+          expiresAt: Date.now() - 1_000,
+        }),
+      ]);
+      importDocuments("rooms", [
+        JSON.stringify({
+          titleId: fixture.titles.allAges,
+          episodeId: null,
+          fileId: file.fileId,
+          hostUserId: viewer.user.id,
+          hostProfileId: fixture.memberProfile,
+          hostDeviceId: `abandoned-${id}`,
+          status: "playing",
+          positionAtAnchorMs: 0,
+          anchorServerTime: longAgo,
+          playbackRate: 1,
+          revision: 3,
+          hostLastSeenAt: longAgo,
+          hostAway: false,
+        }),
+      ]);
+
+      await sleep(6_000);
+
+      for (const cron of [
+        "maintenance:releaseExpiredLeases",
+        "maintenance:endIdlePlayback",
+        "maintenance:expireDeviceCodes",
+        "maintenance:sweepRooms",
+      ]) {
+        runInternal(cron);
+      }
+
+      expect((await run(fixture.owner, "jobs.get", { jobId })).status).toBe("pending");
+
+      expect(rowOf("playbackSessions", idleDevice).status).toBe("ended");
+      expect(rowOf("deviceCodes", codeHash).status).toBe("expired");
+      expect(rowOf("rooms", `abandoned-${id}`).status).toBe("ended");
+
+      await run(fixture.owner, "jobs.cancel", { jobId });
+    }, 60_000);
   });
 
   describe("every public function", () => {
