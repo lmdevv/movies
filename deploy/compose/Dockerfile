@@ -28,6 +28,8 @@ RUN VITE_CONVEX_URL=__MOVIES_CONVEX_URL__ pnpm --config.verify-deps-before-run=f
 # scripts/configure.ts. Its tsconfig extends the shared config, which `convex deploy` reads.
 RUN pnpm --filter @movies/backend deploy --prod --legacy /out/backend \
  && rm -rf /out/backend/test \
+ && (cd /out/backend && find convex -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum \
+      | sha256sum | cut -c1-12 >.functions-hash) \
  && mkdir -p /out/backend/node_modules/@movies \
  && cp -r packages/config /out/backend/node_modules/@movies/config \
  && mkdir -p /out/media/scripts \
@@ -62,12 +64,7 @@ COPY --from=build /out/media /app/media
 COPY --from=build /out/web /app/web
 COPY deploy/compose/entrypoint.sh /app/bin/entrypoint
 
-# The commit the image was built from, set by CI; the entrypoint adds it to the version it records.
-# Declared late so a new commit does not rebuild the layers above.
-ARG MOVIES_REVISION=""
-
 ENV NODE_ENV=production \
-    MOVIES_REVISION=${MOVIES_REVISION} \
     MOVIES_PUBLIC_URL=http://localhost:8080 \
     CONVEX_PUBLIC_URL=http://localhost:3210 \
     CONVEX_URL=http://convex:3210 \

@@ -17,9 +17,12 @@ public_url="${MOVIES_PUBLIC_URL%/}"
 convex_public_url="${CONVEX_PUBLIC_URL%/}"
 convex_url="${CONVEX_URL%/}"
 credentials="${CONVEX_CREDENTIALS_DIR:-/run/convex-credentials}"
-# The release, plus the commit for images built from a branch, so an upgrade along `main` backs up
-# first too.
-version="$(node -p 'require("/app/backend/package.json").version')${MOVIES_REVISION:++$MOVIES_REVISION}"
+# The release plus a hash of the bundled Convex functions (written at build time), so any image whose
+# functions differ, such as a newer `main` or a local build, backs up before it deploys.
+version="$(node -p 'require("/app/backend/package.json").version')"
+if [ -s /app/backend/.functions-hash ]; then
+  version="$version+$(cat /app/backend/.functions-hash)"
+fi
 puid="${PUID:-1000}"
 pgid="${PGID:-1000}"
 
@@ -70,13 +73,17 @@ export CONVEX_SELF_HOSTED_ADMIN_KEY="$admin_key"
 cd /app/backend
 convex() { node node_modules/convex/bin/main.js "$@"; }
 
-if [ -s "$data/version" ] && [ "$(cat "$data/version")" != "$version" ]; then
+# One backup per target version: $data/version changes only after a deploy succeeds, and a deploy
+# that keeps failing must not export everything again on every restart.
+if [ -s "$data/version" ] && [ "$(cat "$data/version")" != "$version" ] &&
+  [ "$(cat "$data/upgrade-backup" 2>/dev/null)" != "$version" ]; then
   stamp="$(date -u +%Y-%m-%dT%H-%M-%S-000Z)"
   backup="$data/backups/movies-manual-$stamp.zip"
   log "upgrading from $(cat "$data/version") to $version; backing up to $backup first"
   convex export --include-file-storage --path "$data/backups/.partial-movies-manual-$stamp.zip"
   mv "$data/backups/.partial-movies-manual-$stamp.zip" "$backup"
   chown movies:movies "$backup"
+  printf '%s\n' "$version" >"$data/upgrade-backup"
 fi
 
 log "deploying the Convex functions ($version)"

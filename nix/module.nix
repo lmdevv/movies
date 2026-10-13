@@ -63,6 +63,7 @@ let
       owner=${lib.escapeShellArg "${cfg.user}:${cfg.group}"}
       version=${lib.escapeShellArg packageVersion}
       version_file=${lib.escapeShellArg "${mediaDataDir}/version"}
+      upgrade_backup_file=${lib.escapeShellArg "${mediaDataDir}/upgrade-backup"}
 
       # The service's folders, in case they were removed since boot (tmpfiles creates them).
       install -d -m 700 -o ${lib.escapeShellArg cfg.user} -g ${lib.escapeShellArg cfg.group} \
@@ -85,12 +86,16 @@ let
       export CONVEX_SELF_HOSTED_URL="$convex_url"
       export CONVEX_SELF_HOSTED_ADMIN_KEY="$admin_key"
 
-      if [ -s "$version_file" ] && [ "$(cat "$version_file")" != "$version" ]; then
+      # One backup per target version: the version file changes only after a deploy succeeds, and
+      # a deploy that keeps failing must not export everything again on every restart.
+      if [ -s "$version_file" ] && [ "$(cat "$version_file")" != "$version" ] &&
+        [ "$(cat "$upgrade_backup_file" 2>/dev/null)" != "$version" ]; then
         name="movies-manual-$(date -u +%Y-%m-%dT%H-%M-%S-000Z).zip"
         log "upgrading from $(cat "$version_file") to $version; backing up to $name first"
         movies-convex export --include-file-storage --path "$backup_dir/.partial-$name"
         mv "$backup_dir/.partial-$name" "$backup_dir/$name"
         chown "$owner" "$backup_dir/$name"
+        printf '%s\n' "$version" >"$upgrade_backup_file"
       fi
 
       log "deploying the Convex functions ($version)"
@@ -131,7 +136,10 @@ in
       type = lib.types.package;
       default = pkgs.callPackage ./package.nix { };
       defaultText = lib.literalExpression "pkgs.callPackage ./package.nix { }";
-      description = "The [movies] package: media service, web app, and Convex functions.";
+      description = ''
+        The [movies] package: media service, web app, and Convex functions. Set it to `pkgs.movies`
+        to use the flake's overlay (or your override of it).
+      '';
     };
 
     ffmpegPackage = lib.mkOption {
@@ -303,8 +311,10 @@ in
       example = "/run/secrets/movies.env";
       description = ''
         Extra `KEY=value` lines for the media service, read by systemd as root: secrets such as
-        `TMDB_API_KEY`, kept out of the Nix store (agenix, sops-nix, or a root-only file). The
-        generated Convex credentials take precedence over it.
+        `TMDB_API_KEY`, kept out of the Nix store (agenix, sops-nix, or a root-only file; give a
+        string, since a path literal is copied into the store). Lines here override every other
+        setting, options and `extraEnvironment` included, except the generated Convex credentials,
+        so keep it to secrets.
       '';
     };
 

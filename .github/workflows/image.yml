@@ -109,7 +109,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # The entrypoint records it with the version, so an upgrade along main backs up first.
-          build-args: MOVIES_REVISION=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

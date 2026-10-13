@@ -121,5 +121,14 @@ testers.runNixOSTest {
         machine.wait_for_unit("movies.service")
         wait_connected()
         machine.succeed("ls /var/lib/movies/backups | grep -q '^movies-manual-.*\\.zip$'")
+
+    with subtest("a retried upgrade does not back up again"):
+        # As after a deploy that failed: the version file still names the old version.
+        machine.succeed("echo 0.0.0-previous > /var/lib/movies/media/version")
+        machine.succeed("systemctl restart movies.service")
+        machine.wait_for_unit("movies.service")
+        wait_connected()
+        count = machine.succeed("ls /var/lib/movies/backups | grep -c '^movies-manual-.*\\.zip$'").strip()
+        assert count == "1", count
   '';
 }

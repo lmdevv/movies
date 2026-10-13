@@ -130,11 +130,13 @@ journalctl -u movies -f
 
 ### What an upgrade does
 
-The first start of a new version (the image's version and commit, or the Nix package's store
-path) exports a backup, `movies-manual-<timestamp>.zip`, before it deploys the new functions.
-Convex refuses to deploy a schema the stored documents do not match, so such a deploy fails
-and the start stops with the old functions still in place. Convex backend upgrades ride along with [movies] releases; never change
-its image on your own.
+The first start of a new version exports a backup, `movies-manual-<timestamp>.zip`, before it
+deploys the new functions. A new version is a new release or any build whose Convex functions
+differ: the image records a hash of its bundled functions, the NixOS module the package's store
+path, so following `main` or building locally backs up too. Convex refuses to deploy a schema the
+stored documents do not match, so such a deploy fails and the start stops with the old functions
+still in place; restarts after that do not export again for the same version. Convex backend
+upgrades ride along with [movies] releases; never change its image on your own.
 
 ### Rolling back
 
