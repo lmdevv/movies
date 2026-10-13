@@ -2036,6 +2036,46 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           run(fixture.member, "rooms.get", { roomId: room.id, profileId: fixture.kidsProfile }),
         ),
       ).toBe("not_found");
+      expect(await run(fixture.member, "rooms.current", { deviceId: guestDevice })).toBeNull();
+
+      await run(fixture.member, "rooms.leave", { roomId: room.id, deviceId: guestDevice });
+      await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
+    });
+  });
+
+  describe("room membership and PINs", () => {
+    it("hides a room joined with a PIN profile from sessions that have not entered the PIN", async () => {
+      const hostDevice = device("pin-host");
+      const guestDevice = device("pin-guest");
+
+      const room = await run(fixture.owner, "rooms.create", {
+        profileId: fixture.ownerProfile,
+        deviceId: hostDevice,
+        titleId: fixture.titles.allAges,
+        positionMs: ms(0),
+      });
+
+      const guarded = await run(fixture.member, "profiles.create", {
+        name: `Guarded ${id}`,
+        avatar: "owl",
+        kids: false,
+      });
+
+      await run(fixture.member, "profiles.setPin", { profileId: guarded.id, pin: "1357" });
+      await run(fixture.member, "rooms.join", {
+        roomId: room.id,
+        profileId: guarded.id,
+        deviceId: guestDevice,
+      });
+      expect((await run(fixture.member, "rooms.get", { roomId: room.id })).members).toHaveLength(2);
+
+      const fresh = await signIn(url, password(fixture.memberEmail, "signIn"));
+
+      expect(await outcome(run(fresh, "rooms.get", { roomId: room.id }))).toBe("not_found");
+      expect(await run(fresh, "rooms.current", { deviceId: guestDevice })).toBeNull();
+
+      await run(fresh, "profiles.unlock", { profileId: guarded.id, pin: "1357" });
+      expect((await run(fresh, "rooms.get", { roomId: room.id })).members).toHaveLength(2);
 
       await run(fixture.member, "rooms.leave", { roomId: room.id, deviceId: guestDevice });
       await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });

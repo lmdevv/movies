@@ -98,7 +98,8 @@ const membershipsOf = async (
 };
 
 /**
- * Whether one of the profiles the viewer joined with may still see the room's title: the host can
+ * Whether one of the profiles the viewer joined with, unlocked on this session, may still see the
+ * room's title: the host can
  * switch the room to a title a guest's profile may not see, and then that guest stops seeing it.
  */
 const membersMaySee = async (
@@ -110,8 +111,25 @@ const membersMaySee = async (
   const libraryIds = await visibleLibraryIds(ctx, viewer);
   const profiles = await Promise.all(memberships.map((member) => ctx.db.get(member.profileId)));
 
+  // A profile joined on another session may have a PIN this session has not entered.
   return profiles.some(
-    (profile) => profile !== null && canSee({ viewer, profile, libraryIds }, title),
+    (profile) =>
+      profile !== null &&
+      isProfileUnlocked(viewer, profile) &&
+      canSee({ viewer, profile, libraryIds }, title),
+  );
+};
+
+/** Whether the viewer, as a member, may read the room: see `membersMaySee`. */
+const memberMayRead = async (
+  ctx: QueryCtx,
+  viewer: Viewer,
+  room: Doc<"rooms">,
+): Promise<boolean> => {
+  const title = await ctx.db.get(room.titleId);
+
+  return (
+    title !== null && membersMaySee(ctx, viewer, await membershipsOf(ctx, viewer, room._id), title)
   );
 };
 
@@ -274,7 +292,10 @@ export const current = query({
     const rooms = await Promise.all(memberships.map((member) => ctx.db.get(member.roomId)));
     const live = rooms.find((doc) => doc !== null && doc.status !== "ended");
 
-    return live === undefined || live === null ? null : presentRoom(ctx, live);
+    // Read only as `rooms.get` would allow: a joined profile still unlocked that may see the title.
+    return live === undefined || live === null || !(await memberMayRead(ctx, viewer, live))
+      ? null
+      : presentRoom(ctx, live);
   },
 });
 
