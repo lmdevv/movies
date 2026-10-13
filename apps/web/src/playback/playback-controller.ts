@@ -140,8 +140,13 @@ export class PlaybackController {
   #burnIn: string | null = null;
   /** Bumped by every change of quality or burned-in subtitle. */
   #choicesVersion = 0;
-  /** Bumped by every negotiation, so only the latest one's answer is used. */
+  /** Bumped by every negotiation and stop, so only the latest negotiation's answer is used. */
   #negotiation = 0;
+  /**
+   * The stream being attached: where it starts and whether it plays, which the element (still
+   * reading 0, paused) does not tell yet; null otherwise.
+   */
+  #loading: { readonly atMs: number; readonly play: boolean } | null = null;
   #snapshot: PlaybackSnapshot = {
     phase: PlaybackPhase.Starting(),
     started: null,
@@ -207,6 +212,7 @@ export class PlaybackController {
   }
 
   #stop(stop: PlaybackStop): void {
+    this.#negotiation += 1;
     this.#detach();
     this.#update({ phase: PlaybackPhase.Stopped({ stop }) });
   }
@@ -310,16 +316,36 @@ export class PlaybackController {
     this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.7 }) });
     this.#startReporting(playback);
     await this.#load(playback, play);
-    this.#catchUpOnChoices(version);
+    this.#catchUpOnChoices(version, ticket);
   }
 
-  /** Negotiates again when the viewer changed quality or subtitle while a negotiation ran. */
-  #catchUpOnChoices(version: number): void {
+  /**
+   * Negotiates again when the viewer changed quality or subtitle while negotiation `ticket` ran
+   * and no later negotiation (which asks with the new choices) has started since.
+   */
+  #catchUpOnChoices(version: number, ticket: number): void {
     const playback = this.#playback;
 
-    if (this.#disposed || playback === null || version === this.#choicesVersion) return;
+    if (
+      this.#disposed ||
+      playback === null ||
+      ticket !== this.#negotiation ||
+      version === this.#choicesVersion
+    ) {
+      return;
+    }
 
-    void this.#renegotiate(playback, this.player.positionMs(), this.#snapshot.audioStreamIndex);
+    void this.#renegotiate(playback, this.#positionMs(), this.#snapshot.audioStreamIndex);
+  }
+
+  /** The playback position, or where the stream being attached starts. */
+  #positionMs(): number {
+    return this.#loading?.atMs ?? this.player.positionMs();
+  }
+
+  /** Whether playback is under way, or the stream being attached will play. */
+  #playing(): boolean {
+    return this.#loading?.play ?? !this.#element.paused;
   }
 
   /** Puts `playback`'s stream into the element, then plays it when `play` is set. */
@@ -329,6 +355,7 @@ export class PlaybackController {
     const generation = ++this.#generation;
     const { stream } = playback;
 
+    this.#loading = { atMs: stream.startSeconds * 1000, play };
     this.#playback = playback;
     this.#update({
       stream,
@@ -357,6 +384,8 @@ export class PlaybackController {
     this.player.setSeeker(stream.mode === "direct" ? ELEMENT_SEEKER : this.#hlsSeeker());
 
     if (play) await this.#play();
+
+    if (generation === this.#generation) this.#loading = null;
   }
 
   async #play(): Promise<void> {
@@ -374,6 +403,7 @@ export class PlaybackController {
   }
 
   #detach(): void {
+    this.#loading = null;
     this.#attached?.detach();
     this.#attached = null;
     this.player.setSeeker(ELEMENT_SEEKER);
@@ -485,7 +515,7 @@ export class PlaybackController {
   }
 
   #onStreamFailure(failure: StreamFailure): void {
-    void this.#follow(afterStreamFailure(failure), this.player.positionMs());
+    void this.#follow(afterStreamFailure(failure), this.#positionMs());
   }
 
   /** Carries out a recovery step at `positionMs`. */
@@ -554,6 +584,7 @@ export class PlaybackController {
 
   /** Starts a new session at `positionMs`, as when the previous one ended elsewhere. */
   async #restart(positionMs: number): Promise<void> {
+    this.#negotiation += 1;
     this.#detach();
     this.#playback = null;
     await this.#closeReporting();
@@ -589,7 +620,7 @@ export class PlaybackController {
     } = {},
   ): Promise<void> {
     if (this.#parked) return;
-    const wasPlaying = !this.#element.paused;
+    const wasPlaying = this.#playing();
     const ticket = ++this.#negotiation;
     const version = this.#choicesVersion;
 
@@ -604,12 +635,13 @@ export class PlaybackController {
       ),
     );
 
-    // A park while negotiating hands the session elsewhere; this stream is not wanted.
+    // A park while negotiating hands the session elsewhere; this stream is not wanted. Otherwise
+    // the latest negotiation of this session wins, even when a stream loaded meanwhile.
     if (
       this.#disposed ||
       this.isParked() ||
-      playback !== this.#playback ||
-      ticket !== this.#negotiation
+      ticket !== this.#negotiation ||
+      this.#playback?.started !== playback.started
     ) {
       return;
     }
@@ -633,7 +665,7 @@ export class PlaybackController {
       renewed.success,
       options.play ?? (wasPlaying || !isPlaying(this.#snapshot.phase)),
     );
-    this.#catchUpOnChoices(version);
+    this.#catchUpOnChoices(version, ticket);
   }
 
   #scheduleRenewal(stream: NegotiateResponse): void {
@@ -646,7 +678,7 @@ export class PlaybackController {
 
       if (playback === null || this.#disposed) return;
 
-      void this.#renegotiate(playback, this.player.positionMs(), this.#snapshot.audioStreamIndex);
+      void this.#renegotiate(playback, this.#positionMs(), this.#snapshot.audioStreamIndex);
     }, due);
   }
 
@@ -659,7 +691,7 @@ export class PlaybackController {
     this.#update({ audioStreamIndex: streamIndex });
 
     // While parked, the device playing the session follows the choice (`casting/`).
-    if (!this.#parked) void this.#renegotiate(playback, this.player.positionMs(), streamIndex);
+    if (!this.#parked) void this.#renegotiate(playback, this.#positionMs(), streamIndex);
   }
 
   /** The quality cap and burned-in subtitle every negotiation asks for. */
@@ -720,17 +752,12 @@ export class PlaybackController {
 
     if (playback === null) return;
 
-    void this.#renegotiate(
-      playback,
-      this.player.positionMs(),
-      this.#snapshot.audioStreamIndex,
-      {
-        revert: () => {
-          undo();
-          this.#choicesVersion += 1;
-        },
+    void this.#renegotiate(playback, this.#positionMs(), this.#snapshot.audioStreamIndex, {
+      revert: () => {
+        undo();
+        this.#choicesVersion += 1;
       },
-    );
+    });
   }
 
   /** Tries again from where playback stopped. */

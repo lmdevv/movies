@@ -2,20 +2,14 @@
  * The streams a page negotiates, read from the media service's answers as the player
  * receives them.
  */
-import { MEDIA_ROUTES } from "@movies/contracts/media-playback";
-import { PlaybackMode } from "@movies/contracts/models/playback";
+import { MEDIA_ROUTES, NegotiateResponse } from "@movies/contracts/media-playback";
+import type { PlaybackMode } from "@movies/contracts/models/playback";
 import type { Page } from "@playwright/test";
 import { Option, Schema } from "effect";
 
+// The answer's JSON form, as the SDK reads it (an absent burned-in subtitle arrives as null).
 const decodeStream = Schema.decodeUnknownOption(
-  Schema.fromJsonString(
-    Schema.Struct({
-      mode: PlaybackMode,
-      streamId: Schema.optional(Schema.String),
-      burnedInSubtitle: Schema.optional(Schema.String),
-      video: Schema.Struct({ height: Schema.Finite }),
-    }),
-  ),
+  Schema.fromJsonString(Schema.toCodecJson(NegotiateResponse)),
 );
 
 /**
