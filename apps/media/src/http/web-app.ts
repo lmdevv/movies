@@ -16,6 +16,12 @@ const REVALIDATE = "no-cache";
 
 const SHORT = "public, max-age=3600";
 
+/**
+ * Content types for files the app ships whose extension Effect's table does not know, which it
+ * would send as `application/octet-stream`; the security headers forbid sniffing.
+ */
+const EXTRA_CONTENT_TYPES: ReadonlyMap<string, string> = new Map([[".ico", "image/x-icon"]]);
+
 const isWithin = (root: string, candidate: string, separator: string): boolean =>
   candidate === root ||
   candidate.startsWith(root.endsWith(separator) ? root : `${root}${separator}`);
@@ -45,8 +51,16 @@ export const layer: Layer.Layer<
     const platform = yield* HttpPlatform.HttpPlatform;
     const root = config.webDistDir.value;
 
-    const serve = (file: string, cacheControl: string) =>
-      platform.fileResponse(file, { headers: { "cache-control": cacheControl } });
+    const serve = (file: string, cacheControl: string) => {
+      const contentType = EXTRA_CONTENT_TYPES.get(path.extname(file).toLowerCase());
+
+      return platform.fileResponse(file, {
+        headers:
+          contentType === undefined
+            ? { "cache-control": cacheControl }
+            : { "cache-control": cacheControl, "content-type": contentType },
+      });
+    };
 
     /** The canonical path of `relative` when it is a regular file inside the root. */
     const fileInside = (relative: string) =>

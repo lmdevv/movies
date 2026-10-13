@@ -29,6 +29,7 @@ import {
 import { useState } from "react";
 
 import { artworkUrl } from "@/lib/artwork";
+import { describeFailure, isFailure } from "@/lib/failure";
 import { useNow } from "@/lib/use-now";
 
 import { useAction } from "./action";
@@ -74,15 +75,27 @@ export function LibraryDetailScreen({ libraryId }: { readonly libraryId: Library
   if (library.status === "loading") return <Skeleton className="h-60 w-full rounded-control" />;
 
   if (library.status === "error") {
+    const gone = isFailure(library.error, "NotFound");
+
     return (
       <CalmState
         className="py-24"
-        title="This library is gone"
-        description={library.error.message}
+        title={gone ? "This library is gone" : "This library didn't load"}
+        description={gone ? undefined : describeFailure(library.error)}
         actions={
-          <Link to="/admin/libraries" className={buttonVariants({ variant: "raised", size: "sm" })}>
-            Back to Libraries
-          </Link>
+          <>
+            {gone ? null : (
+              <Button variant="raised" size="sm" onClick={library.retry}>
+                Try again
+              </Button>
+            )}
+            <Link
+              to="/admin/libraries"
+              className={buttonVariants({ variant: "raised", size: "sm" })}
+            >
+              Back to Libraries
+            </Link>
+          </>
         }
       />
     );
@@ -378,7 +391,12 @@ function FilePage({
 
   if (page.status === "error") {
     return (
-      <p className="px-3 py-4 font-sans text-body/body text-text-muted">{page.error.message}</p>
+      <div className="flex flex-col items-start gap-3 px-3 py-4">
+        <p className="font-sans text-body/body text-text-muted">{describeFailure(page.error)}</p>
+        <Button variant="raised" size="xs" onClick={page.retry}>
+          Try again
+        </Button>
+      </div>
     );
   }
 

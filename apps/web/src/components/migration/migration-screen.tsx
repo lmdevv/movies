@@ -58,6 +58,11 @@ export function MigrationScreen({ jobId }: { readonly jobId: JobId | undefined }
         className="py-24"
         title="Couldn’t load imports"
         description={describeFailure(runs.error)}
+        actions={
+          <Button variant="raised" size="sm" onClick={runs.retry}>
+            Try again
+          </Button>
+        }
       />
     );
   }

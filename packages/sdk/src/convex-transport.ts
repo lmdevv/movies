@@ -6,7 +6,13 @@
  * `makeFunctionReference`, so they never compile Convex server code.
  */
 import type { FunctionPath } from "@movies/contracts/command";
-import { CommandFailure, commandError, Internal, Unauthenticated } from "@movies/contracts/errors";
+import {
+  CommandFailure,
+  commandError,
+  Internal,
+  NotFound,
+  Unauthenticated,
+} from "@movies/contracts/errors";
 import { ConvexClient, ConvexHttpClient } from "convex/browser";
 import type { FunctionReference } from "convex/server";
 import { makeFunctionReference } from "convex/server";
@@ -95,9 +101,25 @@ const isTokenRejection = (error: Error): boolean => {
 };
 
 /**
+ * Convex rejecting an argument against a `v.id(table)` validator before the function runs, in the
+ * self-hosted backend's two wordings: a string that is no ID at all, such as a mistyped or
+ * truncated link, and an ID from another table.
+ */
+const ID_VALIDATION_FAILURES = [
+  /ArgumentValidationError[\s\S]*^Validator: v\.id\("[^"]+"\)$/mu,
+  /ArgumentValidationError: Found ID "[^"]*" from table `[^`]*`, which does not match the table name in validator `v\.id\("[^"]+"\)`/u,
+] as const;
+
+/** Whether Convex rejected one of the call's ID arguments. */
+const isRejectedId = (message: string): boolean =>
+  ID_VALIDATION_FAILURES.some((pattern) => pattern.test(message));
+
+/**
  * Translates what a Convex client threw. `ConvexError` data carries a command failure; a token
- * Convex could not verify means the session is gone; "Server Error" is a function that crashed;
- * anything else is the network.
+ * Convex could not verify means the session is gone; an argument that is not an ID of its table
+ * names no record, so the call is not found, whichever of its ID arguments it was (screens
+ * that pass several IDs check the others first, as `RequireProfile` does for the profile); any
+ * other "Server Error" is a function that crashed; anything else is the network.
  */
 export const translateFailure = (operation: string, cause: unknown): CallError => {
   if (cause instanceof ConvexError) {
@@ -122,6 +144,10 @@ export const translateFailure = (operation: string, cause: unknown): CallError =
 
   if (isTokenRejection(cause)) {
     return new Unauthenticated({ message: "The server rejected the session; sign in again" });
+  }
+
+  if (isRejectedId(cause.message)) {
+    return new NotFound({ message: "No such item: nothing has that ID" });
   }
 
   if (cause.message.includes("Server Error")) {

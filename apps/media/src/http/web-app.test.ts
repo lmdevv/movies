@@ -25,6 +25,9 @@ const siteLayer = Layer.unwrap(
     );
     yield* fs.writeFileString(path.join(dist, "assets", "app-3f9a.js"), "console.log(1)");
     yield* fs.writeFileString(path.join(dist, "favicon.svg"), "<svg/>");
+    yield* fs.writeFileString(path.join(dist, "favicon.ico"), "ico");
+    yield* fs.writeFileString(path.join(dist, "icon-192.png"), "png");
+    yield* fs.writeFileString(path.join(dist, "manifest.webmanifest"), "{}");
     yield* fs.writeFileString(path.join(root, "secret.txt"), "secret");
     yield* fs.symlink(path.join(root, "secret.txt"), path.join(dist, "leak.txt"));
 
@@ -54,7 +57,12 @@ const fetchPage = Effect.fn(function* (pathname: string, accept: string = "text/
 
   const body = yield* response.text.pipe(Effect.orDie);
 
-  return { status: response.status, body, cacheControl: response.headers["cache-control"] };
+  return {
+    status: response.status,
+    body,
+    cacheControl: response.headers["cache-control"],
+    contentType: response.headers["content-type"],
+  };
 });
 
 describe("web app", () => {
@@ -79,6 +87,30 @@ describe("web app", () => {
           (yield* fetchPage("/favicon.svg", "*/*")).cacheControl,
           "public, max-age=3600",
         );
+      }),
+    );
+
+    it.effect("serves the icons and the manifest with their content types", () =>
+      Effect.gen(function* () {
+        const served = [];
+
+        for (const pathname of [
+          "/favicon.ico",
+          "/favicon.svg",
+          "/icon-192.png",
+          "/manifest.webmanifest",
+        ]) {
+          const page = yield* fetchPage(pathname, "*/*");
+
+          served.push([pathname, page.status, page.contentType, page.cacheControl]);
+        }
+
+        assert.deepStrictEqual(served, [
+          ["/favicon.ico", 200, "image/x-icon", "public, max-age=3600"],
+          ["/favicon.svg", 200, "image/svg+xml", "public, max-age=3600"],
+          ["/icon-192.png", 200, "image/png", "public, max-age=3600"],
+          ["/manifest.webmanifest", 200, "application/manifest+json", "public, max-age=3600"],
+        ]);
       }),
     );
 

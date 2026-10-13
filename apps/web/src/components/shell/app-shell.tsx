@@ -18,6 +18,7 @@ import { keymap, shortcutLabel } from "@/lib/keymap";
 import { useActiveProfile } from "@/session/guards";
 import { useScopes } from "@/session/viewer";
 
+import { InShell } from "./route-states";
 import { ScanToast } from "./scan-toast";
 import { SECTIONS, sectionOf } from "./sections";
 
@@ -164,7 +165,9 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
             trailing={profileButton("sm", true)}
           />
         )}
-        <TitlePrefetchProvider profileId={profile.id}>{children}</TitlePrefetchProvider>
+        <TitlePrefetchProvider profileId={profile.id}>
+          <InShell>{children}</InShell>
+        </TitlePrefetchProvider>
       </main>
 
       <TabBar

@@ -2,6 +2,7 @@ import { Toaster } from "@movies/ui/components/sonner";
 import { HeadContent, Outlet, createRootRouteWithContext } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 
+import { ThemeColor } from "@/components/theme-color";
 import { ThemeProvider } from "@/components/theme-provider";
 
 import "../index.css";
@@ -25,7 +26,13 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
       { title: "[movies]" },
       { name: "description", content: "Your movies and shows, streamed from your own library" },
     ],
-    links: [{ rel: "icon", href: "/favicon.ico" }],
+    // The SVG mark for browsers that take it, the ICO (16, 32 and 48 px) for the rest.
+    links: [
+      { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+      { rel: "manifest", href: "/manifest.webmanifest" },
+    ],
   }),
 });
 
@@ -41,6 +48,7 @@ function RootComponent() {
         // React never runs scripts it renders on the client; index.html applies the theme before paint.
         scriptProps={{ type: "application/json" }}
       >
+        <ThemeColor />
         <Outlet />
         <Toaster />
       </ThemeProvider>
