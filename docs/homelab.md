@@ -45,9 +45,11 @@ Open `MOVIES_PUBLIC_URL`, create the owner account (the first account is the own
 `/media/library` as a library. More folders: add one read-only line per folder under the `movies`
 service's `volumes:` (`- /mnt/nas/shows:/media/shows:ro`) and add `/media/shows` as a library.
 
-- **Image.** `MOVIES_IMAGE` defaults to `ghcr.io/lmdevv/movies:latest`, the newest release. Pin
-  `:0.1` (patch updates) or `:0.1.2`, or use `:main` to follow development. Until the first
-  release is tagged, only `:main` exists: set `MOVIES_IMAGE=ghcr.io/lmdevv/movies:main`.
+- **Image.** `MOVIES_IMAGE` defaults to `ghcr.io/lmdevv/movies:latest`, the newest release. Best
+  is the release your checkout is at (`git checkout v0.1.2` with `:0.1.2`), or `main` with
+  `:main` to follow development, since `compose.yaml` pins the Convex backend for its release.
+  Until the first release is tagged, only `:main` exists: set
+  `MOVIES_IMAGE=ghcr.io/lmdevv/movies:main`.
   `docker compose build` builds the image from your checkout instead. Images exist for amd64 and
   arm64; Quick Sync drivers are amd64 only.
 - **Settings.** Every name in `.env.example`, explained in the README's configuration table. The
@@ -126,9 +128,11 @@ convex.movies.home.arpa {
 ```
 
 Set `MOVIES_PUBLIC_URL=https://movies.home.arpa` and
-`CONVEX_PUBLIC_URL=https://convex.movies.home.arpa`, and trust Caddy's local CA on your devices
-(`caddy trust`). On NixOS, `services.caddy.virtualHosts` takes the same blocks. Keep the proxy on
-the LAN or tailnet; do not port-forward it.
+`CONVEX_PUBLIC_URL=https://convex.movies.home.arpa`. Every browser and phone must trust
+Caddy's local root CA: copy `pki/authorities/local/root.crt` from Caddy's data folder (such as
+`/var/lib/caddy/.local/share/caddy` on NixOS) to each device and install it as a trusted root.
+`caddy trust` only installs it on the machine Caddy runs on. On NixOS,
+`services.caddy.virtualHosts` takes the same blocks. Keep the proxy on the LAN or tailnet; do not port-forward it.
 
 ## GPU transcoding
 
@@ -194,12 +198,16 @@ new machine: `docs/operations.md`.
 
 ## Upgrading
 
-Compose, with the checkout at the release you run:
+Compose: keep the checkout and the image on the same release, since `compose.yaml` pins the
+Convex backend that release's image was built for (the image logs a warning when they differ).
 
 ```sh
-cd movies && git fetch --tags && git checkout v0.2.0   # compose.yaml pins the matching Convex
+cd movies && git fetch --tags && git checkout v0.2.0
+# in deploy/compose/.env: MOVIES_IMAGE=ghcr.io/lmdevv/movies:0.2.0
 cd deploy/compose && docker compose pull && docker compose up -d
 ```
+
+For the edge, `git pull` on `main` with `MOVIES_IMAGE=ghcr.io/lmdevv/movies:main`.
 
 NixOS: `nix flake update movies && nixos-rebuild switch` (or move the pinned tag). Both back up
 before the new version deploys its functions; `docs/operations.md` ("Upgrading") covers rolling

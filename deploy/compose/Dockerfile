@@ -28,10 +28,9 @@ RUN VITE_CONVEX_URL=__MOVIES_CONVEX_URL__ pnpm --config.verify-deps-before-run=f
 # scripts/configure.ts. Its tsconfig extends the shared config, which `convex deploy` reads.
 RUN pnpm --filter @movies/backend deploy --prod --legacy /out/backend \
  && rm -rf /out/backend/test \
- && (cd /out/backend && find convex -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum \
-      | sha256sum | cut -c1-12 >.functions-hash) \
  && mkdir -p /out/backend/node_modules/@movies \
  && cp -r packages/config /out/backend/node_modules/@movies/config \
+ && sh deploy/functions-hash.sh /out/backend >/out/backend/.functions-hash \
  && mkdir -p /out/media/scripts \
  && cp -r apps/media/dist /out/media/dist \
  && cp apps/media/scripts/configure-web.ts /out/media/scripts/ \
@@ -59,6 +58,10 @@ RUN userdel --remove node \
       --shell /usr/sbin/nologin movies
 
 COPY --from=convex /convex/generate_key /app/convex/generate_key
+# The Convex backend this image's generate_key and functions were built for; the entrypoint warns
+# when compose.yaml runs another.
+ARG CONVEX_IMAGE
+RUN printf '%s\n' "$CONVEX_IMAGE" >/app/convex/image
 COPY --from=build /out/backend /app/backend
 COPY --from=build /out/media /app/media
 COPY --from=build /out/web /app/web

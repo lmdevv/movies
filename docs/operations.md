@@ -109,12 +109,16 @@ input points at.
 
 ### Compose
 
-Keep the checkout at the release you run: `compose.yaml` pins the Convex backend that release was
-tested with, and the image derives the Convex admin key with that backend's tool.
+Keep the checkout and `MOVIES_IMAGE` on the same release: `compose.yaml` pins the Convex backend
+that release was tested with, and the image derives the Convex admin key with that backend's
+tool. The entrypoint logs a warning when the image was built for another backend than
+`compose.yaml` runs. `:latest` follows the newest release whatever the checkout, so pin the version
+when you check out a tag.
 
 ```sh
 cd movies && git fetch --tags && git checkout v0.2.0      # or `git pull` on main for the edge
 cd deploy/compose
+# .env: MOVIES_IMAGE=ghcr.io/lmdevv/movies:0.2.0             # or :main for the edge
 docker compose pull
 docker compose up -d
 docker compose logs -f movies    # "upgrading from 0.1.0 to 0.2.0; backing up to ... first"

@@ -38,11 +38,6 @@ let
   convexUrl = "http://${localAddress}:${toString cfg.convexPort}";
   convexDataDir = "${cfg.dataDir}/convex";
   mediaDataDir = "${cfg.dataDir}/media";
-  # The release plus the package's store hash, so any rebuild that changes the bundled functions
-  # (such as following `main`) backs up before it deploys.
-  packageVersion = "${cfg.package.version}+${
-    builtins.substring 0 8 (baseNameOf cfg.package.outPath)
-  }";
 
   setup = pkgs.writeShellApplication {
     name = "movies-setup";
@@ -61,7 +56,13 @@ let
       convex_public_url=${lib.escapeShellArg cfg.convexPublicUrl}
       backup_dir=${lib.escapeShellArg cfg.backupDir}
       owner=${lib.escapeShellArg "${cfg.user}:${cfg.group}"}
-      version=${lib.escapeShellArg packageVersion}
+      # The release plus a hash of the bundled functions and their dependencies (package.nix), so
+      # any build whose functions differ, such as one following `main`, backs up before it deploys.
+      version=${lib.escapeShellArg cfg.package.version}
+      functions_hash=${lib.escapeShellArg "${cfg.package}/lib/movies/backend/.functions-hash"}
+      if [ -s "$functions_hash" ]; then
+        version="$version+$(cat "$functions_hash")"
+      fi
       version_file=${lib.escapeShellArg "${mediaDataDir}/version"}
       upgrade_backup_file=${lib.escapeShellArg "${mediaDataDir}/upgrade-backup"}
 
@@ -112,6 +113,8 @@ let
       movies-configure-web --to /run/movies/web --convex-url "$convex_public_url"
       printf '%s\n' "$version" >"$version_file"
       chown "$owner" "$version_file"
+      # Deployed: the next upgrade, even to a version that failed before, backs up again.
+      rm -f "$upgrade_backup_file"
 
       # The service's secrets, readable by its user only.
       umask 077

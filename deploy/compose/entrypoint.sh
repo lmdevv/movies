@@ -17,8 +17,9 @@ public_url="${MOVIES_PUBLIC_URL%/}"
 convex_public_url="${CONVEX_PUBLIC_URL%/}"
 convex_url="${CONVEX_URL%/}"
 credentials="${CONVEX_CREDENTIALS_DIR:-/run/convex-credentials}"
-# The release plus a hash of the bundled Convex functions (written at build time), so any image whose
-# functions differ, such as a newer `main` or a local build, backs up before it deploys.
+# The release plus a hash of the bundled Convex functions and their dependencies (written at build
+# time by deploy/functions-hash.sh), so any image whose functions differ, such as a newer `main` or
+# a local build, backs up before it deploys.
 version="$(node -p 'require("/app/backend/package.json").version')"
 if [ -s /app/backend/.functions-hash ]; then
   version="$version+$(cat /app/backend/.functions-hash)"
@@ -51,6 +52,12 @@ convex_up() {
   CONVEX_VERSION_URL="$convex_url/version" node -e \
     "fetch(process.env.CONVEX_VERSION_URL).then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 }
+
+built_for="$(cat /app/convex/image 2>/dev/null || true)"
+if [ -n "${CONVEX_BACKEND_IMAGE:-}" ] && [ -n "$built_for" ] && [ "$CONVEX_BACKEND_IMAGE" != "$built_for" ]; then
+  log "warning: this image was built for the Convex backend $built_for, but compose.yaml runs"
+  log "$CONVEX_BACKEND_IMAGE; use the compose.yaml of the release the image comes from"
+fi
 
 log "waiting for Convex at $convex_url"
 for _ in $(seq 1 120); do
@@ -102,6 +109,8 @@ node /app/media/scripts/configure-web.ts --from /app/web --to /run/movies/web \
   --convex-url "$convex_public_url"
 
 printf '%s\n' "$version" >"$data/version"
+# Deployed: the next upgrade, even to a version that failed before, backs up again.
+rm -f "$data/upgrade-backup"
 
 # The service's environment, readable by the media user only. Node parses it (`--env-file`), so
 # secrets never appear in a command line. Unset optional settings stay out of it.

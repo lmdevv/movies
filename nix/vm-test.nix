@@ -122,9 +122,17 @@ testers.runNixOSTest {
         wait_connected()
         machine.succeed("ls /var/lib/movies/backups | grep -q '^movies-manual-.*\\.zip$'")
 
+    with subtest("a deployed upgrade clears its backup marker"):
+        machine.fail("test -e /var/lib/movies/media/upgrade-backup")
+        version = machine.succeed("cat /var/lib/movies/media/version").strip()
+        assert "+" in version, version
+
     with subtest("a retried upgrade does not back up again"):
-        # As after a deploy that failed: the version file still names the old version.
-        machine.succeed("echo 0.0.0-previous > /var/lib/movies/media/version")
+        # As after a deploy that failed: the version file still names the old version, and the
+        # marker the version already backed up for.
+        machine.succeed(
+            "cd /var/lib/movies/media && cp version upgrade-backup && echo 0.0.0-previous > version"
+        )
         machine.succeed("systemctl restart movies.service")
         machine.wait_for_unit("movies.service")
         wait_connected()

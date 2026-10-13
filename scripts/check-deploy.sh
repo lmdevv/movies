@@ -28,7 +28,7 @@ if ! [[ "$pinned" =~ ^ghcr\.io/get-convex/convex-backend:[^@[:space:]]+@sha256:[
   fail "deploy/convex-backend.image must hold one image reference with a digest; got '$pinned'"
 fi
 
-compose_image="$(sed -n 's/^ *image: \(ghcr\.io\/get-convex\/convex-backend:.*\)$/\1/p' deploy/compose/compose.yaml)"
+compose_image="$(sed -n 's/^x-convex-image: &convex-image \(.*\)$/\1/p' deploy/compose/compose.yaml)"
 [[ "$compose_image" == "$pinned" ]] ||
   fail "compose.yaml runs '$compose_image', not deploy/convex-backend.image ('$pinned')"
 
