@@ -225,14 +225,18 @@ choices made while implementing them. Update it in the same PR that changes a de
 - More like this (`titles.similar`): TMDB recommendations, then similar titles, stored as TMDB IDs
   on the title and resolved against the catalog on read (index on kind and TMDB ID), so titles
   added later appear without a refresh; topped up by shared genres (twice), keywords, and studios
-  among the 300 most recently added titles of the kind. Visibility applies on read.
+  among the most recently added titles of the kind in each library the profile sees, about 300
+  in all. A title's copies in other libraries, and repeats of one TMDB ID, are listed once.
+  Visibility applies on read.
 - `titles.list` with a genre pages through `titleGenres`, one row per title and genre carrying
-  the title's kind and sort fields (Convex cannot index array members), kept in step with every
-  title write and backfilled by `maintenance:backfillTitleGenres`, which `configure.ts` starts on
-  each deploy. The other filters (years, studio, minimum score) apply after the page is read, like
-  `libraryId`, against the year an admin may have overridden, so a filtered page may hold fewer
-  items than asked for; the web grid asks for 100 at a time while filtering and keeps reading
-  while its end is in view. The score is IMDb's, else TMDB's. `titles.genres` counts genres across the 1,000 most recently added titles.
+  the title's library, kind, and sort fields (Convex cannot index array members), kept in step
+  with every title write and backfilled by `maintenance:backfillTitleGenres`, which `configure.ts`
+  starts on each deploy. It uses the same index-position cursors and batch reads as every other
+  page, through the genre's own indexes by library, by kind, or across all; it spends half the read
+  budget, as each entry reads a row and its title. Years, studio, and minimum score are checked
+  per title inside the batch loop, against the year an admin may have overridden, so filtered
+  pages still fill up to the read budget. The score is IMDb's, else TMDB's. `titles.genres` counts
+  genres across the newest titles of each library the profile sees, about 1,000 in all.
 - Trailers: the official YouTube trailer from TMDB videos, or a YouTube ID or URL in the NFO
   `<trailer>`. Keys are checked (`[\w-]{6,20}`) in the media service and again in Convex, and the
   web app embeds `youtube-nocookie.com` only. Local trailer files stay unstored extras.

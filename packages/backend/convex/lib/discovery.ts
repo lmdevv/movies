@@ -3,6 +3,7 @@
  * on titles the caller already loaded; the audience check stays with the caller.
  */
 import type { Doc } from "../_generated/dataModel";
+import { genreKey } from "./genres";
 
 /** What `titles.list` may filter by. */
 export interface TitleFilter {
@@ -33,7 +34,7 @@ export const matchesFilter = (filter: TitleFilter, title: Doc<"titles">): boolea
   const score = communityScore(title);
 
   return (
-    (genre === undefined || title.genres.some((name) => folded(name) === folded(genre))) &&
+    (genre === undefined || title.genres.some((name) => genreKey(name) === genreKey(genre))) &&
     (studio === undefined ||
       (title.studios ?? []).some((name) => folded(name) === folded(studio))) &&
     (filter.yearFrom === undefined || (year !== null && year >= filter.yearFrom)) &&
@@ -49,7 +50,7 @@ export const countGenres = (
   const counts = new Map<string, { name: string; count: number }>();
 
   for (const name of titles.flatMap((title) => title.genres)) {
-    const key = folded(name);
+    const key = genreKey(name);
     const entry = counts.get(key);
 
     if (entry === undefined) counts.set(key, { name, count: 1 });

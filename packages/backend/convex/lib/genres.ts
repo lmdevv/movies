@@ -18,6 +18,7 @@ export const syncTitleGenres = async (ctx: MutationCtx, title: Doc<"titles">): P
   const wanted = new Set(title.genres.map(genreKey).filter((genre) => genre !== ""));
 
   const fields = {
+    libraryId: title.libraryId,
     kind: title.kind,
     sortKey: title.sortKey,
     addedAt: title.addedAt,
@@ -32,6 +33,7 @@ export const syncTitleGenres = async (ctx: MutationCtx, title: Doc<"titles">): P
       kept.add(row.genre);
 
       const stale =
+        row.libraryId !== fields.libraryId ||
         row.kind !== fields.kind ||
         row.sortKey !== fields.sortKey ||
         row.addedAt !== fields.addedAt ||

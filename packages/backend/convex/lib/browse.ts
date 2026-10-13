@@ -15,7 +15,10 @@ import { fail } from "./errors";
 import { genreKey } from "./genres";
 import type { ReadCtx } from "./viewer";
 
-/** Titles one page reads at most; past it the page comes back short with a cursor to continue. */
+/**
+ * Documents one page reads at most; past it the page comes back short with a cursor to continue.
+ * A genre page reads a genre row and its title for each entry, so it reads half as many entries.
+ */
 const READ_BUDGET = 1000;
 
 /** The orders `titles.list` offers: by name ascending, newest added, or newest year. */
@@ -23,12 +26,11 @@ export type TitleSort = "name" | "added" | "year";
 
 /**
  * Which titles a page lists: every title, one kind, one library, or one kind in one library;
- * optionally only one genre's, and only those that pass `filter` (years, studio, score).
+ * only those that pass `filter` (a genre, years, studio, score). A genre reads its own rows.
  */
 export interface TitleScope {
   readonly kind: Doc<"titles">["kind"] | undefined;
   readonly libraryId: Id<"libraries"> | undefined;
-  readonly genre: string | undefined;
   readonly filter: TitleFilter;
 }
 
@@ -96,9 +98,10 @@ type TitlesQuery = ReturnType<ReturnType<typeof titlesOf>["fullTableScan"]>;
 /** A query over genre rows with an index range chosen, before its order. */
 type GenreQuery = ReturnType<ReturnType<typeof genreRowsOf>["fullTableScan"]>;
 
-/** Which genre rows a page reads: one genre's, of one kind or of every kind. */
+/** Which genre rows a page reads: one genre's, in one library, of one kind, or everywhere. */
 interface GenreScope {
   readonly kind: Doc<"titles">["kind"] | undefined;
+  readonly libraryId: Id<"libraries"> | undefined;
   readonly genre: string;
 }
 
@@ -124,7 +127,7 @@ interface SortPlan {
 /** Reads from the start, or the cursor's ties and then the rows past its value. */
 const planOf = <Value>(spec: SortSpec<Value>): SortPlan => ({
   reader: (ctx, scope) => {
-    const { genre } = scope;
+    const { genre } = scope.filter;
 
     const read = async (bound: Bound<Value>, limit: number): Promise<ReadonlyArray<Entry>> => {
       if (genre === undefined) {
@@ -134,7 +137,11 @@ const planOf = <Value>(spec: SortSpec<Value>): SortPlan => ({
       }
 
       const rows = await spec
-        .genreRange(ctx, { kind: scope.kind, genre: genreKey(genre) }, bound)
+        .genreRange(
+          ctx,
+          { kind: scope.kind, libraryId: scope.libraryId, genre: genreKey(genre) },
+          bound,
+        )
         .order(spec.order)
         .take(limit);
 
@@ -196,8 +203,20 @@ const byName = planOf<string>({
       return q.eq("sortKey", bound.value).gt("_creationTime", bound.time);
     });
   },
-  genreRange: (ctx, { kind, genre }, bound) => {
+  genreRange: (ctx, { kind, libraryId, genre }, bound) => {
     const rows = genreRowsOf(ctx);
+
+    if (libraryId !== undefined) {
+      return rows.withIndex("by_library_genre_sort", (q) => {
+        const scoped = q.eq("libraryId", libraryId).eq("genre", genre);
+
+        if (bound.kind === "start") return scoped;
+
+        if (bound.kind === "past") return scoped.gt("sortKey", bound.value);
+
+        return scoped.eq("sortKey", bound.value).gt("_creationTime", bound.time);
+      });
+    }
 
     if (kind !== undefined) {
       return rows.withIndex("by_kind_genre_sort", (q) => {
@@ -262,8 +281,20 @@ const byAdded = planOf<number>({
       return q.eq("addedAt", bound.value).lt("_creationTime", bound.time);
     });
   },
-  genreRange: (ctx, { kind, genre }, bound) => {
+  genreRange: (ctx, { kind, libraryId, genre }, bound) => {
     const rows = genreRowsOf(ctx);
+
+    if (libraryId !== undefined) {
+      return rows.withIndex("by_library_genre_added", (q) => {
+        const scoped = q.eq("libraryId", libraryId).eq("genre", genre);
+
+        if (bound.kind === "start") return scoped;
+
+        if (bound.kind === "past") return scoped.lt("addedAt", bound.value);
+
+        return scoped.eq("addedAt", bound.value).lt("_creationTime", bound.time);
+      });
+    }
 
     if (kind !== undefined) {
       return rows.withIndex("by_kind_genre_added", (q) => {
@@ -329,8 +360,20 @@ const byYear = planOf<number | null>({
       return q.eq("year", bound.value).lt("_creationTime", bound.time);
     });
   },
-  genreRange: (ctx, { kind, genre }, bound) => {
+  genreRange: (ctx, { kind, libraryId, genre }, bound) => {
     const rows = genreRowsOf(ctx);
+
+    if (libraryId !== undefined) {
+      return rows.withIndex("by_library_genre_year", (q) => {
+        const scoped = q.eq("libraryId", libraryId).eq("genre", genre);
+
+        if (bound.kind === "start") return scoped;
+
+        if (bound.kind === "past") return scoped.lt("year", bound.value);
+
+        return scoped.eq("year", bound.value).lt("_creationTime", bound.time);
+      });
+    }
 
     if (kind !== undefined) {
       return rows.withIndex("by_kind_genre_year", (q) => {
@@ -382,7 +425,8 @@ export const listTitles = async (
 
   const filtered = isFiltered(scope.filter);
 
-  // A genre page reads every library's rows, so its titles are checked against the library too.
+  // A genre page in one library reads that library's rows of every kind, so its titles are
+  // checked against the kind; every page checks the library too, which costs nothing.
   const wanted = (title: Doc<"titles"> | null): title is Doc<"titles"> =>
     title !== null &&
     canSee(audience, title) &&
@@ -421,5 +465,5 @@ export const listTitles = async (
       : step(position, found, budget - batch.length);
   };
 
-  return step(cursor, [], READ_BUDGET);
+  return step(cursor, [], scope.filter.genre === undefined ? READ_BUDGET : READ_BUDGET / 2);
 };

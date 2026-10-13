@@ -172,44 +172,51 @@ export const replaceCredits = async (
 
 /**
  * Removes up to `limit` credits of a title (its own and its episodes'), for when the title goes
- * away. Reports whether none are left.
+ * away. Reports how many it removed; none means none were left.
  */
 export const removeTitleCredits = async (
   ctx: MutationCtx,
   titleId: Id<"titles">,
   limit: number,
-): Promise<boolean> => {
+): Promise<number> => {
   const rows = await ctx.db
     .query("credits")
     .withIndex("by_title_episode", (q) => q.eq("titleId", titleId))
-    .take(limit + 1);
+    .take(limit);
 
-  await Promise.all(rows.slice(0, limit).map((row) => ctx.db.delete(row._id)));
+  await Promise.all(rows.map((row) => ctx.db.delete(row._id)));
 
-  return rows.length <= limit;
+  return rows.length;
 };
 
-/** A credit with its person's name and photo. People removed meanwhile are left out. */
-export const presentCredits = async (
+/**
+ * Each group of credits with its people's names and photos, reading each person once across all
+ * groups. People removed meanwhile are left out.
+ */
+export const presentCreditGroups = async (
   ctx: ReadCtx,
-  rows: ReadonlyArray<Doc<"credits">>,
-): Promise<Array<Infer<typeof credit>>> => {
-  const people = await Promise.all(rows.map((row) => ctx.db.get(row.personId)));
+  groups: ReadonlyArray<ReadonlyArray<Doc<"credits">>>,
+): Promise<Array<Array<Infer<typeof credit>>>> => {
+  const ids = [...new Set(groups.flat().map((row) => row.personId))];
+  const found = await Promise.all(ids.map((personId) => ctx.db.get(personId)));
+  const people = new Map(ids.map((personId, index) => [personId, found[index] ?? null]));
 
-  return rows.flatMap((row, index) => {
-    const person = people[index];
+  return groups.map((rows) =>
+    rows.flatMap((row) => {
+      const person = people.get(row.personId);
 
-    return person === null || person === undefined
-      ? []
-      : [
-          {
-            personId: person._id,
-            name: person.name,
-            kind: row.kind,
-            role: row.role,
-            profile: person.profile,
-            order: row.order,
-          },
-        ];
-  });
+      return person === null || person === undefined
+        ? []
+        : [
+            {
+              personId: person._id,
+              name: person.name,
+              kind: row.kind,
+              role: row.role,
+              profile: person.profile,
+              order: row.order,
+            },
+          ];
+    }),
+  );
 };

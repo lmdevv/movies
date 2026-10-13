@@ -9,9 +9,10 @@ import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
 import { listTitles } from "./lib/browse";
+import type { Audience } from "./lib/access";
 import { canSee, loadAudience, loadVisibleTitle } from "./lib/access";
 import { countGenres, rankBySimilarity } from "./lib/discovery";
-import { CREDIT_LIMIT, creditsOf, presentCredits } from "./lib/people";
+import { CREDIT_LIMIT, creditsOf, presentCreditGroups } from "./lib/people";
 import {
   findProgress,
   NO_EXTERNAL_IDS,
@@ -131,7 +132,7 @@ export const list = query({
     const result = await listTitles(
       ctx,
       audience,
-      { kind, libraryId, genre: filter.genre, filter },
+      { kind, libraryId, filter },
       sort ?? "name",
       cursor ?? null,
       numItems,
@@ -191,9 +192,16 @@ export const get = query({
       .withIndex("by_profile_title", (q) => q.eq("profileId", profileId).eq("titleId", titleId))
       .unique();
 
-    const credits = await presentCredits(ctx, await creditsOf(ctx, titleId, null, CREDIT_LIMIT));
+    // Only the credits the page shows are presented, so only their people are read.
+    const rows = await creditsOf(ctx, titleId, null, CREDIT_LIMIT);
+    const castRows = rows.filter((row) => row.kind === "actor").slice(0, CAST_LIMIT);
 
-    const crew = CREW_ORDER.flatMap((kind) => credits.filter((entry) => entry.kind === kind));
+    const crewRows = CREW_ORDER.flatMap((kind) => rows.filter((row) => row.kind === kind)).slice(
+      0,
+      CREW_LIMIT,
+    );
+
+    const [cast = [], crew = []] = await presentCreditGroups(ctx, [castRows, crewRows]);
 
     // A title may be in several collections; the one its metadata names comes first.
     const memberships = await ctx.db
@@ -223,8 +231,8 @@ export const get = query({
       ratings: title.ratings ?? NO_RATINGS,
       trailer: title.trailer ?? null,
       collection: collection === null ? null : { id: collection._id, name: collection.name },
-      cast: credits.filter((entry) => entry.kind === "actor").slice(0, CAST_LIMIT),
-      crew: crew.slice(0, CREW_LIMIT),
+      cast,
+      crew,
       seasons: seasons.map((season) => ({
         id: season._id,
         seasonNumber: season.seasonNumber,
@@ -254,38 +262,55 @@ export const episodes = query({
       .withIndex("by_title_order", (q) => q.eq("titleId", titleId).eq("seasonNumber", seasonNumber))
       .collect();
 
-    return Promise.all(
-      docs.map(async (doc) => {
-        const [watch, credits] = await Promise.all([
-          findProgress(ctx, profileId, titleId, doc._id),
-          creditsOf(ctx, titleId, doc._id, EPISODE_CREDIT_LIMIT),
-        ]);
+    const [watches, rows] = await Promise.all([
+      Promise.all(docs.map((doc) => findProgress(ctx, profileId, titleId, doc._id))),
+      Promise.all(docs.map((doc) => creditsOf(ctx, titleId, doc._id, EPISODE_CREDIT_LIMIT))),
+    ]);
 
-        return Object.assign(presentEpisode(doc, watch), {
-          credits: await presentCredits(ctx, credits),
-        });
+    // One read per person across the season: the same writers and guest stars recur.
+    const credits = await presentCreditGroups(ctx, rows);
+
+    return docs.map((doc, index) =>
+      Object.assign(presentEpisode(doc, watches[index] ?? null), {
+        credits: credits[index] ?? [],
       }),
     );
   },
 });
 
-/** Titles of `kind` (or of every kind) to count genres over or rank as similar. */
+/**
+ * The newest titles of `kind` (or of every kind) the audience may see, about `count` read in all,
+ * to count genres over or rank as similar. Each library the account sees gets its share of the
+ * reads, so a profile granted one small library is not crowded out by the others.
+ */
 const discoveryCandidates = async (
   ctx: QueryCtx,
+  audience: Audience,
   kind: Doc<"titles">["kind"] | undefined,
   count: number,
-): Promise<Array<Doc<"titles">>> =>
-  kind === undefined
-    ? ctx.db.query("titles").withIndex("by_added").order("desc").take(count)
-    : ctx.db
+): Promise<Array<Doc<"titles">>> => {
+  const libraries = [...audience.libraryIds];
+  const share = Math.max(10, Math.ceil(count / Math.max(1, libraries.length)));
+
+  const read = await Promise.all(
+    libraries.map((libraryId) =>
+      ctx.db
         .query("titles")
-        .withIndex("by_kind_added", (q) => q.eq("kind", kind))
+        .withIndex("by_library_added", (q) => q.eq("libraryId", libraryId))
         .order("desc")
-        .take(count);
+        .take(share),
+    ),
+  );
+
+  return read
+    .flat()
+    .filter((title) => (kind === undefined || title.kind === kind) && canSee(audience, title));
+};
 
 /**
  * Genres the profile's titles carry, most common first. Counts cover the most recently added
- * titles of the kind, up to a thousand, so a vast library counts its newer part.
+ * titles of each library the profile sees, about a thousand in all, so a vast library counts its
+ * newer part.
  */
 export const genres = query({
   args: { profileId: v.id("profiles"), kind: v.optional(titleKind) },
@@ -293,11 +318,14 @@ export const genres = query({
   handler: async (ctx, { profileId, kind }) => {
     const viewer = await authorize(ctx, "read");
     const audience = await loadAudience(ctx, viewer, profileId);
-    const titles = await discoveryCandidates(ctx, kind, GENRE_SCAN);
 
-    return countGenres(titles.filter((title) => canSee(audience, title)));
+    return countGenres(await discoveryCandidates(ctx, audience, kind, GENRE_SCAN));
   },
 });
+
+/** The keys a title is known by: its ID, and its TMDB ID when it has one. */
+const identityOf = (title: Doc<"titles">): ReadonlyArray<string> =>
+  title.externalIds.tmdb === null ? [title._id] : [title._id, `tmdb:${title.externalIds.tmdb}`];
 
 /**
  * More like this: the provider's recommendations that are in the profile's libraries, best first,
@@ -323,18 +351,31 @@ export const similar = query({
       }),
     );
 
-    const chosen = recommended.flatMap((match) => (match === undefined ? [] : [match]));
-    const seen = new Set([title._id, ...chosen.map((match) => match._id)]);
+    // One entry per provider identity: another library's copy of this title, or of a title
+    // already listed, is the same film.
+    const seen = new Set<string>(identityOf(title));
+
+    const fresh = (candidate: Doc<"titles">): boolean => {
+      const keys = identityOf(candidate);
+
+      if (keys.some((key) => seen.has(key))) return false;
+
+      for (const key of keys) seen.add(key);
+
+      return true;
+    };
+
+    const chosen = recommended.flatMap((match) =>
+      match === undefined || !fresh(match) ? [] : [match],
+    );
 
     const topUp =
       chosen.length >= wanted
         ? []
         : rankBySimilarity(
             title,
-            (await discoveryCandidates(ctx, title.kind, SIMILAR_SCAN)).filter(
-              (candidate) => !seen.has(candidate._id) && canSee(audience, candidate),
-            ),
-          );
+            await discoveryCandidates(ctx, audience, title.kind, SIMILAR_SCAN),
+          ).filter(fresh);
 
     return [...chosen, ...topUp].slice(0, wanted).map(presentTitleCard);
   },

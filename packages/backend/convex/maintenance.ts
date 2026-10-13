@@ -241,11 +241,15 @@ export const purgeLibrary = internalMutation({
       .withIndex("by_library", (q) => q.eq("libraryId", libraryId))
       .take(20);
 
-    const cleared = await Promise.all(
-      titles.map((title) => removeTitleCredits(ctx, title._id, PURGE_BATCH)),
+    // Credits go in passes of their own, a share of the batch per title, so a pass that deletes
+    // credits never also deletes titles with their seasons and episodes.
+    const removed = await Promise.all(
+      titles.map((title) =>
+        removeTitleCredits(ctx, title._id, Math.max(1, Math.floor(PURGE_BATCH / titles.length))),
+      ),
     );
 
-    if (cleared.includes(false)) {
+    if (removed.some((count) => count > 0)) {
       await ctx.scheduler.runAfter(0, internal.maintenance.purgeLibrary, { libraryId });
 
       return null;

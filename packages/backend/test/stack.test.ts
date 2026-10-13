@@ -2165,6 +2165,49 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       ).toStrictEqual([fixture.titles.adult, fixture.titles.hidden]);
     });
 
+    it("lists another library's copy of a title once, and never the title's own copy", async () => {
+      const copies = await run(fixture.owner, "libraries.create", {
+        name: `Copies ${id}`,
+        kind: "movies",
+        roots: [`/stack-${id}/copies`],
+      });
+
+      // A second copy of the adult title, and a copy of the title being viewed, both as TMDB has
+      // them, and alike in every way the top-up ranks by.
+      await service(fixture.mediaService, "mediaService.upsertScanned", {
+        libraryId: copies.libraryId,
+        items: [
+          ["adult", `Adult Copy ${TOKEN}`, 17],
+          ["all", `All Ages Copy ${TOKEN}`, 0],
+        ].map(([key, name, ageRating]) =>
+          scanned(
+            `/stack-${id}/copies/${String(key)}.mp4`,
+            { kind: "movie", name: String(name), ageRating: Number(ageRating) },
+            null,
+            {
+              title: {
+                genres: ["Drama", `Genre ${id}`],
+                studios: [`Studio ${id}`],
+                externalIds: { tmdb: `${String(key)}${id}`, imdb: null, tvdb: null },
+              },
+            },
+          ),
+        ),
+      });
+
+      const listed = await run(fixture.owner, "titles.similar", {
+        profileId: fixture.ownerProfile,
+        titleId: fixture.titles.allAges,
+      });
+
+      const names = listed.map((title) => title.name);
+
+      expect(names.filter((name) => name.startsWith("Adult"))).toHaveLength(1);
+      expect(names).not.toContain(`All Ages Copy ${TOKEN}`);
+
+      await run(fixture.owner, "libraries.remove", { libraryId: copies.libraryId });
+    });
+
     it("shows a collection's visible titles in year order, and hides one with none", async () => {
       const { collection } = await run(fixture.member, "titles.get", {
         profileId: fixture.memberProfile,

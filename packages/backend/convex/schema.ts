@@ -226,6 +226,7 @@ export default defineSchema({
    */
   titleGenres: defineTable({
     titleId: v.id("titles"),
+    libraryId: v.id("libraries"),
     /** The genre, trimmed and lowercased. */
     genre: v.string(),
     kind: titleKind,
@@ -239,7 +240,10 @@ export default defineSchema({
     .index("by_genre_year", ["genre", "year"])
     .index("by_kind_genre_sort", ["kind", "genre", "sortKey"])
     .index("by_kind_genre_added", ["kind", "genre", "addedAt"])
-    .index("by_kind_genre_year", ["kind", "genre", "year"]),
+    .index("by_kind_genre_year", ["kind", "genre", "year"])
+    .index("by_library_genre_sort", ["libraryId", "genre", "sortKey"])
+    .index("by_library_genre_added", ["libraryId", "genre", "addedAt"])
+    .index("by_library_genre_year", ["libraryId", "genre", "year"]),
 
   seasons: defineTable({
     titleId: v.id("titles"),
