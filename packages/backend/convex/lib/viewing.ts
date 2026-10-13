@@ -360,14 +360,18 @@ const nextItemOf = async (
   episode: Doc<"episodes">,
   budget: number,
 ): Promise<{ readonly item: ContinueItem | null; readonly reads: number }> => {
-  if (budget <= 0) return { item: null, reads: 0 };
+  // Each episode looked at costs its episode and its progress row, plus one episode past the run
+  // and the found episode's progress again to show it: at most `2 * maxSkipped + 2` reads.
+  const maxSkipped = Math.min(MAX_SKIPPED_EPISODES, Math.floor((budget - 2) / 2));
+
+  if (maxSkipped < 1) return { item: null, reads: 0 };
 
   const { episode: next, reads } = await scanUnwatched(
     ctx,
     audience.profile._id,
     episode,
-    Math.min(MAX_SKIPPED_EPISODES, budget),
-    budget >= MAX_SKIPPED_EPISODES,
+    maxSkipped,
+    maxSkipped === MAX_SKIPPED_EPISODES,
   );
 
   if (next === null || next.presentFileCount === 0) return { item: null, reads };
@@ -380,7 +384,7 @@ const nextItemOf = async (
       episode: presentEpisode(next, nextProgress),
       progress: null,
     },
-    reads,
+    reads: reads + 1,
   };
 };
 

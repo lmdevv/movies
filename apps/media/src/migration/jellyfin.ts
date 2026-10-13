@@ -186,6 +186,9 @@ const userSees = (user: JellyfinUser, libraryId: string): boolean | null => {
 const accessOf = (users: ReadonlyArray<JellyfinUser>, libraryId: string): SourceLibraryAccess => {
   const seen = users.map((user) => ({ userId: user.id, sees: userSees(user, libraryId) }));
 
+  // No active users says nothing about who may see it; `every` would call that everyone.
+  if (seen.length === 0) return { kind: "unknown" };
+
   if (seen.every(({ sees }) => sees === true)) return { kind: "everyone" };
 
   if (seen.every(({ sees }) => sees === null)) return { kind: "unknown" };

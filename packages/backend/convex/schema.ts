@@ -288,7 +288,9 @@ export default defineSchema({
     .index("by_status_ended", ["status", "endedAt"])
     .index("by_status_report", ["status", "lastReportAt"])
     .index("by_user_status", ["userId", "status"])
-    .index("by_auth_session", ["authSessionId"]),
+    .index("by_auth_session", ["authSessionId"])
+    // Ending the playback of a removed library's titles.
+    .index("by_title_status", ["titleId", "status"]),
 
   rooms: defineTable({
     titleId: v.id("titles"),
@@ -305,7 +307,10 @@ export default defineSchema({
     hostLastSeenAt: v.number(),
     hostAway: v.boolean(),
     endedAt: v.optional(v.number()),
-  }).index("by_status", ["status"]),
+  })
+    .index("by_status", ["status"])
+    // Ending the rooms of a removed library's titles.
+    .index("by_title_status", ["titleId", "status"]),
 
   roomMembers: defineTable({
     roomId: v.id("rooms"),

@@ -3,7 +3,7 @@ import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
-import { endPlaybackSession, endRoom } from "./lib/endings";
+import { endPlaybackSession, endRoom, endTitlePlayback } from "./lib/endings";
 import { enqueueJob, MAX_JOB_ATTEMPTS } from "./lib/jobs";
 import { overlappingLibraries as findOverlaps } from "./lib/roots";
 import { endAuthSession } from "./lib/viewer";
@@ -179,7 +179,8 @@ export const requestNightlyBackup = internalMutation({
 
 /**
  * Deletes a removed library's catalog in batches, rescheduling until it is gone: files, then
- * titles with their seasons, episodes, and collection memberships. History stays.
+ * titles with their seasons, episodes, and collection memberships. Each batch first ends the
+ * playback sessions and rooms on the titles it touches. History stays.
  */
 export const purgeLibrary = internalMutation({
   args: { libraryId: v.id("libraries") },
@@ -190,7 +191,15 @@ export const purgeLibrary = internalMutation({
       .withIndex("by_library_path", (q) => q.eq("libraryId", libraryId))
       .take(PURGE_BATCH);
 
+    const now = Date.now();
+
     if (files.length > 0) {
+      // Playback of these files' titles ends as the files go, a batch at a time.
+      await Promise.all(
+        [...new Set(files.map((file) => file.titleId))].map((titleId) =>
+          endTitlePlayback(ctx, titleId, now),
+        ),
+      );
       await Promise.all(files.map((file) => ctx.db.delete(file._id)));
       await ctx.scheduler.runAfter(0, internal.maintenance.purgeLibrary, { libraryId });
 
@@ -219,6 +228,7 @@ export const purgeLibrary = internalMutation({
           .withIndex("by_title", (q) => q.eq("titleId", title._id))
           .collect();
 
+        await endTitlePlayback(ctx, title._id, now);
         await Promise.all(
           [...seasons, ...episodes, ...memberships].map((doc) => ctx.db.delete(doc._id)),
         );

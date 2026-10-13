@@ -2129,10 +2129,15 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       await run(fixture.owner, "libraries.remove", { libraryId: created.libraryId });
 
-      expect(
-        await outcome(run(fixture.member, "playback.renewToken", { sessionId: started.sessionId })),
-      ).toBe("conflict");
-      expect(rowOf("rooms", room.id).status).toBe("ended");
+      // The scheduled purge ends them, batch by batch, as it deletes the library's files.
+      await expect
+        .poll(
+          () =>
+            outcome(run(fixture.member, "playback.renewToken", { sessionId: started.sessionId })),
+          { timeout: 30_000 },
+        )
+        .toBe("conflict");
+      await expect.poll(() => rowOf("rooms", room.id).status, { timeout: 30_000 }).toBe("ended");
 
       const memberships = async () =>
         tableLines("collectionItems").filter((line) => line.includes(titleId)).length;
