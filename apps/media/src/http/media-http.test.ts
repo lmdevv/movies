@@ -18,6 +18,7 @@ import {
   ffmpegAvailable,
   qsvUsable,
   softwareToneMappingAvailable,
+  vaapiUsable,
 } from "../testing/fixture-library.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
 import * as MediaTestServer from "../testing/media-test-server.ts";
@@ -27,6 +28,8 @@ import { sidecarTrackId } from "../subtitles/subtitle-tracks.ts";
 const hasFfmpeg = await ffmpegAvailable();
 
 const hasQsv = hasFfmpeg && (await qsvUsable());
+
+const hasVaapi = hasFfmpeg && (await vaapiUsable());
 
 const canToneMap = hasFfmpeg && (await softwareToneMappingAvailable());
 
@@ -757,6 +760,37 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           height: 180,
           dynamicRange: "sdr",
         });
+        const { init, segment } = yield* fetchSegment(local(server.baseUrl, result.url), 0);
+        const probe = yield* probeBytes(concat(yield* bytes(init), yield* bytes(segment)));
+
+        assert.deepStrictEqual(
+          [probe.video?.codec, probe.video?.bitDepth, probe.video?.dynamicRange],
+          ["h264", 8, "sdr"],
+        );
+      }),
+    );
+  });
+
+  layer(
+    MediaTestServer.layer({
+      HARDWARE_ACCELERATION: "vaapi",
+      FFMPEG_PATH: process.env["FFMPEG_PATH"] ?? "ffmpeg",
+      VAAPI_DEVICE: process.env["VAAPI_DEVICE"] ?? "/dev/dri/renderD128",
+    }),
+    { excludeTestServices: true, timeout: "120 seconds" },
+  )("on VA-API hardware", (it) => {
+    it.effect.skipIf(!hasVaapi)("tone-maps HDR10 HEVC to SDR H.264", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const { library } = yield* FixtureWorkspace.Service;
+        const fileId = server.fileId("movies", library.hdrMovie);
+
+        const result = yield* negotiated({
+          token: signTestToken({ fid: fileId, sid: "vaapi" }),
+          capabilities: browser,
+        });
+
+        assert.strictEqual(result.mode, "transcode-vaapi");
         const { init, segment } = yield* fetchSegment(local(server.baseUrl, result.url), 0);
         const probe = yield* probeBytes(concat(yield* bytes(init), yield* bytes(segment)));
 

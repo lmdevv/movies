@@ -54,7 +54,7 @@ export const qsvProbeArgs = (device: string): ReadonlyArray<string> => [
 ];
 
 /** Arguments of the VA-API test encode: one second of generated video through `h264_vaapi`. */
-const vaapiProbeArgs = (device: string): ReadonlyArray<string> => [
+export const vaapiProbeArgs = (device: string): ReadonlyArray<string> => [
   "-hide_banner",
   "-nostdin",
   "-v",
