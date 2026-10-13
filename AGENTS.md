@@ -85,11 +85,13 @@ The Effect reference lives in `.repos/effect-smol`. Effect 4 stable releases are
   web port, else 3011.
 - Stack suites need Docker and `scripts/dev-stack.sh up`: `pnpm --filter <pkg> test:stack` for
   `@movies/backend`, `@movies/sdk`, `@movies/cli`, and `@movies/media`, then
-  `pnpm --filter web exec playwright test`. Set `MOVIES_JELLYFIN_DOCKER=1` for the migration suites.
+  `pnpm --filter web exec playwright test`. For the migration suites, `docker pull
+  jellyfin/jellyfin:12.2` and set `MOVIES_JELLYFIN_DOCKER=1`; without the image the real-Jellyfin
+  case skips silently.
 - Repeat runs: `pnpm --filter web exec playwright test --repeat-each=20`, `pnpm test --repeats=20`.
 - `scripts/stack-e2e.sh` builds the image and smoke-tests the packaged stack.
-- CI runs `check`, both stack jobs, and the Nix job. PRs touching `apps/`, `packages/`, `deploy/`,
-  or the lockfile also run the `Image` workflow's `build and smoke-test`. `main` has no branch
+- CI runs `check`, both stack jobs, and the Nix job. PRs matching the `paths` in
+  `.github/workflows/image.yml` also run its `build and smoke-test`. `main` has no branch
   protection, so check every one yourself before merging. Never merge with admin bypass.
 - Every PR gets CodeRabbit, Codex automatic review, and Claude's `/code-review`.
 - Cloud environments: none yet. Pin the Claude one in `.claude/settings.json`
