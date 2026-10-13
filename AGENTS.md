@@ -15,8 +15,9 @@ product name is `[movies]`, brackets included; the repo and packages use `movies
   translate their code into this repo. SyncLounge and stremio-core are MIT and may be reused with
   attribution. Effect, T3 Code and OpenCode are MIT and safe to reference.
 - **Load the `coding-standards` skill** before writing, reviewing, or refactoring TypeScript. It is
-  in `.agents/skills/coding-standards/`, from `dmmulroy/skills`. Where any skill conflicts with this
-  file, this file wins: no lint suppressions or disabled rules, even where a skill shows them.
+  in `.agents/skills/coding-standards/`, copied from `dmmulroy/.dotfiles` at `574e1f2`; Dillon has
+  since removed it, so don't `skills update` it. Where any skill conflicts with this file, this file
+  wins: no lint suppressions or disabled rules, even where a skill shows them.
 - **Effect 4 reference.** `effect` is pinned in `pnpm-workspace.yaml`. Keep a read-only clone of
   the matching `Effect-TS/effect-smol` tag in `.repos/effect-smol` (gitignored) and read its
   `LLMS.md` before writing Effect code. Do not import from or edit it.

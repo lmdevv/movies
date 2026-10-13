@@ -8,10 +8,10 @@
       "computedHash": "d3e059a03864cd72392d24e2b218ea825b3533383418b5dc1f947a9b084e3742"
     },
     "coding-standards": {
-      "source": "dmmulroy/skills",
+      "source": "dmmulroy/.dotfiles",
       "sourceType": "github",
-      "skillPath": "coding-standards/SKILL.md",
-      "computedHash": "4e740075d71028a0d0ee59e2ec28721d8e021be93726dcf9e19b76eff1fd9293"
+      "skillPath": "home/.agents/skills/coding-standards/SKILL.md",
+      "computedHash": "63e671de165bb3c3808ae9645e4dc7826d24684bf6cbd22c0469a13a7b524b5c"
     },
     "diagnosing-bugs": {
       "source": "mattpocock/skills",
