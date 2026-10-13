@@ -88,6 +88,7 @@ const requireLibrary = async (
 const PENDING_PER_KIND: Readonly<Record<Doc<"jobs">["kind"], number>> = {
   scan: 50,
   metadata: 50,
+  person: 50,
   backup: 50,
   migration: 50,
   trickplay: 10,

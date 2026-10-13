@@ -919,7 +919,10 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       const name = `Scrubbed thumbs${id}`;
       const path = `/stack-${id}/thumbnails/a.mp4`;
       const original = scanned(path, { kind: "movie", name, ageRating: 0 }, null);
-      const changed = scanned(path, { kind: "movie", name, ageRating: 0 }, null, { sizeBytes: 2_000_000 });
+
+      const changed = scanned(path, { kind: "movie", name, ageRating: 0 }, null, {
+        sizeBytes: 2_000_000,
+      });
 
       const upsert = (item: ScannedItem) =>
         service(fixture.mediaService, "mediaService.upsertScanned", {
