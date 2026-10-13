@@ -154,6 +154,47 @@ export const titleMetadata = (scanned: Infer<typeof scannedTitle>) => {
   };
 };
 
+/**
+ * What a write keeps of the title it replaces: a provider ID the write does not know (one a
+ * migration imported, or a metadata job found) and a site score it could not fetch (OMDb
+ * unreachable, paused, or over its daily limit) stay as stored, and a title with such IDs stays
+ * matched. A write that knows a value replaces it.
+ */
+export const keepKnown = (
+  scanned: Infer<typeof scannedTitle>,
+  existing: Doc<"titles">,
+): Infer<typeof scannedTitle> => {
+  const externalIds = {
+    tmdb: scanned.externalIds.tmdb ?? existing.externalIds.tmdb,
+    imdb: scanned.externalIds.imdb ?? existing.externalIds.imdb,
+    tvdb: scanned.externalIds.tvdb ?? existing.externalIds.tvdb,
+  };
+
+  const identified = Object.values(externalIds).some((id) => id !== null);
+  const stored = existing.ratings;
+
+  const ratings =
+    scanned.ratings === undefined || stored === undefined
+      ? scanned.ratings
+      : {
+          tmdb: scanned.ratings.tmdb ?? stored.tmdb,
+          imdb: scanned.ratings.imdb ?? stored.imdb,
+          rottenTomatoes: scanned.ratings.rottenTomatoes ?? stored.rottenTomatoes,
+          metacritic: scanned.ratings.metacritic ?? stored.metacritic,
+        };
+
+  const kept = {
+    ...scanned,
+    externalIds,
+    matchStatus:
+      identified && existing.matchStatus !== "unmatched" ? "matched" : scanned.matchStatus,
+  } satisfies Infer<typeof scannedTitle>;
+
+  if (ratings !== undefined) kept.ratings = ratings;
+
+  return kept;
+};
+
 const upsertTitle = async (
   ctx: MutationCtx,
   libraryId: Id<"libraries">,
@@ -175,15 +216,17 @@ const upsertTitle = async (
 
   if (existing !== null) {
     if (existing.matchStatus === "manual") return existing;
+    const merged = keepKnown(scanned, existing);
+    const fields = titleMetadata(merged);
 
     await ctx.db.patch(existing._id, {
-      ...metadata,
-      matchStatus: scanned.matchStatus,
+      ...fields,
+      matchStatus: merged.matchStatus,
       updatedAt: now,
-      searchText: searchTextOf({ ...metadata, overrides: existing.overrides }),
+      searchText: searchTextOf({ ...fields, overrides: existing.overrides }),
     });
 
-    return { ...existing, ...metadata, matchStatus: scanned.matchStatus };
+    return { ...existing, ...fields, matchStatus: merged.matchStatus };
   }
 
   const titleId = await ctx.db.insert("titles", {

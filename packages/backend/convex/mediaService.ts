@@ -10,6 +10,7 @@ import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import {
   inSequence,
+  keepKnown,
   markFileMissing,
   searchTextOf,
   titleMetadata,
@@ -414,11 +415,12 @@ export const applyMetadata = mutation({
     const current = await ctx.db.get(titleId);
 
     if (current === null) return fail("not_found", "No such title");
-    const metadata = { ...titleMetadata(title), kind: current.kind };
+    const merged = keepKnown(title, current);
+    const metadata = { ...titleMetadata(merged), kind: current.kind };
 
     await ctx.db.patch(titleId, {
       ...metadata,
-      matchStatus: doc.payload.match === null ? title.matchStatus : "manual",
+      matchStatus: doc.payload.match === null ? merged.matchStatus : "manual",
       updatedAt: Date.now(),
       searchText: searchTextOf({ ...metadata, overrides: current.overrides }),
     });

@@ -1744,6 +1744,44 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       ]);
     });
 
+    it("keeps provider IDs a migration imported when the title is scanned again", async () => {
+      const owner = (await run(fixture.owner, "account.viewer", {})).user.id;
+      const { jobId, worker } = await claimMigration(fixture, owner, `server-ids-${id}`);
+
+      await service(fixture.mediaService, "migrationService.importOverrides", {
+        jobId,
+        workerId: worker,
+        items: [
+          {
+            titleId: fixture.titles.unrated,
+            overrides: {},
+            externalIds: { tmdb: `unrated${id}`, imdb: null, tvdb: null },
+          },
+        ],
+      });
+
+      await service(fixture.mediaService, "mediaService.completeJob", { jobId, workerId: worker });
+
+      // The scan knows no IDs for the file; the imported one stays.
+      await service(fixture.mediaService, "mediaService.upsertScanned", {
+        libraryId: fixture.openLibrary,
+        items: [
+          scanned(
+            `/stack-${id}/open/unrated.mp4`,
+            { kind: "movie", name: `Unrated ${TOKEN}`, ageRating: null },
+            null,
+          ),
+        ],
+      });
+
+      const title = await run(fixture.owner, "titles.get", {
+        profileId: fixture.ownerProfile,
+        titleId: fixture.titles.unrated,
+      });
+
+      expect(title.externalIds.tmdb).toBe(`unrated${id}`);
+    });
+
     it("keeps one person when an IMDb-only credit and a TMDB credit name them", async () => {
       const imdbOnly = {
         person: {
@@ -1798,6 +1836,39 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       expect(detail.credits.map((entry) => entry.title.id).toSorted()).toStrictEqual(
         [fixture.titles.unrated, fixture.titles.show].toSorted(),
       );
+    });
+
+    it("keeps stored scores and provider IDs that a rescan cannot fetch", async () => {
+      // OMDb was unreachable this time: only TMDB's score came back, and no IDs.
+      await rescan(
+        fixture.mediaService,
+        fixture.openLibrary,
+        `/stack-${id}/open/all-ages.mp4`,
+        { name: `All Ages ${TOKEN}`, ageRating: 0 },
+        {
+          year: 1999,
+          genres: ["Drama", `Genre ${id}`],
+          ratings: {
+            tmdb: { value: 7.2, votes: 950 },
+            imdb: null,
+            rottenTomatoes: null,
+            metacritic: null,
+          },
+        },
+      );
+
+      const title = await run(fixture.member, "titles.get", {
+        profileId: fixture.memberProfile,
+        titleId: fixture.titles.allAges,
+      });
+
+      expect(title.ratings).toStrictEqual({
+        tmdb: { value: 7.2, votes: 950 },
+        imdb: { value: 8.7, votes: 2_000_000 },
+        rottenTomatoes: 88,
+        metacritic: 73,
+      });
+      expect(title.externalIds.tmdb).toBe(`all${id}`);
     });
 
     it("writes credits again only when their digest changes", async () => {
