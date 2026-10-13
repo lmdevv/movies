@@ -101,10 +101,25 @@ const isTokenRejection = (error: Error): boolean => {
 };
 
 /**
- * Convex rejecting an argument against a `v.id(table)` validator before the function runs, such as
- * a mistyped or truncated link or an ID from another table. Captures the table.
+ * Convex rejecting an argument against a `v.id(table)` validator before the function runs: a
+ * string that is no ID at all, such as a mistyped or truncated link, or an ID from another table.
+ * Each captures the table.
  */
-const ID_VALIDATION_FAILURE = /ArgumentValidationError[\s\S]*^Validator: v\.id\("([^"]+)"\)$/mu;
+const ID_VALIDATION_FAILURES = [
+  /ArgumentValidationError[\s\S]*^Validator: v\.id\("([^"]+)"\)$/mu,
+  /ArgumentValidationError: Found ID "[^"]*" from table `[^`]*`, which does not match the table name in validator `v\.id\("([^"]+)"\)`/u,
+] as const;
+
+/** The table of an ID argument Convex rejected, or null for any other failure. */
+const rejectedIdTable = (message: string): string | null => {
+  for (const pattern of ID_VALIDATION_FAILURES) {
+    const table = pattern.exec(message)?.[1];
+
+    if (table !== undefined) return table;
+  }
+
+  return null;
+};
 
 /**
  * Translates what a Convex client threw. `ConvexError` data carries a command failure; a token
@@ -137,11 +152,9 @@ export const translateFailure = (operation: string, cause: unknown): CallError =
     return new Unauthenticated({ message: "The server rejected the session; sign in again" });
   }
 
-  const badId = ID_VALIDATION_FAILURE.exec(cause.message);
+  const table = rejectedIdTable(cause.message);
 
-  if (badId !== null) {
-    return new NotFound({ message: `No such record in ${badId[1] ?? "the table"}` });
-  }
+  if (table !== null) return new NotFound({ message: `No such record in ${table}` });
 
   if (cause.message.includes("Server Error")) {
     return new Internal({ message: `The server failed while running ${operation}` });
