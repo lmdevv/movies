@@ -268,7 +268,26 @@ test("a title page shows scores, credits, studio, links, the trailer, its collec
 
   const cast = page.getByRole("region", { name: "Cast & crew" });
 
-  await expect(cast.getByRole("link", { name: /Sigourney Weaver/u })).toContainText("Ripley");
+  // The avatar is decorative, so each card is named once: the person, then their role.
+  await expect(cast.getByRole("link", { name: /Sigourney Weaver/u })).toHaveAccessibleName(
+    "Sigourney Weaver Ripley",
+  );
+  await expect(cast.getByRole("link", { name: /Tom Skerritt/u })).toHaveAccessibleName(
+    "Tom Skerritt Dallas",
+  );
+
+  // Without a photo, the avatar shows the person's letter in its middle.
+  const avatar = cast.getByRole("link", { name: /Tom Skerritt/u }).locator("[data-slot=avatar]");
+
+  const [circle, letter] = await Promise.all([
+    avatar.boundingBox(),
+    avatar.getByText("T", { exact: true }).boundingBox(),
+  ]);
+
+  if (circle === null || letter === null) throw new Error("The avatar is not drawn");
+
+  expect(Math.abs(letter.x + letter.width / 2 - (circle.x + circle.width / 2))).toBeLessThan(2);
+  expect(Math.abs(letter.y + letter.height / 2 - (circle.y + circle.height / 2))).toBeLessThan(2);
   await expect(cast.getByRole("link", { name: /Ridley Scott/u })).toContainText("Director");
 
   await capture(page, "title-metadata", true);
@@ -314,10 +333,28 @@ test("a person page shows their photo, life, links, and titles in the library", 
 
   const library = page.getByRole("region", { name: "In your library" });
 
-  await expect(library.getByRole("link", { name: /Alien Fixture/u })).toContainText("Ripley");
+  await expect(library.getByRole("link", { name: /Alien Fixture/u })).toContainText("as Ripley");
   await expect(library.getByRole("link", { name: /Aliens Fixture/u })).toContainText(
-    "Ellen Ripley",
+    "as Ellen Ripley",
   );
+});
+
+test("a person without a photo shows their letter in place of one", async ({ page }) => {
+  await openTitle(page, "Alien Fixture");
+  await page
+    .getByRole("region", { name: "Cast & crew" })
+    .getByRole("link", { name: /Tom Skerritt/u })
+    .click();
+
+  await expect(page.getByRole("heading", { level: 1, name: "Tom Skerritt" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Tom Skerritt" })).toHaveCount(0);
+  await expect(page.locator("main").getByText("T", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "In your library" }).getByRole("link", {
+      name: /Alien Fixture/u,
+    }),
+  ).toContainText("as Dallas");
+  await capture(page, "person-without-photo");
 });
 
 test("genre pages and the grid's year and score filters narrow titles on the server", async ({

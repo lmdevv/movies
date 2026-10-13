@@ -151,6 +151,19 @@ export const creditRole = (credit: {
   return credit.episodeCount > 1 ? `${what} · ${credit.episodeCount} episodes` : what;
 };
 
+/**
+ * The line under a title on a person's page: `as Ellen Ripley` for a character, else the job, such
+ * as `Director` or `Guest star · 3 episodes`.
+ */
+export const personRole = (credit: {
+  readonly kind: CreditKind;
+  readonly role: string | null;
+  readonly episodeCount: number;
+}): string =>
+  (credit.kind === "actor" || credit.kind === "guest-star") && credit.role !== null
+    ? creditRole({ ...credit, role: `as ${credit.role}` })
+    : creditRole(credit);
+
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/u;
 
 const longDate = new Intl.DateTimeFormat("en-US", {

@@ -6,6 +6,7 @@ import {
   formatDate,
   languageName,
   personLinks,
+  personRole,
   scoresOf,
   titleLinks,
   trailerEmbedUrl,
@@ -46,6 +47,15 @@ describe("metadata display", () => {
     expect(creditRole({ kind: "guest-star", role: null, episodeCount: 3 })).toBe(
       "Guest star · 3 episodes",
     );
+  });
+
+  it("names the character under a title on a person's page", () => {
+    expect(personRole({ kind: "actor", role: "Ripley", episodeCount: 0 })).toBe("as Ripley");
+    expect(personRole({ kind: "guest-star", role: "Visitor", episodeCount: 2 })).toBe(
+      "as Visitor · 2 episodes",
+    );
+    expect(personRole({ kind: "actor", role: null, episodeCount: 0 })).toBe("Cast");
+    expect(personRole({ kind: "director", role: "Director", episodeCount: 0 })).toBe("Director");
   });
 
   it("formats dates, ages, and languages", () => {

@@ -162,6 +162,8 @@ function PersonCard({
         image={artworkUrl(profile, "thumb")}
         size="md"
         round
+        centered
+        decorative
         className="transition-opacity group-hover/person:opacity-85"
       />
       <span className="flex flex-col gap-0.5">

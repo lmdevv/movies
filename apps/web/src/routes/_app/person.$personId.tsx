@@ -2,6 +2,7 @@ import { PersonId } from "@movies/contracts/ids";
 import type { PersonDetail } from "@movies/contracts/models/people";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Button, buttonVariants } from "@movies/ui/components/button";
+import { monogramOf } from "@movies/ui/components/avatar";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Schema } from "effect";
@@ -14,7 +15,7 @@ import { PosterGrid } from "@/components/browse/title-grid-page";
 import { artworkUrl } from "@/lib/artwork";
 import { describeFailure, isFailure } from "@/lib/failure";
 import { facts } from "@/lib/format";
-import { creditRole, formatDate, personLinks, yearsBetween } from "@/lib/metadata";
+import { formatDate, personLinks, personRole, yearsBetween } from "@/lib/metadata";
 import { useActiveProfile } from "@/session/guards";
 
 const decodePersonId = Schema.decodeSync(PersonId);
@@ -103,12 +104,22 @@ function PersonPage() {
     <div className="mx-auto box-content flex max-w-content flex-col gap-10 px-4 pt-6 pb-20 md:gap-14 md:px-16 md:pt-26">
       <title>{`${data.name} · [movies]`}</title>
       <section className="flex flex-col gap-6 md:flex-row md:gap-12">
-        <div
-          role="img"
-          aria-label={data.name}
-          className="aspect-2/3 w-40 shrink-0 rounded-poster bg-surface-raised bg-cover bg-center md:w-64"
-          style={photo === undefined ? undefined : { backgroundImage: `url("${photo}")` }}
-        />
+        {photo === undefined ? (
+          // No photo: the person's letter in the middle, like their avatar in a cast row.
+          <div
+            aria-hidden
+            className="flex aspect-2/3 w-40 shrink-0 items-center justify-center rounded-poster bg-surface-raised font-sans text-display/display font-heavy tracking-display text-text-muted select-none md:w-64"
+          >
+            {monogramOf(data.name)}
+          </div>
+        ) : (
+          <div
+            role="img"
+            aria-label={data.name}
+            className="aspect-2/3 w-40 shrink-0 rounded-poster bg-surface-raised bg-cover bg-center md:w-64"
+            style={{ backgroundImage: `url("${photo}")` }}
+          />
+        )}
         <div className="flex max-w-170 flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <h1 className="text-title/title font-heavy tracking-display text-text">{data.name}</h1>
@@ -136,7 +147,7 @@ function PersonPage() {
             <TitlePosterCard
               key={`${credit.title.id}:${credit.kind}`}
               title={credit.title}
-              subtitle={facts(credit.title.year, creditRole(credit)) || undefined}
+              subtitle={facts(credit.title.year, personRole(credit)) || undefined}
               className="w-full"
             />
           ))}
