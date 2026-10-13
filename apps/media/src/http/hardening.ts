@@ -37,13 +37,17 @@ const bodyRefusal = (headers: Readonly<Record<string, string | undefined>>) => {
 const socketOrigin = (origin: URL): string =>
   `${origin.protocol === "https:" ? "wss:" : "ws:"}//${origin.host}`;
 
+/** The trailer player's origin: YouTube's privacy-enhanced embeds, which set no cookies until play. */
+const YOUTUBE_EMBED_ORIGIN = "https://www.youtube-nocookie.com";
+
 /**
  * The content security policy for the web app. Scripts come only from this origin (the theme
  * script is a file, not inline). Styles allow inline `style` attributes and injected `<style>`
  * tags, which the UI kit's toasts and popovers use. The app talks to Convex over HTTP and
  * WebSockets and to this service, plays media from this service and from `blob:` URLs (MSE), and
- * shows TMDB posters while fixing a match. Without the public Convex URL the policy allows any
- * HTTP or WebSocket endpoint, which still keeps foreign scripts out.
+ * shows TMDB posters while fixing a match. The only frames it embeds are YouTube trailers, from
+ * the privacy-enhanced `youtube-nocookie.com` player. Without the public Convex URL the policy
+ * allows any HTTP or WebSocket endpoint, which still keeps foreign scripts out.
  */
 export const contentSecurityPolicy = (
   config: Pick<MediaConfig.Interface, "mediaBaseUrl" | "convexPublicUrl">,
@@ -68,6 +72,7 @@ export const contentSecurityPolicy = (
     "font-src 'self' data:",
     `connect-src 'self' ${media} ${convex.join(" ")}`,
     "worker-src 'self' blob:",
+    `frame-src ${YOUTUBE_EMBED_ORIGIN}`,
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

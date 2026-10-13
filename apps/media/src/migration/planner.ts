@@ -332,14 +332,24 @@ export const planMigration = (input: PlanInput): MigrationPlan => {
     }))
     .filter((collection) => collection.titleIds.length > 0);
 
+  // Overrides, and the source's provider IDs so titles [movies] could not match get them.
   const overrides = [
     ...new Map(
       input.items.flatMap((item): Array<[string, OverrideImport]> => {
         const match = matchedOf(item.itemId);
+        const hasOverrides = Object.keys(item.overrides).length > 0;
+        const hasIds = Object.values(item.ids).some((id) => id !== null);
 
-        return item.kind === "episode" || match === null || Object.keys(item.overrides).length === 0
-          ? []
-          : [[match.titleId, { titleId: match.titleId, overrides: item.overrides }]];
+        if (item.kind === "episode" || match === null || (!hasOverrides && !hasIds)) return [];
+
+        return [
+          [
+            match.titleId,
+            hasIds
+              ? { titleId: match.titleId, overrides: item.overrides, externalIds: item.ids }
+              : { titleId: match.titleId, overrides: item.overrides },
+          ],
+        ];
       }),
     ).values(),
   ];

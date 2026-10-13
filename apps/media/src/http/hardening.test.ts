@@ -124,6 +124,8 @@ describe("hardening", () => {
       "connect-src 'self' http://nas:4300 https://convex.example wss://convex.example;",
     );
     assert.include(policy, "media-src 'self' blob: http://nas:4300;");
+    // Trailers embed YouTube's cookieless player and nothing else.
+    assert.include(policy, "frame-src https://www.youtube-nocookie.com;");
     assert.notInclude(policy, "unsafe-eval");
 
     const open = Hardening.contentSecurityPolicy({

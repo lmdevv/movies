@@ -7,6 +7,7 @@
  * position applies only when the source played the item more recently than [movies] did, favorites
  * and collection members are written once, and local metadata overrides win over imported ones.
  */
+import type { Infer } from "convex/values";
 import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -32,6 +33,7 @@ import { findProgress } from "./lib/present";
 import { checkRoots } from "./lib/roots";
 import { isAdminRole } from "./lib/scopes";
 import {
+  type externalIds,
   jobProgress,
   leaseArgs,
   libraryKind,
@@ -611,6 +613,34 @@ export const importCollections = mutation({
   },
 });
 
+/**
+ * Fills the provider IDs a title lacks from the source's; IDs [movies] already has are kept. An
+ * unmatched title that gains one is queued for a metadata refresh, which looks it up by that ID.
+ */
+const importExternalIds = async (
+  ctx: MutationCtx,
+  title: Doc<"titles">,
+  ids: Infer<typeof externalIds>,
+): Promise<void> => {
+  const merged = {
+    tmdb: title.externalIds.tmdb ?? ids.tmdb,
+    imdb: title.externalIds.imdb ?? ids.imdb,
+    tvdb: title.externalIds.tvdb ?? ids.tvdb,
+  };
+
+  const gained =
+    merged.tmdb !== title.externalIds.tmdb ||
+    merged.imdb !== title.externalIds.imdb ||
+    merged.tvdb !== title.externalIds.tvdb;
+
+  if (!gained) return;
+  await ctx.db.patch(title._id, { externalIds: merged, updatedAt: Date.now() });
+
+  if (title.matchStatus === "unmatched") {
+    await enqueueJob(ctx, { kind: "metadata", titleId: title._id, match: null }, null);
+  }
+};
+
 export const importOverrides = mutation({
   args: { ...leaseArgs, items: v.array(overrideImport) },
   returns: v.object({ imported: v.number() }),
@@ -622,6 +652,11 @@ export const importOverrides = mutation({
       const title = await ctx.db.get(item.titleId);
 
       if (title === null) return 0;
+
+      if (item.externalIds !== undefined) {
+        await importExternalIds(ctx, title, item.externalIds);
+      }
+
       // Overrides an admin made on [movies] win over the source's.
       const overrides = { ...item.overrides, ...title.overrides };
       const before = title.overrides ?? {};

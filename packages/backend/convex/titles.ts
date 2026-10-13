@@ -214,12 +214,15 @@ export const get = query({
 
     const crew = CREW_ORDER.flatMap((kind) => credits.filter((entry) => entry.kind === kind));
 
-    const membership = await ctx.db
+    // A title may be in several collections; the one its metadata names comes first.
+    const memberships = await ctx.db
       .query("collectionItems")
       .withIndex("by_title", (q) => q.eq("titleId", titleId))
-      .first();
+      .take(20);
 
-    const collection = membership === null ? null : await ctx.db.get(membership.collectionId);
+    const membership = memberships.find((member) => member.source === "metadata") ?? memberships[0];
+
+    const collection = membership === undefined ? null : await ctx.db.get(membership.collectionId);
 
     return {
       ...presentTitleCard(title),
