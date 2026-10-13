@@ -10,11 +10,13 @@ import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import type { AnyCommand } from "@movies/contracts/command";
+import type { CommandArgs } from "@movies/contracts/commands";
 import { commands } from "@movies/contracts/commands";
 import type {
   DeviceId,
   JobId,
   LibraryId,
+  PersonId,
   PlaybackSessionId,
   ProfileId,
   TitleId,
@@ -23,7 +25,11 @@ import type {
 import type { CatalogFile, WatchStateImport } from "@movies/contracts/models/migration-service";
 import { DeviceId as DeviceIdSchema } from "@movies/contracts/ids";
 import type { TitleCard } from "@movies/contracts/models/catalog";
-import { ScannedItem } from "@movies/contracts/models/scan";
+import {
+  type ScannedEpisode as ScannedEpisodeSchema,
+  ScannedItem,
+  type ScannedTitle as ScannedTitleSchema,
+} from "@movies/contracts/models/scan";
 import {
   importPlaybackTokenSecret,
   PLAYBACK_TOKEN_LIFETIME_MS,
@@ -92,6 +98,14 @@ const device = (name: string): DeviceId => DeviceIdSchema.make(`${name}-${id}`);
 
 const DURATION_MS = 600_000;
 
+type Encoded<Item> = Item extends { readonly Encoded: infer E } ? E : never;
+
+/** Rich fields a rescan adds to a fixture title or episode. */
+interface ScanExtras {
+  readonly title?: Partial<Encoded<typeof ScannedTitleSchema>>;
+  readonly episode?: Partial<Encoded<typeof ScannedEpisodeSchema>>;
+}
+
 /** A scanned file as the media service would report it, through the contract's parser. */
 const scanned = (
   path: string,
@@ -101,6 +115,7 @@ const scanned = (
     readonly ageRating: number | null;
   },
   episode: { readonly season: number; readonly episode: number } | null,
+  extras: ScanExtras = {},
 ): ScannedItem =>
   decodeItem({
     file: {
@@ -146,6 +161,7 @@ const scanned = (
       artwork: { poster: null, backdrop: `backdrop-${id}`, logo: null },
       externalIds: { tmdb: null, imdb: null, tvdb: null },
       matchStatus: "unmatched",
+      ...extras.title,
     },
     episode:
       episode === null
@@ -160,6 +176,7 @@ const scanned = (
             still: null,
             seasonName: null,
             seasonPoster: null,
+            ...extras.episode,
           },
   });
 
@@ -422,6 +439,94 @@ const progressOf = async (fixture: Fixture, titleId: TitleId, episodeId: string 
 
   return page.items.find((row) => row.titleId === titleId && row.episodeId === episodeId);
 };
+
+/** A member and the profile they use. */
+interface Member {
+  readonly session: Session;
+  readonly profile: ProfileId;
+}
+
+/** A person as the media service reports them, named for this run. */
+const creditedPerson = (name: string, tmdb: string | null) => ({
+  name: `${name} ${TOKEN}`,
+  externalIds: { tmdb: tmdb === null ? null : `${tmdb}${id}`, imdb: null, tvdb: null },
+  profile: null,
+});
+
+const actor = (name: string, tmdb: string | null, order: number) => ({
+  person: creditedPerson(name, tmdb),
+  kind: "actor" as const,
+  role: `Role of ${name}`,
+  order,
+});
+
+/** Rescans a fixture movie with genres, studios, scores, a trailer, and provider IDs. */
+const rescan = async (
+  mediaService: Session,
+  library: LibraryId,
+  path: string,
+  title: { readonly name: string; readonly ageRating: number | null },
+  extras: NonNullable<ScanExtras["title"]>,
+) => {
+  await service(mediaService, "mediaService.upsertScanned", {
+    libraryId: library,
+    items: [scanned(path, { kind: "movie", ...title }, null, { title: extras })],
+  });
+};
+
+/** People of this run whose names match `name`. */
+const searchPeople = async (
+  session: Session,
+  profileId: ProfileId,
+  name: string,
+): Promise<ReadonlyArray<PersonId>> =>
+  (await run(session, "people.search", { profileId, query: `${name} ${TOKEN}` })).map(
+    (found) => found.id,
+  );
+
+/** The person of this run named `name`, as `profileId` sees them. */
+const findPerson = async (
+  session: Session,
+  profileId: ProfileId,
+  name: string,
+): Promise<PersonId> => {
+  const [found] = await searchPeople(session, profileId, name);
+
+  if (found === undefined) throw new Error(`${name} is not visible to this profile`);
+
+  return found;
+};
+
+/** The metadata filters of `titles.list`. */
+type ListFilters = Pick<
+  CommandArgs<"titles.list">,
+  "genre" | "yearFrom" | "yearTo" | "studio" | "minRating"
+>;
+
+/** Every page of a profile's movies under `filters`, two at a time, as title names. */
+const filteredPages = async (
+  session: Session,
+  profileId: ProfileId,
+  sort: "name" | "added" | "year",
+  filters: ListFilters & { readonly libraryId?: LibraryId },
+): Promise<ReadonlyArray<ReadonlyArray<string>>> => {
+  const read = async (
+    cursor: string | null,
+    found: ReadonlyArray<ReadonlyArray<string>>,
+  ): Promise<ReadonlyArray<ReadonlyArray<string>>> => {
+    const args = { profileId, kind: "movie" as const, sort, limit: 2, ...filters };
+    const page = await run(session, "titles.list", cursor === null ? args : { ...args, cursor });
+    const all = [...found, page.items.map((title) => title.name)];
+
+    return page.nextCursor === null || all.length > 20 ? all : read(page.nextCursor, all);
+  };
+
+  return read(null, []);
+};
+
+/** The names the genre paging test gives its movies, by letter. */
+const genreNames = (...letters: ReadonlyArray<string>): ReadonlyArray<string> =>
+  letters.map((letter) => `Genre ${letter} ${TOKEN}`);
 
 describe.skipIf(stack === undefined)("against a real stack", () => {
   let fixture: Fixture;
@@ -1555,6 +1660,717 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
     });
   });
 
+  describe("rich metadata", () => {
+    let stranger: Member;
+
+    beforeAll(async () => {
+      const open = `/stack-${id}/open`;
+      const session = await inviteMember(fixture.owner, `stranger-${id}@movies.test`);
+
+      stranger = { session, profile: await firstProfile(session) };
+
+      await rescan(
+        fixture.mediaService,
+        fixture.openLibrary,
+        `${open}/all-ages.mp4`,
+        { name: `All Ages ${TOKEN}`, ageRating: 0 },
+        {
+          year: 1999,
+          genres: ["Drama", `Genre ${id}`],
+          externalIds: { tmdb: `all${id}`, imdb: null, tvdb: null },
+          studios: [`Studio ${id}`],
+          countries: ["Canada"],
+          tags: [`tag-${id}`],
+          releaseDate: "1999-03-31",
+          originalLanguage: "en",
+          ratings: {
+            tmdb: { value: 7.1, votes: 900 },
+            imdb: { value: 8.7, votes: 2_000_000 },
+            rottenTomatoes: 88,
+            metacritic: 73,
+          },
+          trailer: { site: "youtube", key: "dQw4w9WgXcQ", name: "Trailer" },
+          recommendations: [`adult${id}`, `hidden${id}`],
+        },
+      );
+
+      await rescan(
+        fixture.mediaService,
+        fixture.openLibrary,
+        `${open}/adult.mp4`,
+        { name: `Adult ${TOKEN}`, ageRating: 17 },
+        {
+          year: 2012,
+          genres: [`Genre ${id}`],
+          externalIds: { tmdb: `adult${id}`, imdb: null, tvdb: null },
+          ratings: {
+            tmdb: { value: 5.5, votes: 10 },
+            imdb: null,
+            rottenTomatoes: null,
+            metacritic: null,
+          },
+          trailer: null,
+        },
+      );
+
+      await rescan(
+        fixture.mediaService,
+        fixture.restrictedLibrary,
+        `/stack-${id}/restricted/hidden.mp4`,
+        { name: `Hidden ${TOKEN}`, ageRating: 0 },
+        { genres: [`Genre ${id}`], externalIds: { tmdb: `hidden${id}`, imdb: null, tvdb: null } },
+      );
+
+      const credits = [
+        actor("Lead", "1", 0),
+        actor("Second", null, 1),
+        { person: creditedPerson("Maker", "2"), kind: "director" as const, role: null, order: 2 },
+      ];
+
+      await Promise.all(
+        [fixture.titles.allAges, fixture.titles.adult, fixture.titles.hidden].map((titleId) =>
+          service(fixture.mediaService, "mediaService.applyCredits", {
+            titleId,
+            episodeId: null,
+            credits: titleId === fixture.titles.allAges ? credits : [actor("Lead", "1", 0)],
+            hash: `${titleId}-v1`,
+          }),
+        ),
+      );
+
+      // Someone credited only on the adult title.
+      await service(fixture.mediaService, "mediaService.applyCredits", {
+        titleId: fixture.titles.adult,
+        episodeId: null,
+        credits: [actor("Lead", "1", 0), actor("Grown", "3", 1)],
+        hash: "adult-v2",
+      });
+
+      const collection = {
+        sourceKey: `tmdb:collection${id}`,
+        name: `Saga ${TOKEN}`,
+        overview: "Every film of the saga.",
+        poster: null,
+        backdrop: null,
+      };
+
+      await service(fixture.mediaService, "mediaService.applyCollection", {
+        titleId: fixture.titles.adult,
+        collection,
+        hash: "saga-v1",
+      });
+
+      await service(fixture.mediaService, "mediaService.applyCollection", {
+        titleId: fixture.titles.allAges,
+        collection,
+        hash: "saga-v1",
+      });
+    }, 60_000);
+
+    it("shows cast, crew, scores, studios, the trailer, and the collection on the title", async () => {
+      const title = await run(fixture.member, "titles.get", {
+        profileId: fixture.memberProfile,
+        titleId: fixture.titles.allAges,
+      });
+
+      expect(title.cast.map((entry) => [entry.name, entry.role])).toStrictEqual([
+        [`Lead ${TOKEN}`, "Role of Lead"],
+        [`Second ${TOKEN}`, "Role of Second"],
+      ]);
+      expect(title.crew.map((entry) => [entry.name, entry.kind])).toStrictEqual([
+        [`Maker ${TOKEN}`, "director"],
+      ]);
+      expect(title.ratings.imdb).toStrictEqual({ value: 8.7, votes: 2_000_000 });
+      expect(title.ratings.rottenTomatoes).toBe(88);
+      expect(title.studios).toStrictEqual([`Studio ${id}`]);
+      expect(title.tags).toStrictEqual([`tag-${id}`]);
+      expect(title.releaseDate).toBe("1999-03-31");
+      expect(title.trailer).toStrictEqual({ site: "youtube", key: "dQw4w9WgXcQ", name: "Trailer" });
+      expect(title.collection?.name).toBe(`Saga ${TOKEN}`);
+
+      const adult = await run(fixture.member, "titles.get", {
+        profileId: fixture.memberProfile,
+        titleId: fixture.titles.adult,
+      });
+
+      expect(adult.trailer).toBeNull();
+      expect(adult.cast.map((entry) => entry.name)).toStrictEqual([
+        `Lead ${TOKEN}`,
+        `Grown ${TOKEN}`,
+      ]);
+    });
+
+    it("keeps provider IDs a migration imported when the title is scanned again", async () => {
+      const owner = (await run(fixture.owner, "account.viewer", {})).user.id;
+      const { jobId, worker } = await claimMigration(fixture, owner, `server-ids-${id}`);
+
+      await service(fixture.mediaService, "migrationService.importOverrides", {
+        jobId,
+        workerId: worker,
+        items: [
+          {
+            titleId: fixture.titles.unrated,
+            overrides: {},
+            externalIds: { tmdb: `unrated${id}`, imdb: null, tvdb: null },
+          },
+        ],
+      });
+
+      await service(fixture.mediaService, "mediaService.completeJob", { jobId, workerId: worker });
+
+      // The scan knows no IDs for the file; the imported one stays.
+      await service(fixture.mediaService, "mediaService.upsertScanned", {
+        libraryId: fixture.openLibrary,
+        items: [
+          scanned(
+            `/stack-${id}/open/unrated.mp4`,
+            { kind: "movie", name: `Unrated ${TOKEN}`, ageRating: null },
+            null,
+          ),
+        ],
+      });
+
+      const title = await run(fixture.owner, "titles.get", {
+        profileId: fixture.ownerProfile,
+        titleId: fixture.titles.unrated,
+      });
+
+      expect(title.externalIds.tmdb).toBe(`unrated${id}`);
+    });
+
+    it("keeps one person when an IMDb-only credit and a TMDB credit name them", async () => {
+      const imdbOnly = {
+        person: {
+          name: `Twice ${TOKEN}`,
+          externalIds: { tmdb: null, imdb: `nm${id}`, tvdb: null },
+          profile: null,
+        },
+        kind: "actor" as const,
+        role: null,
+        order: 0,
+      };
+
+      const tmdbOnly = {
+        ...imdbOnly,
+        person: { ...imdbOnly.person, externalIds: { tmdb: `twice${id}`, imdb: null, tvdb: null } },
+      };
+
+      await service(fixture.mediaService, "mediaService.applyCredits", {
+        titleId: fixture.titles.unrated,
+        episodeId: null,
+        credits: [imdbOnly],
+        hash: "twice-v1",
+      });
+
+      await service(fixture.mediaService, "mediaService.applyCredits", {
+        titleId: fixture.titles.show,
+        episodeId: null,
+        credits: [tmdbOnly],
+        hash: "twice-v2",
+      });
+
+      // Search matches any word, so only this name counts.
+      const found = (
+        await run(fixture.owner, "people.search", {
+          profileId: fixture.ownerProfile,
+          query: `Twice ${TOKEN}`,
+        })
+      ).filter((person) => person.name === `Twice ${TOKEN}`);
+
+      expect(found).toHaveLength(1);
+
+      const twice = found[0]?.id;
+
+      if (twice === undefined) throw new Error("Nobody was credited");
+
+      const detail = await run(fixture.owner, "people.get", {
+        profileId: fixture.ownerProfile,
+        personId: twice,
+      });
+
+      expect(detail.externalIds).toStrictEqual({ tmdb: `twice${id}`, imdb: `nm${id}`, tvdb: null });
+      expect(detail.credits.map((entry) => entry.title.id).toSorted()).toStrictEqual(
+        [fixture.titles.unrated, fixture.titles.show].toSorted(),
+      );
+    });
+
+    it("keeps stored scores and provider IDs that a rescan cannot fetch", async () => {
+      // OMDb was unreachable this time: only TMDB's score came back, and no IDs.
+      await rescan(
+        fixture.mediaService,
+        fixture.openLibrary,
+        `/stack-${id}/open/all-ages.mp4`,
+        { name: `All Ages ${TOKEN}`, ageRating: 0 },
+        {
+          year: 1999,
+          genres: ["Drama", `Genre ${id}`],
+          ratings: {
+            tmdb: { value: 7.2, votes: 950 },
+            imdb: null,
+            rottenTomatoes: null,
+            metacritic: null,
+          },
+        },
+      );
+
+      const title = await run(fixture.member, "titles.get", {
+        profileId: fixture.memberProfile,
+        titleId: fixture.titles.allAges,
+      });
+
+      expect(title.ratings).toStrictEqual({
+        tmdb: { value: 7.2, votes: 950 },
+        imdb: { value: 8.7, votes: 2_000_000 },
+        rottenTomatoes: 88,
+        metacritic: 73,
+      });
+      expect(title.externalIds.tmdb).toBe(`all${id}`);
+    });
+
+    it("lets a refresh fill credits but not replace a scan's, nor describe others' people", async () => {
+      const { jobId } = await run(fixture.owner, "metadata.refresh", {
+        titleId: fixture.titles.allAges,
+      });
+
+      const workerId = `refresher-${id}`;
+
+      await service(fixture.mediaService, "mediaService.claimJob", {
+        jobId,
+        workerId,
+        leaseMs: 60_000,
+      });
+
+      const lease = { jobId, workerId };
+
+      const refreshed = await service(fixture.mediaService, "mediaService.applyCredits", {
+        titleId: fixture.titles.allAges,
+        episodeId: null,
+        credits: [actor("Provider Only", "99", 0)],
+        hash: "refresh-v1",
+        lease,
+      });
+
+      // The scan's credits stay; the people already credited come back for their details.
+      expect(refreshed.written).toBe(false);
+      expect(refreshed.people.map((person) => person.tmdbId)).toContain(`1${id}`);
+
+      const grown = await findPerson(fixture.owner, fixture.ownerProfile, "Grown");
+
+      expect(
+        await outcome(
+          service(fixture.mediaService, "mediaService.applyPerson", {
+            ...lease,
+            personId: grown,
+            details: {
+              name: `Grown ${TOKEN}`,
+              externalIds: { tmdb: null, imdb: null, tvdb: null },
+              profile: null,
+              biography: "Not theirs to write.",
+              birthDate: null,
+              deathDate: null,
+              birthPlace: null,
+              knownFor: null,
+            },
+          }),
+        ),
+      ).toBe("invalid_args");
+
+      await service(fixture.mediaService, "mediaService.completeJob", lease);
+    });
+
+    it("writes credits again only when their digest changes", async () => {
+      const again = await service(fixture.mediaService, "mediaService.applyCredits", {
+        titleId: fixture.titles.adult,
+        episodeId: null,
+        credits: [],
+        hash: "adult-v2",
+      });
+
+      expect(again).toStrictEqual({ written: false, people: [] });
+    });
+
+    it("shows a person only through titles the profile may see", async () => {
+      const lead = await findPerson(fixture.owner, fixture.ownerProfile, "Lead");
+      const grown = await findPerson(fixture.owner, fixture.ownerProfile, "Grown");
+
+      const forOwner = await run(fixture.owner, "people.get", {
+        profileId: fixture.ownerProfile,
+        personId: lead,
+      });
+
+      expect(forOwner.credits.map((entry) => entry.title.id).toSorted()).toStrictEqual(
+        [fixture.titles.allAges, fixture.titles.adult, fixture.titles.hidden].toSorted(),
+      );
+      expect(forOwner.detailsPending).toBe(true);
+
+      const forMember = await run(stranger.session, "people.get", {
+        profileId: stranger.profile,
+        personId: lead,
+      });
+
+      expect(forMember.credits.map((entry) => entry.title.id).toSorted()).toStrictEqual(
+        [fixture.titles.allAges, fixture.titles.adult].toSorted(),
+      );
+
+      const forKids = await run(fixture.member, "people.get", {
+        profileId: fixture.kidsProfile,
+        personId: lead,
+      });
+
+      // The member was granted the restricted library; the kids profile still never sees R.
+      expect(forKids.credits.map((entry) => entry.title.id).toSorted()).toStrictEqual(
+        [fixture.titles.allAges, fixture.titles.hidden].toSorted(),
+      );
+
+      expect(
+        await outcome(
+          run(fixture.member, "people.get", { profileId: fixture.kidsProfile, personId: grown }),
+        ),
+      ).toBe("not_found");
+      // Search matches any word, so other people of this run show up; never a hidden one.
+      expect(await searchPeople(fixture.member, fixture.kidsProfile, "Grown")).not.toContain(grown);
+      expect((await searchPeople(stranger.session, stranger.profile, "Grown"))[0]).toBe(grown);
+    });
+
+    it("queues one person job per request window and writes the details it fetches", async () => {
+      const lead = await findPerson(fixture.owner, fixture.ownerProfile, "Lead");
+      const args = { profileId: fixture.memberProfile, personId: lead };
+
+      await run(fixture.member, "people.requestDetails", args);
+      await run(fixture.member, "people.requestDetails", args);
+
+      const queued = (await run(fixture.owner, "jobs.list", { kind: "person", limit: 100 })).filter(
+        (job) => job.payload.kind === "person" && job.payload.personId === lead,
+      );
+
+      expect(queued).toHaveLength(1);
+      const [job] = queued;
+
+      if (job === undefined) throw new Error("No person job was queued");
+      const workerId = `person-worker-${id}`;
+
+      await service(fixture.mediaService, "mediaService.claimJob", {
+        jobId: job.id,
+        workerId,
+        leaseMs: 60_000,
+      });
+
+      const target = await service(fixture.mediaService, "mediaService.personTarget", {
+        personId: lead,
+      });
+
+      expect(target.externalIds.tmdb).toBe(`1${id}`);
+
+      // A person job's lease covers its own person only.
+      expect(
+        await outcome(
+          service(fixture.mediaService, "mediaService.applyPerson", {
+            jobId: job.id,
+            workerId,
+            personId: await findPerson(fixture.owner, fixture.ownerProfile, "Maker"),
+            details: {
+              name: `Maker ${TOKEN}`,
+              externalIds: { tmdb: null, imdb: null, tvdb: null },
+              profile: null,
+              biography: null,
+              birthDate: null,
+              deathDate: null,
+              birthPlace: null,
+              knownFor: null,
+            },
+          }),
+        ),
+      ).toBe("invalid_args");
+
+      await service(fixture.mediaService, "mediaService.applyPerson", {
+        jobId: job.id,
+        workerId,
+        personId: lead,
+        details: {
+          name: target.name,
+          externalIds: { tmdb: target.externalIds.tmdb, imdb: "nm0000001", tvdb: null },
+          profile: null,
+          biography: "Plays leads.",
+          birthDate: "1970-01-01",
+          deathDate: null,
+          birthPlace: "Montreal",
+          knownFor: "Acting",
+        },
+      });
+
+      await service(fixture.mediaService, "mediaService.completeJob", { jobId: job.id, workerId });
+
+      const detail = await run(fixture.member, "people.get", args);
+
+      expect(detail.biography).toBe("Plays leads.");
+      expect(detail.externalIds.imdb).toBe("nm0000001");
+      expect(detail.detailsPending).toBe(false);
+    });
+
+    it("filters lists by genre, years, studio, and score, and counts genres", async () => {
+      const names = async (filters: ListFilters) =>
+        (
+          await run(stranger.session, "titles.list", {
+            profileId: stranger.profile,
+            kind: "movie",
+            sort: "added",
+            limit: 100,
+            ...filters,
+          })
+        ).items.flatMap((title) => (title.name.includes(TOKEN) ? [title.name] : []));
+
+      expect((await names({ genre: `genre ${id}` })).toSorted()).toStrictEqual(
+        [`Adult ${TOKEN}`, `All Ages ${TOKEN}`].toSorted(),
+      );
+      expect(await names({ genre: `Genre ${id}`, yearFrom: 2010, yearTo: 2019 })).toStrictEqual([
+        `Adult ${TOKEN}`,
+      ]);
+      expect(await names({ studio: `studio ${id}` })).toStrictEqual([`All Ages ${TOKEN}`]);
+      expect(await names({ genre: `Genre ${id}`, minRating: 8 })).toStrictEqual([
+        `All Ages ${TOKEN}`,
+      ]);
+
+      const genres = await run(fixture.member, "titles.genres", {
+        profileId: fixture.kidsProfile,
+        kind: "movie",
+      });
+
+      // All ages and the granted restricted title; the adult one is not the kids profile's.
+      expect(genres.find((genre) => genre.name === `Genre ${id}`)?.count).toBe(2);
+    });
+
+    it("recommends provider matches the profile may see, then titles alike", async () => {
+      const similar = async (session: Session, profileId: ProfileId) =>
+        (await run(session, "titles.similar", { profileId, titleId: fixture.titles.allAges })).map(
+          (title) => title.id,
+        );
+
+      // The restricted title is recommended, but this member was never granted its library.
+      expect((await similar(stranger.session, stranger.profile))[0]).toBe(fixture.titles.adult);
+      expect(await similar(stranger.session, stranger.profile)).not.toContain(
+        fixture.titles.hidden,
+      );
+      expect(await similar(fixture.member, fixture.kidsProfile)).not.toContain(
+        fixture.titles.adult,
+      );
+      expect(
+        (
+          await run(fixture.owner, "titles.similar", {
+            profileId: fixture.ownerProfile,
+            titleId: fixture.titles.allAges,
+          })
+        )
+          .map((title) => title.id)
+          .slice(0, 2),
+      ).toStrictEqual([fixture.titles.adult, fixture.titles.hidden]);
+    });
+
+    it("lists another library's copy of a title once, and never the title's own copy", async () => {
+      const copies = await run(fixture.owner, "libraries.create", {
+        name: `Copies ${id}`,
+        kind: "movies",
+        roots: [`/stack-${id}/copies`],
+      });
+
+      // A second copy of the adult title, and a copy of the title being viewed, both as TMDB has
+      // them, and alike in every way the top-up ranks by.
+      await service(fixture.mediaService, "mediaService.upsertScanned", {
+        libraryId: copies.libraryId,
+        items: [
+          ["adult", `Adult Copy ${TOKEN}`, 17],
+          ["all", `All Ages Copy ${TOKEN}`, 0],
+        ].map(([key, name, ageRating]) =>
+          scanned(
+            `/stack-${id}/copies/${String(key)}.mp4`,
+            { kind: "movie", name: String(name), ageRating: Number(ageRating) },
+            null,
+            {
+              title: {
+                genres: ["Drama", `Genre ${id}`],
+                studios: [`Studio ${id}`],
+                externalIds: { tmdb: `${String(key)}${id}`, imdb: null, tvdb: null },
+              },
+            },
+          ),
+        ),
+      });
+
+      const listed = await run(fixture.owner, "titles.similar", {
+        profileId: fixture.ownerProfile,
+        titleId: fixture.titles.allAges,
+      });
+
+      const names = listed.map((title) => title.name);
+
+      expect(names.filter((name) => name.startsWith("Adult"))).toHaveLength(1);
+      expect(names).not.toContain(`All Ages Copy ${TOKEN}`);
+
+      await run(fixture.owner, "libraries.remove", { libraryId: copies.libraryId });
+    });
+
+    it("shows a collection's visible titles in year order, and hides one with none", async () => {
+      const { collection } = await run(fixture.member, "titles.get", {
+        profileId: fixture.memberProfile,
+        titleId: fixture.titles.allAges,
+      });
+
+      if (collection === null) throw new Error("The title lost its collection");
+
+      const full = await run(fixture.member, "collections.get", {
+        profileId: fixture.memberProfile,
+        collectionId: collection.id,
+      });
+
+      expect(full.overview).toBe("Every film of the saga.");
+      expect(full.titles.map((title) => title.id)).toStrictEqual([
+        fixture.titles.allAges,
+        fixture.titles.adult,
+      ]);
+
+      const forKids = await run(fixture.member, "collections.get", {
+        profileId: fixture.kidsProfile,
+        collectionId: collection.id,
+      });
+
+      expect(forKids.titles.map((title) => title.id)).toStrictEqual([fixture.titles.allAges]);
+
+      await service(fixture.mediaService, "mediaService.applyCollection", {
+        titleId: fixture.titles.allAges,
+        collection: null,
+        hash: "none",
+      });
+
+      expect(
+        await outcome(
+          run(fixture.member, "collections.get", {
+            profileId: fixture.kidsProfile,
+            collectionId: collection.id,
+          }),
+        ),
+      ).toBe("not_found");
+    });
+
+    it("lists an episode's guest stars, score, and IDs", async () => {
+      const [first] = await run(fixture.member, "titles.episodes", {
+        profileId: fixture.memberProfile,
+        titleId: fixture.titles.show,
+        seasonNumber: 1,
+      });
+
+      if (first === undefined) throw new Error("The show has no episodes");
+
+      await service(fixture.mediaService, "mediaService.upsertScanned", {
+        libraryId: fixture.openLibrary,
+        items: [
+          scanned(
+            `/stack-${id}/open/show/s01e01.mp4`,
+            { kind: "show", name: `Show ${TOKEN}`, ageRating: 7 },
+            { season: 1, episode: 1 },
+            {
+              episode: {
+                rating: { value: 8.4, votes: 50 },
+                externalIds: { tmdb: `episode${id}`, imdb: null, tvdb: null },
+              },
+            },
+          ),
+        ],
+      });
+
+      await service(fixture.mediaService, "mediaService.applyCredits", {
+        titleId: fixture.titles.show,
+        episodeId: first.id,
+        credits: [
+          { person: creditedPerson("Guest", null), kind: "guest-star", role: "Visitor", order: 0 },
+        ],
+        hash: "episode-v1",
+      });
+
+      const [episode] = await run(fixture.member, "titles.episodes", {
+        profileId: fixture.memberProfile,
+        titleId: fixture.titles.show,
+        seasonNumber: 1,
+      });
+
+      expect(episode?.rating).toBe(8.4);
+      expect(episode?.externalIds.tmdb).toBe(`episode${id}`);
+      expect(episode?.credits.map((entry) => [entry.name, entry.kind])).toStrictEqual([
+        [`Guest ${TOKEN}`, "guest-star"],
+      ]);
+    });
+
+    it("finds a person whose first credits are all on titles the profile may not see", async () => {
+      const roles = Array.from({ length: 12 }, (_, index) => ({
+        ...actor("Prolific", "4", index + 1),
+        role: `Part ${index}`,
+      }));
+
+      await service(fixture.mediaService, "mediaService.applyCredits", {
+        titleId: fixture.titles.hidden,
+        episodeId: null,
+        credits: [actor("Lead", "1", 0), ...roles],
+        hash: "hidden-v2",
+      });
+
+      const prolific = await findPerson(fixture.owner, fixture.ownerProfile, "Prolific");
+
+      // Search matches any word, so other people of this run show up; never a hidden one.
+      expect(await searchPeople(stranger.session, stranger.profile, "Prolific")).not.toContain(
+        prolific,
+      );
+
+      await service(fixture.mediaService, "mediaService.applyCredits", {
+        titleId: fixture.titles.show,
+        episodeId: null,
+        credits: [actor("Prolific", "4", 0)],
+        hash: "show-v1",
+      });
+
+      expect((await searchPeople(stranger.session, stranger.profile, "Prolific"))[0]).toBe(
+        prolific,
+      );
+    });
+
+    it("keeps a title an import put in its metadata collection when a later import leaves it out", async () => {
+      const owner = (await run(fixture.owner, "account.viewer", {})).user.id;
+      const { jobId, worker } = await claimMigration(fixture, owner, `server-saga-${id}`);
+      const lease = { jobId, workerId: worker };
+      const sourceKey = `jellyfin:${id}:imported-saga`;
+      const name = `Imported ${TOKEN}`;
+
+      await service(fixture.mediaService, "migrationService.importCollections", {
+        ...lease,
+        items: [{ sourceKey, name, sortName: null, titleIds: [fixture.titles.hidden] }],
+      });
+
+      await service(fixture.mediaService, "mediaService.applyCollection", {
+        titleId: fixture.titles.hidden,
+        collection: { sourceKey, name, overview: null, poster: null, backdrop: null },
+        hash: "imported-v1",
+      });
+
+      await service(fixture.mediaService, "migrationService.importCollections", {
+        ...lease,
+        items: [{ sourceKey, name, sortName: null, titleIds: [] }],
+      });
+
+      const { collection } = await run(fixture.owner, "titles.get", {
+        profileId: fixture.ownerProfile,
+        titleId: fixture.titles.hidden,
+      });
+
+      if (collection === null) throw new Error("The title lost its collection");
+
+      expect(collection.name).toBe(name);
+
+      const full = await run(fixture.owner, "collections.get", {
+        profileId: fixture.ownerProfile,
+        collectionId: collection.id,
+      });
+
+      expect(full.titles.map((title) => title.id)).toStrictEqual([fixture.titles.hidden]);
+    });
+  });
+
   describe("API key lifetimes and ownership", () => {
     it("ends a key's session when the key expires, even with a token still valid", async () => {
       const memberId = (await run(fixture.member, "account.viewer", {})).user.id;
@@ -2152,6 +2968,111 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       const all = movies.map(([letter]) => `Paging ${letter} ${TOKEN}`).toSorted();
 
       expect(everyOrder).toStrictEqual([all, all, all]);
+
+      await run(fixture.owner, "libraries.remove", { libraryId: created.libraryId });
+    });
+
+    it("pages a genre and the metadata filters the same way, full for a limited profile", async () => {
+      const created = await run(fixture.owner, "libraries.create", {
+        name: `Genre paging ${id}`,
+        kind: "movies",
+        roots: [`/stack-${id}/genre-paging`],
+      });
+
+      const genre = `Paging${id}`;
+
+      // Letter, age rating, in the genre, year, studio, score.
+      const movies = [
+        ["A", 0, true, 1990, "One", 8],
+        ["B", 17, true, 1991, "One", 7],
+        ["C", 0, false, 1992, "One", 9],
+        ["D", 0, true, 1993, "Two", 6],
+        ["E", 17, true, 1994, "One", 8.5],
+        ["F", 0, true, 1995, "One", 8.2],
+        ["G", 17, false, 1996, "Two", 5],
+        ["H", 0, true, 1997, "One", 7.5],
+        ["I", 0, true, 1998, "One", 9.1],
+      ] as const;
+
+      await service(fixture.mediaService, "mediaService.upsertScanned", {
+        libraryId: created.libraryId,
+        items: movies.map(([letter, ageRating, inGenre, year, studio, score]) =>
+          scanned(
+            `/stack-${id}/genre-paging/${letter}.mp4`,
+            { kind: "movie", name: `Genre ${letter} ${TOKEN}`, ageRating },
+            null,
+            {
+              title: {
+                year,
+                genres: inGenre ? ["Drama", genre] : ["Drama"],
+                studios: [`Studio ${studio} ${id}`],
+                ratings: {
+                  tmdb: { value: score, votes: 100 },
+                  imdb: null,
+                  rottenTomatoes: null,
+                  metacritic: null,
+                },
+              },
+            },
+          ),
+        ),
+      });
+
+      // The kids profile sees five of the genre's seven; every page but the last is full, in
+      // every order, and no title repeats.
+      expect(
+        await filteredPages(fixture.member, fixture.kidsProfile, "name", {
+          genre: genre.toUpperCase(),
+        }),
+      ).toStrictEqual([genreNames("A", "D"), genreNames("F", "H"), genreNames("I")]);
+
+      const orders = await Promise.all(
+        (["added", "year"] as const).map((sort) =>
+          filteredPages(fixture.member, fixture.kidsProfile, sort, { genre }),
+        ),
+      );
+
+      for (const order of orders) {
+        expect(order.map((page) => page.length)).toStrictEqual([2, 2, 1]);
+        expect(order.flat().toSorted()).toStrictEqual(
+          [...genreNames("A", "D", "F", "H", "I")].toSorted(),
+        );
+      }
+
+      expect((orders[1] ?? []).flat()).toStrictEqual(genreNames("I", "H", "F", "D", "A"));
+
+      // Years, studio, and score narrow the genre's titles, and the library scope keeps to it.
+      const narrowed = {
+        genre,
+        yearFrom: 1991,
+        yearTo: 1997,
+        studio: `studio one ${id}`,
+        minRating: 7.5,
+        libraryId: created.libraryId,
+      };
+
+      expect(
+        await filteredPages(fixture.owner, fixture.ownerProfile, "name", narrowed),
+      ).toStrictEqual([genreNames("E", "F"), genreNames("H")]);
+
+      // Without a genre the same filters page through the library's own index.
+      expect(
+        (
+          await filteredPages(fixture.owner, fixture.ownerProfile, "year", {
+            yearFrom: 1991,
+            yearTo: 1997,
+            minRating: 7.5,
+            libraryId: created.libraryId,
+          })
+        ).flat(),
+      ).toStrictEqual(genreNames("H", "F", "E", "C"));
+
+      expect(
+        await filteredPages(fixture.owner, fixture.ownerProfile, "name", {
+          genre,
+          libraryId: fixture.openLibrary,
+        }),
+      ).toStrictEqual([[]]);
 
       await run(fixture.owner, "libraries.remove", { libraryId: created.libraryId });
     });

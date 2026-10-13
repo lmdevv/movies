@@ -130,6 +130,14 @@ export const CollectionId = Schema.NonEmptyString.pipe(Schema.brand("CollectionI
 /** A collection ID. */
 export type CollectionId = typeof CollectionId.Type;
 
+/** A person credited on titles: an actor, director, writer, or other cast and crew. */
+export const PersonId = Schema.NonEmptyString.pipe(Schema.brand("PersonId")).annotate({
+  [CONVEX_TABLE_ANNOTATION]: "people",
+});
+
+/** A person ID. */
+export type PersonId = typeof PersonId.Type;
+
 /**
  * A client-generated identifier, stable per browser profile, CLI install, or TV app. It separates
  * concurrent devices on one profile; it is not a Convex document ID.

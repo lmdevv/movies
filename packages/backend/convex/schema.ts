@@ -12,6 +12,8 @@ import {
   artwork,
   assignableRole,
   backupTrigger,
+  communityRating,
+  creditKind,
   deviceScope,
   externalIds,
   externalSubtitle,
@@ -27,10 +29,13 @@ import {
   nullable,
   playbackMode,
   probe,
+  ratings,
   role,
   roomStatus,
   scope,
+  showStatus,
   titleKind,
+  trailer,
 } from "./lib/validators";
 
 /**
@@ -180,8 +185,26 @@ export default defineSchema({
     addedAt: v.number(),
     updatedAt: v.number(),
     searchText: v.string(),
+    // Rich metadata. Optional so titles written before it existed stay valid; every list is
+    // bounded by the media service (`TITLE_LIST_LIMIT`, `TITLE_TAG_LIMIT` in contracts).
+    originalName: v.optional(nullable(v.string())),
+    releaseDate: v.optional(nullable(v.string())),
+    status: v.optional(nullable(showStatus)),
+    originalLanguage: v.optional(nullable(v.string())),
+    studios: v.optional(v.array(v.string())),
+    countries: v.optional(v.array(v.string())),
+    tags: v.optional(v.array(v.string())),
+    ratings: v.optional(ratings),
+    trailer: v.optional(nullable(trailer)),
+    /** TMDB IDs the provider recommends, best first; `titles.similar` resolves them on read. */
+    recommendations: v.optional(v.array(v.string())),
+    /** Digest of the title's own credits, so unchanged rescans skip rewriting them. */
+    creditsHash: v.optional(v.string()),
+    /** Digest of the collection the title's metadata names, likewise. */
+    collectionHash: v.optional(v.string()),
   })
     .index("by_library_match", ["libraryId", "matchKey"])
+    .index("by_kind_tmdb", ["kind", "externalIds.tmdb"])
     .index("by_library", ["libraryId"])
     .index("by_library_status", ["libraryId", "matchStatus"])
     // `titles.list` filtered by library, in each of its orders.
@@ -196,12 +219,39 @@ export default defineSchema({
     .index("by_year", ["year"])
     .searchIndex("search_text", { searchField: "searchText", filterFields: ["kind"] }),
 
+  /**
+   * One row per title and genre, so browsing a genre reads only its titles: Convex cannot index
+   * array members. Rows copy the title's sort fields; `lib/genres.ts` keeps them in step with
+   * every write of a title's genres or sort fields.
+   */
+  titleGenres: defineTable({
+    titleId: v.id("titles"),
+    libraryId: v.id("libraries"),
+    /** The genre, trimmed and lowercased. */
+    genre: v.string(),
+    kind: titleKind,
+    sortKey: v.string(),
+    addedAt: v.number(),
+    year: nullable(v.number()),
+  })
+    .index("by_title", ["titleId"])
+    .index("by_genre_sort", ["genre", "sortKey"])
+    .index("by_genre_added", ["genre", "addedAt"])
+    .index("by_genre_year", ["genre", "year"])
+    .index("by_kind_genre_sort", ["kind", "genre", "sortKey"])
+    .index("by_kind_genre_added", ["kind", "genre", "addedAt"])
+    .index("by_kind_genre_year", ["kind", "genre", "year"])
+    .index("by_library_genre_sort", ["libraryId", "genre", "sortKey"])
+    .index("by_library_genre_added", ["libraryId", "genre", "addedAt"])
+    .index("by_library_genre_year", ["libraryId", "genre", "year"]),
+
   seasons: defineTable({
     titleId: v.id("titles"),
     seasonNumber: v.number(),
     name: v.string(),
     poster: nullable(v.string()),
     episodeCount: v.number(),
+    externalIds: v.optional(externalIds),
   }).index("by_title_number", ["titleId", "seasonNumber"]),
 
   episodes: defineTable({
@@ -215,7 +265,51 @@ export default defineSchema({
     runtimeMs: nullable(v.number()),
     still: nullable(v.string()),
     presentFileCount: v.number(),
+    rating: v.optional(nullable(communityRating)),
+    externalIds: v.optional(externalIds),
+    /** Digest of the episode's guest stars and crew, so unchanged rescans skip rewriting them. */
+    creditsHash: v.optional(v.string()),
   }).index("by_title_order", ["titleId", "seasonNumber", "episodeNumber"]),
+
+  /**
+   * Cast and crew. A person is identified by `personKey`: `tmdb:<id>` when TMDB knows them, else
+   * `imdb:<id>`, else `name:<normalized name>` for people only an NFO names. A name-keyed person
+   * is upgraded in place once a TMDB ID turns up, so their credits keep pointing at one row.
+   */
+  people: defineTable({
+    personKey: v.string(),
+    name: v.string(),
+    sortKey: v.string(),
+    externalIds,
+    /** Photo artwork key. */
+    profile: nullable(v.string()),
+    biography: nullable(v.string()),
+    birthDate: nullable(v.string()),
+    deathDate: nullable(v.string()),
+    birthPlace: nullable(v.string()),
+    knownFor: nullable(v.string()),
+    /** When a person or metadata job last wrote their details; null until then. */
+    detailsFetchedAt: nullable(v.number()),
+    /** When someone last asked for the details, so a page opened twice queues one job. */
+    detailsRequestedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_key", ["personKey"])
+    .index("by_name", ["name"])
+    .index("by_tmdb", ["externalIds.tmdb"])
+    .searchIndex("search_name", { searchField: "name" }),
+
+  /** One person's credit on a title (`episodeId` null) or on one episode of a show. */
+  credits: defineTable({
+    titleId: v.id("titles"),
+    episodeId: nullable(v.id("episodes")),
+    personId: v.id("people"),
+    kind: creditKind,
+    role: nullable(v.string()),
+    order: v.number(),
+  })
+    .index("by_title_episode", ["titleId", "episodeId", "order"])
+    .index("by_person", ["personId"]),
 
   mediaFiles: defineTable({
     libraryId: v.id("libraries"),
@@ -359,14 +453,20 @@ export default defineSchema({
     .index("by_job", ["jobId"])
     .index("by_server", ["serverId"]),
 
-  /** Named sets of titles, such as box sets imported from Jellyfin or Plex. */
+  /** Named sets of titles: TMDB collections, NFO sets, and box sets imported from elsewhere. */
   collections: defineTable({
     name: v.string(),
     sortKey: v.string(),
-    /** Identifies an imported collection across runs, such as `jellyfin:<server>:<id>`. */
+    /**
+     * Identifies a collection across runs: `jellyfin:<server>:<id>` or `plex:…` when imported,
+     * `tmdb:<id>` for a TMDB collection, `set:<name>` for an NFO set.
+     */
     sourceKey: nullable(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
+    overview: v.optional(nullable(v.string())),
+    poster: v.optional(nullable(v.string())),
+    backdrop: v.optional(nullable(v.string())),
   })
     .index("by_source_key", ["sourceKey"])
     .index("by_sort", ["sortKey"]),
@@ -375,6 +475,8 @@ export default defineSchema({
     collectionId: v.id("collections"),
     titleId: v.id("titles"),
     position: v.number(),
+    /** `metadata` members come from a title's metadata; imports leave them alone. */
+    source: v.optional(v.literal("metadata")),
   })
     .index("by_collection_position", ["collectionId", "position"])
     .index("by_title", ["titleId"]),

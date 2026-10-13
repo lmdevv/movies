@@ -171,11 +171,14 @@ export const collectionImport = v.object({
 export const overrideImport = v.object({
   titleId: v.id("titles"),
   overrides: metadataOverrides,
+  externalIds: v.optional(externalIds),
 });
 
 /** Mirrors `Collection` in `@movies/contracts/models/collections`. */
 export const collection = v.object({
   id: v.id("collections"),
   name: v.string(),
+  overview: nullable(v.string()),
+  artwork: v.object({ poster: nullable(v.string()), backdrop: nullable(v.string()) }),
   titles: v.array(titleCard),
 });

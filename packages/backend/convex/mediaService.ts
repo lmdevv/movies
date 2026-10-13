@@ -11,6 +11,7 @@ import { mutation, query } from "./_generated/server";
 import { BACKUP_SYNC_LIMIT, BATCH_LIMIT } from "./lib/bounds";
 import {
   inSequence,
+  keepKnown,
   markFileMissing,
   searchTextOf,
   titleMetadata,
@@ -19,6 +20,8 @@ import {
 } from "./lib/catalog";
 import { fail } from "./lib/errors";
 import { MAX_JOB_ATTEMPTS, requireLease, requireLeaseOf } from "./lib/jobs";
+import { syncTitleGenres } from "./lib/genres";
+import { CREDIT_LIMIT, creditsOf, personKeyOf, replaceCredits } from "./lib/people";
 import { presentJob } from "./lib/present";
 import {
   backupArchive,
@@ -30,13 +33,18 @@ import {
   leaseArgs,
   mediaLibrary,
   metadataTarget as metadataTargetResult,
+  nullable,
   ok,
   page,
   pageArgs,
+  personTarget as personTargetResult,
   playbackMode,
   resolvedFile,
+  scannedCollection,
+  scannedCredit,
   scannedEpisode,
   scannedItem,
+  scannedPersonDetails,
   scannedTitle,
   sessionStatus as sessionStatusResult,
   upsertedFile,
@@ -374,6 +382,7 @@ export const metadataTarget = query({
       externalIds: title.externalIds,
       artwork: title.artwork,
       episodes: episodes.map((episode) => ({
+        episodeId: episode._id,
         seasonNumber: episode.seasonNumber,
         episodeNumber: episode.episodeNumber,
       })),
@@ -402,18 +411,294 @@ export const applyMetadata = mutation({
     const current = await ctx.db.get(titleId);
 
     if (current === null) return fail("not_found", "No such title");
-    const metadata = { ...titleMetadata(title), kind: current.kind };
+    const merged = keepKnown(title, current);
+    const metadata = { ...titleMetadata(merged), kind: current.kind };
 
     await ctx.db.patch(titleId, {
       ...metadata,
-      matchStatus: doc.payload.match === null ? title.matchStatus : "manual",
+      matchStatus: doc.payload.match === null ? merged.matchStatus : "manual",
       updatedAt: Date.now(),
       searchText: searchTextOf({ ...metadata, overrides: current.overrides }),
     });
 
+    const updated = await ctx.db.get(titleId);
+
+    if (updated !== null) await syncTitleGenres(ctx, updated);
+
     if (current.kind === "show") {
       await inSequence(checkBatch(episodes), (episode) => upsertEpisode(ctx, titleId, episode));
     }
+
+    return { ok: true as const };
+  },
+});
+
+/**
+ * Whether a metadata write may change `title`: a scan may change any title an admin did not match
+ * by hand; a metadata job holding its lease may change the title it is for.
+ */
+const mayWriteMetadata = async (
+  ctx: MutationCtx,
+  title: Doc<"titles">,
+  lease: { readonly jobId: Id<"jobs">; readonly workerId: string } | undefined,
+): Promise<boolean> => {
+  if (lease === undefined) return title.matchStatus !== "manual";
+  const held = await requireLeaseOf(ctx, lease.jobId, lease.workerId, "metadata");
+
+  return held.payload.titleId === title._id
+    ? true
+    : fail("invalid_args", "This job is for another title");
+};
+
+const optionalLease = v.optional(v.object(leaseArgs));
+
+export const applyCredits = mutation({
+  args: {
+    titleId: v.id("titles"),
+    episodeId: nullable(v.id("episodes")),
+    credits: v.array(scannedCredit),
+    hash: v.string(),
+    lease: optionalLease,
+  },
+  returns: v.object({
+    written: v.boolean(),
+    people: v.array(
+      v.object({
+        personId: v.id("people"),
+        tmdbId: nullable(v.string()),
+        needsDetails: v.boolean(),
+      }),
+    ),
+  }),
+  handler: async (ctx, { titleId, episodeId, credits, hash, lease }) => {
+    await authorize(ctx, "media-service");
+
+    if (credits.length > CREDIT_LIMIT) {
+      return fail("invalid_args", `Send at most ${CREDIT_LIMIT} credits per call`);
+    }
+
+    const title = (await ctx.db.get(titleId)) ?? fail("not_found", "No such title");
+    const episode = episodeId === null ? null : await ctx.db.get(episodeId);
+
+    if (episodeId !== null && episode?.titleId !== titleId) {
+      return fail("not_found", "No such episode of this title");
+    }
+
+    const stored = episode === null ? title.creditsHash : episode.creditsHash;
+
+    if (stored === hash || !(await mayWriteMetadata(ctx, title, lease))) {
+      return { written: false, people: [] };
+    }
+
+    // A refresh fills credits nobody wrote yet; it never replaces a scan's (often an NFO's cast,
+    // which would only come back at the next scan). A hand-picked match replaces them.
+    if (lease !== undefined && stored !== undefined) {
+      const held = await requireLeaseOf(ctx, lease.jobId, lease.workerId, "metadata");
+
+      if (held.payload.match === null) {
+        // The people already credited still get their details fetched by the refresh.
+        const rows = await creditsOf(ctx, titleId, episodeId, CREDIT_LIMIT);
+        const people = await Promise.all(rows.map((row) => ctx.db.get(row.personId)));
+
+        return {
+          written: false,
+          people: people.flatMap((person) =>
+            person === null
+              ? []
+              : [
+                  {
+                    personId: person._id,
+                    tmdbId: person.externalIds.tmdb,
+                    needsDetails:
+                      person.detailsFetchedAt === null && person.externalIds.tmdb !== null,
+                  },
+                ],
+          ),
+        };
+      }
+    }
+
+    const people = await replaceCredits(ctx, titleId, episodeId, credits);
+
+    if (episode === null) await ctx.db.patch(titleId, { creditsHash: hash });
+    else await ctx.db.patch(episode._id, { creditsHash: hash });
+
+    return {
+      written: true,
+      people: people.map((person) => ({
+        personId: person._id,
+        tmdbId: person.externalIds.tmdb,
+        needsDetails: person.detailsFetchedAt === null && person.externalIds.tmdb !== null,
+      })),
+    };
+  },
+});
+
+/** Where an automatically added member sorts: by year, so a film series reads in order. */
+const positionOf = (title: Doc<"titles">): number => title.overrides?.year ?? title.year ?? 9999;
+
+/**
+ * Puts a title in the collection its metadata names, creating the collection on first sight, and
+ * takes it out of any other collection its metadata put it in. A collection of the same name that
+ * an import created is reused, so a TMDB collection and a Jellyfin box set become one.
+ */
+export const applyCollection = mutation({
+  args: {
+    titleId: v.id("titles"),
+    collection: nullable(scannedCollection),
+    hash: v.string(),
+    lease: optionalLease,
+  },
+  returns: ok,
+  handler: async (ctx, { titleId, collection, hash, lease }) => {
+    await authorize(ctx, "media-service");
+    const title = (await ctx.db.get(titleId)) ?? fail("not_found", "No such title");
+
+    if (title.collectionHash === hash || !(await mayWriteMetadata(ctx, title, lease))) {
+      return { ok: true as const };
+    }
+
+    await ctx.db.patch(titleId, { collectionHash: hash });
+    const now = Date.now();
+
+    const target =
+      collection === null
+        ? null
+        : ((await ctx.db
+            .query("collections")
+            .withIndex("by_source_key", (q) => q.eq("sourceKey", collection.sourceKey))
+            .first()) ??
+          // A box set or NFO set of the same name joins it; another TMDB collection never does.
+          (
+            await ctx.db
+              .query("collections")
+              .withIndex("by_sort", (q) => q.eq("sortKey", collection.name.trim().toLowerCase()))
+              .take(10)
+          ).find((candidate) => !(candidate.sourceKey?.startsWith("tmdb:") ?? false)) ??
+          null);
+
+    const collectionId =
+      collection === null
+        ? null
+        : target === null
+          ? await ctx.db.insert("collections", {
+              name: collection.name.trim(),
+              sortKey: collection.name.trim().toLowerCase(),
+              sourceKey: collection.sourceKey,
+              createdAt: now,
+              updatedAt: now,
+              overview: collection.overview,
+              poster: collection.poster,
+              backdrop: collection.backdrop,
+            })
+          : target._id;
+
+    if (collection !== null && target !== null) {
+      await ctx.db.patch(target._id, {
+        overview: collection.overview ?? target.overview ?? null,
+        poster: collection.poster ?? target.poster ?? null,
+        backdrop: collection.backdrop ?? target.backdrop ?? null,
+        updatedAt: now,
+      });
+    }
+
+    const memberships = await ctx.db
+      .query("collectionItems")
+      .withIndex("by_title", (q) => q.eq("titleId", titleId))
+      .collect();
+
+    await Promise.all(
+      memberships.flatMap((member) =>
+        member.source === "metadata" && member.collectionId !== collectionId
+          ? [ctx.db.delete(member._id)]
+          : [],
+      ),
+    );
+
+    const member = memberships.find((entry) => entry.collectionId === collectionId);
+
+    // An imported membership becomes the metadata one, so a later import that leaves the title out
+    // of that collection no longer drops what the metadata says.
+    if (member !== undefined && member.source !== "metadata") {
+      await ctx.db.patch(member._id, { source: "metadata" });
+    }
+
+    if (collectionId !== null && member === undefined) {
+      await ctx.db.insert("collectionItems", {
+        collectionId,
+        titleId,
+        position: positionOf(title),
+        source: "metadata",
+      });
+    }
+
+    return { ok: true as const };
+  },
+});
+
+export const personTarget = query({
+  args: { personId: v.id("people") },
+  returns: personTargetResult,
+  handler: async (ctx, { personId }) => {
+    await authorize(ctx, "media-service");
+    const person = (await ctx.db.get(personId)) ?? fail("not_found", "No such person");
+
+    return { personId, name: person.name, externalIds: person.externalIds };
+  },
+});
+
+/** Writes a person's details during a person job, or a metadata job for top-billed people. */
+export const applyPerson = mutation({
+  args: { ...leaseArgs, personId: v.id("people"), details: scannedPersonDetails },
+  returns: ok,
+  handler: async (ctx, { jobId, workerId, personId, details }) => {
+    await authorize(ctx, "media-service");
+    const held = await requireLease(ctx, jobId, workerId);
+
+    if (held.payload.kind !== "person" && held.payload.kind !== "metadata") {
+      return fail("invalid_args", "This job is not a person or metadata job");
+    }
+
+    if (held.payload.kind === "person" && held.payload.personId !== personId) {
+      return fail("invalid_args", "This job is for another person");
+    }
+
+    // A metadata job describes the people credited on its own title, and nobody else.
+    if (held.payload.kind === "metadata") {
+      const { titleId } = held.payload;
+
+      const credited = await ctx.db
+        .query("credits")
+        .withIndex("by_title_episode", (q) => q.eq("titleId", titleId).eq("episodeId", null))
+        .collect();
+
+      if (!credited.some((row) => row.personId === personId)) {
+        return fail("invalid_args", "This person is not credited on the job's title");
+      }
+    }
+
+    const person = (await ctx.db.get(personId)) ?? fail("not_found", "No such person");
+
+    // IDs already stored win, as they do for credits; the provider fills the ones missing.
+    const externalIds = {
+      tmdb: person.externalIds.tmdb ?? details.externalIds.tmdb,
+      imdb: person.externalIds.imdb ?? details.externalIds.imdb,
+      tvdb: person.externalIds.tvdb ?? details.externalIds.tvdb,
+    };
+
+    await ctx.db.patch(personId, {
+      name: details.name,
+      personKey: personKeyOf({ name: person.name, externalIds }),
+      externalIds,
+      profile: details.profile ?? person.profile,
+      biography: details.biography,
+      birthDate: details.birthDate,
+      deathDate: details.deathDate,
+      birthPlace: details.birthPlace,
+      knownFor: details.knownFor,
+      detailsFetchedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
 
     return { ok: true as const };
   },

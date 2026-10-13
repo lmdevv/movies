@@ -3,23 +3,50 @@
  * (`metadata.fixMatch`). The job looks the title up at the metadata provider (the chosen match,
  * else its TMDB ID, else its IMDb or TVDB ID, else a confident name and year search), writes the
  * title and its known episodes with `mediaService:applyMetadata`, and keeps the title's current
- * artwork where the provider has none. Convex marks a hand-picked match manual, so scans keep it.
+ * artwork where the provider has none. It then writes the cast and crew of the title and each
+ * episode, the title's collection, and the details of top-billed people nobody fetched yet.
+ * Ratings come from the provider and, with `OMDB_API_KEY`, from OMDb. Convex marks a hand-picked
+ * match manual, so scans keep it.
  */
 import type { ScannedEpisode } from "@movies/contracts/models/scan";
 import type { FunctionResult } from "../convex/media-backend.ts";
 import { Effect, Match, Option } from "effect";
 
 import * as ArtworkKeys from "../artwork/artwork-keys.ts";
-import { toScannedEpisode, toScannedTitle } from "../convex/catalog-records.ts";
+import {
+  digestOf,
+  toScannedCollection,
+  toScannedCredits,
+  toScannedEpisode,
+  toScannedTitle,
+} from "../convex/catalog-records.ts";
 import * as MediaBackend from "../convex/media-backend.ts";
+import type { SiteRatings } from "../library/nfo.ts";
 import * as MetadataPlugin from "../metadata/metadata-plugin.ts";
-import type { ProviderSeason, ProviderTitle } from "../metadata/metadata-plugin.ts";
-import { bestMatch, ImageRef } from "../metadata/title-metadata.ts";
+import type {
+  ProviderCollection,
+  ProviderSeason,
+  ProviderTitle,
+} from "../metadata/metadata-plugin.ts";
+import * as Omdb from "../metadata/omdb.ts";
+import {
+  bestMatch,
+  ImageRef,
+  mergeCollection,
+  mergeCredits,
+  mergeRatings,
+} from "../metadata/title-metadata.ts";
 import type { EpisodeMetadata, TitleMetadata } from "../metadata/title-metadata.ts";
 import { JobFailed, type JobHandler } from "./job-worker.ts";
+import { personDetailsOf } from "./person-job.ts";
 
 /** Most episodes one `applyMetadata` call carries. */
 const EPISODE_BATCH = 100;
+
+/** Top-billed people whose biographies a refresh fetches; the rest load when someone opens them. */
+const TOP_BILLED = 10;
+
+const noActorImages = (): undefined => undefined;
 
 const remote = (url: string | undefined) =>
   url === undefined ? undefined : ImageRef.cases.Remote.make({ url });
@@ -32,7 +59,11 @@ const providerFailure = Match.type<MetadataPlugin.MetadataError>().pipe(
   }),
 );
 
-const titleMetadataOf = (title: ProviderTitle): TitleMetadata => ({
+const titleMetadataOf = (
+  title: ProviderTitle,
+  scores: SiteRatings,
+  collection: ProviderCollection | undefined,
+): TitleMetadata => ({
   kind: title.kind,
   title: title.title,
   originalTitle: title.originalTitle,
@@ -42,9 +73,17 @@ const titleMetadataOf = (title: ProviderTitle): TitleMetadata => ({
   tagline: title.tagline,
   runtimeMinutes: title.runtimeMinutes,
   contentRating: title.contentRating,
-  rating: title.rating,
+  ratings: mergeRatings(undefined, scores, title.rating),
   genres: title.genres,
   studios: title.studios,
+  countries: title.countries,
+  tags: title.tags,
+  originalLanguage: title.originalLanguage,
+  status: title.status,
+  trailer: title.trailer,
+  collection: mergeCollection(undefined, collection ?? title.collection),
+  recommendations: title.recommendations,
+  credits: mergeCredits(undefined, title.credits, noActorImages, "actor"),
   ids: { ...title.ids, tmdb: title.providerId },
   poster: remote(title.images.poster),
   backdrop: remote(title.images.backdrop),
@@ -62,6 +101,9 @@ const episodeMetadataOf = (season: ProviderSeason, episode: number): EpisodeMeta
     airDate: found?.airDate,
     runtimeMinutes: found?.runtimeMinutes,
     rating: found?.rating,
+    ids: found?.ids ?? {},
+    seasonIds: season.ids,
+    credits: mergeCredits(undefined, found?.credits ?? [], noActorImages, "guest-star"),
     still: remote(found?.images.still),
     seasonPoster: remote(season.images.poster),
     sources: ["provider"],
@@ -76,11 +118,12 @@ const backendFailure = (error: { readonly message: string }) =>
 export const handler: Effect.Effect<
   JobHandler,
   never,
-  MediaBackend.Service | MetadataPlugin.Service | ArtworkKeys.Service
+  MediaBackend.Service | MetadataPlugin.Service | ArtworkKeys.Service | Omdb.Service
 > = Effect.gen(function* () {
   const backend = yield* MediaBackend.Service;
   const plugin = yield* MetadataPlugin.Service;
   const keys = yield* ArtworkKeys.Service;
+  const omdb = yield* Omdb.Service;
 
   /** The provider ID of the title: chosen, known, found by external ID, or searched. */
   const providerIdOf = Effect.fn("MetadataJob.providerId")(function* (
@@ -134,8 +177,19 @@ export const handler: Effect.Effect<
         .titleDetails(target.kind, providerId.value)
         .pipe(Effect.mapError(providerFailure));
 
+      // A collection's overview is a nicety; without it the collection keeps its name and art.
+      const collection =
+        details.collection === undefined
+          ? undefined
+          : yield* plugin
+              .collectionDetails(details.collection.providerId)
+              .pipe(Effect.orElseSucceed(() => undefined));
+
+      const imdb = details.ids.imdb ?? target.externalIds.imdb ?? undefined;
+      const scores = imdb === undefined ? {} : yield* omdb.ratings(imdb);
+      const metadata = titleMetadataOf(details, scores, collection);
       const folder = { libraryId: target.libraryId, root: "" };
-      const scanned = yield* toScannedTitle(folder, titleMetadataOf(details), keys.seal);
+      const scanned = yield* toScannedTitle(folder, metadata, keys.seal);
 
       const title = {
         ...scanned,
@@ -148,20 +202,20 @@ export const handler: Effect.Effect<
 
       const seasons = [...new Set(target.episodes.map((episode) => episode.seasonNumber))];
 
-      const episodes: Array<ScannedEpisode> =
+      const fetched: ReadonlyArray<{
+        readonly episodeId: (typeof target.episodes)[number]["episodeId"];
+        readonly metadata: EpisodeMetadata;
+      }> =
         target.kind === "show"
           ? yield* Effect.forEach(seasons, (season) =>
               plugin.seasonDetails(providerId.value, season).pipe(
-                Effect.flatMap((seasonDetails) =>
-                  Effect.forEach(
-                    target.episodes.filter((episode) => episode.seasonNumber === season),
-                    (episode) =>
-                      toScannedEpisode(
-                        folder,
-                        episodeMetadataOf(seasonDetails, episode.episodeNumber),
-                        keys.seal,
-                      ),
-                  ),
+                Effect.map((seasonDetails) =>
+                  target.episodes
+                    .filter((episode) => episode.seasonNumber === season)
+                    .map((episode) => ({
+                      episodeId: episode.episodeId,
+                      metadata: episodeMetadataOf(seasonDetails, episode.episodeNumber),
+                    })),
                 ),
                 // A season the provider does not know keeps its local episode details.
                 Effect.catchTag("MetadataRequestFailed", () => Effect.succeed([])),
@@ -169,6 +223,10 @@ export const handler: Effect.Effect<
               ),
             ).pipe(Effect.map((perSeason) => perSeason.flat()))
           : [];
+
+      const episodes: Array<ScannedEpisode> = yield* Effect.forEach(fetched, (episode) =>
+        toScannedEpisode(folder, episode.metadata, keys.seal),
+      );
 
       const batches = Array.from(
         { length: Math.max(1, Math.ceil(episodes.length / EPISODE_BATCH)) },
@@ -192,6 +250,74 @@ export const handler: Effect.Effect<
                 reportProgress({ done: index + 1, total: batches.length, message: "writing" }),
               ),
             ),
+        { discard: true },
+      );
+
+      const lease = { jobId: claim.job.id, workerId };
+
+      const writeCredits = (
+        episodeId: (typeof fetched)[number]["episodeId"] | null,
+        credits: TitleMetadata["credits"],
+      ) =>
+        Effect.gen(function* () {
+          const scannedCredits = yield* toScannedCredits(folder, credits, keys.seal);
+
+          const written = yield* backend.call("mediaService.applyCredits", {
+            titleId: target.titleId,
+            episodeId,
+            credits: scannedCredits,
+            hash: digestOf(scannedCredits),
+            lease,
+          });
+
+          return written.people;
+        });
+
+      const cast = yield* writeCredits(null, metadata.credits).pipe(
+        Effect.mapError(backendFailure),
+      );
+
+      const scannedCollection = yield* toScannedCollection(folder, metadata.collection, keys.seal);
+
+      yield* backend
+        .call("mediaService.applyCollection", {
+          titleId: target.titleId,
+          collection: scannedCollection,
+          hash: digestOf(scannedCollection),
+          lease,
+        })
+        .pipe(Effect.mapError(backendFailure));
+
+      yield* Effect.forEach(
+        fetched,
+        (episode) => writeCredits(episode.episodeId, episode.metadata.credits),
+        { discard: true },
+      ).pipe(Effect.mapError(backendFailure));
+
+      // Biographies of the top-billed people, so their pages open complete. A person the
+      // provider cannot describe keeps loading lazily.
+      yield* Effect.forEach(
+        cast
+          .slice(0, TOP_BILLED)
+          .flatMap((person) =>
+            person.needsDetails && person.tmdbId !== null ? [{ person, tmdb: person.tmdbId }] : [],
+          ),
+        ({ person, tmdb }) =>
+          plugin.personDetails(tmdb).pipe(
+            Effect.flatMap((found) => personDetailsOf(found, keys.seal)),
+            Effect.flatMap((personDetails) =>
+              backend.call("mediaService.applyPerson", {
+                ...lease,
+                personId: person.personId,
+                details: personDetails,
+              }),
+            ),
+            Effect.catch((error) =>
+              Effect.logWarning("MetadataJob.person_failed", error.message).pipe(
+                Effect.annotateLogs({ personId: person.personId }),
+              ),
+            ),
+          ),
         { discard: true },
       );
 

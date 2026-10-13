@@ -9,16 +9,20 @@ import { Duration, Effect, identity, Layer, Option, Redacted, Schema } from "eff
 import { HttpClient, HttpClientRequest } from "effect/http";
 import { RateLimiter } from "effect/persistence";
 
-import type { ExternalIds } from "../library/nfo.ts";
+import { type ExternalIds, type Score, showStatusOf, youtubeKeyOf } from "../library/nfo.ts";
 import * as MediaConfig from "../media-config.ts";
 import * as DiskCache from "../disk-cache.ts";
 import {
   guardHosts,
   MetadataProviderUnavailable,
   MetadataRequestFailed,
+  type CreditKind,
   type PluginManifest,
+  type ProviderCollection,
+  type ProviderCredit,
   type ProviderEpisode,
   type ProviderImages,
+  type ProviderPerson,
   type ProviderSeason,
   type ProviderTitle,
   Service,
@@ -38,6 +42,8 @@ export interface TmdbOptions {
   /** Response language, such as `en-US`. */
   readonly language: string;
   readonly cacheMaxAge: Duration.Duration;
+  /** How long one request may take, including retries after `429`. */
+  readonly timeout: Duration.Duration;
   /** Request budget per second, shared by every TMDB request of this process. */
   readonly requestsPerSecond: number;
 }
@@ -49,6 +55,7 @@ export const defaultOptions = (apiKey: Option.Option<Redacted.Redacted>): TmdbOp
   imageBaseUrl: "https://image.tmdb.org/t/p",
   language: "en-US",
   cacheMaxAge: Duration.days(7),
+  timeout: Duration.seconds(20),
   requestsPerSecond: 20,
 });
 
@@ -82,6 +89,38 @@ const SearchShows = Schema.Struct({
   ),
 });
 
+const IdList = Schema.Struct({ results: Schema.Array(Schema.Struct({ id: Schema.Int })) });
+
+const Videos = Schema.Struct({
+  results: Schema.Array(
+    Schema.Struct({
+      key: Schema.String,
+      site: Schema.String,
+      type: Schema.String,
+      name: nullable(Schema.String),
+      official: Schema.optionalKey(Schema.Boolean),
+    }),
+  ),
+});
+
+const Countries = Schema.Array(Schema.Struct({ name: Schema.String }));
+
+const CastMember = Schema.Struct({
+  id: Schema.Int,
+  name: Schema.String,
+  character: nullable(Schema.String),
+  order: nullable(Schema.Int),
+  profile_path: nullable(Schema.String),
+});
+
+const CrewMember = Schema.Struct({
+  id: Schema.Int,
+  name: Schema.String,
+  job: nullable(Schema.String),
+  department: nullable(Schema.String),
+  profile_path: nullable(Schema.String),
+});
+
 const FindResults = Schema.Struct({
   movie_results: Schema.Array(Schema.Struct({ id: Schema.Int })),
   tv_results: Schema.Array(Schema.Struct({ id: Schema.Int })),
@@ -99,8 +138,26 @@ const MovieDetails = Schema.Struct({
   genres: Schema.optionalKey(NamedList),
   production_companies: Schema.optionalKey(NamedList),
   vote_average: nullable(Schema.Finite),
+  vote_count: nullable(Schema.Int),
+  original_language: nullable(Schema.String),
+  production_countries: Schema.optionalKey(Countries),
   poster_path: nullable(Schema.String),
   backdrop_path: nullable(Schema.String),
+  belongs_to_collection: nullable(
+    Schema.Struct({
+      id: Schema.Int,
+      name: Schema.String,
+      poster_path: nullable(Schema.String),
+      backdrop_path: nullable(Schema.String),
+    }),
+  ),
+  credits: Schema.optionalKey(
+    Schema.Struct({ cast: Schema.Array(CastMember), crew: Schema.Array(CrewMember) }),
+  ),
+  keywords: Schema.optionalKey(Schema.Struct({ keywords: NamedList })),
+  videos: Schema.optionalKey(Videos),
+  recommendations: Schema.optionalKey(IdList),
+  similar: Schema.optionalKey(IdList),
   release_dates: Schema.optionalKey(
     Schema.Struct({
       results: Schema.Array(
@@ -124,8 +181,46 @@ const ShowDetails = Schema.Struct({
   genres: Schema.optionalKey(NamedList),
   networks: Schema.optionalKey(NamedList),
   vote_average: nullable(Schema.Finite),
+  vote_count: nullable(Schema.Int),
+  original_language: nullable(Schema.String),
+  production_countries: Schema.optionalKey(Countries),
+  status: nullable(Schema.String),
   poster_path: nullable(Schema.String),
   backdrop_path: nullable(Schema.String),
+  created_by: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({ id: Schema.Int, name: Schema.String, profile_path: nullable(Schema.String) }),
+    ),
+  ),
+  aggregate_credits: Schema.optionalKey(
+    Schema.Struct({
+      cast: Schema.Array(
+        Schema.Struct({
+          id: Schema.Int,
+          name: Schema.String,
+          order: nullable(Schema.Int),
+          profile_path: nullable(Schema.String),
+          roles: Schema.optionalKey(
+            Schema.Array(Schema.Struct({ character: nullable(Schema.String) })),
+          ),
+        }),
+      ),
+      crew: Schema.Array(
+        Schema.Struct({
+          id: Schema.Int,
+          name: Schema.String,
+          department: nullable(Schema.String),
+          profile_path: nullable(Schema.String),
+          total_episode_count: nullable(Schema.Int),
+          jobs: Schema.optionalKey(Schema.Array(Schema.Struct({ job: nullable(Schema.String) }))),
+        }),
+      ),
+    }),
+  ),
+  keywords: Schema.optionalKey(Schema.Struct({ results: NamedList })),
+  videos: Schema.optionalKey(Videos),
+  recommendations: Schema.optionalKey(IdList),
+  similar: Schema.optionalKey(IdList),
   external_ids: Schema.optionalKey(
     Schema.Struct({ imdb_id: nullable(Schema.String), tvdb_id: nullable(Schema.Int) }),
   ),
@@ -137,6 +232,7 @@ const ShowDetails = Schema.Struct({
 });
 
 const EpisodeDetails = Schema.Struct({
+  id: Schema.optionalKey(Schema.Int),
   season_number: Schema.Int,
   episode_number: Schema.Int,
   name: nullable(Schema.String),
@@ -144,10 +240,14 @@ const EpisodeDetails = Schema.Struct({
   air_date: nullable(Schema.String),
   runtime: nullable(Schema.Int),
   vote_average: nullable(Schema.Finite),
+  vote_count: nullable(Schema.Int),
   still_path: nullable(Schema.String),
+  crew: Schema.optionalKey(Schema.Array(CrewMember)),
+  guest_stars: Schema.optionalKey(Schema.Array(CastMember)),
 });
 
 const SeasonDetails = Schema.Struct({
+  id: Schema.optionalKey(Schema.Int),
   season_number: Schema.Int,
   name: nullable(Schema.String),
   overview: nullable(Schema.String),
@@ -155,6 +255,62 @@ const SeasonDetails = Schema.Struct({
   poster_path: nullable(Schema.String),
   episodes: Schema.Array(EpisodeDetails),
 });
+
+const CollectionDetails = Schema.Struct({
+  id: Schema.Int,
+  name: Schema.String,
+  overview: nullable(Schema.String),
+  poster_path: nullable(Schema.String),
+  backdrop_path: nullable(Schema.String),
+});
+
+const PersonDetails = Schema.Struct({
+  id: Schema.Int,
+  name: Schema.String,
+  biography: nullable(Schema.String),
+  birthday: nullable(Schema.String),
+  deathday: nullable(Schema.String),
+  place_of_birth: nullable(Schema.String),
+  known_for_department: nullable(Schema.String),
+  profile_path: nullable(Schema.String),
+  imdb_id: nullable(Schema.String),
+  external_ids: Schema.optionalKey(Schema.Struct({ tvdb_id: nullable(Schema.Int) })),
+});
+
+/** Actors a title keeps. */
+const CAST_LIMIT = 20;
+
+/** Guest stars an episode keeps. */
+const GUEST_LIMIT = 10;
+
+/** Trailer languages: English, and videos without a language. */
+const VIDEO_LANGUAGES = "en,null";
+
+/** Recommendations a title keeps. */
+const RECOMMENDATION_LIMIT = 20;
+
+/** Keywords a title keeps. */
+const TAG_LIMIT = 40;
+
+/** Crew jobs that become credits, with the kind and how many of each a title keeps. */
+const CREW_JOBS: ReadonlyArray<{
+  readonly kind: CreditKind;
+  readonly limit: number;
+  readonly matches: (job: string, department: string) => boolean;
+}> = [
+  { kind: "director", limit: 3, matches: (job) => job === "Director" },
+  {
+    kind: "writer",
+    limit: 6,
+    matches: (job, department) => department === "Writing" && job !== "Staff Writer",
+  },
+  { kind: "producer", limit: 4, matches: (job) => job === "Producer" },
+  {
+    kind: "composer",
+    limit: 2,
+    matches: (job) => job === "Original Music Composer" || job === "Music" || job === "Composer",
+  },
+];
 
 const yearOf = (date: string | null | undefined): number | undefined => {
   const year =
@@ -166,8 +322,89 @@ const yearOf = (date: string | null | undefined): number | undefined => {
 const text = (value: string | null | undefined): string | undefined =>
   value === null || value === undefined || value.trim() === "" ? undefined : value.trim();
 
+const isoDate = (value: string | null | undefined): string | undefined =>
+  value !== null && value !== undefined && /^\d{4}-\d{2}-\d{2}$/u.test(value) ? value : undefined;
+
 const positive = (value: number | null | undefined): number | undefined =>
   value === null || value === undefined || value <= 0 ? undefined : value;
+
+const score = (
+  value: number | null | undefined,
+  votes: number | null | undefined,
+): Score | undefined => {
+  const average = positive(value);
+
+  return average === undefined
+    ? undefined
+    : { value: Math.round(average * 10) / 10, votes: votes ?? undefined };
+};
+
+const idsOf = (list: { readonly results: ReadonlyArray<{ readonly id: number }> } | undefined) =>
+  (list?.results ?? []).map((result) => String(result.id));
+
+/** Recommendations, then similar titles, without repeats. */
+const recommended = (
+  recommendations: typeof IdList.Type | undefined,
+  similar: typeof IdList.Type | undefined,
+): ReadonlyArray<string> =>
+  [...new Set([...idsOf(recommendations), ...idsOf(similar)])].slice(0, RECOMMENDATION_LIMIT);
+
+/** The official YouTube trailer, else any YouTube trailer, else a teaser. */
+const trailerOf = (videos: typeof Videos.Type | undefined) => {
+  const youtube = (videos?.results ?? []).filter((video) => video.site === "YouTube");
+
+  const chosen =
+    youtube.find((video) => video.type === "Trailer" && video.official === true) ??
+    youtube.find((video) => video.type === "Trailer") ??
+    youtube.find((video) => video.type === "Teaser");
+
+  return chosen === undefined || youtubeKeyOf(chosen.key) !== chosen.key
+    ? undefined
+    : { key: chosen.key, name: text(chosen.name) };
+};
+
+/** Credits in billing order, numbered from zero. */
+const numbered = (entries: ReadonlyArray<Omit<ProviderCredit, "order">>): Array<ProviderCredit> =>
+  entries.map((entry, order) => ({
+    personId: entry.personId,
+    name: entry.name,
+    kind: entry.kind,
+    role: entry.role,
+    order,
+    profile: entry.profile,
+  }));
+
+/** Crew members that become credits, by `CREW_JOBS`, one credit per person and kind. */
+const crewCredits = (
+  crew: ReadonlyArray<{
+    readonly id: number;
+    readonly name: string;
+    readonly job: string | undefined;
+    readonly department: string | undefined;
+    readonly profile: string | undefined;
+  }>,
+): ReadonlyArray<Omit<ProviderCredit, "order">> =>
+  CREW_JOBS.flatMap(({ kind, limit, matches }) => {
+    const seen = new Set<number>();
+
+    const fresh = (id: number): boolean => {
+      if (seen.has(id)) return false;
+      seen.add(id);
+
+      return true;
+    };
+
+    return crew
+      .filter((member) => matches(member.job ?? "", member.department ?? "") && fresh(member.id))
+      .slice(0, limit)
+      .map((member) => ({
+        personId: String(member.id),
+        name: member.name,
+        kind,
+        role: kind === "writer" ? member.job : undefined,
+        profile: member.profile,
+      }));
+  });
 
 const usCertification = (
   results: ReadonlyArray<{
@@ -250,7 +487,9 @@ const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
 
             const response = yield* client.execute(outgoing).pipe(
               Effect.provideService(HttpClient.TracerDisabledWhen, () => true),
+              Effect.timeout(options.timeout),
               Effect.catchTags({
+                TimeoutError: () => Effect.fail(failed(null, "timed out")),
                 HttpClientError: (error) =>
                   Effect.fail(
                     failed(
@@ -358,9 +597,35 @@ const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
       const movie = yield* request(
         "movieDetails",
         `/movie/${id}`,
-        { append_to_response: "release_dates" },
+        {
+          append_to_response: "release_dates,credits,keywords,videos,recommendations,similar",
+          include_video_language: VIDEO_LANGUAGES,
+        },
         MovieDetails,
       );
+
+      const cast = (movie.credits?.cast ?? [])
+        .toSorted((left, right) => (left.order ?? 0) - (right.order ?? 0))
+        .slice(0, CAST_LIMIT)
+        .map((member): Omit<ProviderCredit, "order"> => ({
+          personId: String(member.id),
+          name: member.name,
+          kind: "actor",
+          role: text(member.character),
+          profile: image("w185", member.profile_path),
+        }));
+
+      const crew = crewCredits(
+        (movie.credits?.crew ?? []).map((member) => ({
+          id: member.id,
+          name: member.name,
+          job: text(member.job),
+          department: text(member.department),
+          profile: image("w185", member.profile_path),
+        })),
+      );
+
+      const collection = movie.belongs_to_collection;
 
       return {
         provider: PROVIDER,
@@ -382,9 +647,29 @@ const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
             })),
           ) ?? [],
         ),
-        rating: positive(movie.vote_average),
+        rating: score(movie.vote_average, movie.vote_count),
         genres: (movie.genres ?? []).map((genre) => genre.name),
         studios: (movie.production_companies ?? []).map((company) => company.name),
+        countries: (movie.production_countries ?? []).map((country) => country.name),
+        tags: (movie.keywords?.keywords ?? []).map((keyword) => keyword.name).slice(0, TAG_LIMIT),
+        originalLanguage: text(movie.original_language),
+        status: undefined,
+        trailer: trailerOf(movie.videos),
+        collection:
+          collection === null || collection === undefined
+            ? undefined
+            : {
+                providerId: String(collection.id),
+                name: collection.name,
+                overview: undefined,
+                images: {
+                  poster: image("w500", collection.poster_path),
+                  backdrop: image("w1280", collection.backdrop_path),
+                  still: undefined,
+                },
+              },
+        recommendations: recommended(movie.recommendations, movie.similar),
+        credits: numbered([...cast, ...crew]),
         images: {
           poster: image("w500", movie.poster_path),
           backdrop: image("w1280", movie.backdrop_path),
@@ -396,11 +681,51 @@ const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
     const show = yield* request(
       "showDetails",
       `/tv/${id}`,
-      { append_to_response: "external_ids,content_ratings" },
+      {
+        append_to_response:
+          "external_ids,content_ratings,aggregate_credits,keywords,videos,recommendations,similar",
+        include_video_language: VIDEO_LANGUAGES,
+      },
       ShowDetails,
     );
 
     const tvdb = show.external_ids?.tvdb_id;
+
+    const creators = (show.created_by ?? []).map((creator): Omit<ProviderCredit, "order"> => ({
+      personId: String(creator.id),
+      name: creator.name,
+      kind: "creator",
+      role: undefined,
+      profile: image("w185", creator.profile_path),
+    }));
+
+    const regulars = (show.aggregate_credits?.cast ?? [])
+      .toSorted((left, right) => (left.order ?? 0) - (right.order ?? 0))
+      .slice(0, CAST_LIMIT)
+      .map((member): Omit<ProviderCredit, "order"> => ({
+        personId: String(member.id),
+        name: member.name,
+        kind: "actor",
+        role: text(member.roles?.[0]?.character),
+        profile: image("w185", member.profile_path),
+      }));
+
+    // Episode directors and writers belong to episodes; a show keeps its producers and composers.
+    const showCrew = crewCredits(
+      (show.aggregate_credits?.crew ?? [])
+        .toSorted(
+          (left, right) => (right.total_episode_count ?? 0) - (left.total_episode_count ?? 0),
+        )
+        .flatMap((member) =>
+          (member.jobs ?? []).map((job) => ({
+            id: member.id,
+            name: member.name,
+            job: text(job.job) === "Executive Producer" ? "Producer" : text(job.job),
+            department: text(member.department),
+            profile: image("w185", member.profile_path),
+          })),
+        ),
+    ).filter((entry) => entry.kind === "producer" || entry.kind === "composer");
 
     return {
       provider: PROVIDER,
@@ -419,9 +744,17 @@ const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
       tagline: text(show.tagline),
       runtimeMinutes: positive(show.episode_run_time?.[0]),
       contentRating: usCertification(show.content_ratings?.results ?? []),
-      rating: positive(show.vote_average),
+      rating: score(show.vote_average, show.vote_count),
       genres: (show.genres ?? []).map((genre) => genre.name),
       studios: (show.networks ?? []).map((network) => network.name),
+      countries: (show.production_countries ?? []).map((country) => country.name),
+      tags: (show.keywords?.results ?? []).map((keyword) => keyword.name).slice(0, TAG_LIMIT),
+      originalLanguage: text(show.original_language),
+      status: showStatusOf(text(show.status)),
+      trailer: trailerOf(show.videos),
+      collection: undefined,
+      recommendations: recommended(show.recommendations, show.similar),
+      credits: numbered([...regulars, ...creators, ...showCrew]),
       images: {
         poster: image("w500", show.poster_path),
         backdrop: image("w1280", show.backdrop_path),
@@ -437,7 +770,33 @@ const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
     plot: text(episode.overview),
     airDate: text(episode.air_date),
     runtimeMinutes: positive(episode.runtime),
-    rating: positive(episode.vote_average),
+    rating: score(episode.vote_average, episode.vote_count),
+    ids: {
+      tmdb: episode.id === undefined ? undefined : String(episode.id),
+      imdb: undefined,
+      tvdb: undefined,
+    },
+    credits: numbered([
+      ...(episode.guest_stars ?? [])
+        .toSorted((left, right) => (left.order ?? 0) - (right.order ?? 0))
+        .slice(0, GUEST_LIMIT)
+        .map((member): Omit<ProviderCredit, "order"> => ({
+          personId: String(member.id),
+          name: member.name,
+          kind: "guest-star",
+          role: text(member.character),
+          profile: image("w185", member.profile_path),
+        })),
+      ...crewCredits(
+        (episode.crew ?? []).map((member) => ({
+          id: member.id,
+          name: member.name,
+          job: text(member.job),
+          department: text(member.department),
+          profile: image("w185", member.profile_path),
+        })),
+      ).filter((entry) => entry.kind === "director" || entry.kind === "writer"),
+    ]),
     images: {
       poster: undefined,
       backdrop: undefined,
@@ -455,6 +814,11 @@ const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
 
     return {
       season: found.season_number,
+      ids: {
+        tmdb: found.id === undefined ? undefined : String(found.id),
+        imdb: undefined,
+        tvdb: undefined,
+      },
       title: text(found.name),
       plot: text(found.overview),
       airDate: text(found.air_date),
@@ -478,6 +842,53 @@ const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
     return toEpisode(found);
   });
 
+  const collectionDetails = Effect.fn("Tmdb.collectionDetails")(function* (collectionId: string) {
+    const found = yield* request(
+      "collectionDetails",
+      `/collection/${encodeURIComponent(collectionId)}`,
+      {},
+      CollectionDetails,
+    );
+
+    return {
+      providerId: String(found.id),
+      name: found.name,
+      overview: text(found.overview),
+      images: {
+        poster: image("w500", found.poster_path),
+        backdrop: image("w1280", found.backdrop_path),
+        still: undefined,
+      },
+    } satisfies ProviderCollection;
+  });
+
+  const personDetails = Effect.fn("Tmdb.personDetails")(function* (personId: string) {
+    const found = yield* request(
+      "personDetails",
+      `/person/${encodeURIComponent(personId)}`,
+      { append_to_response: "external_ids" },
+      PersonDetails,
+    );
+
+    const tvdb = found.external_ids?.tvdb_id;
+
+    return {
+      providerId: String(found.id),
+      ids: {
+        tmdb: String(found.id),
+        imdb: text(found.imdb_id),
+        tvdb: tvdb === null || tvdb === undefined ? undefined : String(tvdb),
+      },
+      name: found.name,
+      biography: text(found.biography),
+      birthDate: isoDate(found.birthday),
+      deathDate: isoDate(found.deathday),
+      birthPlace: text(found.place_of_birth),
+      knownFor: text(found.known_for_department),
+      profile: image("h632", found.profile_path),
+    } satisfies ProviderPerson;
+  });
+
   return Service.of({
     manifest,
     availability: Effect.succeed(
@@ -490,6 +901,8 @@ const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
     titleDetails,
     seasonDetails,
     episodeDetails,
+    collectionDetails,
+    personDetails,
   });
 });
 

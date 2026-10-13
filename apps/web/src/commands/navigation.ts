@@ -1,5 +1,5 @@
 import type { CommandItem } from "@movies/ui/lib/command-menu";
-import { SearchIcon, Settings2Icon } from "lucide-react";
+import { LibraryBigIcon, SearchIcon, Settings2Icon } from "lucide-react";
 import { useMemo } from "react";
 
 import { SECTIONS } from "@/components/shell/sections";
@@ -7,7 +7,7 @@ import { keymap } from "@/lib/keymap";
 
 import type { CommandContext, CommandContribution } from "./contribution";
 
-/** "Go to": the four sections and Settings, each with its `g` shortcut. */
+/** "Go to": the four sections, Collections, and Settings; sections have a `g` shortcut. */
 export const useNavigationCommands = (context: CommandContext): CommandContribution => {
   const { navigate, query } = context;
 
@@ -21,6 +21,14 @@ export const useNavigationCommands = (context: CommandContext): CommandContribut
       perform: () => navigate({ to: section.to }),
     }));
 
+    const collections: CommandItem = {
+      kind: "action",
+      id: "go:/collections",
+      title: "Collections",
+      leading: { kind: "icon", icon: LibraryBigIcon },
+      perform: () => navigate({ to: "/collections" }),
+    };
+
     const settings: CommandItem = {
       kind: "action",
       id: "go:/settings",
@@ -33,7 +41,7 @@ export const useNavigationCommands = (context: CommandContext): CommandContribut
     const trimmed = query.trim();
 
     return {
-      groups: [{ id: "go", label: "Go to", items: [...sections, settings] }],
+      groups: [{ id: "go", label: "Go to", items: [...sections, collections, settings] }],
       fallback:
         trimmed === ""
           ? []

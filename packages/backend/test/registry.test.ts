@@ -29,6 +29,7 @@ import {
   PLAYBACK_TOKEN_LIFETIME_MS,
   PLAYBACK_TOKEN_TEST_VECTORS,
 } from "@movies/contracts/playback-token";
+import { YOUTUBE_KEY_PATTERN } from "@movies/contracts/models/catalog";
 import { Role, roleScopes } from "@movies/contracts/scopes";
 import { Predicate, Schema } from "effect";
 import { describe, expect, it } from "vitest";
@@ -49,6 +50,7 @@ import * as metadata from "../convex/metadata";
 import * as migration from "../convex/migration";
 import * as migrationService from "../convex/migrationService";
 import * as myList from "../convex/myList";
+import * as people from "../convex/people";
 import * as playback from "../convex/playback";
 import * as profiles from "../convex/profiles";
 import * as rooms from "../convex/rooms";
@@ -62,6 +64,7 @@ import {
   PLAYBACK_TOKEN_LIFETIME_MS as CONVEX_TOKEN_LIFETIME_MS,
   signPlaybackToken,
 } from "../convex/lib/playbackToken";
+import { YOUTUBE_KEY } from "../convex/lib/catalog";
 import { ROLE_SCOPES } from "../convex/lib/scopes";
 import type { ValidatorJson } from "./validator-json";
 import { normalizeValidator, parseExportedValidator, validatorFromSchema } from "./validator-json";
@@ -84,6 +87,7 @@ const modules = {
   migration,
   migrationService,
   myList,
+  people,
   playback,
   profiles,
   rooms,
@@ -189,6 +193,11 @@ describe("registry and Convex functions", () => {
 describe("constants shared across the seam", () => {
   it("gives each role the same scopes", () => {
     for (const role of Role.literals) expect(ROLE_SCOPES[role]).toStrictEqual(roleScopes(role));
+  });
+
+  it("checks YouTube keys with the same pattern", () => {
+    expect(YOUTUBE_KEY.source).toBe(YOUTUBE_KEY_PATTERN.source);
+    expect(YOUTUBE_KEY.flags).toBe(YOUTUBE_KEY_PATTERN.flags);
   });
 
   it("uses the same room clock timings", () => {

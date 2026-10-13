@@ -31,6 +31,8 @@ export interface Interface {
   readonly playbackTokenSecret: Redacted.Redacted;
   /** TMDB API key or read access token. Without it the TMDB plugin reports itself unavailable. */
   readonly tmdbApiKey: Option.Option<Redacted.Redacted>;
+  /** OMDb API key for IMDb, Rotten Tomatoes, and Metacritic scores. Without it titles keep TMDB's. */
+  readonly omdbApiKey: Option.Option<Redacted.Redacted>;
   /** OTLP/HTTP collector base URL. Telemetry export is off without it. */
   readonly otlpEndpoint: Option.Option<string>;
   /** Convex deployment URL; used once the service subscribes to Convex. */
@@ -101,6 +103,7 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
     const convexBackendDir = yield* Config.option(Config.NonEmptyString("CONVEX_BACKEND_DIR"));
     const playbackTokenSecret = yield* Config.Redacted("PLAYBACK_TOKEN_SECRET");
     const tmdbApiKey = yield* Config.option(Config.Redacted("TMDB_API_KEY"));
+    const omdbApiKey = yield* Config.option(Config.Redacted("OMDB_API_KEY"));
     const otlpEndpoint = yield* Config.option(Config.URL("OTEL_EXPORTER_OTLP_ENDPOINT"));
     const convexUrl = yield* Config.option(Config.URL("CONVEX_URL"));
     const convexPublicUrl = yield* Config.option(Config.URL("CONVEX_PUBLIC_URL"));
@@ -159,6 +162,7 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
       convexBackendDir: Option.map(convexBackendDir, absolute),
       playbackTokenSecret,
       tmdbApiKey,
+      omdbApiKey,
       otlpEndpoint: Option.map(otlpEndpoint, withoutTrailingSlash),
       convexUrl: Option.map(convexUrl, withoutTrailingSlash),
       convexPublicUrl: Option.map(convexPublicUrl, withoutTrailingSlash),

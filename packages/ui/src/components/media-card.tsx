@@ -174,12 +174,14 @@ export function PosterCard({
  * mono line of technical facts. Pass the router's link or a button through `render`.
  *
  * @param facts - Mono details such as `HEVC · DIRECT · 41m left`.
+ * @param credits - Who is in or made the episode, such as `Guest stars Ada Stream, Gus Guest`.
  */
 export function EpisodeRow({
   number,
   title,
   runtime,
   synopsis,
+  credits,
   facts,
   image,
   progress,
@@ -191,6 +193,7 @@ export function EpisodeRow({
   readonly title: string;
   readonly runtime?: string | undefined;
   readonly synopsis?: string | undefined;
+  readonly credits?: string | undefined;
   readonly facts?: string | undefined;
   readonly image?: string | undefined;
   readonly progress?: number | undefined;
@@ -222,6 +225,11 @@ export function EpisodeRow({
               {synopsis === undefined ? null : (
                 <span className="line-clamp-2 font-sans text-label/label text-text-muted">
                   {synopsis}
+                </span>
+              )}
+              {credits === undefined ? null : (
+                <span className="truncate font-sans text-label/label text-text-muted">
+                  {credits}
                 </span>
               )}
               {facts === undefined ? null : (

@@ -6,7 +6,7 @@
 import { Context, Effect, Schema } from "effect";
 import { HttpClient, type HttpClientError } from "effect/http";
 
-import { ExternalIds } from "../library/nfo.ts";
+import { ExternalIds, Score, ShowStatus } from "../library/nfo.ts";
 
 /** What a plugin may access. Requests to any other host fail with `PluginPermissionDenied`. */
 const PluginPermissions = Schema.Struct({
@@ -77,6 +77,62 @@ export const ProviderImages = Schema.Struct({
 /** Image URLs a provider knows. */
 export interface ProviderImages extends Schema.Schema.Type<typeof ProviderImages> {}
 
+/** What a person did on a title or episode; `CreditKind` in contracts. */
+export const CreditKind = Schema.Literals([
+  "actor",
+  "guest-star",
+  "director",
+  "writer",
+  "creator",
+  "producer",
+  "composer",
+]);
+
+/** What a person did on a title or episode. */
+export type CreditKind = typeof CreditKind.Type;
+
+/** One credit as a provider lists it. */
+export const ProviderCredit = Schema.Struct({
+  /** The provider's own person ID. */
+  personId: Schema.String,
+  name: Schema.String,
+  kind: CreditKind,
+  role: Schema.optional(Schema.String),
+  order: Schema.Int,
+  /** A photo URL at the provider. */
+  profile: Schema.optional(Schema.String),
+});
+
+/** One credit as a provider lists it. */
+export interface ProviderCredit extends Schema.Schema.Type<typeof ProviderCredit> {}
+
+/** The collection a movie belongs to at the provider. */
+export const ProviderCollection = Schema.Struct({
+  providerId: Schema.String,
+  name: Schema.String,
+  overview: Schema.optional(Schema.String),
+  images: ProviderImages,
+});
+
+/** The collection a movie belongs to at the provider. */
+export interface ProviderCollection extends Schema.Schema.Type<typeof ProviderCollection> {}
+
+/** A person's details from a provider. */
+export const ProviderPerson = Schema.Struct({
+  providerId: Schema.String,
+  ids: ExternalIds,
+  name: Schema.String,
+  biography: Schema.optional(Schema.String),
+  birthDate: Schema.optional(Schema.String),
+  deathDate: Schema.optional(Schema.String),
+  birthPlace: Schema.optional(Schema.String),
+  knownFor: Schema.optional(Schema.String),
+  profile: Schema.optional(Schema.String),
+});
+
+/** A person's details from a provider. */
+export interface ProviderPerson extends Schema.Schema.Type<typeof ProviderPerson> {}
+
 /** Movie or show details from a provider. */
 export const ProviderTitle = Schema.Struct({
   provider: Schema.String,
@@ -91,9 +147,25 @@ export const ProviderTitle = Schema.Struct({
   tagline: Schema.optional(Schema.String),
   runtimeMinutes: Schema.optional(Schema.Int),
   contentRating: Schema.optional(Schema.String),
-  rating: Schema.optional(Schema.Finite),
+  /** The provider's own community score. */
+  rating: Schema.optional(Score),
   genres: Schema.Array(Schema.String),
   studios: Schema.Array(Schema.String),
+  countries: Schema.Array(Schema.String),
+  /** Keywords. */
+  tags: Schema.Array(Schema.String),
+  /** ISO 639-1. */
+  originalLanguage: Schema.optional(Schema.String),
+  status: Schema.optional(ShowStatus),
+  /** A YouTube video ID of the official trailer. */
+  trailer: Schema.optional(
+    Schema.Struct({ key: Schema.String, name: Schema.optional(Schema.String) }),
+  ),
+  collection: Schema.optional(ProviderCollection),
+  /** Provider IDs of recommended titles of the same kind, best first. */
+  recommendations: Schema.Array(Schema.String),
+  /** Top-billed cast, then key crew. */
+  credits: Schema.Array(ProviderCredit),
   images: ProviderImages,
 });
 
@@ -108,7 +180,10 @@ export const ProviderEpisode = Schema.Struct({
   plot: Schema.optional(Schema.String),
   airDate: Schema.optional(Schema.String),
   runtimeMinutes: Schema.optional(Schema.Int),
-  rating: Schema.optional(Schema.Finite),
+  rating: Schema.optional(Score),
+  ids: ExternalIds,
+  /** Guest stars and the episode's own directors and writers. */
+  credits: Schema.Array(ProviderCredit),
   images: ProviderImages,
 });
 
@@ -118,6 +193,7 @@ export interface ProviderEpisode extends Schema.Schema.Type<typeof ProviderEpiso
 /** Season details, with its episodes, from a provider. */
 export const ProviderSeason = Schema.Struct({
   season: Schema.Int,
+  ids: ExternalIds,
   title: Schema.optional(Schema.String),
   plot: Schema.optional(Schema.String),
   airDate: Schema.optional(Schema.String),
@@ -195,6 +271,12 @@ export interface Interface {
     season: number,
     episode: number,
   ) => Effect.Effect<ProviderEpisode, MetadataError>;
+  /** A collection's overview and artwork. */
+  readonly collectionDetails: (
+    collectionId: string,
+  ) => Effect.Effect<ProviderCollection, MetadataError>;
+  /** A person's biography, dates, and photo. */
+  readonly personDetails: (personId: string) => Effect.Effect<ProviderPerson, MetadataError>;
 }
 
 /** The active metadata plugin. */

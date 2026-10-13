@@ -23,6 +23,9 @@ import type {
   user,
 } from "./validators";
 
+/** Provider IDs of a record nobody matched. */
+export const NO_EXTERNAL_IDS = { tmdb: null, imdb: null, tvdb: null };
+
 /** Whole milliseconds of a document's creation; `_creationTime` carries a fraction. */
 export const createdAt = (doc: { readonly _creationTime: number }): number =>
   Math.floor(doc._creationTime);
@@ -114,6 +117,8 @@ export const presentEpisode = (
   airDate: doc.airDate,
   runtimeMs: doc.runtimeMs,
   still: doc.still,
+  rating: doc.rating?.value ?? null,
+  externalIds: doc.externalIds ?? NO_EXTERNAL_IDS,
   available: doc.presentFileCount > 0,
   progress: watch === null ? null : presentProgress(watch),
 });

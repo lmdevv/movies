@@ -186,7 +186,12 @@ export interface CollectionImport extends Schema.Schema.Type<typeof CollectionIm
 export const OverrideImport = Schema.Struct({
   titleId: TitleId,
   overrides: MetadataOverrides,
+  /**
+   * The source's provider IDs. They fill IDs the title lacks (never replacing one), and a title
+   * nobody matched yet gets a metadata refresh, so it matches at once.
+   */
+  externalIds: Schema.optionalKey(ExternalIds),
 });
 
-/** Locked source metadata for one matched title. */
+/** Locked source metadata and provider IDs for one matched title. */
 export interface OverrideImport extends Schema.Schema.Type<typeof OverrideImport> {}

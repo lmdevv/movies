@@ -119,6 +119,8 @@ interface Stored {
   readonly myList: Set<string>;
   readonly collections: Map<string, ReadonlyArray<string>>;
   readonly overrides: Map<string, string>;
+  /** Provider IDs the import carried, by title. */
+  readonly externalIds: Map<string, string>;
   readonly libraries: Map<string, LibraryId>;
   checkpoint: MigrationCheckpoint;
   imported: MigrationImported;
@@ -220,7 +222,13 @@ const inMemoryBackend = (sourceUrl: string, stored: Stored, hooks: Hooks = {}) =
         stored.writes.push(["overrides", items.length]);
 
         for (const item of items) {
-          stored.overrides.set(item.titleId, JSON.stringify(item.overrides));
+          if (Object.keys(item.overrides).length > 0) {
+            stored.overrides.set(item.titleId, JSON.stringify(item.overrides));
+          }
+
+          if (item.externalIds !== undefined) {
+            stored.externalIds.set(item.titleId, JSON.stringify(item.externalIds));
+          }
         }
 
         return items.length;
@@ -235,6 +243,7 @@ const freshStore = (): Stored => ({
   myList: new Set(),
   collections: new Map(),
   overrides: new Map(),
+  externalIds: new Map(),
   libraries: new Map(),
   checkpoint: { phase: "libraries", unit: 0, cursor: 0 },
   imported: NOTHING,
@@ -247,6 +256,7 @@ const contentsOf = (stored: Stored) => ({
   myList: [...stored.myList].toSorted(),
   collections: [...stored.collections.entries()],
   overrides: [...stored.overrides.entries()],
+  externalIds: [...stored.externalIds.entries()],
   libraries: [...stored.libraries.entries()],
 });
 
@@ -308,6 +318,8 @@ layer(environment, { excludeTestServices: true })("runMigrationJob", (it) => {
           [[TitleId.make("big-buck"), TitleId.make("remux")]],
         );
         assert.deepStrictEqual([...stored.overrides.keys()], [TitleId.make("big-buck")]);
+        // The source's provider IDs travel with every matched movie and show, overrides or not.
+        assert.includeMembers([...stored.externalIds.keys()], [TitleId.make("show")]);
       }),
     ),
   );
@@ -342,7 +354,7 @@ layer(environment, { excludeTestServices: true })("runMigrationJob", (it) => {
           ["watchState", 3],
           ["watchState", 3],
           ["collections", 1],
-          ["overrides", 1],
+          ["overrides", 2],
         ]);
         assert.deepStrictEqual(resumed, uninterrupted.imported);
 

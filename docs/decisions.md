@@ -177,6 +177,72 @@ choices made while implementing them. Update it in the same PR that changes a de
   `DATA_DIR/artwork`; resized copies are JPEGs made with ffmpeg and cached by source, size, and
   modification time.
 
+## Rich metadata
+
+- Sources, in order: the NFO (Kodi/Jellyfin `<actor>`, `<director>`, `<credits>`/`<writer>`,
+  `<studio>`, `<country>`, `<tag>`, `<ratings>`, `<uniqueid>`, `<set>`, `<trailer>`, `<status>`),
+  then OMDb for IMDb, Rotten Tomatoes, and Metacritic scores (`OMDB_API_KEY`, by IMDb ID), then
+  TMDB. NFO values win field by field; for cast and crew the NFO's list of a kind (actors,
+  directors, writers) replaces TMDB's, and each NFO person is matched to TMDB's credit of the same
+  name for a TMDB ID and photo. TMDB alone supplies creators, producers, and composers. A library
+  without a TMDB key gets everything its NFO files state.
+- TMDB: one details request per title with `append_to_response` (credits or `aggregate_credits`
+  for shows, keywords, videos, recommendations, similar, release dates or content ratings, external
+  IDs), one per season (guest stars and episode crew come with it), one per collection, and one per
+  person. Requests time out after 20 seconds, share a 20 per second budget, and are cached on disk
+  for a week; OMDb answers for a day, so scores refresh at most daily, and OMDb is not asked again
+  for an hour after it refuses the key (wrong, or over the free tier's daily limit). Without a key
+  either provider is simply absent.
+- Titles keep bounded lists (20 studios, countries, and recommendations, 40 keywords) and a
+  ratings object; credits live in their own table, one row per person and role, indexed by title
+  and episode and by person. People are keyed `tmdb:<id>`, then `imdb:<id>`, then
+  `name:<normalized name>`; a credit whose key finds nobody joins a person of the same name whose
+  IDs do not contradict it, and that person gains the credit's IDs in place. Credits of a title or
+  an episode are replaced as a set, skipped when the media service's digest of them is unchanged.
+  `upsertScanned` returns the stored credit and collection digests, so a rescan sends only what
+  changed, eight writes at a time.
+- Credits travel in `mediaService.applyCredits` (per title, and per episode for guest stars and
+  episode crew) and collections in `mediaService.applyCollection`, after the scan's
+  `upsertScanned` batch, once per title per scan. They are extras: a failed one is logged and
+  written by the next scan, without failing the scan. A scan never changes a manually matched
+  title; a metadata job may, with its lease. A refresh writes credits only where none were written
+  (it never replaces a scan's, often an NFO's, cast); a hand-picked match (`metadata.fixMatch`)
+  replaces them. Any write keeps the provider IDs and site scores it does not carry (one a
+  migration imported, a score OMDb could not give this time), and a title with IDs stays matched.
+- A person's biography, dates, birthplace, and photo are fetched lazily: opening a person page
+  calls `people.requestDetails` (scope `read`), which queues a `person` job at most once per person
+  every six hours. A metadata refresh also fetches the ten top-billed people nobody fetched yet
+  (its lease covers the people credited on its title only). A
+  person the provider cannot describe (no key, or TMDB no longer has them) is recorded as fetched
+  with nothing to show, so nobody asks again.
+- People are visible only through titles: `people.get` lists the person's credits on titles the
+  profile may see, and a person with none looks missing; `people.search` leaves them out.
+- Collections: TMDB's `belongs_to_collection` (`tmdb:<id>`) or an NFO `<set>` (`tmdb:<id>` from
+  Jellyfin's `tmdbcolid`, else `set:<name>`) puts a title in a collection, which is created on
+  first sight or found by source key, then by name, so a TMDB collection and an imported box set
+  or NFO set of the same name become one (two TMDB collections never merge by name). Such members are marked `metadata`; an import replaces only its own
+  members. Members a title's metadata added sort by year.
+- More like this (`titles.similar`): TMDB recommendations, then similar titles, stored as TMDB IDs
+  on the title and resolved against the catalog on read (index on kind and TMDB ID), so titles
+  added later appear without a refresh; topped up by shared genres (twice), keywords, and studios
+  among the most recently added titles of the kind in each library the profile sees, about 300
+  in all. A title's copies in other libraries, and repeats of one TMDB ID, are listed once.
+  Visibility applies on read.
+- `titles.list` with a genre pages through `titleGenres`, one row per title and genre carrying
+  the title's library, kind, and sort fields (Convex cannot index array members), kept in step
+  with every title write and backfilled by `maintenance:backfillTitleGenres`, which `configure.ts`
+  starts on each deploy. It uses the same index-position cursors and batch reads as every other
+  page, through the genre's own indexes by library, by kind, or across all; it spends half the read
+  budget, as each entry reads a row and its title. Years, studio, and minimum score are checked
+  per title inside the batch loop, against the year an admin may have overridden, so filtered
+  pages still fill up to the read budget. The score is IMDb's, else TMDB's. `titles.genres` counts
+  genres across the newest titles of each library the profile sees, about 1,000 in all.
+- Trailers: the official YouTube trailer from TMDB videos, or a YouTube ID or URL in the NFO
+  `<trailer>`. Keys are checked (`[\w-]{6,20}`) in the media service and again in Convex, and the
+  web app embeds `youtube-nocookie.com` only. Local trailer files stay unstored extras.
+- Migration carries the source's provider IDs: they fill IDs a matched title lacks, and an
+  unmatched title that gains one is queued for a metadata refresh.
+
 ## Playback and progress
 
 - `playback.createSession` is a mutation: it authorizes the profile and library, picks the file,

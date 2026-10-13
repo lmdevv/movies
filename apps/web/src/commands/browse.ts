@@ -1,7 +1,7 @@
-import type { ContinueWatchingItem, TitleCard } from "@movies/contracts/models/catalog";
+import type { ContinueWatchingItem, PersonCard, TitleCard } from "@movies/contracts/models/catalog";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import type { CommandItem, CommandLeading } from "@movies/ui/lib/command-menu";
-import { FilmIcon, PlayIcon, PlusIcon, SearchIcon, TvIcon } from "lucide-react";
+import { FilmIcon, PlayIcon, PlusIcon, SearchIcon, TvIcon, UserRoundIcon } from "lucide-react";
 import { useMemo } from "react";
 import { toast } from "sonner";
 
@@ -24,6 +24,12 @@ const posterOf = (title: TitleCard): CommandLeading => {
   if (src !== undefined) return { kind: "poster", src };
 
   return { kind: "icon", icon: title.kind === "movie" ? FilmIcon : TvIcon };
+};
+
+const photoOf = (person: PersonCard): CommandLeading => {
+  const src = artworkUrl(person.profile, "thumb");
+
+  return src === undefined ? { kind: "icon", icon: UserRoundIcon } : { kind: "poster", src };
 };
 
 const continueDetail = (item: ContinueWatchingItem): string =>
@@ -64,10 +70,19 @@ export const useBrowseCommands = (context: CommandContext): CommandContribution 
     const typed = query.trim().toLowerCase();
     const shown = search.query.toLowerCase();
 
-    const current =
-      typed !== "" && shown !== "" && (typed.startsWith(shown) || shown.startsWith(typed))
-        ? search.results
-        : [];
+    const matching =
+      typed !== "" && shown !== "" && (typed.startsWith(shown) || shown.startsWith(typed));
+
+    const current = matching ? search.results : [];
+
+    const people = (matching ? search.people : []).map((person): CommandItem => ({
+      kind: "action",
+      id: `person:${person.id}`,
+      title: person.name,
+      detail: person.knownFor ?? "Person",
+      leading: photoOf(person),
+      perform: () => navigate({ to: "/person/$personId", params: { personId: person.id } }),
+    }));
 
     const pending: ReadonlyArray<CommandItem> =
       search.loading && current.length === 0
@@ -151,6 +166,7 @@ export const useBrowseCommands = (context: CommandContext): CommandContribution 
           filter: "none",
           items: [...pending, ...results, ...seeAll],
         },
+        { id: "people", label: "People", scope: "search", filter: "none", items: people },
         // Actions on the top result lead "Actions" while searching; their detail is the title, so
         // they match the query. Without them the group keeps its place after "Go to".
         ...(topActions.length === 0

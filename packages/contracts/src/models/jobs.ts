@@ -1,11 +1,14 @@
-/** Background jobs the media service claims with a lease: scans, metadata refreshes, backups, and migrations. */
+/**
+ * Background jobs the media service claims with a lease: scans, metadata refreshes, person details,
+ * backups, and migrations.
+ */
 import { Schema } from "effect";
 
-import { BackupId, JobId, LibraryId, TitleId, UserId } from "../ids";
+import { BackupId, JobId, LibraryId, PersonId, TitleId, UserId } from "../ids";
 import { Bytes, EpochMillis } from "../units";
 
 /** What a job does. */
-export const JobKind = Schema.Literals(["scan", "metadata", "backup", "migration"]);
+export const JobKind = Schema.Literals(["scan", "metadata", "person", "backup", "migration"]);
 
 /** What a job does. */
 export type JobKind = typeof JobKind.Type;
@@ -45,6 +48,11 @@ export const JobPayload = Schema.Union([
     match: Schema.NullOr(
       Schema.Struct({ provider: Schema.Literal("tmdb"), providerId: Schema.String }),
     ),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("person"),
+    /** Fetches a person's biography, dates, and photo the first time someone opens them. */
+    personId: PersonId,
   }),
   Schema.Struct({
     kind: Schema.Literal("backup"),

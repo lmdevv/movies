@@ -1,0 +1,25 @@
+{
+  "Title": "Remux Fixture",
+  "Year": "2015",
+  "Rated": "PG-13",
+  "imdbRating": "7.4",
+  "imdbVotes": "12,345",
+  "Metascore": "61",
+  "Ratings": [
+    {
+      "Source": "Internet Movie Database",
+      "Value": "7.4/10"
+    },
+    {
+      "Source": "Rotten Tomatoes",
+      "Value": "83%"
+    },
+    {
+      "Source": "Metacritic",
+      "Value": "61/100"
+    }
+  ],
+  "imdbID": "tt5000001",
+  "Type": "movie",
+  "Response": "True"
+}

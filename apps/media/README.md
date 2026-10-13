@@ -50,7 +50,8 @@ Registry `media` commands answer `{ code, message }` like Convex.
 Required: `MEDIA_BASE_URL`, `DATA_DIR`, `TRANSCODE_DIR`, `PLAYBACK_TOKEN_SECRET` (base64url,
 ≥ 32 bytes). Optional with defaults: `LIBRARY_ROOTS` (comma list of approved mounts; none
 approves nothing, so every scan is refused), `PORT` (4300), `HOST` (all interfaces),
-`BACKUP_DIR` (`/data/backups`), `TMDB_API_KEY` (v3 key or v4 read token), `WEB_DIST_DIR`,
+`BACKUP_DIR` (`/data/backups`), `TMDB_API_KEY` (v3 key or v4 read token), `OMDB_API_KEY`
+(IMDb, Rotten Tomatoes, and Metacritic scores; without it titles keep TMDB's), `WEB_DIST_DIR`,
 `MAX_CONCURRENT_TRANSCODES` (3), `HARDWARE_ACCELERATION` (`auto`, `qsv`, `none`),
 `QSV_DEVICE` (`/dev/dri/renderD128`), `STREAM_IDLE_SECONDS` (60), `STREAM_BUFFER_AHEAD_SECONDS` (120: ffmpeg pauses this far ahead of the player), `MIN_FREE_TRANSCODE_MB`
 (2048), `LIBRARY_RECONCILE_MINUTES` (360), `FFMPEG_PATH`, `FFPROBE_PATH`,

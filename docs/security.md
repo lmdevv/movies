@@ -139,6 +139,12 @@ A review of `packages/backend` found these after the table above; each has a sta
   can write them already controls what is played.
 - **Registering a library folder** starts a recursive file watch before the folder's first scan
   checks it against `LIBRARY_ROOTS`; only `manage` sessions can do this, and the scan then fails.
+- **Third-party requests for metadata and trailers.** OMDb (with `OMDB_API_KEY`) learns the IMDb
+  IDs of the library's titles; the key travels in its query string, so OMDb requests record no
+  client span. The CSP's only frame source is `https://www.youtube-nocookie.com`, which a viewer's
+  browser contacts only when they open a trailer; its iframe sends the page's origin as referrer
+  (YouTube refuses embeds without one), never a path. Person details are queued by `read`
+  sessions (`people.requestDetails`), at most one job per person every six hours.
 - **Profile management on a shared browser** still lets anyone on an adult profile change the
   account; a kids profile cannot.
 - **Dependency audit** (`pnpm audit --prod`): one high, `braces` ≤ 3.0.3 (stack exhaustion on

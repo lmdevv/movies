@@ -11,6 +11,7 @@ import * as LibraryScanner from "../library/library-scanner.ts";
 import * as MemoryLibrary from "../library/memory-library.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import * as MetadataResolver from "../metadata/title-metadata.ts";
+import * as Omdb from "../metadata/omdb.ts";
 import * as Tmdb from "../metadata/tmdb.ts";
 import { ffmpegAvailable } from "../testing/fixture-library.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
@@ -38,6 +39,7 @@ const recordsLayer = Layer.unwrap(
       Layer.provideMerge(MemoryLibrary.layer),
       Layer.provide(MetadataResolver.layer),
       Layer.provide(Tmdb.layerWithOptions(Tmdb.defaultOptions(Option.none()))),
+      Layer.provide(Omdb.layerWithOptions(Omdb.defaultOptions(Option.none()))),
       Layer.provide(DiskCache.layer),
       Layer.provide(MediaTools.layer),
       Layer.provide(config),
@@ -114,6 +116,11 @@ describe.skipIf(!hasFfmpeg)("catalog records", () => {
           year: 1999,
           genres: [],
           studios: [],
+          countries: [],
+          tags: [],
+          ratings: {},
+          recommendations: [],
+          credits: [],
           sources: ["name" as const],
         };
 

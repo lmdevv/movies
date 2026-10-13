@@ -84,6 +84,7 @@ default. The NixOS options are in brackets.
 | `PUID`, `PGID`                | User and group of the media service, 1000 (`user`, `group`)               |
 | `MOVIES_IMAGE`, `TZ`          | Image to run, `ghcr.io/lmdevv/movies:latest`; time zone, UTC              |
 | `TMDB_API_KEY`                | TMDB key or read token for metadata and artwork (`tmdbApiKeyFile`)        |
+| `OMDB_API_KEY`                | OMDb key for IMDb, RT, and Metacritic scores (`omdbApiKeyFile`)           |
 | `LIBRARY_ROOTS`               | Approved library folders in the container, `/media` (from `libraryDirs`)  |
 | `HARDWARE_ACCELERATION`       | `auto`, `qsv`, or `none`, `auto` (`hardwareAcceleration`)                 |
 | `QSV_DEVICE`                  | Render node for Quick Sync, `/dev/dri/renderD128` (`qsvDevice`)           |

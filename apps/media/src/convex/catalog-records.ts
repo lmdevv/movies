@@ -9,12 +9,19 @@ import type { ArtworkKey } from "@movies/contracts/artwork";
 import { ageRatingFromCertification } from "@movies/contracts/content-rating";
 import { Container, type DynamicRange } from "@movies/contracts/media-playback";
 import type { ExternalSubtitle, HdrFormat, Probe } from "@movies/contracts/models/catalog";
-import type {
-  ResolvedFile,
-  ScannedEpisode,
-  ScannedItem,
-  ScannedTitle,
+import { type Ratings, type Trailer, YOUTUBE_KEY_PATTERN } from "@movies/contracts/models/catalog";
+import {
+  CREDIT_BATCH_LIMIT,
+  type ResolvedFile,
+  type ScannedCollection,
+  type ScannedCredit,
+  type ScannedEpisode,
+  type ScannedItem,
+  type ScannedTitle,
+  TITLE_LIST_LIMIT,
+  TITLE_TAG_LIMIT,
 } from "@movies/contracts/models/scan";
+import { createHash } from "node:crypto";
 import { Bytes, EpochMillis, Milliseconds } from "@movies/contracts/units";
 import { Effect, Option, Schema } from "effect";
 
@@ -23,7 +30,14 @@ import type { LibraryFolder, ScannedFile } from "../library/library-sink.ts";
 import { SidecarFormat } from "../library/sidecar-subtitles.ts";
 import { MediaName } from "../library/media-naming.ts";
 import type { MediaProbe } from "../media/media-probe.ts";
-import { type EpisodeMetadata, ImageRef, type TitleMetadata } from "../metadata/title-metadata.ts";
+import type { Score, SiteRatings } from "../library/nfo.ts";
+import {
+  type EpisodeMetadata,
+  ImageRef,
+  type MergedCollection,
+  type MergedCredit,
+  type TitleMetadata,
+} from "../metadata/title-metadata.ts";
 import type { ResolvedMediaFile } from "../playback/file-resolver.ts";
 
 /** Seals an artwork source into the key titles carry. */
@@ -240,6 +254,45 @@ const artworkKey = (
         }),
       );
 
+const communityRating = (score: Score | undefined) =>
+  score === undefined
+    ? null
+    : { value: Math.min(10, Math.max(0, score.value)), votes: score.votes ?? null };
+
+const percentScore = (value: number | undefined): number | null =>
+  value === undefined ? null : Math.min(100, Math.max(0, Math.round(value)));
+
+/** The catalog ratings of merged scores. */
+const toRatings = (ratings: SiteRatings): Ratings => ({
+  tmdb: communityRating(ratings.tmdb),
+  imdb: communityRating(ratings.imdb),
+  rottenTomatoes: percentScore(ratings.rottenTomatoes),
+  metacritic: percentScore(ratings.metacritic),
+});
+
+const toTrailer = (trailer: TitleMetadata["trailer"]): Trailer | null =>
+  trailer === undefined || !YOUTUBE_KEY_PATTERN.test(trailer.key)
+    ? null
+    : { site: "youtube", key: trailer.key, name: trailer.name ?? null };
+
+const distinct = (values: ReadonlyArray<string>, limit: number): Array<string> =>
+  [
+    ...new Set(
+      values.flatMap((value) => {
+        const trimmed = value.trim();
+
+        return trimmed === "" ? [] : [trimmed];
+      }),
+    ),
+  ].slice(0, limit);
+
+/** Provider IDs as the catalog stores them: null where unknown. */
+export const idsOrNull = (ids: TitleMetadata["ids"]) => ({
+  tmdb: ids.tmdb ?? null,
+  imdb: ids.imdb ?? null,
+  tvdb: ids.tvdb ?? null,
+});
+
 /** The catalog title of merged title metadata. */
 export const toScannedTitle = Effect.fnUntraced(function* (
   folder: LibraryFolder,
@@ -269,12 +322,21 @@ export const toScannedTitle = Effect.fnUntraced(function* (
       backdrop: yield* artworkKey(folder, metadata.backdrop, seal),
       logo: yield* artworkKey(folder, metadata.logo, seal),
     },
-    externalIds: {
-      tmdb: metadata.ids.tmdb ?? null,
-      imdb: metadata.ids.imdb ?? null,
-      tvdb: metadata.ids.tvdb ?? null,
-    },
+    externalIds: idsOrNull(metadata.ids),
     matchStatus: metadata.sources.includes("provider") || hasIds ? "matched" : "unmatched",
+    originalName:
+      metadata.originalTitle === undefined || metadata.originalTitle === metadata.title
+        ? null
+        : metadata.originalTitle,
+    releaseDate: metadata.releaseDate ?? null,
+    status: metadata.kind === "show" ? (metadata.status ?? null) : null,
+    originalLanguage: metadata.originalLanguage ?? null,
+    studios: distinct(metadata.studios, TITLE_LIST_LIMIT),
+    countries: distinct(metadata.countries, TITLE_LIST_LIMIT),
+    tags: distinct(metadata.tags, TITLE_TAG_LIMIT),
+    ratings: toRatings(metadata.ratings),
+    trailer: toTrailer(metadata.trailer),
+    recommendations: distinct(metadata.recommendations, TITLE_LIST_LIMIT),
   } satisfies ScannedTitle;
 });
 
@@ -297,8 +359,50 @@ export const toScannedEpisode = Effect.fnUntraced(function* (
     still: yield* artworkKey(folder, metadata.still, seal),
     seasonName: null,
     seasonPoster: yield* artworkKey(folder, metadata.seasonPoster, seal),
+    rating: communityRating(metadata.rating),
+    externalIds: idsOrNull(metadata.ids),
+    seasonExternalIds: idsOrNull(metadata.seasonIds),
   } satisfies ScannedEpisode;
 });
+
+/** The catalog credits of merged credits, at most `CREDIT_BATCH_LIMIT`. */
+export const toScannedCredits = Effect.fnUntraced(function* (
+  folder: LibraryFolder,
+  credits: ReadonlyArray<MergedCredit>,
+  seal: SealArtwork,
+) {
+  return yield* Effect.forEach(
+    credits.filter((credit) => credit.name.trim() !== "").slice(0, CREDIT_BATCH_LIMIT),
+    (credit) =>
+      Effect.map(artworkKey(folder, credit.profile, seal), (profile): ScannedCredit => ({
+        person: { name: credit.name.trim(), externalIds: idsOrNull(credit.ids), profile },
+        kind: credit.kind,
+        role: credit.role ?? null,
+        order: credit.order,
+      })),
+  );
+});
+
+/** The catalog collection of a merged collection. */
+export const toScannedCollection = Effect.fnUntraced(function* (
+  folder: LibraryFolder,
+  collection: MergedCollection | undefined,
+  seal: SealArtwork,
+) {
+  if (collection === undefined || collection.name.trim() === "") return null;
+
+  return {
+    sourceKey: collection.sourceKey,
+    name: collection.name.trim(),
+    overview: collection.overview ?? null,
+    poster: yield* artworkKey(folder, collection.poster, seal),
+    backdrop: yield* artworkKey(folder, collection.backdrop, seal),
+  } satisfies ScannedCollection;
+});
+
+/** A digest of what a write would store, so unchanged rescans can skip it. */
+export const digestOf = (value: ReadonlyArray<ScannedCredit> | ScannedCollection | null): string =>
+  createHash("sha256").update(JSON.stringify(value)).digest("base64url");
 
 const toExternalSubtitle = (subtitle: ScannedFile["subtitles"][number]): ExternalSubtitle => ({
   fileName: fileNameOf(subtitle.path),
