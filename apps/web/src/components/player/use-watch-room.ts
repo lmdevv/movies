@@ -35,7 +35,7 @@ export const useWatchRoom = (
 ): WatchRoom | null => {
   const joinRoom = useCommand("rooms.join");
   const [join, setJoin] = useState<RoomJoin>({ status: "joining" });
-  const record = useCommandQuery("rooms.get", roomId === null ? "skip" : { roomId });
+  const record = useCommandQuery("rooms.get", roomId === null ? "skip" : { roomId, profileId });
   const room = record.status === "success" ? record.data : null;
 
   useEffect(() => {

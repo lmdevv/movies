@@ -1,38 +1,130 @@
 /** Library folder rules shared by admins adding libraries and migrations importing them. */
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
+import { LIBRARY_ROOT_MAX, LIBRARY_ROOTS_MAX } from "./bounds";
 import { fail } from "./errors";
 import type { ReadCtx } from "./viewer";
 
+/** A folder trimmed, with repeated and trailing slashes removed (`/` stays `/`). */
+export const normalizeRoot = (root: string): string =>
+  root
+    .trim()
+    .replace(/\/{2,}/gu, "/")
+    .replace(/\/+$/u, "") || "/";
+
+/** Whether `path` is `root` or lies inside it; both normalized. */
+export const isInside = (path: string, root: string): boolean =>
+  path === root || path.startsWith(root === "/" ? root : `${root}/`);
+
+/** Whether one folder holds the other, or they are the same; both normalized. */
+const overlaps = (left: string, right: string): boolean =>
+  isInside(left, right) || isInside(right, left);
+
+/** The libraries with a folder that holds `folder`, lies inside it, or is it. */
+export const librariesOverlapping = (
+  folder: string,
+  libraries: ReadonlyArray<Doc<"libraries">>,
+): Array<Doc<"libraries">> =>
+  libraries.filter((library) =>
+    library.roots.some((known) => overlaps(folder, normalizeRoot(known))),
+  );
+
+/** Requires normalized folders to be absolute, without `.` or `..` segments. */
+export const checkAbsolute = (folders: ReadonlyArray<string>): void => {
+  const invalid = folders.find((root) => {
+    const segments = root.split("/");
+
+    return !root.startsWith("/") || segments.includes("..") || segments.includes(".");
+  });
+
+  if (invalid !== undefined) fail("invalid_args", `Folders must be absolute paths: ${invalid}`);
+};
+
 /**
- * Normalizes and checks library folders: trimmed, absolute, without `.` or `..` segments, without
- * a trailing slash, and not a folder of another library (other than `except`).
+ * Normalizes and checks library folders: absolute, at most 1024 characters, without `.` or `..`
+ * segments, and neither the same as, inside, nor containing a folder of another library (other
+ * than `except`). Nested libraries would let a grant on one expose the other's files.
  */
 export const checkRoots = async (
   ctx: ReadCtx,
   roots: ReadonlyArray<string>,
   except: Id<"libraries"> | null,
 ): Promise<Array<string>> => {
-  const normalized = [...new Set(roots.map((root) => root.trim().replace(/\/+$/u, "") || "/"))];
+  const normalized = [...new Set(roots.map(normalizeRoot))];
 
   if (normalized.length === 0) return fail("invalid_args", "Add at least one folder");
 
-  const invalid = normalized.find((root) => {
-    const segments = root.split("/");
+  if (normalized.length > LIBRARY_ROOTS_MAX) {
+    return fail("invalid_args", `A library has at most ${LIBRARY_ROOTS_MAX} folders`);
+  }
 
-    return !root.startsWith("/") || segments.includes("..") || segments.includes(".");
-  });
+  checkAbsolute(normalized);
 
-  if (invalid !== undefined)
-    return fail("invalid_args", `Folders must be absolute paths: ${invalid}`);
+  const long = normalized.find((root) => root.length > LIBRARY_ROOT_MAX);
 
-  const others = await ctx.db.query("libraries").collect();
+  if (long !== undefined) {
+    return fail("invalid_args", `Folders have at most ${LIBRARY_ROOT_MAX} characters`);
+  }
 
-  const taken = others
-    .filter((other) => other._id !== except)
-    .flatMap((other) => other.roots)
-    .find((root) => normalized.includes(root));
+  const others = (await ctx.db.query("libraries").collect()).filter(
+    (other) => other._id !== except,
+  );
 
-  if (taken !== undefined) return fail("conflict", `Another library already uses ${taken}`);
+  const nested = normalized.find((root) =>
+    normalized.some((outer) => outer !== root && isInside(root, outer)),
+  );
+
+  if (nested !== undefined) {
+    return fail("invalid_args", `${nested} is inside another folder of this library`);
+  }
+
+  for (const other of others) {
+    for (const known of other.roots.map(normalizeRoot)) {
+      const overlap = normalized.find((root) => overlaps(root, known));
+
+      if (overlap === known) return fail("conflict", `Another library already uses ${known}`);
+
+      if (overlap !== undefined) {
+        return fail(
+          "invalid_args",
+          isInside(overlap, known)
+            ? `${overlap} is inside ${known}, a folder of the library "${other.name}"`
+            : `${overlap} contains ${known}, a folder of the library "${other.name}"`,
+        );
+      }
+    }
+  }
 
   return normalized;
 };
+
+/** The folders not inside another of `roots`: what a library over all of them would need. */
+export const outermostRoots = (roots: ReadonlyArray<string>): Array<string> =>
+  roots.filter((root) => !roots.some((outer) => outer !== root && isInside(root, outer)));
+
+/**
+ * Pairs of libraries whose folders overlap, as libraries made before folders were kept apart may.
+ * A grant on either exposes files of the other; `maintenance:overlappingLibraries` lists them.
+ */
+export const overlappingLibraries = (
+  libraries: ReadonlyArray<Doc<"libraries">>,
+): Array<{ readonly outer: string; readonly inner: string; readonly folder: string }> =>
+  libraries.flatMap((outer) =>
+    libraries.flatMap((inner) =>
+      outer._id === inner._id
+        ? []
+        : inner.roots.flatMap((folder) =>
+            outer.roots.some((root) => {
+              const normalized = normalizeRoot(root);
+              const candidate = normalizeRoot(folder);
+
+              // Identical folders are listed once, from the library made first.
+              return (
+                isInside(candidate, normalized) &&
+                (candidate !== normalized || outer._creationTime < inner._creationTime)
+              );
+            })
+              ? [{ outer: outer.name, inner: inner.name, folder }]
+              : [],
+          ),
+    ),
+  );

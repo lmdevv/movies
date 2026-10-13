@@ -9,7 +9,7 @@ import { EpisodeId, LibraryId, MediaFileId, ProfileId, TitleId, UserId } from ".
 import { EpochMillis, Milliseconds } from "../units";
 import { ExternalIds, LibraryKind, LibraryRoot, MetadataOverrides, TitleKind } from "./catalog";
 import { MigrationSource } from "./jobs";
-import { MigrationImported, MigrationPhase, PathMapping } from "./migration";
+import { MigrationImported, MigrationPhase, PathMapping, PlannedLibraryAccess } from "./migration";
 
 /** A [movies] account and its profiles, for mapping migration source users. */
 export const MigrationTarget = Schema.Struct({
@@ -48,6 +48,8 @@ export const PlannedLibrary = Schema.Struct({
   name: Schema.String,
   kind: LibraryKind,
   roots: Schema.Array(LibraryRoot).check(Schema.isMinLength(1), Schema.isMaxLength(20)),
+  /** Who sees the library if the import adds it; plans stored before this field open it to admins. */
+  access: Schema.optionalKey(PlannedLibraryAccess),
 });
 
 /** Everything a migration job needs to run again after a restart. */

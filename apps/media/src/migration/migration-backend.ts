@@ -141,7 +141,12 @@ export const layer: Layer.Layer<Service, never, MediaBackend.Service> = Layer.ef
           Effect.map((saved) => saved.cancelled),
         ),
       ensureLibrary: (lease, library) =>
-        call("migrationService.ensureLibrary", { ...lease, ...library }),
+        call("migrationService.ensureLibrary", {
+          ...lease,
+          name: library.name,
+          kind: library.kind,
+          roots: library.roots,
+        }),
       scansPending: (libraryIds) =>
         call("migrationService.scansPending", { libraryIds }).pipe(
           Effect.map((result) => result.pending),

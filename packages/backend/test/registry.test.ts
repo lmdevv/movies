@@ -12,13 +12,25 @@ import {
 } from "@movies/contracts/clock";
 import type { AnyCommand } from "@movies/contracts/command";
 import { commands } from "@movies/contracts/commands";
+import { KIDS_DEFAULT_MAX_AGE } from "@movies/contracts/content-rating";
+import { DeviceId } from "@movies/contracts/ids";
 import { mediaServiceFunctions } from "@movies/contracts/media-service";
+import { LibraryRoot } from "@movies/contracts/models/catalog";
+import { DisplayName } from "@movies/contracts/models/common";
+import { BACKUP_SYNC_LIMIT } from "@movies/contracts/models/jobs";
+import {
+  COLLECTION_BATCH_LIMIT,
+  COLLECTION_MEMBER_BATCH_LIMIT,
+} from "@movies/contracts/models/migration-service";
+import { AvatarKey } from "@movies/contracts/models/profiles";
+import { SCAN_BATCH_LIMIT } from "@movies/contracts/models/scan";
+import { Milliseconds } from "@movies/contracts/units";
 import {
   PLAYBACK_TOKEN_LIFETIME_MS,
   PLAYBACK_TOKEN_TEST_VECTORS,
 } from "@movies/contracts/playback-token";
 import { Role, roleScopes } from "@movies/contracts/scopes";
-import { Predicate } from "effect";
+import { Predicate, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import * as account from "../convex/account";
@@ -44,6 +56,7 @@ import * as sessions from "../convex/sessions";
 import * as setup from "../convex/setup";
 import * as titles from "../convex/titles";
 import * as users from "../convex/users";
+import * as bounds from "../convex/lib/bounds";
 import * as convexClock from "../convex/lib/roomClock";
 import {
   PLAYBACK_TOKEN_LIFETIME_MS as CONVEX_TOKEN_LIFETIME_MS,
@@ -136,6 +149,12 @@ const convexCommands = [
   command.kind === "media" ? [] : [{ name, command }],
 );
 
+/** A string of `length` characters, starting with `prefix`. */
+const text = (length: number, prefix = ""): string => prefix.padEnd(length, "x");
+
+/** `count` distinct absolute folders. */
+const folders = (count: number) => Array.from({ length: count }, (_, index) => `/f${index}`);
+
 const normalized = (json: ValidatorJson | null | undefined) =>
   json === null || json === undefined ? null : normalizeValidator(json);
 
@@ -177,6 +196,44 @@ describe("constants shared across the seam", () => {
     expect(convexClock.MEMBER_PRESENCE_TIMEOUT_MS).toBe(MEMBER_PRESENCE_TIMEOUT_MS);
     expect(convexClock.HOST_ABANDON_TIMEOUT_MS).toBe(HOST_ABANDON_TIMEOUT_MS);
     expect(convexClock.HOST_REANCHOR_THRESHOLD_MS).toBe(HOST_REANCHOR_THRESHOLD_MS);
+  });
+
+  it("uses the same kids default and batch limits", () => {
+    expect(bounds.KIDS_DEFAULT_MAX_AGE).toBe(KIDS_DEFAULT_MAX_AGE);
+    expect(bounds.BATCH_LIMIT).toBe(SCAN_BATCH_LIMIT);
+    expect(bounds.BACKUP_SYNC_LIMIT).toBe(BACKUP_SYNC_LIMIT);
+    expect(bounds.COLLECTION_BATCH_LIMIT).toBe(COLLECTION_BATCH_LIMIT);
+    expect(bounds.COLLECTION_MEMBER_BATCH_LIMIT).toBe(COLLECTION_MEMBER_BATCH_LIMIT);
+  });
+
+  // Validators check shapes only; these are the lengths and ranges the backend enforces itself.
+  it.each([
+    { name: "display names", schema: DisplayName, max: bounds.DISPLAY_NAME_MAX, prefix: "" },
+    { name: "avatar keys", schema: AvatarKey, max: bounds.AVATAR_KEY_MAX, prefix: "" },
+    { name: "device IDs", schema: DeviceId, max: bounds.DEVICE_ID_MAX, prefix: "" },
+    { name: "library folders", schema: LibraryRoot, max: bounds.LIBRARY_ROOT_MAX, prefix: "/" },
+  ])("bounds $name as the contract does", ({ schema, max, prefix }) => {
+    const accepts = Schema.is(schema);
+
+    expect(accepts(text(max, prefix))).toBe(true);
+    expect(accepts(text(max + 1, prefix))).toBe(false);
+  });
+
+  it("bounds library folder counts and milliseconds as the contract does", () => {
+    const roots = Schema.is(commands["libraries.create"].args.fields.roots);
+
+    expect(roots(folders(bounds.LIBRARY_ROOTS_MAX))).toBe(true);
+    expect(roots(folders(bounds.LIBRARY_ROOTS_MAX + 1))).toBe(false);
+
+    const milliseconds = Schema.is(Milliseconds);
+
+    expect([0, 1.5, -1, Number.POSITIVE_INFINITY, Number.NaN].map(milliseconds)).toStrictEqual([
+      true,
+      true,
+      false,
+      false,
+      false,
+    ]);
   });
 
   it("signs the shared playback token vector exactly", async () => {
