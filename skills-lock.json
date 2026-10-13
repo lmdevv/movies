@@ -7,12 +7,6 @@
       "skillPath": "skill/SKILL.md",
       "computedHash": "d3e059a03864cd72392d24e2b218ea825b3533383418b5dc1f947a9b084e3742"
     },
-    "coding-standards": {
-      "source": "dmmulroy/.dotfiles",
-      "sourceType": "github",
-      "skillPath": "home/.agents/skills/coding-standards/SKILL.md",
-      "computedHash": "63e671de165bb3c3808ae9645e4dc7826d24684bf6cbd22c0469a13a7b524b5c"
-    },
     "diagnosing-bugs": {
       "source": "mattpocock/skills",
       "sourceType": "github",

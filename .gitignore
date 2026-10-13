@@ -71,4 +71,4 @@ playwright-report
 .claude/worktrees/
 
 # before-and-after skill captures
-captures/
+/captures/
