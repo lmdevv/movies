@@ -15,7 +15,12 @@ Early development: the MVP (media service, web app, SDK, CLI) is in place; nativ
 - An Effect SDK and CLI with an agent skill
 - Docker Compose or a NixOS module
 
-## Install with Docker Compose
+## Install
+
+[docs/homelab.md](docs/homelab.md) walks through a homelab install end to end: Compose or NixOS,
+Tailscale and a Caddy reverse proxy, GPU passthrough, where data lives, backups, and upgrading.
+
+### Docker Compose
 
 ```sh
 git clone https://github.com/lmdevv/movies && cd movies/deploy/compose
@@ -26,18 +31,23 @@ docker compose up -d
 Open `MOVIES_PUBLIC_URL` (default `http://localhost:8080`), create the owner account (the first
 account is the owner), and add `/media/library` (or a folder in it) as a library.
 
-- The `movies` image (`ghcr.io/lmdevv/movies`, published from `main` and version tags) holds the
-  media service, the web app, the Convex CLI with the bundled functions, and ffmpeg.
-  `docker compose build` builds it from source instead.
+- The `movies` image (`ghcr.io/lmdevv/movies`, amd64 and arm64) holds the media service, the web
+  app, the Convex CLI with the bundled functions, and ffmpeg. Compose runs `:latest`, the newest
+  release; pin `:X.Y` or `:X.Y.Z`, or follow `:main` for the edge. Until the first release is
+  tagged, set `MOVIES_IMAGE=ghcr.io/lmdevv/movies:main`. `docker compose build` builds it from
+  source instead.
 - Each start deploys the functions and configures the deployment; secrets are generated inside
   Convex, never written to `.env`.
 - The media service runs as `PUID:PGID`, which must be able to read the library. Libraries mount
   read-only; add one line per folder under `volumes:` in `compose.yaml`.
-- Intel Quick Sync: `docker compose -f compose.yaml -f compose.qsv.yaml up -d`.
+- Intel Quick Sync: `docker compose -f compose.yaml -f compose.qsv.yaml up -d` (GPU setup in
+  [docs/homelab.md](docs/homelab.md#gpu-transcoding)).
+- Upgrade with the checkout at the new release tag, then `docker compose pull && docker compose
+  up -d`; each upgrade backs up first ([docs/operations.md](docs/operations.md#upgrading)).
 - A local OpenTelemetry collector: `docker compose --profile telemetry up -d` with
   `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318`.
 
-## Install on NixOS
+### NixOS
 
 ```nix
 # flake.nix
@@ -51,7 +61,7 @@ services.movies = {
   publicUrl = "http://nas.tailnet.ts.net:8080";
   convexPublicUrl = "http://nas.tailnet.ts.net:3210";
   hardwareAcceleration = "qsv";                       # Intel Gen12+ iGPU or Arc
-  tmdbApiKeyFile = "/run/secrets/tmdb-api-key";       # agenix, sops-nix, or a root-only file
+  environmentFile = "/run/secrets/movies.env";        # TMDB_API_KEY=...; agenix or sops-nix
 };
 ```
 
@@ -61,25 +71,34 @@ folders are read-only to it, and `openFirewall` is off by default.
 
 ## Configuration
 
-Compose reads these names from `deploy/compose/.env` (see `.env.example`); the NixOS options are
-in brackets.
+Compose reads these names from `deploy/compose/.env` (see `.env.example`); empty means the
+default. The NixOS options are in brackets.
 
-| Name                          | Meaning                                                                |
-| ----------------------------- | ---------------------------------------------------------------------- |
-| `MOVIES_LIBRARY`              | Host folder mounted read-only at `/media/library` (`libraryDirs`)      |
-| `MOVIES_PUBLIC_URL`           | URL of the web app and streams (`publicUrl`)                           |
-| `CONVEX_PUBLIC_URL`           | URL browsers and the CLI use for Convex (`convexPublicUrl`)            |
-| `MOVIES_BIND`                 | Address both ports listen on, `127.0.0.1` by default (`listenAddress`) |
-| `MOVIES_PORT`, `CONVEX_PORT`  | Ports, 8080 and 3210 (`port`, `convexPort`)                            |
-| `PUID`, `PGID`                | User and group of the media service (`user`, `group`)                  |
-| `TMDB_API_KEY`                | TMDB key or read token for metadata and artwork (`tmdbApiKeyFile`)     |
-| `HARDWARE_ACCELERATION`       | `auto`, `qsv`, or `none` (`hardwareAcceleration`)                      |
-| `MAX_CONCURRENT_TRANSCODES`   | Simultaneous transcodes, 3 (`maxConcurrentTranscodes`)                 |
-| `BACKUP_RETENTION_DAYS`       | Days of nightly backups kept, 14 (`backupRetentionDays`)               |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Optional OTLP/HTTP collector for traces and logs (`otlpEndpoint`)      |
-| `MOVIES_IMAGE`, `TZ`          | Image to run; time zone                                                |
+| Name                          | Meaning                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------- |
+| `MOVIES_LIBRARY`              | Host folder mounted read-only at `/media/library` (`libraryDirs`)         |
+| `MOVIES_PUBLIC_URL`           | URL of the web app and streams (`publicUrl`)                              |
+| `CONVEX_PUBLIC_URL`           | URL browsers and the CLI use for Convex (`convexPublicUrl`)               |
+| `MOVIES_BIND`                 | Address both ports listen on, `127.0.0.1` by default (`listenAddress`)    |
+| `MOVIES_PORT`, `CONVEX_PORT`  | Ports, 8080 and 3210 (`port`, `convexPort`)                               |
+| `PUID`, `PGID`                | User and group of the media service, 1000 (`user`, `group`)               |
+| `MOVIES_IMAGE`, `TZ`          | Image to run, `ghcr.io/lmdevv/movies:latest`; time zone, UTC              |
+| `TMDB_API_KEY`                | TMDB key or read token for metadata and artwork (`tmdbApiKeyFile`)        |
+| `LIBRARY_ROOTS`               | Approved library folders in the container, `/media` (from `libraryDirs`)  |
+| `HARDWARE_ACCELERATION`       | `auto`, `qsv`, or `none`, `auto` (`hardwareAcceleration`)                 |
+| `QSV_DEVICE`                  | Render node for Quick Sync, `/dev/dri/renderD128` (`qsvDevice`)           |
+| `LIBVA_DRIVER_NAME`           | VA-API driver, such as `iHD`; detected when empty (`extraEnvironment`)    |
+| `MAX_CONCURRENT_TRANSCODES`   | Simultaneous transcodes, 3 (`maxConcurrentTranscodes`)                    |
+| `STREAM_IDLE_SECONDS`         | An idle stream closes after this, 60 (`streamIdleSeconds`)                |
+| `STREAM_BUFFER_AHEAD_SECONDS` | How far ffmpeg runs ahead of the player, 120 (`streamBufferAheadSeconds`) |
+| `MIN_FREE_TRANSCODE_MB`       | Free space the transcode folder keeps, 2048 MiB (`minFreeTranscodeMb`)    |
+| `LIBRARY_RECONCILE_MINUTES`   | Full library reconciliation interval, 360 (`libraryReconcileMinutes`)     |
+| `BACKUP_RETENTION_DAYS`       | Days of nightly backups kept, 14 (`backupRetentionDays`)                  |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Optional OTLP/HTTP collector for traces and logs (`otlpEndpoint`)         |
 
-The media service's own settings are listed in `apps/media/README.md`.
+On NixOS, `environmentFile` adds secrets (such as `TMDB_API_KEY`) from a root-only file and
+`extraEnvironment` sets anything else. The media service's own settings are listed in
+`apps/media/README.md`.
 
 ## Remote access
 

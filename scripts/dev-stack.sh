@@ -16,7 +16,9 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-image="${CONVEX_BACKEND_IMAGE:-ghcr.io/get-convex/convex-backend:latest}"
+# The Convex backend every install runs, pinned by digest in one place (scripts/check-deploy.sh
+# checks compose.yaml, the Dockerfile, and the NixOS module against it).
+image="${CONVEX_BACKEND_IMAGE:-$(<"${root}/deploy/convex-backend.image")}"
 
 raw_name="${MOVIES_STACK:-$(basename "$root")}"
 name="$(printf '%s' "$raw_name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/-*$//')"
@@ -98,10 +100,16 @@ elif [[ "$(docker inspect -f '{{.State.Running}}' "$container")" != "true" ]]; t
   docker start "$container" >/dev/null
 fi
 
+convex_up() { curl -fsS "http://127.0.0.1:${convex_port}/version" >/dev/null 2>&1; }
 for _ in $(seq 1 60); do
-  curl -fsS "http://127.0.0.1:${convex_port}/version" >/dev/null 2>&1 && break
+  convex_up && break
   sleep 1
 done
+if ! convex_up; then
+  echo "Convex did not answer at http://127.0.0.1:${convex_port} within 60 s" >&2
+  docker logs --tail 40 "$container" >&2 || true
+  exit 1
+fi
 
 admin_key="$(docker exec "$container" ./generate_admin_key.sh | tail -n 1)"
 

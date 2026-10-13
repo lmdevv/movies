@@ -22,6 +22,6 @@
       "cache": false
     }
   },
-  "globalEnv": ["CI", "NODE_ENV", "VITE_CONVEX_URL"],
+  "globalEnv": ["CI", "NODE_ENV"],
   "globalDependencies": [".env*", "apps/*/.env*", "packages/*/.env*"]
 }

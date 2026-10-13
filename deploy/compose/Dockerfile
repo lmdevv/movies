@@ -6,8 +6,8 @@
 #   docker build -f deploy/compose/Dockerfile -t movies .
 
 ARG NODE_IMAGE=node:24.21.0-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66
-# Keep in step with compose.yaml, nix/module.nix, and scripts/dev-stack.sh: `generate_key` derives
-# the admin key from the backend's instance secret and must match its version.
+# Must equal deploy/convex-backend.image (scripts/check-deploy.sh), like compose.yaml: `generate_key`
+# derives the admin key from the backend's instance secret and must match its version.
 ARG CONVEX_IMAGE=ghcr.io/get-convex/convex-backend:5c7cb5bc7db457290f1769f95f1d1340912f7fd7@sha256:d715e9ec088784407ca4ba2d3db592702cd328d02c76cdca3852c0018f2a76b4
 
 FROM ${CONVEX_IMAGE} AS convex
@@ -30,6 +30,7 @@ RUN pnpm --filter @movies/backend deploy --prod --legacy /out/backend \
  && rm -rf /out/backend/test \
  && mkdir -p /out/backend/node_modules/@movies \
  && cp -r packages/config /out/backend/node_modules/@movies/config \
+ && sh deploy/functions-hash.sh /out/backend >/out/backend/.functions-hash \
  && mkdir -p /out/media/scripts \
  && cp -r apps/media/dist /out/media/dist \
  && cp apps/media/scripts/configure-web.ts /out/media/scripts/ \
@@ -57,6 +58,10 @@ RUN userdel --remove node \
       --shell /usr/sbin/nologin movies
 
 COPY --from=convex /convex/generate_key /app/convex/generate_key
+# The Convex backend this image's generate_key and functions were built for; the entrypoint warns
+# when compose.yaml runs another.
+ARG CONVEX_IMAGE
+RUN printf '%s\n' "$CONVEX_IMAGE" >/app/convex/image
 COPY --from=build /out/backend /app/backend
 COPY --from=build /out/media /app/media
 COPY --from=build /out/web /app/web

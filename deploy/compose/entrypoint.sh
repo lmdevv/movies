@@ -17,7 +17,13 @@ public_url="${MOVIES_PUBLIC_URL%/}"
 convex_public_url="${CONVEX_PUBLIC_URL%/}"
 convex_url="${CONVEX_URL%/}"
 credentials="${CONVEX_CREDENTIALS_DIR:-/run/convex-credentials}"
+# The release plus a hash of the bundled Convex functions and their dependencies (written at build
+# time by deploy/functions-hash.sh), so any image whose functions differ, such as a newer `main` or
+# a local build, backs up before it deploys.
 version="$(node -p 'require("/app/backend/package.json").version')"
+if [ -s /app/backend/.functions-hash ]; then
+  version="$version+$(cat /app/backend/.functions-hash)"
+fi
 puid="${PUID:-1000}"
 pgid="${PGID:-1000}"
 
@@ -47,6 +53,12 @@ convex_up() {
     "fetch(process.env.CONVEX_VERSION_URL).then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 }
 
+built_for="$(cat /app/convex/image 2>/dev/null || true)"
+if [ -n "${CONVEX_BACKEND_IMAGE:-}" ] && [ -n "$built_for" ] && [ "$CONVEX_BACKEND_IMAGE" != "$built_for" ]; then
+  log "warning: this image was built for the Convex backend $built_for, but compose.yaml runs"
+  log "$CONVEX_BACKEND_IMAGE; use the compose.yaml of the release the image comes from"
+fi
+
 log "waiting for Convex at $convex_url"
 for _ in $(seq 1 120); do
   convex_up && break
@@ -68,13 +80,17 @@ export CONVEX_SELF_HOSTED_ADMIN_KEY="$admin_key"
 cd /app/backend
 convex() { node node_modules/convex/bin/main.js "$@"; }
 
-if [ -s "$data/version" ] && [ "$(cat "$data/version")" != "$version" ]; then
+# One backup per target version: $data/version changes only after a deploy succeeds, and a deploy
+# that keeps failing must not export everything again on every restart.
+if [ -s "$data/version" ] && [ "$(cat "$data/version")" != "$version" ] &&
+  [ "$(cat "$data/upgrade-backup" 2>/dev/null)" != "$version" ]; then
   stamp="$(date -u +%Y-%m-%dT%H-%M-%S-000Z)"
   backup="$data/backups/movies-manual-$stamp.zip"
   log "upgrading from $(cat "$data/version") to $version; backing up to $backup first"
   convex export --include-file-storage --path "$data/backups/.partial-movies-manual-$stamp.zip"
   mv "$data/backups/.partial-movies-manual-$stamp.zip" "$backup"
   chown movies:movies "$backup"
+  printf '%s\n' "$version" >"$data/upgrade-backup"
 fi
 
 log "deploying the Convex functions ($version)"
@@ -93,6 +109,8 @@ node /app/media/scripts/configure-web.ts --from /app/web --to /run/movies/web \
   --convex-url "$convex_public_url"
 
 printf '%s\n' "$version" >"$data/version"
+# Deployed: the next upgrade, even to a version that failed before, backs up again.
+rm -f "$data/upgrade-backup"
 
 # The service's environment, readable by the media user only. Node parses it (`--env-file`), so
 # secrets never appear in a command line. Unset optional settings stay out of it.
@@ -112,9 +130,22 @@ setting BACKUP_DIR "$data/backups"
 setting TRANSCODE_DIR /transcode
 setting WEB_DIST_DIR /run/movies/web
 setting LIBRARY_ROOTS "${LIBRARY_ROOTS:-/media}"
-for name in BACKUP_RETENTION_DAYS TMDB_API_KEY OTEL_EXPORTER_OTLP_ENDPOINT HARDWARE_ACCELERATION \
-  QSV_DEVICE MAX_CONCURRENT_TRANSCODES STREAM_IDLE_SECONDS STREAM_BUFFER_AHEAD_SECONDS MIN_FREE_TRANSCODE_MB \
-  LIBRARY_RECONCILE_MINUTES; do
+# The media service's optional settings, passed on when set (apps/media/README.md). Every one is
+# in compose.yaml and .env.example too; scripts/check-deploy.sh keeps them in step.
+optional_settings=(
+  BACKUP_RETENTION_DAYS
+  TMDB_API_KEY
+  OTEL_EXPORTER_OTLP_ENDPOINT
+  HARDWARE_ACCELERATION
+  QSV_DEVICE
+  LIBVA_DRIVER_NAME
+  MAX_CONCURRENT_TRANSCODES
+  STREAM_IDLE_SECONDS
+  STREAM_BUFFER_AHEAD_SECONDS
+  MIN_FREE_TRANSCODE_MB
+  LIBRARY_RECONCILE_MINUTES
+)
+for name in "${optional_settings[@]}"; do
   setting "$name" "${!name:-}"
 done
 unset admin_key media_service_api_key playback_token_secret CONVEX_SELF_HOSTED_ADMIN_KEY TMDB_API_KEY

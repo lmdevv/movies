@@ -91,7 +91,11 @@ evaluated="$(
 field() { node -e "process.stdout.write([].concat(JSON.parse(process.argv[1])[process.argv[2]]).join('\n'))" "$evaluated" "$1"; }
 
 unit_file="$(nix build --no-link --print-out-paths "$(field unitDrv)^out")/movies.service"
-printf '%s\n' "$(field tmpfiles)" | sudo systemd-tmpfiles --create -
+# Only the module's own folders, all under $base. The evaluated system's other rules (such as its
+# /lib64 loader link, a stub where the host may run nix-ld) must never reach the host.
+module_tmpfiles="$(field tmpfiles | awk -v base="$base" '$2 == base || index($2, base "/") == 1')"
+[[ -n "$module_tmpfiles" ]] || { echo "the module declared no folders under $base" >&2; exit 1; }
+printf '%s\n' "$module_tmpfiles" | sudo systemd-tmpfiles --create -
 
 env_args=()
 while IFS= read -r pair; do env_args+=(-e "$pair"); done < <(

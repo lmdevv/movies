@@ -35,6 +35,7 @@ stdenv.mkDerivation (finalAttrs: {
         ../tsconfig.json
         ../apps
         ../packages
+        ../deploy/functions-hash.sh
       ]
     );
   };
@@ -86,6 +87,7 @@ stdenv.mkDerivation (finalAttrs: {
     rm -rf $lib/backend/test
     mkdir -p $lib/backend/node_modules/@movies
     cp -r packages/config $lib/backend/node_modules/@movies/config
+    sh deploy/functions-hash.sh $lib/backend >$lib/backend/.functions-hash
 
     cp -r apps/media/dist $lib/media/dist
     cp apps/media/scripts/configure-web.ts $lib/media/scripts/

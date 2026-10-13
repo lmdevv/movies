@@ -17,7 +17,9 @@ import type { FixtureLibrary } from "../../testing/fixture-library.ts";
 import { camelCaseKeys } from "../source-http.ts";
 
 /** The image the docker test and the recorder use; override with `JELLYFIN_IMAGE`. */
-const JELLYFIN_IMAGE = process.env["JELLYFIN_IMAGE"] ?? "jellyfin/jellyfin:12.2";
+const JELLYFIN_IMAGE =
+  process.env["JELLYFIN_IMAGE"] ??
+  "jellyfin/jellyfin:12.2@sha256:357724bf0ae27a672c7cbaa899db2d9abeb13dbd8657ccce750258a4c059d037";
 
 /** A running, set-up Jellyfin. */
 export interface JellyfinServer {
