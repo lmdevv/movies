@@ -107,4 +107,20 @@ describe("sidecarSubtitles", () => {
       },
     ]);
   });
+
+  it("reads Persian and keeps a regional variant as the title", () => {
+    const listing = {
+      folder: "Tears of Steel (2012)",
+      names: ["Tears of Steel (2012).fa.srt", "Tears of Steel (2012).pt.Brazil.srt"],
+    };
+
+    expect(
+      sidecarSubtitles("Tears of Steel (2012)/Tears of Steel (2012).mov", listing).map(
+        ({ language, title }) => ({ language, title }),
+      ),
+    ).toStrictEqual([
+      { language: "per", title: undefined },
+      { language: "por", title: "Brazil" },
+    ]);
+  });
 });

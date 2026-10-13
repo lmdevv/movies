@@ -22,7 +22,7 @@ while (($# > 0)); do
   case "$1" in
     --dir) dir="$2"; shift 2 ;;
     --set) set_name="$2"; shift 2 ;;
-    -h | --help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -54,8 +54,40 @@ download() {
   log "Downloading $(basename "$dest")"
   local range=(-C -)
   [[ -n "$max" ]] && range=(-r "0-$max")
-  curl -fsSL --retry 8 --retry-all-errors --retry-delay 10 "${range[@]}" -o "$dest.part" "$url"
+  # download.blender.org sits behind Cloudflare, which sometimes answers a first request with
+  # 403 and keeps doing so on that connection; a fresh curl process gets through.
+  local attempt
+  for attempt in 1 2 3 4 5 6; do
+    curl -fsSL --retry 4 --retry-delay 5 "${range[@]}" -o "$dest.part" "$url" && break
+    ((attempt < 6)) || return 1
+    sleep $((attempt * 3))
+  done
+  case "$dest" in
+    *.mp4 | *.mkv | *.mov | *.ogv)
+      # Checked once, when the download finishes: a file ffmpeg can't decode is useless here.
+      local codec
+      codec="$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 \
+        "$dest.part" 2>/dev/null || true)"
+      if [[ -z "$codec" || "$codec" == unknown ]]; then
+        echo "$(basename "$dest") has no video stream ffmpeg can decode" >&2
+        rm -f "$dest.part"
+        return 1
+      fi
+      ;;
+  esac
   mv "$dest.part" "$dest"
+}
+
+# ff OUTPUT FFMPEG_ARGS...: runs ffmpeg into a temporary file next to OUTPUT, then renames it, so an
+# interrupted run never leaves a truncated file that a rerun would keep. Skips existing outputs.
+ff() {
+  local out="$1"
+  shift
+  [[ -s "$out" ]] && return 0
+  local tmp="${out%.*}.part.${out##*.}"
+  # Explicit, because callers on the left of `||` run with `set -e` off.
+  ffmpeg -nostdin -v error -y "$@" "$tmp" || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$out"
 }
 
 # The large files, fetched in parallel before anything else: KEY -> "URL|FILE[|MAX_BYTES]".
@@ -82,15 +114,6 @@ fetch() {
   local url file max
   IFS='|' read -r url file max <<<"${sources[$1]}"
   download "$url" "$cache/$file" "$max" >&2
-  if [[ "$file" != *.zip ]]; then
-    local codec
-    codec="$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 \
-      "$cache/$file" 2>/dev/null || true)"
-    if [[ -z "$codec" || "$codec" == unknown ]]; then
-      echo "$file has no video stream ffmpeg can decode; delete it and rerun" >&2
-      exit 1
-    fi
-  fi
   echo "$cache/$file"
 }
 
@@ -131,10 +154,9 @@ artwork() {
   local video="$1" folder="$2" prefix="${3:-}" length
   length="$(duration "$video")"
   local poster="$folder/${prefix}poster.jpg" fanart="$folder/${prefix}fanart.jpg"
-  [[ -s "$poster" ]] || ffmpeg -v error -y -ss "$((length * 2 / 5))" -i "$video" -frames:v 1 \
-    -vf "crop=ih*2/3:ih,scale=600:900" -q:v 3 "$poster"
-  [[ -s "$fanart" ]] || ffmpeg -v error -y -ss "$((length / 4))" -i "$video" -frames:v 1 \
-    -vf "scale=1920:-2" -q:v 3 "$fanart"
+  ff "$poster" -ss "$((length * 2 / 5))" -i "$video" -frames:v 1 \
+    -vf "crop=ih*2/3:ih,scale=600:900" -q:v 3
+  ff "$fanart" -ss "$((length / 4))" -i "$video" -frames:v 1 -vf "scale=1920:-2" -q:v 3
 }
 
 # thumb VIDEO DEST: an episode still.
@@ -142,13 +164,15 @@ thumb() {
   local video="$1" dest="$2" length
   [[ -s "$dest" ]] && return 0
   length="$(duration "$video")"
-  ffmpeg -v error -y -ss "$((length / 3))" -i "$video" -frames:v 1 -vf "scale=1280:-2" -q:v 3 "$dest"
+  ff "$dest" -ss "$((length / 3))" -i "$video" -frames:v 1 -vf "scale=1280:-2" -q:v 3
 }
 
 # place SOURCE DEST: hard-links (or copies) a finished download into the library.
 place() {
   [[ -e "$2" ]] && return 0
-  ln "$1" "$2" 2>/dev/null || cp "$1" "$2"
+  ln "$1" "$2" 2>/dev/null && return 0
+  cp "$1" "$2.part"
+  mv "$2.part" "$2"
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -269,7 +293,7 @@ tears_of_steel() {
   # Official subtitles, as sidecar files in many languages.
   local pair code file
   for pair in en:TOS-en de:TOS-de es:TOS-es fr:TOS-fr-orig it:TOS-it nl:TOS-nl no:TOS-no \
-    ru:TOS-ru ja:TOS-JP pt-BR:TOS-PT-BR pt:TOS-PT-PT cs:TOS-CZ da:TOS-Dansk el:TOS-GK \
+    ru:TOS-ru ja:TOS-JP pt.Brazil:TOS-PT-BR pt:TOS-PT-PT cs:TOS-CZ da:TOS-Dansk el:TOS-GK \
     he:TOS-HE hu:TOS-HU id:TOS-Indonesian fa:TOS-Persian zh:TOS-CH hr:TOS-Croatian; do
     code="${pair%%:*}" file="${pair#*:}"
     # download.blender.org throttles bursts of requests, so pace them.
@@ -341,6 +365,34 @@ cosmos_laundromat() {
 EOF
 }
 
+# image_subtitle VIDEO OUT: renders VIDEO's English text subtitle as a VobSub track in OUT. ffmpeg
+# can't turn text into bitmaps, so spumux (dvdauthor) renders the SRT onto a DVD stream and ffmpeg
+# lifts the subtitle track out.
+image_subtitle() {
+  local video="$1" out="$2" font srt="$cache/feature-test-en.srt" dvd="$cache/feature-test-dvd.mpg"
+  command -v spumux >/dev/null && command -v fc-match >/dev/null || return 1
+  font="$(fc-match -f '%{file}' 'DejaVu Sans:bold')"
+  [[ -n "$font" ]] || return 1
+  log "Feature Test: rendering the image subtitle"
+  ff "$srt" -i "$video" -map 0:s:m:language:eng || return 1
+  ff "$dvd" -f lavfi -i "color=c=black:s=720x576:r=25" -t 300 -target pal-dvd -an || return 1
+  cat >"$cache/spumux.xml" <<EOF
+<subpictures format="PAL"><stream><textsub filename="$srt" characterset="UTF-8" font="$font"
+  fontsize="28.0" horizontal-alignment="center" vertical-alignment="bottom" left-margin="60"
+  right-margin="60" bottom-margin="40" subtitle-fps="25" movie-fps="25" movie-width="720"
+  movie-height="576"/></stream></subpictures>
+EOF
+  local status=0
+  spumux -s0 "$cache/spumux.xml" <"$dvd" >"$dvd.subs.mpg" 2>"$cache/spumux.log" || status=1
+  # The first cue starts late, so probe the whole stream to find the subtitle track.
+  if ((status == 0)); then
+    ff "$out" -analyzeduration 400M -probesize 200M -i "$dvd.subs.mpg" -map 0:s:0 -c:s copy ||
+      status=1
+  fi
+  rm -f "$dvd" "$dvd.subs.mpg"
+  return "$status"
+}
+
 # The Feature Test: the first five minutes of Sintel in several versions of one title.
 feature_test() {
   local folder="$movies/[movies] Feature Test (2010)" src cut="$cache/feature-test-cut.mkv"
@@ -381,94 +433,62 @@ title=The Chase
 EOF
 
   # Direct play in every browser: H.264 + AAC stereo in MP4 with chapters, plus sidecar subtitles.
-  if [[ ! -s "$base {edition-Direct Play}.mp4" ]]; then
-    log "Feature Test: Direct Play"
-    ffmpeg -v error -y -i "$cut" -i "$chapters" -map 0:v:0 -map 0:a:0 -map_chapters 1 \
-      -c:v copy -c:a aac -ac 2 -b:a 192k -movflags +faststart "$base {edition-Direct Play}.part.mp4"
-    mv "$base {edition-Direct Play}.part.mp4" "$base {edition-Direct Play}.mp4"
-  fi
-  local index=0 lang
-  for lang in de en es fr it nl pl pt ru vi; do
-    local sidecar="$base {edition-Direct Play}.$lang.srt"
-    [[ -s "$sidecar" ]] || ffmpeg -v error -y -i "$cut" -map "0:s:$index" "$sidecar"
-    index=$((index + 1))
+  log "Feature Test: Direct Play"
+  ff "$base {edition-Direct Play}.mp4" -i "$cut" -i "$chapters" -map 0:v:0 -map 0:a:0 \
+    -map_chapters 1 -c:v copy -c:a aac -ac 2 -b:a 192k -movflags +faststart
+  # Sidecars are picked by the track's language tag, not its position.
+  local pair
+  for pair in de:ger en:eng es:spa fr:fre it:ita nl:dut pl:pol pt:por ru:rus vi:vie; do
+    ff "$base {edition-Direct Play}.${pair%%:*}.srt" -i "$cut" -map "0:s:m:language:${pair#*:}"
   done
 
   # Forces a transcode with HDR→SDR tone mapping: HEVC Main 10 tagged as HDR10 (PQ, BT.2020).
   if [[ ! -s "$base {edition-HDR10 HEVC}.mkv" ]]; then
     log "Feature Test: HDR10 HEVC (takes a few minutes)"
     # Converts the SDR film into real PQ/BT.2020 when ffmpeg has zimg; otherwise only tags it.
+    # The source goes to 16 bits before zscale, so the PQ signal is never quantised to 8 bits.
     local tags="setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc"
-    local hdr_filter="format=yuv420p10le,$tags"
-    ffmpeg -hide_banner -filters 2>/dev/null | grep -q ' zscale ' &&
-      hdr_filter="zscale=tin=bt709:pin=bt709:min=bt709:t=smpte2084:p=bt2020:m=bt2020nc:npl=203,format=yuv420p10le,$tags"
-    ffmpeg -v error -stats -y -i "$cut" -i "$chapters" -map 0:v:0 -map 0:a:0 -map_chapters 1 \
-      -vf "$hdr_filter" \
-      -c:v libx265 -preset fast -crf 22 -pix_fmt yuv420p10le \
+    local hdr_filter="format=yuv420p10le,$tags" filters
+    filters="$(ffmpeg -hide_banner -filters 2>/dev/null || true)"
+    [[ "$filters" == *" zscale "* ]] &&
+      hdr_filter="format=yuv444p16le,zscale=tin=bt709:pin=bt709:min=bt709:t=smpte2084:p=bt2020:m=bt2020nc:npl=203,format=yuv420p10le,$tags"
+    ff "$base {edition-HDR10 HEVC}.mkv" -i "$cut" -i "$chapters" -map 0:v:0 -map 0:a:0 \
+      -map_chapters 1 -vf "$hdr_filter" -c:v libx265 -preset fast -crf 22 -pix_fmt yuv420p10le \
       -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
       -x265-params "hdr10=1:repeat-headers=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400:log-level=error" \
-      -c:a copy -metadata:s:a:0 "title=Surround 5.1" "$base {edition-HDR10 HEVC}.part.mkv" 2>&1 |
-      tail -n 1
-    mv "$base {edition-HDR10 HEVC}.part.mkv" "$base {edition-HDR10 HEVC}.mkv"
+      -c:a copy -metadata:s:a:0 "title=Surround 5.1"
   fi
 
-  # An English image (VobSub) subtitle, which must be burned in. ffmpeg can't turn text into
-  # bitmaps, so spumux (dvdauthor) renders the SRT onto a DVD stream and ffmpeg lifts it out.
+  # An English image (VobSub) subtitle, which must be burned in. Any failure here only costs the
+  # Feature Test its image subtitle.
   local vobsub="$cache/feature-test-en.vobsub.mkv" image_subs=()
-  if [[ ! -s "$vobsub" ]] && command -v spumux >/dev/null; then
-    log "Feature Test: rendering the image subtitle"
-    local font srt="$cache/feature-test-en.srt" dvd="$cache/feature-test-dvd.mpg"
-    font="$(fc-match -f '%{file}' 'DejaVu Sans:bold' 2>/dev/null || true)"
-    ffmpeg -v error -y -i "$cut" -map 0:s:1 "$srt"
-    ffmpeg -v error -y -f lavfi -i "color=c=black:s=720x576:r=25" -t 300 -target pal-dvd -an "$dvd"
-    cat >"$cache/spumux.xml" <<EOF
-<subpictures format="PAL"><stream><textsub filename="$srt" characterset="UTF-8" font="$font"
-  fontsize="28.0" horizontal-alignment="center" vertical-alignment="bottom" left-margin="60"
-  right-margin="60" bottom-margin="40" subtitle-fps="25" movie-fps="25" movie-width="720"
-  movie-height="576"/></stream></subpictures>
-EOF
-    spumux -s0 "$cache/spumux.xml" <"$dvd" >"$dvd.subs.mpg" 2>"$cache/spumux.log"
-    # The first cue starts late, so probe the whole stream to find the subtitle track.
-    ffmpeg -v error -y -analyzeduration 400M -probesize 200M -i "$dvd.subs.mpg" -map 0:s:0 \
-      -c:s copy "$vobsub"
-    rm -f "$dvd" "$dvd.subs.mpg"
-  fi
-  if [[ -s "$vobsub" ]]; then
-    image_subs=(-i "$vobsub")
-  else
-    log "spumux (dvdauthor) not found: the Feature Test gets no image subtitle"
-  fi
+  [[ -s "$vobsub" ]] || image_subtitle "$cut" "$vobsub" ||
+    log "Couldn't render the image subtitle (needs spumux from dvdauthor and fontconfig); skipping it"
+  [[ -s "$vobsub" ]] && image_subs=(-i "$vobsub")
 
   # Audio and subtitle choices: AC3 5.1 (needs an audio transcode in most browsers), an AAC
   # stereo downmix, every text subtitle, and the image subtitle on a canvas smaller than the video.
-  if [[ ! -s "$base {edition-Multi-Audio and Subtitles}.mkv" ]]; then
-    log "Feature Test: Multi-Audio and Subtitles"
-    local image_map=()
-    ((${#image_subs[@]} > 0)) && image_map=(-map 2:s:0 -metadata:s:s:10 "title=English (image)"
-      -metadata:s:s:10 language=eng)
-    ffmpeg -v error -y -i "$cut" -i "$chapters" "${image_subs[@]}" \
-      -map 0:v:0 -map 0:a:0 -map 0:a:0 -map 0:s "${image_map[@]}" -map_chapters 1 \
-      -c:v copy -c:a:0 copy -c:a:1 aac -ac:a:1 2 -b:a:1 192k -c:s copy \
-      -metadata:s:a:0 "title=Surround 5.1" -metadata:s:a:0 language=eng \
-      -metadata:s:a:1 title=Stereo -metadata:s:a:1 language=eng \
-      -disposition:a:0 default -disposition:a:1 0 \
-      "$base {edition-Multi-Audio and Subtitles}.part.mkv"
-    mv "$base {edition-Multi-Audio and Subtitles}.part.mkv" \
-      "$base {edition-Multi-Audio and Subtitles}.mkv"
-  fi
+  log "Feature Test: Multi-Audio and Subtitles"
+  local image_map=()
+  ((${#image_subs[@]} > 0)) && image_map=(-map 2:s:0 -metadata:s:s:10 "title=English (image)"
+    -metadata:s:s:10 language=eng)
+  ff "$base {edition-Multi-Audio and Subtitles}.mkv" -i "$cut" -i "$chapters" "${image_subs[@]}" \
+    -map 0:v:0 -map 0:a:0 -map 0:a:0 -map 0:s "${image_map[@]}" -map_chapters 1 \
+    -c:v copy -c:a:0 copy -c:a:1 aac -ac:a:1 2 -b:a:1 192k -c:s copy \
+    -metadata:s:a:0 "title=Surround 5.1" -metadata:s:a:0 language=eng \
+    -metadata:s:a:1 title=Stereo -metadata:s:a:1 language=eng \
+    -disposition:a:0 default -disposition:a:1 0
 
-  # A DVD rip: interlaced PAL MPEG-2 with MP2 audio and the VobSub subtitle, which must be
-  # deinterlaced, transcoded, and burned in.
-  if [[ ! -s "$base {edition-SD Interlaced MPEG-2}.mkv" ]]; then
-    log "Feature Test: SD Interlaced MPEG-2"
-    local sd_map=()
-    ((${#image_subs[@]} > 0)) && sd_map=(-map 1:s:0 -c:s copy -metadata:s:s:0 language=eng)
-    ffmpeg -v error -y -i "$cut" "${image_subs[@]}" -map 0:v:0 -map 0:a:0 "${sd_map[@]}" \
-      -vf "scale=720:576,setsar=64/45,fps=25,interlace=scan=tff" -c:v mpeg2video -b:v 5M \
-      -flags +ilme+ildct -top 1 -c:a mp2 -ac 2 -b:a 224k -metadata:s:a:0 title=Stereo \
-      "$base {edition-SD Interlaced MPEG-2}.part.mkv"
-    mv "$base {edition-SD Interlaced MPEG-2}.part.mkv" "$base {edition-SD Interlaced MPEG-2}.mkv"
-  fi
+  # A DVD rip: interlaced PAL MPEG-2 (25 frames, 50 fields a second) with MP2 audio and the
+  # VobSub subtitle, which must be deinterlaced, transcoded, and burned in. `interlace` weaves
+  # pairs of frames, so it needs 50 progressive frames a second in.
+  log "Feature Test: SD Interlaced MPEG-2"
+  local sd_map=()
+  ((${#image_subs[@]} > 0)) && sd_map=(-map 1:s:0 -c:s copy -metadata:s:s:0 language=eng)
+  ff "$base {edition-SD Interlaced MPEG-2}.mkv" -i "$cut" "${image_subs[@]}" -map 0:v:0 \
+    -map 0:a:0 "${sd_map[@]}" -vf "scale=720:576,setsar=64/45,fps=50,interlace=scan=tff" \
+    -c:v mpeg2video -b:v 5M -flags +ilme+ildct -top 1 -c:a mp2 -ac 2 -b:a 224k \
+    -metadata:s:a:0 title=Stereo
 
   artwork "$cut" "$folder"
   cat >"$folder/movie.nfo" <<'EOF'
@@ -486,6 +506,9 @@ EOF
   <actor><name>Halina Reijn</name><role>Sintel (voice)</role><order>0</order></actor>
   <mpaa>NR</mpaa>
   <tag>test</tag>
+  <!-- It is Sintel, so providers match Sintel; the title and plot above still win. -->
+  <uniqueid type="imdb" default="true">tt1727587</uniqueid>
+  <uniqueid type="tmdb">45745</uniqueid>
 </movie>
 EOF
 }
