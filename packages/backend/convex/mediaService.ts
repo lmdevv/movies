@@ -620,9 +620,15 @@ export const applyCollection = mutation({
       ),
     );
 
-    const member = memberships.some((entry) => entry.collectionId === collectionId);
+    const member = memberships.find((entry) => entry.collectionId === collectionId);
 
-    if (collectionId !== null && !member) {
+    // An imported membership becomes the metadata one, so a later import that leaves the title out
+    // of that collection no longer drops what the metadata says.
+    if (member !== undefined && member.source !== "metadata") {
+      await ctx.db.patch(member._id, { source: "metadata" });
+    }
+
+    if (collectionId !== null && member === undefined) {
       await ctx.db.insert("collectionItems", {
         collectionId,
         titleId,

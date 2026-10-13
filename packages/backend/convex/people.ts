@@ -21,8 +21,8 @@ const CREDIT_SCAN = 500;
 /** People the search index returns before visibility filtering. */
 const SEARCH_SCAN = 50;
 
-/** Credits checked per search hit to find one the profile may see. */
-const SEARCH_CREDIT_SCAN = 10;
+/** Credits read across all search hits, at most, while looking for ones the profile may see. */
+const SEARCH_CREDIT_BUDGET = 1000;
 
 /** How long a details request waits before another may queue a job for the same person. */
 const REQUEST_COOLDOWN_MS = 6 * 60 * 60 * 1000;
@@ -36,6 +36,48 @@ const KIND_RANK: Readonly<Record<Doc<"credits">["kind"], number>> = {
   writer: 4,
   producer: 5,
   composer: 6,
+};
+
+/**
+ * Which of the people the profile may see: those credited on at least one title it may see. Each
+ * person's credits stream until one is visible, so a long career of hidden titles never hides the
+ * one the profile may see. Title visibility is cached across people, and all of them share one
+ * budget of credits read.
+ */
+const seenBy = async (
+  ctx: ReadCtx,
+  audience: Audience,
+  people: ReadonlyArray<Doc<"people">>,
+): Promise<ReadonlyArray<boolean>> => {
+  const titles = new Map<Id<"titles">, Promise<boolean>>();
+  let budget = SEARCH_CREDIT_BUDGET;
+
+  const sees = (titleId: Id<"titles">) => {
+    const known = titles.get(titleId);
+
+    if (known !== undefined) return known;
+    const visible = ctx.db.get(titleId).then((title) => title !== null && canSee(audience, title));
+
+    titles.set(titleId, visible);
+
+    return visible;
+  };
+
+  const anyVisible = async (credits: AsyncIterator<Doc<"credits">>): Promise<boolean> => {
+    if (budget <= 0) return false;
+    budget -= 1;
+
+    const step = await credits.next();
+
+    if (step.done === true) return false;
+
+    return (await sees(step.value.titleId)) || anyVisible(credits);
+  };
+
+  const creditsOf = (person: Doc<"people">) =>
+    ctx.db.query("credits").withIndex("by_person", (q) => q.eq("personId", person._id));
+
+  return Promise.all(people.map((person) => anyVisible(creditsOf(person)[Symbol.asyncIterator]())));
 };
 
 /** A person's credits on titles the profile may see, one entry per title and kind. */
@@ -146,12 +188,7 @@ export const search = query({
       .withSearchIndex("search_name", (q) => q.search("name", text.trim()))
       .take(SEARCH_SCAN);
 
-    const visible = await Promise.all(
-      matches.map(
-        async (person) =>
-          (await visibleCredits(ctx, audience, person._id, SEARCH_CREDIT_SCAN)).length > 0,
-      ),
-    );
+    const visible = await seenBy(ctx, audience, matches);
 
     return matches
       .filter((_, index) => visible[index] === true)

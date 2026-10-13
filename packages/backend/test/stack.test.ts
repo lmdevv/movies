@@ -2200,6 +2200,73 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         [`Guest ${TOKEN}`, "guest-star"],
       ]);
     });
+
+    it("finds a person whose first credits are all on titles the profile may not see", async () => {
+      const roles = Array.from({ length: 12 }, (_, index) => ({
+        ...actor("Prolific", "4", index + 1),
+        role: `Part ${index}`,
+      }));
+
+      await service(fixture.mediaService, "mediaService.applyCredits", {
+        titleId: fixture.titles.hidden,
+        episodeId: null,
+        credits: [actor("Lead", "1", 0), ...roles],
+        hash: "hidden-v2",
+      });
+
+      expect(await searchPeople(stranger.session, stranger.profile, "Prolific")).toStrictEqual([]);
+
+      await service(fixture.mediaService, "mediaService.applyCredits", {
+        titleId: fixture.titles.show,
+        episodeId: null,
+        credits: [actor("Prolific", "4", 0)],
+        hash: "show-v1",
+      });
+
+      const [found] = await searchPeople(stranger.session, stranger.profile, "Prolific");
+
+      expect(found).toBe(await findPerson(fixture.owner, fixture.ownerProfile, "Prolific"));
+    });
+
+    it("keeps a title an import put in its metadata collection when a later import leaves it out", async () => {
+      const owner = (await run(fixture.owner, "account.viewer", {})).user.id;
+      const { jobId, worker } = await claimMigration(fixture, owner, `server-saga-${id}`);
+      const lease = { jobId, workerId: worker };
+      const sourceKey = `jellyfin:${id}:imported-saga`;
+      const name = `Imported ${TOKEN}`;
+
+      await service(fixture.mediaService, "migrationService.importCollections", {
+        ...lease,
+        items: [{ sourceKey, name, sortName: null, titleIds: [fixture.titles.hidden] }],
+      });
+
+      await service(fixture.mediaService, "mediaService.applyCollection", {
+        titleId: fixture.titles.hidden,
+        collection: { sourceKey, name, overview: null, poster: null, backdrop: null },
+        hash: "imported-v1",
+      });
+
+      await service(fixture.mediaService, "migrationService.importCollections", {
+        ...lease,
+        items: [{ sourceKey, name, sortName: null, titleIds: [] }],
+      });
+
+      const { collection } = await run(fixture.owner, "titles.get", {
+        profileId: fixture.ownerProfile,
+        titleId: fixture.titles.hidden,
+      });
+
+      if (collection === null) throw new Error("The title lost its collection");
+
+      expect(collection.name).toBe(name);
+
+      const full = await run(fixture.owner, "collections.get", {
+        profileId: fixture.ownerProfile,
+        collectionId: collection.id,
+      });
+
+      expect(full.titles.map((title) => title.id)).toStrictEqual([fixture.titles.hidden]);
+    });
   });
 
   describe("every public function", () => {
