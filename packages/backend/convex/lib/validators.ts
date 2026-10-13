@@ -447,12 +447,17 @@ export const trickplayManifest = v.object({
 });
 
 /**
- * A file's scrub thumbnails as stored: queued or running (`pending`), made from the file at
- * `sizeBytes` and `mtimeMs` (`ready`), or given up on (`failed`, until an admin asks again).
- * Absent means none were asked for.
+ * A file's scrub thumbnails as stored: queued or running (`pending`), made (`ready`), or given up
+ * on (`failed`, until an admin asks again), each for the file at `sizeBytes` and `mtimeMs`. Absent
+ * means none were asked for.
  */
 export const trickplayState = v.union(
-  v.object({ status: v.literal("pending"), jobId: v.id("jobs") }),
+  v.object({
+    status: v.literal("pending"),
+    jobId: v.id("jobs"),
+    sizeBytes: v.number(),
+    mtimeMs: v.number(),
+  }),
   v.object({
     status: v.literal("ready"),
     sizeBytes: v.number(),

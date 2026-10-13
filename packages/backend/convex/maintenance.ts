@@ -8,7 +8,7 @@ import { enqueueJob, MAX_JOB_ATTEMPTS } from "./lib/jobs";
 import { removeTitleGenres, syncTitleGenres } from "./lib/genres";
 import { removeTitleCredits } from "./lib/people";
 import { overlappingLibraries as findOverlaps } from "./lib/roots";
-import { settleTrickplay } from "./lib/trickplay";
+import { forgetTrickplay, settleTrickplay } from "./lib/trickplay";
 import { endAuthSession } from "./lib/viewer";
 import {
   HOST_ABANDON_TIMEOUT_MS,
@@ -233,6 +233,8 @@ export const purgeLibrary = internalMutation({
           endTitlePlayback(ctx, titleId, now),
         ),
       );
+      // Thumbnail jobs of the library's files would only fail once their files are gone.
+      await Promise.all(files.map((file) => forgetTrickplay(ctx, file)));
       await Promise.all(files.map((file) => ctx.db.delete(file._id)));
       await ctx.scheduler.runAfter(0, internal.maintenance.purgeLibrary, { libraryId });
 

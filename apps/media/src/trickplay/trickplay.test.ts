@@ -78,6 +78,10 @@ const built = (sheets: number) => (folder: string) =>
     }).pipe(Effect.orDie);
   });
 
+/** Full-range luma of the ramp clip's frame at `seconds` (4 per second, limited range). */
+const rampLuma = (seconds: number): number =>
+  (Math.max(0, Math.min(235, 4 * seconds) - 16) * 255) / 219;
+
 const sizeOf = Effect.fn(function* (image: string) {
   const tools = yield* MediaTools.Service;
 
@@ -146,6 +150,65 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
           ),
           manifest,
         );
+      }),
+    );
+
+    it.effect("shows the last keyframe at or before each thumbnail's time", () =>
+      Effect.gen(function* () {
+        const store = yield* TrickplayStore.Service;
+        const tools = yield* MediaTools.Service;
+
+        // Brightness rises with time (luma 4 per second) and keyframes fall every 3 seconds, so a
+        // tile's brightness says which keyframe it shows: 0:10 must show 0:09, not 0:18.
+        const clip = yield* encode("ramp.mkv", [
+          "-f",
+          "lavfi",
+          "-i",
+          "nullsrc=size=320x180:rate=24:duration=40,geq=lum='4*T':cb=128:cr=128",
+          "-c:v",
+          "libx264",
+          "-preset",
+          "ultrafast",
+          "-g",
+          "72",
+          "-keyint_min",
+          "72",
+          "-sc_threshold",
+          "0",
+        ]);
+
+        const file = yield* resolved(clip);
+        const version = trickplayVersion(file.sizeBytes, 1);
+
+        yield* store.publish("ramp", version, (folder) =>
+          generate(file, version, INTERVAL, folder),
+        );
+
+        const sheet = Option.getOrThrow(yield* store.find("ramp", version, "0.jpg"));
+
+        const measured = yield* Effect.forEach([0, 1, 2, 3], (tile) =>
+          tools
+            .ffprobe([
+              "-v",
+              "error",
+              "-f",
+              "lavfi",
+              "-i",
+              `movie=${sheet},crop=320:180:${String(tile * 320)}:0,signalstats`,
+              "-show_entries",
+              "frame_tags=lavfi.signalstats.YAVG",
+              "-of",
+              "csv=p=0",
+            ])
+            .pipe(Effect.map((text) => Number(text.trim()))),
+        );
+
+        // Tiles 0:00, 0:10, 0:20, and 0:30 show the keyframes at 0:00, 0:09, 0:18, and 0:30.
+        measured.forEach((value, tile) => {
+          const seconds = [0, 9, 18, 30][tile] ?? 0;
+
+          assert.approximately(value, rampLuma(seconds), 6, `tile ${String(tile)}`);
+        });
       }),
     );
 
@@ -271,6 +334,7 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
           "fresh",
           "gone",
           "kept",
+          "ramp",
           "unknown",
         ]);
         assert.deepStrictEqual(yield* left("kept"), ["k-1"]);

@@ -1,8 +1,8 @@
 /**
  * Makes a file's scrub thumbnails with one ffmpeg run. Only keyframes are decoded
  * (`-skip_frame nokey`), which is what makes a two-hour film take seconds rather than minutes; the
- * `fps` filter then picks one frame per interval, so a thumbnail is the first keyframe at or after
- * its time (or the one before when a long scene has none in between). Frames are scaled to `TRICKPLAY_TILE_WIDTH` by the display aspect ratio, HDR
+ * `fps` filter then picks one frame per interval, so a thumbnail is the last keyframe at or before
+ * its time. Frames are scaled to `TRICKPLAY_TILE_WIDTH` by the display aspect ratio, HDR
  * video is tone-mapped to SDR (falling back to untouched frames when ffmpeg lacks `zscale`), and
  * `tile` lays them out into JPEG sheets. ffmpeg runs on one thread at the lowest CPU priority, so
  * playback never waits for it.
@@ -64,8 +64,9 @@ const thumbnailArgs = (
   toneMap: boolean,
 ): ReadonlyArray<string> => {
   const filters = [
-    // Slot `i` takes the first frame at or after `i * interval`; the last, partial slot stays.
-    `fps=1000/${String(Duration.toMillis(interval))}:round=down:eof_action=pass`,
+    // Slot `i` takes the last keyframe at or before `i * interval` (rounding up assigns frames to
+    // the next tick); the last, partial slot stays.
+    `fps=fps=1000/${String(Duration.toMillis(interval))}:round=up:eof_action=pass`,
     `scale=${String(TRICKPLAY_TILE_WIDTH)}:trunc(ow/dar/2)*2:out_range=full`,
     "setsar=1",
     ...(toneMap ? [TONE_MAP] : []),

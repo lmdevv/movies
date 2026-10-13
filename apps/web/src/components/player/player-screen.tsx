@@ -956,7 +956,11 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
               {scrubbing.chapters.length === 0 || guest
                 ? null
                 : chapterMenu(
-                    <TrackPill icon="chapters" label={currentChapter?.title ?? "Chapters"} />,
+                    <TrackPill
+                      icon="chapters"
+                      label={currentChapter?.title ?? "Chapters"}
+                      aria-label={`Chapters: ${currentChapter?.title ?? "none playing"}`}
+                    />,
                   )}
             </>
           }

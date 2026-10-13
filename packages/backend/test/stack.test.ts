@@ -1071,6 +1071,71 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       ).toStrictEqual([]);
     });
 
+    it("replaces thumbnail jobs for old contents and cancels the ones nobody needs", async () => {
+      const library = await run(fixture.owner, "libraries.create", {
+        name: `Thumbnail jobs ${id}`,
+        kind: "movies",
+        roots: [`/stack-${id}/thumbnail-jobs`],
+      });
+
+      const item = (name: string, sizeBytes = 1_000_000) =>
+        scanned(
+          `/stack-${id}/thumbnail-jobs/${name}.mp4`,
+          { kind: "movie", name: `${name} jobs${id}`, ageRating: 0 },
+          null,
+          { sizeBytes },
+        );
+
+      const upsert = async (scannedItem: ScannedItem) => {
+        const [upserted] = await service(fixture.mediaService, "mediaService.upsertScanned", {
+          libraryId: library.libraryId,
+          items: [scannedItem],
+        });
+
+        if (upserted === undefined) throw new Error("The scan wrote no file");
+
+        return upserted.fileId;
+      };
+
+      const jobsOf = async (fileId: string) =>
+        (await run(fixture.owner, "jobs.list", { kind: "trickplay", limit: 100 }))
+          .filter((job) => job.payload.kind === "trickplay" && job.payload.fileId === fileId)
+          .map((job) => job.status);
+
+      // A file that changes while its job waits gets a new job; the old one is cancelled.
+      const changing = await upsert(item("Changing"));
+
+      await upsert(item("Changing", 2_000_000));
+      expect((await jobsOf(changing)).toSorted()).toStrictEqual(["cancelled", "pending"]);
+
+      // A file that goes missing cancels its job.
+      await service(fixture.mediaService, "mediaService.markMissing", {
+        libraryId: library.libraryId,
+        paths: [item("Changing").file.path],
+      });
+      expect(await jobsOf(changing)).toStrictEqual(["cancelled", "cancelled"]);
+
+      // Turning thumbnails off cancels the library's queued jobs.
+      const queued = await upsert(item("Queued"));
+
+      await run(fixture.owner, "libraries.update", {
+        libraryId: library.libraryId,
+        trickplay: false,
+      });
+      await expect.poll(() => jobsOf(queued), { timeout: 10_000 }).toStrictEqual(["cancelled"]);
+
+      // Removing the library cancels the jobs of its files.
+      await run(fixture.owner, "libraries.update", {
+        libraryId: library.libraryId,
+        trickplay: true,
+      });
+      const removed = await upsert(item("Removed"));
+
+      expect(await jobsOf(removed)).toStrictEqual(["pending"]);
+      await run(fixture.owner, "libraries.remove", { libraryId: library.libraryId });
+      await expect.poll(() => jobsOf(removed), { timeout: 10_000 }).toStrictEqual(["cancelled"]);
+    });
+
     it("refuses files outside the library's folders", async () => {
       expect(
         await outcome(

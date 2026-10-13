@@ -10,7 +10,7 @@ import {
   Volume2Icon,
   VolumeXIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ComponentProps, PointerEvent, ReactNode } from "react";
 
 import { PauseGlyph, PlayGlyph, SkipNextGlyph } from "./icons";
@@ -100,6 +100,21 @@ export function Scrubber({
   const [dragging, setDragging] = useState(false);
   const length = Math.max(duration, 1);
 
+  // A drag ends wherever the pointer is released, even off the bar or without moving the value.
+  useEffect(() => {
+    if (!dragging) return undefined;
+
+    const end = (): void => setDragging(false);
+
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+
+    return () => {
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+  }, [dragging]);
+
   const track = (event: PointerEvent<HTMLDivElement>): void => {
     const box = event.currentTarget.getBoundingClientRect();
     const fraction = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
@@ -128,7 +143,9 @@ export function Scrubber({
       <Slider.Control
         data-slot="scrubber"
         onPointerEnter={onPreviewStart}
-        onPointerDown={() => setDragging(true)}
+        onPointerDown={(event) => {
+          if (event.button === 0) setDragging(true);
+        }}
         onPointerMove={track}
         onPointerLeave={() => setHover(null)}
         onFocus={onPreviewStart}

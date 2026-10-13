@@ -11,7 +11,7 @@ import type { MutationCtx } from "../_generated/server";
 import { fail } from "./errors";
 import { syncTitleGenres } from "./genres";
 import { NO_EXTERNAL_IDS } from "./present";
-import { queueTrickplay } from "./trickplay";
+import { forgetTrickplay, queueTrickplay } from "./trickplay";
 import type { scannedEpisode, scannedItem, scannedTitle, upsertedFile } from "./validators";
 
 /** Text the title search index matches: names, the year, and any override name. */
@@ -442,7 +442,8 @@ export const markFileMissing = async (
     .unique();
 
   if (file === null || file.missing) return false;
-  await ctx.db.patch(file._id, { missing: true, missingSince: Date.now(), trickplay: undefined });
+  await forgetTrickplay(ctx, file);
+  await ctx.db.patch(file._id, { missing: true, missingSince: Date.now() });
   await adjustPresent(ctx, file.titleId, file.episodeId, -1);
 
   return true;

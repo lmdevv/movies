@@ -12,7 +12,7 @@ import { fail } from "./lib/errors";
 import { checkDisplayName } from "./lib/bounds";
 import { enqueueJob } from "./lib/jobs";
 import { checkRoots } from "./lib/roots";
-import { queueTrickplay } from "./lib/trickplay";
+import { forgetTrickplay, queueTrickplay } from "./lib/trickplay";
 import { presentLibrary, presentLibraryDetail } from "./lib/present";
 import {
   library,
@@ -154,6 +154,14 @@ export const update = mutation({
       await enqueueJob(ctx, { kind: "scan", libraryId, mode: "full" }, viewer.userId);
     }
 
+    // Turning thumbnails off stops the ones still queued for this library.
+    if (trickplay === false && current.trickplay !== false) {
+      await ctx.scheduler.runAfter(0, internal.libraries.cancelTrickplayPage, {
+        libraryId,
+        cursor: null,
+      });
+    }
+
     const updated = await ctx.db.get(libraryId);
 
     if (updated === null) return fail("not_found", "No such library");
@@ -272,6 +280,37 @@ export const queueTrickplayPage = internalMutation({
         libraryId,
         cursor: result.continueCursor,
         requestedBy,
+      });
+    }
+
+    return null;
+  },
+});
+
+/** One page of cancelling a library's queued thumbnails, after they were turned off. */
+export const cancelTrickplayPage = internalMutation({
+  args: { libraryId: v.id("libraries"), cursor: v.union(v.string(), v.null()) },
+  returns: v.null(),
+  handler: async (ctx, { libraryId, cursor }) => {
+    const doc = await ctx.db.get(libraryId);
+
+    // Turned back on meanwhile: whatever is queued stays.
+    if (doc === null || doc.trickplay !== false) return null;
+
+    const result = await ctx.db
+      .query("mediaFiles")
+      .withIndex("by_library_path", (q) => q.eq("libraryId", libraryId))
+      .paginate({ numItems: TRICKPLAY_PAGE, cursor });
+
+    await inSequence(
+      result.page.filter((file) => file.trickplay?.status === "pending"),
+      (file) => forgetTrickplay(ctx, file),
+    );
+
+    if (!result.isDone) {
+      await ctx.scheduler.runAfter(0, internal.libraries.cancelTrickplayPage, {
+        libraryId,
+        cursor: result.continueCursor,
       });
     }
 

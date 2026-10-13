@@ -252,8 +252,8 @@ choices made while implementing them. Update it in the same PR that changes a de
   `trickplay` field follows its job: `pending`, `ready` with the manifest, `failed` (scans leave it
   alone until an admin asks again), or absent. A missing file forgets its thumbnails.
 - Generation is one ffmpeg run on one thread at the lowest CPU priority: keyframes only
-  (`-skip_frame nokey`), one frame per `TRICKPLAY_INTERVAL_SECONDS` (10) taken as the first
-  keyframe at or after each tick, 320 pixels wide by the display aspect ratio, HDR tone-mapped
+  (`-skip_frame nokey`), one frame per `TRICKPLAY_INTERVAL_SECONDS` (10) taken as the last
+  keyframe at or before each tick, 320 pixels wide by the display aspect ratio, HDR tone-mapped
   when ffmpeg has `zscale`, tiled 10 × 10 into JPEG sheets. A two-hour film takes about 23 s and
   3.8 MB (measured on a 32-thread desktop, Sintel looped to 1 h 58 min). Trickplay jobs have
   their own worker slots (`TRICKPLAY_CONCURRENCY`, 1), and `mediaService:pendingJobs` reads each
