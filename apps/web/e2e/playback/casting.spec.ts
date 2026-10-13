@@ -25,6 +25,7 @@ import {
   expectPlayingPast,
   expectPositionNear,
   makeWorkspace,
+  adultProfile,
   movieNfo,
   offline,
   removePath,
@@ -154,6 +155,8 @@ const castToTv = async (target: Page): Promise<void> => {
     .getByRole("button", { name: /Chromecast/u })
     .click();
   await expect(target.getByTestId("casting-state")).toHaveText("Playing on Living Room TV");
+  // The receiver reports its state a moment after a load, as a real one does.
+  await expect.poll(async () => (await receiver(target)).playerState).toBe("PLAYING");
 };
 
 /** The reported position of the newest session playing `name`, as Convex has it. */
@@ -207,6 +210,9 @@ test("a Chromecast on the network gets a cast button, and casting loads the sess
   ]);
   expect(load?.tracks[0]?.url).toMatch(/\/media\/subtitles\/\w+\/x0\.vtt\?token=v1\./u);
   expect(load?.currentTime).toBeGreaterThan(1.5);
+  await expect
+    .poll(async () => (await receiver(page)).fetches.map(({ status }) => status))
+    .toEqual([206]);
   expect(local.paused).toBe(true);
   await expect(page.getByRole("dialog", { name: "Play on" })).toBeHidden();
   // The TV shows the subtitles; the paused page shows none.
@@ -257,7 +263,25 @@ test("an MKV casts as fMP4 HLS, and a seek past what it produced moves the strea
   await expectPlayingPast(page, 1);
   // A reload starts the fake SDK over, as a new page starts Google's.
   await castFake(page, "devicesAppear");
+
+  // The media service keeps one stream per playback session: once the TV has it, the page must
+  // not negotiate again (its player would otherwise replace the TV's stream).
+  const negotiations: Array<string> = [];
+
+  page.on("request", (request) => {
+    if (request.url().endsWith(MEDIA_ROUTES.negotiate)) negotiations.push(request.url());
+  });
   await castToTv(page);
+
+  const afterCast = negotiations.length;
+
+  await advanceReceiver(page, 5);
+  await expect.poll(async () => (await receiver(page)).fetches.length).toBeGreaterThanOrEqual(2);
+  // The page let go of its stream: its element holds nothing to play.
+  expect((await videoState(page)).readyState).toBe(0);
+  await castFake(page, "refetch");
+  expect((await receiver(page)).fetches.map(({ status }) => status)).toEqual([200, 200, 200, 200]);
+  expect(negotiations).toHaveLength(afterCast);
 
   const first = (await receiver(page)).loads.at(-1);
 
@@ -308,6 +332,38 @@ test("an MKV casts as fMP4 HLS, and a seek past what it produced moves the strea
   );
   await expect(page.getByTestId("casting-state")).toHaveText("Playing on Living Room TV");
   await expect.poll(async () => (await receiver(page)).loads.at(-1)?.title).toBe(DIRECT);
+});
+
+test("leaving the player while casting saves where the TV was", async () => {
+  // A page load starts the fake over, disconnected.
+  await page.goto(`/watch/${titleId(DIRECT)}?start=0`);
+  await expectPlayingPast(page, 1);
+  await castFake(page, "devicesAppear");
+  await castToTv(page);
+  await advanceReceiver(page, 70);
+  // A pause reports the TV's position at once, like the reporter's ticks do every ten seconds.
+  await page.getByTestId("player").press("k");
+  await expect.poll(async () => (await receiver(page)).isPaused).toBe(true);
+  await expect.poll(() => reportedSeconds(DIRECT)).toBeCloseTo(70, 0);
+  await advanceReceiver(page, 75);
+  // Back in the app, as a viewer leaves: the player closes and reports where the session stopped.
+  await revealControls(page);
+  await page.getByRole("button", { name: "Back to details" }).click();
+  await expect(page).toHaveURL(new RegExp(`/title/${titleId(DIRECT)}$`, "u"));
+  await expect.poll(async () => (await receiver(page)).commands.at(-1)?.[0]).toBe("stop");
+
+  const profile = await adultProfile(owner.sdk);
+
+  const saved = async (): Promise<number> => {
+    const detail = await owner.sdk.query("titles.get", {
+      profileId: profile.id,
+      titleId: titleId(DIRECT),
+    });
+
+    return (detail.progress?.positionMs ?? 0) / 1000;
+  };
+
+  await expect.poll(saved).toBeCloseTo(75, 0);
 });
 
 test("a watch room follows the device its host casts to", async () => {

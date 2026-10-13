@@ -12,7 +12,6 @@
  */
 import { artworkUrl } from "@movies/contracts/artwork";
 import { castCapabilities } from "@movies/contracts/cast";
-import type { NegotiateResponse } from "@movies/contracts/media-playback";
 import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { Milliseconds } from "@movies/contracts/units";
 import { Playback } from "@movies/sdk/effect";
@@ -21,6 +20,7 @@ import type { useMoviesRuntime } from "@movies/sdk/react";
 import { Effect, Exit, Option, Result, Struct } from "effect";
 
 import type { PlaybackController } from "@/playback/playback-controller";
+import { heldPlayer } from "@/playback/switchable-player";
 
 import type { CastLoadRequest, CastSession } from "./cast-api";
 import { CastPlayer } from "./cast-player";
@@ -29,6 +29,13 @@ import type { CastItem, CastLoadPlan } from "./cast-profile";
 import type { CastSdk } from "./cast-sdk";
 
 type Runtime = ReturnType<typeof useMoviesRuntime>;
+
+/**
+ * What a Chromecast is asked to play. The web sender SDK names a device but reports neither its
+ * model nor its codecs (`chrome.cast.Receiver`), so every device gets the profile all of them
+ * play; 4K, HEVC, and HDR wait for senders that know the model (the native apps).
+ */
+const CAST_CAPABILITIES = castCapabilities(undefined);
 
 /** The receiver's idle reason after media played to its end. */
 const FINISHED = "FINISHED";
@@ -56,8 +63,8 @@ const run = async <A, E>(
 export const castImage = (started: StartedPlayback, key: string | null): string | null =>
   key === null || key === "" ? null : artworkUrl(started.mediaBaseUrl, key, 500);
 
-/** Builds the SDK's load request for `plan`. */
-const loadRequest = (sdk: CastSdk, plan: CastLoadPlan): CastLoadRequest => {
+/** Builds the SDK's load request for `plan`, playing at once when `autoplay` is set. */
+const loadRequest = (sdk: CastSdk, plan: CastLoadPlan, autoplay: boolean): CastLoadRequest => {
   const { media, Image } = sdk.cast;
   const info = new media.MediaInfo(plan.contentUrl, plan.contentType);
   const episode = plan.item.episode;
@@ -98,12 +105,15 @@ const loadRequest = (sdk: CastSdk, plan: CastLoadPlan): CastLoadRequest => {
 
   const request = new media.LoadRequest(info);
 
-  request.autoplay = true;
+  request.autoplay = autoplay;
   request.currentTime = plan.startSeconds;
   request.activeTrackIds = [...plan.activeTrackIds];
 
   return request;
 };
+
+/** Renew the token and the receiver's stream this long before the token expires. */
+const RENEW_BEFORE_MS = 5 * 60 * 1000;
 
 /** A cast of one playback session. Create it with `start`, end it with `stop`. */
 export class CastPlayback {
@@ -113,11 +123,13 @@ export class CastPlayback {
   readonly #session: CastSession;
   readonly #controller: PlaybackController;
   readonly #item: CastItem;
-  #started: StartedPlayback;
-  #stream: NegotiateResponse;
+  #playback: Playback.Playback;
   #plan: CastLoadPlan;
   #subtitleId: string | null;
   #audioStreamIndex: number | null;
+  /** Bumped by every stream change, so a seek or reload that returns late does nothing. */
+  #version = 0;
+  #renewTimer: ReturnType<typeof setTimeout> | undefined;
   #unsubscribe: () => void = () => undefined;
   #stopped = false;
 
@@ -127,19 +139,14 @@ export class CastPlayback {
     session: CastSession,
     controller: PlaybackController,
     item: CastItem,
-    playing: {
-      readonly started: StartedPlayback;
-      readonly stream: NegotiateResponse;
-      readonly plan: CastLoadPlan;
-    },
+    playing: { readonly playback: Playback.Playback; readonly plan: CastLoadPlan },
   ) {
     this.#runtime = runtime;
     this.#sdk = sdk;
     this.#session = session;
     this.#controller = controller;
     this.#item = item;
-    this.#started = playing.started;
-    this.#stream = playing.stream;
+    this.#playback = playing.playback;
     this.#plan = playing.plan;
 
     const snapshot = controller.getSnapshot();
@@ -160,7 +167,8 @@ export class CastPlayback {
 
   /**
    * Negotiates a stream for the device in `session` at the page's position, loads it there, and
-   * hands the session's output to the receiver.
+   * hands the session to it. The media service keeps one stream per playback session, so the
+   * receiver's stream replaces the page's, and the page waits (`park`) until the cast ends.
    */
   static async start(
     runtime: Runtime,
@@ -170,56 +178,66 @@ export class CastPlayback {
     item: CastItem,
   ): Promise<Result.Result<CastPlayback, CastFailure>> {
     const snapshot = controller.getSnapshot();
-    const started = snapshot.started;
+    const { started, stream } = snapshot;
 
-    if (started === null) return Result.fail("not-ready");
+    if (started === null || stream === null) return Result.fail("not-ready");
 
     const positionMs = controller.output.positionMs();
-    const capabilities = castCapabilities(session.getCastDevice().modelName);
+    const playing = !controller.output.isPaused();
+
+    // The receiver's stream will replace the page's, so the page lets go first; until the
+    // receiver plays, the session reports where the page was.
+    controller.output.switchTo(heldPlayer(positionMs, !playing));
+    controller.park();
+
+    const resumeOnPage = (failure: CastFailure): Result.Result<CastPlayback, CastFailure> => {
+      controller.output.switchTo(controller.player);
+      controller.unpark(positionMs, playing);
+
+      return Result.fail(failure);
+    };
 
     const negotiated = await run(
       runtime,
-      Playback.negotiate(
-        started,
-        capabilities,
+      Playback.renegotiate(
+        { started, stream },
+        CAST_CAPABILITIES,
         Milliseconds.make(Math.max(0, positionMs)),
         Option.fromNullishOr(snapshot.audioStreamIndex),
       ),
     );
 
-    if (negotiated === null || Result.isFailure(negotiated)) return Result.fail("unsupported");
+    if (negotiated === null || Result.isFailure(negotiated)) return resumeOnPage("unsupported");
 
-    const stream = negotiated.success;
-    const plan = castLoadPlan(stream, item, snapshot.subtitleId, positionMs / 1000);
-    const failure = await session.loadMedia(loadRequest(sdk, plan)).catch(() => "load-failed");
+    const playback = negotiated.success;
+    const plan = castLoadPlan(playback.stream, item, snapshot.subtitleId, positionMs / 1000);
+
+    const failure = await session
+      .loadMedia(loadRequest(sdk, plan, playing))
+      .catch(() => "load-failed");
 
     if (failure !== undefined) {
-      await run(runtime, Playback.stop({ started, stream }));
+      void run(runtime, Playback.stop(playback));
 
-      return Result.fail("load-failed");
+      return resumeOnPage("load-failed");
     }
 
-    const cast = new CastPlayback(runtime, sdk, session, controller, item, {
-      started,
-      stream,
-      plan,
-    });
+    const cast = new CastPlayback(runtime, sdk, session, controller, item, { playback, plan });
 
+    controller.output.switchTo(cast.player);
     cast.#begin();
 
     return Result.succeed(cast);
   }
 
   #begin(): void {
-    // The receiver plays now; the page's element waits, and only the receiver's events count.
-    this.#controller.output.switchTo(this.player);
-    this.#controller.player.pause();
     this.#unsubscribe = this.#controller.subscribe(this.#onSnapshot);
+    this.#scheduleRenewal();
   }
 
-  /** Follows the page's subtitle and audio choices and its token renewals. */
+  /** Follows the page's subtitle and audio choices. */
   readonly #onSnapshot = (): void => {
-    const { started, subtitleId, audioStreamIndex } = this.#controller.getSnapshot();
+    const { subtitleId, audioStreamIndex } = this.#controller.getSnapshot();
 
     if (this.#stopped) return;
 
@@ -228,11 +246,9 @@ export class CastPlayback {
       this.#showSubtitle(subtitleId);
     }
 
-    const renewed = started !== null && started.token !== this.#started.token;
-
-    if (renewed || audioStreamIndex !== this.#audioStreamIndex) {
+    if (audioStreamIndex !== this.#audioStreamIndex) {
       this.#audioStreamIndex = audioStreamIndex;
-      void this.#reload(started ?? this.#started, this.player.positionMs());
+      void this.#reload(this.player.positionMs());
     }
   };
 
@@ -247,46 +263,69 @@ export class CastPlayback {
     );
   }
 
-  /** Negotiates again with `started` (a renewed token, another audio track) and reloads. */
-  async #reload(started: StartedPlayback, positionMs: number): Promise<void> {
-    const negotiated = await run(
+  /** Renews the token (and so the receiver's stream) five minutes before it expires. */
+  #scheduleRenewal(): void {
+    clearTimeout(this.#renewTimer);
+
+    const due = Math.max(0, this.#playback.stream.expiresAt - RENEW_BEFORE_MS - Date.now());
+
+    this.#renewTimer = setTimeout(() => {
+      if (!this.#stopped) void this.#reload(this.player.positionMs());
+    }, due);
+  }
+
+  /**
+   * Negotiates the receiver's stream again at `positionMs` (another audio track, a token about to
+   * expire, a stream the media service lost) and loads it, keeping play or pause.
+   */
+  async #reload(positionMs: number): Promise<void> {
+    const version = ++this.#version;
+    const previous = this.#playback;
+
+    const renewed = await run(
       this.#runtime,
-      Playback.negotiate(
-        started,
-        castCapabilities(this.#session.getCastDevice().modelName),
+      Playback.renegotiate(
+        previous,
+        CAST_CAPABILITIES,
         Milliseconds.make(Math.max(0, positionMs)),
         Option.fromNullishOr(this.#audioStreamIndex),
       ),
     );
 
-    if (this.#stopped || negotiated === null || Result.isFailure(negotiated)) return;
+    if (renewed === null || Result.isFailure(renewed)) return;
 
-    const previous = { started: this.#started, stream: this.#stream };
+    // Stopped or overtaken meanwhile: the stream just made is nobody's.
+    if (this.#stopped || version !== this.#version) {
+      void run(this.#runtime, Playback.stop(renewed.success));
 
-    this.#started = started;
-    this.#stream = negotiated.success;
+      return;
+    }
+
+    this.#playback = renewed.success;
+    this.#scheduleRenewal();
     await this.#load(positionMs);
-
-    // The old stream's segments are no longer needed.
-    if (previous.stream.streamId !== this.#stream.streamId)
-      void run(this.#runtime, Playback.stop(previous));
   }
 
   /** Loads the current stream on the receiver at `positionMs`, keeping play or pause. */
   async #load(positionMs: number): Promise<void> {
-    const paused = this.player.isPaused();
+    this.#plan = castLoadPlan(
+      this.#playback.stream,
+      this.#item,
+      this.#subtitleId,
+      positionMs / 1000,
+    );
 
-    this.#plan = castLoadPlan(this.#stream, this.#item, this.#subtitleId, positionMs / 1000);
-    await this.#session.loadMedia(loadRequest(this.#sdk, this.#plan)).catch(() => undefined);
-
-    if (paused) this.player.pause();
+    await this.#session
+      .loadMedia(loadRequest(this.#sdk, this.#plan, !this.player.isPaused()))
+      .catch(() => undefined);
   }
 
   /** Moves the receiver to `positionMs`: in place for a direct file or a produced position. */
   async #moveTo(positionMs: number, signal: AbortSignal): Promise<void> {
-    const playback = { started: this.#started, stream: this.#stream };
+    const playback = this.#playback;
+    const version = this.#version;
 
-    if (this.#stream.streamId === undefined) {
+    if (playback.stream.streamId === undefined) {
       this.player.seekInPlace(positionMs);
 
       return;
@@ -297,34 +336,40 @@ export class CastPlayback {
       Playback.seekStream(playback, Milliseconds.make(positionMs)),
     );
 
-    if (signal.aborted || this.#stopped) return;
+    // A newer seek, a reload, or the end of the cast took over meanwhile.
+    if (signal.aborted || this.#stopped || version !== this.#version) return;
 
     if (moved === null || Result.isFailure(moved)) {
       // The stream is gone (a restart, an idle timeout): negotiate a new one there.
-      await this.#reload(this.#started, positionMs);
+      await this.#reload(positionMs);
 
       return;
     }
 
     const next = Option.getOrUndefined(moved.success);
 
-    if (next === undefined || next.generation === this.#stream.generation) {
+    if (next === undefined || next.generation === playback.stream.generation) {
       this.player.seekInPlace(positionMs);
 
       return;
     }
 
-    this.#stream = Struct.evolve(this.#stream, {
-      url: () => next.playlistUrl,
-      generation: () => next.generation,
-    });
+    this.#version += 1;
+    this.#playback = {
+      started: playback.started,
+      stream: Struct.evolve(playback.stream, {
+        url: () => next.playlistUrl,
+        generation: () => next.generation,
+      }),
+    };
     await this.#load(positionMs);
   }
 
   /**
-   * Ends the cast on the page's side: the output goes back to the element, the receiver's stream
-   * stops, and, with `resume`, the page plays on from where the TV was. The cast session itself is
-   * the caller's to end.
+   * Ends the cast on the page's side and stops the receiver's stream. With `resume` (the device
+   * disconnected), the page takes the session back where the TV was. Without it (the player is
+   * closing), the session's output stays on the receiver's last position, so the exit report
+   * saves where the TV stopped. The cast session itself is the caller's to end.
    */
   stop(resume: boolean): void {
     if (this.#stopped) return;
@@ -333,14 +378,13 @@ export class CastPlayback {
     const positionMs = this.player.positionMs();
     const wasPlaying = !this.player.isPaused();
 
+    clearTimeout(this.#renewTimer);
     this.#unsubscribe();
     this.player.dispose();
-    this.#controller.output.switchTo(this.#controller.player);
-    void run(this.#runtime, Playback.stop({ started: this.#started, stream: this.#stream }));
+    void run(this.#runtime, Playback.stop(this.#playback));
 
     if (!resume) return;
-    this.#controller.player.seek(positionMs);
-
-    if (wasPlaying) this.#controller.resumeWithGesture();
+    this.#controller.output.switchTo(this.#controller.player);
+    this.#controller.unpark(positionMs, wasPlaying);
   }
 }

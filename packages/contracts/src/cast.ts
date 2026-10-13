@@ -2,8 +2,10 @@
  * The client profile a Chromecast negotiates playback with, through the same ladder as any other
  * client. Every Chromecast plays 1080p H.264 (up to level 4.1) with AAC, over fMP4 HLS or as an
  * MP4 file; HEVC, 4K, and HDR are offered only to models that report playing them (Chromecast
- * Ultra, Chromecast with Google TV, Google TV Streamer). The Cast sender SDK reports no codec list,
- * so the model name is the only evidence; an unknown model gets the safe profile.
+ * Ultra, Chromecast with Google TV, Google TV Streamer). Cast senders report no codec list, so the
+ * model name is the only evidence, and an unknown model gets the safe profile. The web sender SDK
+ * reports no model at all, so the web app always asks for the safe profile; native senders, whose
+ * SDKs report the model, can ask for more.
  */
 import type { ClientCapabilities } from "./media-playback";
 

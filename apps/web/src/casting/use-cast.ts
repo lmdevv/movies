@@ -149,13 +149,25 @@ export const useCast = (
     let current: CastPlayback | null = null;
     let cancelled = false;
 
+    /**
+     * Ends `cast` on the page's side: a disconnect continues on the page; leaving the player stops
+     * the TV but keeps the device connected for the next title.
+     */
+    const end = (playing: CastPlayback): void => {
+      const disconnected = stateRef.current !== "CONNECTED";
+
+      playing.stop(disconnected);
+
+      if (!disconnected) playing.player.stopReceiver();
+    };
+
     setStarting(true);
 
     const start = async (): Promise<void> => {
       const result = await CastPlayback.start(runtime, sdk, session, castable, cast);
 
       if (cancelled) {
-        if (Result.isSuccess(result)) result.success.stop(false);
+        if (Result.isSuccess(result)) end(result.success);
 
         return;
       }
@@ -180,14 +192,7 @@ export const useCast = (
       setStarting(false);
       setPlayback(null);
 
-      if (current === null) return;
-
-      // A disconnect continues on the page; leaving the player stops the TV but keeps the device.
-      const disconnected = stateRef.current !== "CONNECTED";
-
-      current.stop(disconnected);
-
-      if (!disconnected) current.player.stopReceiver();
+      if (current !== null) end(current);
     };
   }, [connected, sdk, context, castable, runtime]);
 

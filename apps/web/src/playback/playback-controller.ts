@@ -162,6 +162,8 @@ export class PlaybackController {
   /** The playback the reporter was started with; it stops that stream when it closes. */
   #reported: Playback.Playback | null = null;
   #disposed = false;
+  /** Another device plays the session (`park`); the element holds no stream meanwhile. */
+  #parked = false;
 
   /**
    * @param hlsJs - Play HLS through hls.js rather than the element (`usesHlsJs`).
@@ -273,7 +275,7 @@ export class PlaybackController {
     void this.#negotiate(started, from === "resume" ? phase.resumeAtMs : 0);
   }
 
-  async #negotiate(started: StartedPlayback, positionMs: number): Promise<void> {
+  async #negotiate(started: StartedPlayback, positionMs: number, play = true): Promise<void> {
     this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.35 }) });
 
     const negotiated = await run(
@@ -298,7 +300,7 @@ export class PlaybackController {
 
     this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.7 }) });
     this.#startReporting(playback);
-    await this.#load(playback, true);
+    await this.#load(playback, play);
   }
 
   /** Puts `playback`'s stream into the element, then plays it when `play` is set. */
@@ -426,13 +428,58 @@ export class PlaybackController {
     await this.#play();
   }
 
+  /**
+   * Hands the session to another device, such as a Chromecast: the media service keeps one stream
+   * per playback session, so the element lets go of its stream and nothing here negotiates (no
+   * recovery, no token renewal, audio choices only noted) until `unpark`. The caller has switched
+   * `output` to the other device first, so the element emptying itself is not reported.
+   */
+  park(): void {
+    if (this.#parked || this.#disposed) return;
+    this.#parked = true;
+    clearTimeout(this.#renewTimer);
+    // Late callbacks of the released stream belong to an old generation and do nothing.
+    this.#generation += 1;
+    this.#detach();
+  }
+
+  /** Whether another device plays the session now (`park`). */
+  isParked(): boolean {
+    return this.#parked;
+  }
+
+  /**
+   * Takes the session back at `positionMs` after `park`: negotiates a new stream for this
+   * browser there (renewing the token first when the other device kept it to the end) and plays
+   * it when `play` is set.
+   */
+  unpark(positionMs: number, play: boolean): void {
+    if (!this.#parked || this.#disposed) return;
+    this.#parked = false;
+    this.#recoveries = 0;
+
+    const { started } = this.#snapshot;
+    const playback = this.#playback;
+
+    if (started === null) return;
+
+    if (playback === null) {
+      void this.#negotiate(started, positionMs, play);
+
+      return;
+    }
+
+    this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.5 }) });
+    void this.#renegotiate(playback, positionMs, this.#snapshot.audioStreamIndex, play);
+  }
+
   #onStreamFailure(failure: StreamFailure): void {
     void this.#follow(afterStreamFailure(failure), this.player.positionMs());
   }
 
   /** Carries out a recovery step at `positionMs`. */
   async #follow(step: PlaybackStep, positionMs: number): Promise<void> {
-    if (this.#disposed) return;
+    if (this.#disposed || this.#parked) return;
 
     if (PlaybackStep.$is("Stop")(step)) return this.#stop(step.stop);
 
@@ -520,7 +567,9 @@ export class PlaybackController {
     playback: Playback.Playback,
     positionMs: number,
     audioStreamIndex: number | null,
+    play?: boolean,
   ): Promise<void> {
+    if (this.#parked) return;
     const wasPlaying = !this.#element.paused;
 
     const renewed = await run(
@@ -533,7 +582,8 @@ export class PlaybackController {
       ),
     );
 
-    if (this.#disposed || playback !== this.#playback) return;
+    // A park while negotiating hands the session elsewhere; this stream is not wanted.
+    if (this.#disposed || this.isParked() || playback !== this.#playback) return;
 
     if (renewed === null) return this.#stop(STOPPED);
 
@@ -541,7 +591,7 @@ export class PlaybackController {
       return this.#follow(afterPlaybackFailure(renewed.failure), positionMs);
     }
 
-    await this.#load(renewed.success, wasPlaying || !isPlaying(this.#snapshot.phase));
+    await this.#load(renewed.success, play ?? (wasPlaying || !isPlaying(this.#snapshot.phase)));
   }
 
   #scheduleRenewal(stream: NegotiateResponse): void {
@@ -565,7 +615,9 @@ export class PlaybackController {
     if (playback === null || streamIndex === this.#snapshot.audioStreamIndex) return;
 
     this.#update({ audioStreamIndex: streamIndex });
-    void this.#renegotiate(playback, this.player.positionMs(), streamIndex);
+
+    // While parked, the device playing the session follows the choice (`casting/`).
+    if (!this.#parked) void this.#renegotiate(playback, this.player.positionMs(), streamIndex);
   }
 
   /** Shows the subtitle track `id`, or none. */

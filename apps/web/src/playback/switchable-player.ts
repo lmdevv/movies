@@ -62,3 +62,19 @@ export class SwitchablePlayer implements PlayerPort {
     };
   };
 }
+
+/**
+ * A player that stands still at `positionMs`, for the moment between one device letting go of a
+ * session and the next taking it: it reports where playback was and emits nothing.
+ */
+export const heldPlayer = (positionMs: number, paused: boolean): PlayerPort => ({
+  positionMs: () => positionMs,
+  isPaused: () => paused,
+  isBuffering: () => !paused,
+  playbackRate: () => 1,
+  setPlaybackRate: () => undefined,
+  seek: () => undefined,
+  play: () => Promise.resolve(),
+  pause: () => undefined,
+  subscribe: () => () => undefined,
+});

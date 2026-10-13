@@ -293,16 +293,21 @@ choices made while implementing them. Update it in the same PR that changes a de
   scripts from `www.gstatic.com` without a scheme: the SDK loads its framework and platform
   scripts protocol-relative, so a page served over HTTP fetches them over HTTP (checked in Chrome
   against the media service's real policy: with `https://` only, `cast_framework.js` was blocked).
-- A cast continues the page's playback session; it is not a new device. The receiver gets its own
-  stream, negotiated through the same ladder with the Chromecast client profile in
+- A cast continues the page's playback session; it is not a new device. The media service keeps
+  one stream per playback session, so the page lets go of its stream first (`park`: no
+  negotiation, recovery, or token renewal on the page while a TV plays) and the receiver gets a
+  new stream, negotiated through the same ladder with the Chromecast client profile in
   `@movies/contracts/cast` (1080p H.264 and AAC, MP4 or fMP4 HLS, on every model; HEVC Main 10,
-  2160p, HDR10 and HLG only for models whose name says they play them, since the sender SDK
-  reports no codecs). Its absolute URLs carry the session's playback token in the query, as every
+  2160p, HDR10 and HLG only for models known to play them). The web sender SDK's
+  `chrome.cast.Receiver` carries a name, `video_out`-style capabilities, and volume, and no model
+  or codecs (read from Google's sender script), so the web app always asks for the profile every
+  Chromecast plays; native senders, which know the model, can ask for more. Its absolute URLs carry the session's playback token in the query, as every
   media URL does, because a receiver cannot send headers; no other token kind exists, and the
   token stops working when the session ends.
 - The page's element pauses and `PlaybackController.output` switches to the receiver, so progress
   reports and a watch room's engine follow the TV. Subtitles are the stream's WebVTT tracks;
-  subtitle and audio choices, and token renewals, reload or retrack the receiver at its position.
+  subtitle and audio choices retrack or reload the receiver at its position, and the cast renews
+  the token five minutes before it expires, as the page would.
   A seek goes through `seekStream` first, because a receiver asking for segments outside what the
   stream produced would get `StreamGenerationGone`; a new generation reloads the receiver there.
   Disconnecting, from the page or the TV, stops the receiver's stream and continues on the page at

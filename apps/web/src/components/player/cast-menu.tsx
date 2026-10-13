@@ -29,19 +29,16 @@ function MenuRow({
   icon,
   label,
   detail,
-  disabled = false,
   onClick,
 }: {
   readonly icon: ReactNode;
   readonly label: string;
   readonly detail: string;
-  readonly disabled?: boolean;
   readonly onClick: () => void;
 }) {
   return (
     <button
       type="button"
-      disabled={disabled}
       onClick={onClick}
       className="flex cursor-pointer items-center gap-3 rounded-xs p-2 text-left font-sans text-body/label text-text transition-colors hover:bg-text/8 disabled:cursor-default disabled:opacity-(--opacity-disabled) [&_svg]:size-5 [&_svg]:shrink-0"
     >
@@ -105,10 +102,11 @@ export function CastMenu({
               {chromecast === null ? null : chromecast.deviceName === null ? (
                 <MenuRow
                   icon={<CastIcon strokeWidth={1.75} aria-hidden />}
-                  label="Chromecast"
+                  label={chromecast.connecting ? "Cancel casting" : "Chromecast"}
                   detail={chromecast.connecting ? "Connecting…" : "Choose a device"}
-                  disabled={chromecast.connecting}
-                  onClick={choose(chromecast.onConnect)}
+                  onClick={choose(
+                    chromecast.connecting ? chromecast.onDisconnect : chromecast.onConnect,
+                  )}
                 />
               ) : (
                 <MenuRow
@@ -159,6 +157,7 @@ export function CastingState({
   return (
     <div
       data-testid="casting-state"
+      role="status"
       className={cn(
         "on-media pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-dark-bg/70 font-sans",
         className,

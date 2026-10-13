@@ -4,7 +4,10 @@
  * and answers the app's request for `cast_sender.js` with a script that announces the SDK, so the
  * app's own loader runs as it does against Google's. The fake keeps the SDK's names and constants
  * (read from the real SDK in Chrome: `caststatechanged`, `anyChanged`, `CC1AD845`, …), records what
- * the app sends the receiver, and lets a test play the receiver's part.
+ * the app sends the receiver, and lets a test play the receiver's part. Like a real receiver it
+ * fetches what it is told to play (the playlist and a segment, or a byte range of a direct file),
+ * so a stream the media service closed shows up as a failed fetch, and its state reaches the
+ * page a moment after a load, not within the call.
  */
 import type { Page } from "@playwright/test";
 
@@ -37,8 +40,12 @@ export interface FakeReceiver {
   readonly commands: ReadonlyArray<readonly [string, number | boolean | null]>;
   /** Text tracks shown after loading, one entry per change. */
   readonly trackChanges: ReadonlyArray<ReadonlyArray<number>>;
+  /** What the receiver fetched from the media service, and the answers' statuses. */
+  readonly fetches: ReadonlyArray<{ readonly url: string; readonly status: number }>;
   readonly currentTime: number;
   readonly isPaused: boolean;
+  /** `IDLE`, `PLAYING`, `PAUSED`, or `BUFFERING`, as the receiver last reported. */
+  readonly playerState: string;
 }
 
 const SDK = String.raw`
@@ -50,6 +57,8 @@ const SDK = String.raw`
     loads: [],
     commands: [],
     trackChanges: [],
+    fetches: [],
+    current: null,
     idleReason: null,
     player: {
       isConnected: false,
@@ -75,6 +84,25 @@ const SDK = String.raw`
   const setCastState = (castState) => {
     fake.castState = castState;
     emitContext("caststatechanged", { castState });
+  };
+
+  const record = async (url, init) => {
+    const response = await fetch(url, init).catch(() => ({ status: 0, text: () => "" }));
+    fake.fetches.push({ url, status: response.status });
+    return response;
+  };
+
+  // A receiver fetches the playlist and a segment of an HLS stream, or a range of a direct file.
+  const fetchMedia = async (url, hls) => {
+    if (!hls) {
+      await record(url, { headers: { range: "bytes=0-1023" } });
+      return;
+    }
+    const playlist = await record(url);
+    if (playlist.status !== 200) return;
+    const text = await playlist.text();
+    const segment = text.split("\n").find((line) => line.length > 0 && !line.startsWith("#"));
+    if (segment !== undefined) await record(new URL(segment, url).href);
   };
 
   const device = { friendlyName: "Living Room TV", capabilities: ["video_out", "audio_out"] };
@@ -110,12 +138,16 @@ const SDK = String.raw`
         autoplay: request.autoplay,
       });
       fake.idleReason = null;
-      change("isMediaLoaded", true);
-      change("duration", info.duration);
-      change("currentTime", request.currentTime);
-      change("playerState", "PLAYING");
-      change("isPaused", !request.autoplay);
-      return Promise.resolve(undefined);
+      fake.current = { url: info.contentId, hls: info.contentType === "application/x-mpegurl" };
+      // The receiver reports its new state a moment later, as the SDK relays it.
+      setTimeout(() => {
+        change("isMediaLoaded", true);
+        change("duration", info.duration);
+        change("currentTime", request.currentTime);
+        change("playerState", "PLAYING");
+        change("isPaused", !request.autoplay);
+      }, 50);
+      return fetchMedia(fake.current.url, fake.current.hls).then(() => undefined);
     },
   };
 
@@ -244,8 +276,10 @@ const SDK = String.raw`
       loads: fake.loads,
       commands: fake.commands,
       trackChanges: fake.trackChanges,
+      fetches: fake.fetches,
       currentTime: fake.player.currentTime,
       isPaused: fake.player.isPaused,
+      playerState: fake.player.playerState,
     }),
     devicesAppear: () => setCastState("NOT_CONNECTED"),
     advanceTo: (seconds) => change("currentTime", seconds),
@@ -253,10 +287,13 @@ const SDK = String.raw`
       fake.idleReason = "FINISHED";
       change("playerState", "IDLE");
     },
+    /** Fetches what the receiver plays again, as it does while playing on. */
+    refetch: () => (fake.current === null ? Promise.resolve() : fetchMedia(fake.current.url, fake.current.hls)),
     disconnect: () => {
       fake.session = null;
-      change("isConnected", false);
+      // The mirror's time resets before it reports the disconnect: the order that loses most.
       change("currentTime", 0);
+      change("isConnected", false);
       change("isMediaLoaded", false);
       emitContext("sessionstatechanged", { sessionState: "SESSION_ENDED" });
       setCastState("NOT_CONNECTED");
@@ -279,7 +316,7 @@ export const installCastFake = async (page: Page): Promise<void> => {
 /** Plays the receiver's part: `action` is a fake control such as `devicesAppear`. */
 export const castFake = (
   page: Page,
-  action: "devicesAppear" | "finish" | "disconnect",
+  action: "devicesAppear" | "finish" | "disconnect" | "refetch",
 ): Promise<void> => page.evaluate(`window.__castFake.${action}()`);
 
 /** Moves the fake receiver's playback position. */

@@ -106,7 +106,15 @@ export class CastPlayer implements PlayerPort {
   }
 
   readonly #onChange = (change: RemotePlayerChange): void => {
-    if (this.#remote.isConnected) {
+    // A disconnect resets the mirror (time to zero, paused), in whatever order the SDK reports
+    // the fields; a jump to zero this player did not ask for is that reset, not a position.
+    const reset =
+      change.field === "currentTime" &&
+      change.value === 0 &&
+      this.#pending !== 0 &&
+      this.#last.positionMs > 1_000;
+
+    if (this.#remote.isConnected && !reset) {
       this.#last = { positionMs: this.#remote.currentTime * 1000, paused: this.#remote.isPaused };
     }
 

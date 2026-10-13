@@ -5,13 +5,14 @@
  * it is available.
  */
 
-/** A cast device as the SDK reports it. */
+/**
+ * A cast device as the SDK reports it (`chrome.cast.Receiver`): a name, `video_out`-style
+ * capabilities, and volume; no model or codecs.
+ */
 interface CastReceiver {
   readonly friendlyName: string;
   /** Such as `video_out` and `audio_out`. */
   readonly capabilities?: ReadonlyArray<string>;
-  /** The device model, such as `Chromecast Ultra`, where the SDK reports it. */
-  readonly modelName?: string;
 }
 
 /** An image in a media item's metadata. */
