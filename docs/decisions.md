@@ -182,14 +182,16 @@ choices made while implementing them. Update it in the same PR that changes a de
   waits at most two seconds for a scan; past that it encodes when the client can take an encode,
   and the scan finishes in the background for the next negotiation.
 - Picture subtitles (PGS, VobSub) are listed in negotiation without a URL. A client shows one by
-  negotiating again with `burnInSubtitle`, which always transcodes: the subtitle is decoded on the
-  CPU, its canvas scaled to the picture (DVD subtitles carry none and are read on a 720x576
-  canvas), drawn after any tone mapping, then scaled and encoded on the session's encoder. After a
+  negotiating again with `burnInSubtitle`, which always transcodes: the picture is scaled and
+  tone-mapped as usual (on the GPU when one encodes), then the subtitle, its canvas scaled to the
+  output size (DVD subtitles carry none and are read on a 720x576 canvas), is drawn on the SDR
+  frame on the CPU; a GPU's frames are downloaded for that and uploaded again to encode. After a
   seek the subtitle comes from a second reading of the file from 30 seconds earlier, so a line
   already on screen is drawn. Choosing a text subtitle or none negotiates again without it, back to
   the cheaper mode.
 - A client may send a quality cap (`maxHeight`, `maxBitrate` in bits per second). A source above
-  it is encoded down to the cap; one within it plays as before. The web player offers Auto (no
+  it is encoded down to the cap; one within it plays as before, and so does one the host cannot
+  encode (HDR without tone mapping), rather than not at all. The web player offers Auto (no
   cap, as before), Original (no cap; stays so if Auto ever adapts to the connection), 1080p,
   720p, and 480p (10, 4, and 2 Mb/s), remembered per browser; the CLI takes `--max-height`.
 

@@ -186,8 +186,24 @@ const exceeds = (probe: MediaProbe, video: VideoStream, quality: PlaybackQuality
       probe.bitRate !== undefined &&
       probe.bitRate > quality.maxBitrate));
 
-/** Chooses how to deliver `probe` to `client`. */
+/**
+ * Chooses how to deliver `probe` to `client`. A quality cap that would need an encode this host
+ * cannot do (HDR without tone mapping, a client without H.264) is dropped, so the viewer still
+ * gets the source rather than nothing; a subtitle to burn in is not, as nothing else shows it.
+ */
 export const decidePlayback = (
+  probe: MediaProbe,
+  client: ClientCapabilities,
+  options: DecisionOptions,
+): PlaybackPlan => {
+  const plan = decideWithin(probe, client, options);
+
+  return PlaybackPlan.$is("Unsupported")(plan) && options.quality !== undefined
+    ? decideWithin(probe, client, { ...options, quality: undefined })
+    : plan;
+};
+
+const decideWithin = (
   probe: MediaProbe,
   client: ClientCapabilities,
   options: DecisionOptions,

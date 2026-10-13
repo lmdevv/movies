@@ -283,6 +283,15 @@ describe("decidePlayback", () => {
     ).toStrictEqual(PlaybackPlan.Direct({ audioIndex: 1 }));
   });
 
+  it("drops a quality cap it cannot honour, rather than refusing the title", () => {
+    expect(
+      decidePlayback(probe("mp4", hevcHdr, [eac3]), safari, {
+        ...software,
+        quality: { maxHeight: 720 },
+      }),
+    ).toStrictEqual(PlaybackPlan.Direct({ audioIndex: 2 }));
+  });
+
   it("burns an image subtitle in with an encode, and refuses other tracks", () => {
     const withPgs = probe("mp4", h264, [aac], 600, {
       bitRate: undefined,

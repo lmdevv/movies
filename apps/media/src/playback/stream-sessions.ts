@@ -714,14 +714,16 @@ const make = Effect.gen(function* () {
 
   /**
    * Takes a slot for `transcoding` (a video encode) or a copy stream, released when `scope` closes.
-   * Taking the slot and registering its release cannot be interrupted apart.
+   * Taking the slot and registering its release cannot be interrupted apart. `replacing` slots
+   * belong to streams this one replaces as it starts, such as the same viewer's stream before a
+   * quality or subtitle change; they count as free, so a full server still lets a viewer switch.
    */
-  const acquireSlot = (scope: Scope.Scope, transcoding: boolean) => {
+  const acquireSlot = (scope: Scope.Scope, transcoding: boolean, replacing: number) => {
     const slots = transcoding ? transcodes : copies;
     const limit = transcoding ? config.maxConcurrentTranscodes : config.maxConcurrentRemuxes;
 
     return Ref.modify(slots, (running) =>
-      running < limit ? ([true, running + 1] as const) : ([false, running] as const),
+      running - replacing < limit ? ([true, running + 1] as const) : ([false, running] as const),
     ).pipe(
       Effect.tap((acquired) =>
         acquired
@@ -767,7 +769,18 @@ const make = Effect.gen(function* () {
   ) {
     const { grant, file, plan } = request;
 
-    yield* acquireSlot(scope, isEncode(plan.video));
+    const transcoding = isEncode(plan.video);
+
+    // This device's current stream is replaced below; one of the same kind frees its slot then.
+    const replacing = yield* Effect.filter(
+      [...(yield* Ref.get(sessions)).values()].filter(
+        (existing) => existing.sessionId === grant.sessionId,
+      ),
+      (existing) =>
+        Ref.get(existing.video).pipe(Effect.map((video) => isEncode(video) === transcoding)),
+    );
+
+    yield* acquireSlot(scope, transcoding, replacing.length);
 
     const available = yield* Effect.tryPromise(() => freeBytes(config.transcodeDir)).pipe(
       Effect.tapError((error) =>

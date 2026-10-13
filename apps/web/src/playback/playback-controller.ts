@@ -19,7 +19,7 @@ import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { Milliseconds } from "@movies/contracts/units";
 import type { CallError } from "@movies/sdk/effect";
 import { MoviesClient, Playback } from "@movies/sdk/effect";
-import { Data, Effect, Exit, Option, Result, Scope } from "effect";
+import { Data, Effect, Exit, Option, Predicate, Result, Scope } from "effect";
 
 import { withoutFailedPath } from "./capabilities";
 import type { QualityChoice } from "./quality";
@@ -138,6 +138,10 @@ export class PlaybackController {
   #capabilities: ClientCapabilities;
   /** The picture subtitle the stream should burn in, or null. */
   #burnIn: string | null = null;
+  /** Bumped by every change of quality or burned-in subtitle. */
+  #choicesVersion = 0;
+  /** Bumped by every negotiation, so only the latest one's answer is used. */
+  #negotiation = 0;
   #snapshot: PlaybackSnapshot = {
     phase: PlaybackPhase.Starting(),
     started: null,
@@ -279,6 +283,9 @@ export class PlaybackController {
     // download surfaces when the stream attaches.
     if (this.#hlsJs) void preloadHlsJs().catch(() => undefined);
 
+    const ticket = ++this.#negotiation;
+    const version = this.#choicesVersion;
+
     const negotiated = await runSdk(
       this.#runtime,
       Playback.negotiate(
@@ -290,7 +297,7 @@ export class PlaybackController {
       ),
     );
 
-    if (this.#disposed) return;
+    if (this.#disposed || ticket !== this.#negotiation) return;
 
     if (negotiated === null) return this.#stop(STOPPED);
 
@@ -303,6 +310,16 @@ export class PlaybackController {
     this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.7 }) });
     this.#startReporting(playback);
     await this.#load(playback, play);
+    this.#catchUpOnChoices(version);
+  }
+
+  /** Negotiates again when the viewer changed quality or subtitle while a negotiation ran. */
+  #catchUpOnChoices(version: number): void {
+    const playback = this.#playback;
+
+    if (this.#disposed || playback === null || version === this.#choicesVersion) return;
+
+    void this.#renegotiate(playback, this.player.positionMs(), this.#snapshot.audioStreamIndex);
   }
 
   /** Puts `playback`'s stream into the element, then plays it when `play` is set. */
@@ -464,7 +481,7 @@ export class PlaybackController {
     }
 
     this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.5 }) });
-    void this.#renegotiate(playback, positionMs, this.#snapshot.audioStreamIndex, play);
+    void this.#renegotiate(playback, positionMs, this.#snapshot.audioStreamIndex, { play });
   }
 
   #onStreamFailure(failure: StreamFailure): void {
@@ -561,10 +578,20 @@ export class PlaybackController {
     playback: Playback.Playback,
     positionMs: number,
     audioStreamIndex: number | null,
-    play?: boolean,
+    options: {
+      /** Play the new stream, or not; by default as the old one was. */
+      readonly play?: boolean;
+      /**
+       * For a negotiation the viewer asked for (another quality or picture subtitle): undoes the
+       * choice when the service cannot honour it, and the current stream plays on.
+       */
+      readonly revert?: () => void;
+    } = {},
   ): Promise<void> {
     if (this.#parked) return;
     const wasPlaying = !this.#element.paused;
+    const ticket = ++this.#negotiation;
+    const version = this.#choicesVersion;
 
     const renewed = await runSdk(
       this.#runtime,
@@ -578,15 +605,35 @@ export class PlaybackController {
     );
 
     // A park while negotiating hands the session elsewhere; this stream is not wanted.
-    if (this.#disposed || this.isParked() || playback !== this.#playback) return;
+    if (
+      this.#disposed ||
+      this.isParked() ||
+      playback !== this.#playback ||
+      ticket !== this.#negotiation
+    ) {
+      return;
+    }
 
     if (renewed === null) return this.#stop(STOPPED);
 
     if (Result.isFailure(renewed)) {
+      if (
+        options.revert !== undefined &&
+        Predicate.isTagged(renewed.failure, "UnsupportedPlayback")
+      ) {
+        options.revert();
+
+        return;
+      }
+
       return this.#follow(afterPlaybackFailure(renewed.failure), positionMs);
     }
 
-    await this.#load(renewed.success, play ?? (wasPlaying || !isPlaying(this.#snapshot.phase)));
+    await this.#load(
+      renewed.success,
+      options.play ?? (wasPlaying || !isPlaying(this.#snapshot.phase)),
+    );
+    this.#catchUpOnChoices(version);
   }
 
   #scheduleRenewal(stream: NegotiateResponse): void {
@@ -631,29 +678,59 @@ export class PlaybackController {
   selectSubtitle(id: string | null): void {
     const track = this.#snapshot.stream?.subtitles.find((candidate) => candidate.id === id);
     const burnIn = track?.kind === "bitmap" ? track.id : null;
+    const previous = { subtitleId: this.#snapshot.subtitleId, burnIn: this.#burnIn };
 
     this.#update({ subtitleId: id });
 
     if (burnIn === this.#burnIn) return;
-    this.#burnIn = burnIn;
 
-    const playback = this.#playback;
-
-    if (playback !== null) {
-      void this.#renegotiate(playback, this.player.positionMs(), this.#snapshot.audioStreamIndex);
-    }
+    this.#changeChoices(
+      () => {
+        this.#burnIn = burnIn;
+      },
+      () => {
+        this.#burnIn = previous.burnIn;
+        this.#update({ subtitleId: previous.subtitleId });
+      },
+    );
   }
 
   /** Plays at `quality` from here on, renegotiating when it changes. */
   selectQuality(quality: QualityChoice): void {
+    const previous = this.#snapshot.quality;
+
+    if (quality === previous) return;
+
+    this.#changeChoices(
+      () => this.#update({ quality }),
+      () => this.#update({ quality: previous }),
+    );
+  }
+
+  /**
+   * Applies a change of quality or burned-in subtitle and negotiates a stream with it; `undo`
+   * restores the old choice when the service cannot honour the new one. A change made while no
+   * stream has loaded yet applies to the negotiation that loads one.
+   */
+  #changeChoices(apply: () => void, undo: () => void): void {
+    apply();
+    this.#choicesVersion += 1;
+
     const playback = this.#playback;
 
-    if (quality === this.#snapshot.quality) return;
-    this.#update({ quality });
+    if (playback === null) return;
 
-    if (playback !== null) {
-      void this.#renegotiate(playback, this.player.positionMs(), this.#snapshot.audioStreamIndex);
-    }
+    void this.#renegotiate(
+      playback,
+      this.player.positionMs(),
+      this.#snapshot.audioStreamIndex,
+      {
+        revert: () => {
+          undo();
+          this.#choicesVersion += 1;
+        },
+      },
+    );
   }
 
   /** Tries again from where playback stopped. */

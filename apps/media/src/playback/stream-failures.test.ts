@@ -476,4 +476,40 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
       30_000,
     );
   });
+
+  layer(MediaTestServer.layer({ MAX_CONCURRENT_TRANSCODES: "1" }), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })((it) => {
+    it.effect(
+      "lets a viewer switch streams on a full server, and keeps others out",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+          const { library } = yield* FixtureWorkspace.Service;
+          const fileId = server.fileId("movies", library.directMovie);
+          const viewer = signTestToken({ fid: fileId, sid: "switching" });
+
+          const status = (token: string, startSeconds: number) =>
+            HttpClient.execute(
+              HttpClientRequest.post(`${server.baseUrl}/api/playback/negotiate`).pipe(
+                HttpClientRequest.bodyJsonUnsafe({
+                  token,
+                  capabilities: smallScreen,
+                  startSeconds,
+                }),
+              ),
+            ).pipe(
+              Effect.map((response) => response.status),
+              Effect.orDie,
+            );
+
+          // The only transcode slot is the viewer's; a new stream for the same viewer takes it over.
+          assert.strictEqual(yield* status(viewer, 0), 200);
+          assert.strictEqual(yield* status(viewer, 5), 200);
+          assert.strictEqual(yield* status(signTestToken({ fid: fileId, sid: "other" }), 0), 503);
+        }),
+      30_000,
+    );
+  });
 });

@@ -104,19 +104,6 @@ class ArtworkDownloadTimedOut extends Schema.TaggedError<ArtworkDownloadTimedOut
   }
 }
 
-/** Joins chunks into one array. */
-const concatChunks = (chunks: ReadonlyArray<Uint8Array>): Uint8Array => {
-  const out = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0));
-  let offset = 0;
-
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.length;
-  }
-
-  return out;
-};
-
 const contentTypeOf = (path: string): string =>
   CONTENT_TYPES.get(path.split(".").at(-1)?.toLowerCase() ?? "") ?? "application/octet-stream";
 
@@ -192,7 +179,7 @@ const make = Effect.gen(function* () {
                         size: read.size + chunk.length,
                       }),
               ),
-              Effect.map((read) => concatChunks(read.chunks)),
+              Effect.map((read) => Buffer.concat(read.chunks)),
             ),
       ),
       Effect.timeoutOrElse({

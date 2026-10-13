@@ -60,9 +60,7 @@ interface FilterGraph {
 
 /** Whether the source decodes on the GPU straight into the encoder's filters. */
 const decodesOnGpu = (command: HlsCommand, video: Encode): boolean =>
-  video.encoder !== "software" &&
-  video.burnSubtitle === undefined &&
-  HARDWARE_DECODERS.has(command.videoCodec);
+  video.encoder !== "software" && HARDWARE_DECODERS.has(command.videoCodec);
 
 /** Filters from frames in system memory to frames the GPU encoder takes, scaled to the target. */
 const gpuFilters = (command: HlsCommand, video: Encode, uploaded: boolean): string => {
@@ -86,33 +84,46 @@ const gpuFilters = (command: HlsCommand, video: Encode, uploaded: boolean): stri
 };
 
 /**
- * The video filter graph: scale (and tone-map) on the CPU or the GPU, with an image subtitle
- * drawn on first when one is burned in. A subtitle's canvas (720x576 for DVD) is scaled to the
- * picture it covers, and drawn after tone mapping, as subtitles are SDR.
+ * The video filter graph: scale and tone-map on the CPU or the GPU. An image subtitle is drawn
+ * on the finished SDR picture at the output size, after tone mapping (subtitles are SDR): in
+ * software straight away, on a GPU after downloading its frames, which are then uploaded again
+ * for the encoder. The subtitle's canvas (720x576 for DVD) is scaled to the picture it covers.
  */
 const videoFilters = (command: HlsCommand, video: Encode): FilterGraph => {
-  const software = video.encoder === "software";
-  const scale = `scale=${String(video.width)}:${String(video.height)}:flags=bicubic`;
+  const width = String(video.width);
+  const height = String(video.height);
 
-  // Frames in system memory before any subtitle: the software path scales and tone-maps here.
-  const before = software ? [scale, ...(video.toneMap ? [SOFTWARE_TONE_MAP] : [])] : [];
-
-  const after = software
-    ? "format=yuv420p"
-    : gpuFilters(command, video, decodesOnGpu(command, video));
+  const picture =
+    video.encoder === "software"
+      ? [
+          `scale=${width}:${height}:flags=bicubic`,
+          ...(video.toneMap ? [SOFTWARE_TONE_MAP] : []),
+        ].join(",")
+      : gpuFilters(command, video, decodesOnGpu(command, video));
 
   if (video.burnSubtitle === undefined) {
-    return { kind: "simple", graph: [...before, after].join(",") };
+    return {
+      kind: "simple",
+      graph: video.encoder === "software" ? `${picture},format=yuv420p` : picture,
+    };
   }
 
-  const base = before.length === 0 ? "null" : before.join(",");
+  const subtitleInput = subtitleReading(command).second ? "1" : "0";
+
+  const [download, upload] =
+    video.encoder === "software"
+      ? ["", "format=yuv420p"]
+      : [
+          ",hwdownload,format=nv12",
+          `format=nv12,hwupload${video.encoder === "qsv" ? "=extra_hw_frames=64,format=qsv" : ""}`,
+        ];
 
   return {
     kind: "complex",
     graph: [
-      `[0:${String(command.videoIndex)}]${base}[base]`,
-      `[${subtitleReading(command).second ? "1" : "0"}:${String(video.burnSubtitle)}][base]scale2ref=w=rw:h=rh[subtitle][picture]`,
-      `[picture][subtitle]overlay=eof_action=pass:repeatlast=0,${after}[video]`,
+      `[0:${String(command.videoIndex)}]${picture}${download}[picture]`,
+      `[${subtitleInput}:${String(video.burnSubtitle)}]scale=${width}:${height}[subtitle]`,
+      `[picture][subtitle]overlay=eof_action=pass:repeatlast=0,${upload}[video]`,
     ].join(";"),
   };
 };

@@ -67,7 +67,24 @@ const MOVIES = {
   audio: "Night Ferry",
   transcode: "Glass Harbor",
   missing: "Lost Reel",
+  pictures: "Paper Lantern",
 } as const;
+
+/** DVD subtitles (VobSub) the media service tests carry; see their fixtures README. */
+const VOBSUB = join(
+  import.meta.dirname,
+  "..",
+  "..",
+  "..",
+  "media",
+  "src",
+  "testing",
+  "fixtures",
+  "vobsub.mkv",
+);
+
+/** The player's tracks button and its popover. */
+const TRACKS = "Audio, subtitles, and quality";
 
 const SHOW = "Tide Tables";
 
@@ -132,6 +149,14 @@ test.beforeAll(async ({ browser }) => {
       seconds: 120,
       video: "hevc",
       audio: [{ codec: "aac", language: "eng" }],
+    }),
+    // 720p with a DVD subtitle track, which only a transcode can show.
+    encodeClip(join(folder(MOVIES.pictures), `${MOVIES.pictures} (2021).mkv`), {
+      seconds: 30,
+      video: "h264",
+      size: "1280x720",
+      audio: [{ codec: "aac", language: "eng" }],
+      subtitles: { file: VOBSUB, language: "eng" },
     }),
     encodeClip(join(folder(MOVIES.missing), `${MOVIES.missing} (2021).mp4`), {
       seconds: 10,
@@ -305,9 +330,9 @@ test("the resume prompt resumes where the profile stopped, or starts over", asyn
 test("subtitles show from the track popover and toggle with c; another audio track renegotiates", async () => {
   await playFromStart(MOVIES.direct, "direct");
   await revealControls(page);
-  await page.getByRole("button", { name: "Audio, subtitles, and quality" }).click();
+  await page.getByRole("button", { name: TRACKS }).click();
 
-  const panel = page.getByRole("dialog", { name: "Audio, subtitles, and quality" });
+  const panel = page.getByRole("dialog", { name: TRACKS });
 
   await panel.getByRole("radio", { name: "English" }).last().click();
 
@@ -333,7 +358,7 @@ test("subtitles show from the track popover and toggle with c; another audio tra
   const position = (await videoState(page)).currentTime;
 
   await revealControls(page);
-  await page.getByRole("button", { name: "Audio, subtitles, and quality" }).click();
+  await page.getByRole("button", { name: TRACKS }).click();
   await capture(page, "07-02-audio-and-subtitles");
   await panel.getByRole("radio", { name: "French" }).click();
   await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe("remux");
@@ -353,6 +378,51 @@ test("subtitles show from the track popover and toggle with c; another audio tra
   await page.keyboard.press("Escape");
   await page.getByTestId("player").press("Escape");
   await stopped;
+});
+
+test("a picture subtitle burns into a transcode and back out; a lower quality transcodes down", async () => {
+  await playFromStart(MOVIES.pictures, "remux");
+  await revealControls(page);
+  await page.getByRole("button", { name: TRACKS }).click();
+
+  const panel = page.getByRole("dialog", { name: TRACKS });
+  let before = streams.length;
+
+  await capture(page, "07-08-tracks-and-quality");
+  await panel.getByRole("radio", { name: "English" }).last().click();
+  await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe("transcode-software");
+  expect(streams.at(-1)?.burnedInSubtitle).toMatch(/^e\d+$/u);
+  await expectPlayingPast(page, 1);
+
+  // Off returns to the copy, without a burned-in subtitle.
+  before = streams.length;
+  await panel.getByRole("radio", { name: "Off" }).click();
+  await expect
+    .poll(() => streams.slice(before).at(-1))
+    .toMatchObject({ mode: "remux", burnedInSubtitle: undefined });
+
+  // 480p transcodes the 720p source down, and the browser remembers the choice.
+  before = streams.length;
+  await panel.getByRole("radio", { name: "480p" }).click();
+  await expect
+    .poll(() => streams.slice(before).at(-1))
+    .toMatchObject({ mode: "transcode-software", height: 480 });
+  await expectPlayingPast(page, 1);
+  await page.keyboard.press("Escape");
+
+  before = streams.length;
+  await page.reload();
+  await expect.poll(() => streams.slice(before).at(-1)?.height).toBe(480);
+  await expectPlayingPast(page, 0.5);
+  await revealControls(page);
+  await page.getByRole("button", { name: TRACKS }).click();
+  await expect(panel.getByRole("radio", { name: "480p" })).toBeChecked();
+
+  // Auto plays the source again; later tests expect it.
+  before = streams.length;
+  await panel.getByRole("radio", { name: "Auto" }).click();
+  await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe("remux");
+  await page.keyboard.press("Escape");
 });
 
 test("an MPEG-TS file remuxes to HLS", async () => {

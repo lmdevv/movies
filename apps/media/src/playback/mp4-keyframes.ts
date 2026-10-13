@@ -15,6 +15,9 @@ import type { ReadAt } from "./matroska-cues.ts";
 /** The largest `moov` read into memory; a two-hour film's is a few megabytes. */
 const MAX_MOOV_BYTES = 64 * 1024 * 1024;
 
+/** More video samples than this (a day at 120 frames per second) means a corrupt table. */
+const MAX_SAMPLES = 10_368_000;
+
 /** Top-level boxes walked before giving up on finding `moov`. */
 const MAX_TOP_LEVEL_BOXES = 64;
 
@@ -83,9 +86,16 @@ const versionOf = (view: DataView, box: Box): number => view.getUint8(box.start)
 const timescaleOf = (view: DataView, box: Box): number =>
   uint32(view, box.start + (versionOf(view, box) === 1 ? 20 : 12));
 
-/** The decode time of every sample, in media timescale units, from `stts`. */
-const decodeTimes = (view: DataView, stts: Box): ReadonlyArray<number> => {
-  const count = uint32(view, stts.start + 4);
+/** Entries of `size` bytes a table box claims, limited to what fits in the box. */
+const entryCount = (view: DataView, box: Box, size: number): number =>
+  Math.max(0, Math.min(uint32(view, box.start + 4), Math.floor((box.end - box.start - 8) / size)));
+
+/**
+ * The decode time of every sample, in media timescale units, from `stts`; undefined for a table
+ * claiming more samples than any real film has.
+ */
+const decodeTimes = (view: DataView, stts: Box): ReadonlyArray<number> | undefined => {
+  const count = entryCount(view, stts, 8);
   const times: Array<number> = [];
   let time = 0;
 
@@ -93,6 +103,8 @@ const decodeTimes = (view: DataView, stts: Box): ReadonlyArray<number> => {
     const offset = stts.start + 8 + entry * 8;
     const samples = uint32(view, offset);
     const delta = uint32(view, offset + 4);
+
+    if (times.length + samples > MAX_SAMPLES) return undefined;
 
     for (let sample = 0; sample < samples; sample += 1) {
       times.push(time);
@@ -113,7 +125,7 @@ const compositionOffsets = (
 
   if (ctts === undefined) return offsets;
   const signed = versionOf(view, ctts) === 1;
-  const count = uint32(view, ctts.start + 4);
+  const count = entryCount(view, ctts, 8);
   let index = 0;
 
   for (let entry = 0; entry < count; entry += 1) {
@@ -133,7 +145,7 @@ const compositionOffsets = (
 /** 1-based sync sample numbers from `stss`; none means every sample is a sync sample. */
 const syncSamples = (view: DataView, stss: Box | undefined): ReadonlyArray<number> | undefined => {
   if (stss === undefined) return undefined;
-  const count = uint32(view, stss.start + 4);
+  const count = entryCount(view, stss, 4);
 
   return Array.from({ length: count }, (_, entry) => uint32(view, stss.start + 8 + entry * 4));
 };
@@ -152,8 +164,8 @@ const editShift = (
 
   if (elst === undefined) return 0;
   const wide = versionOf(view, elst) === 1;
-  const count = uint32(view, elst.start + 4);
   const entrySize = wide ? 20 : 12;
+  const count = entryCount(view, elst, entrySize);
   let delay = 0;
   const media: Array<number> = [];
 
@@ -207,7 +219,10 @@ const keyframesFromMoov = (view: DataView, moov: Box): Option.Option<ReadonlyArr
   const shift = editShift(view, trak, timescaleOf(view, mvhd), timescale);
   const decode = decodeTimes(view, stts);
 
-  if (timescale === 0 || shift === undefined || decode.length === 0) return Option.none();
+  if (timescale === 0 || shift === undefined || decode === undefined || decode.length === 0) {
+    return Option.none();
+  }
+
   const offsets = compositionOffsets(view, child(view, stbl, "ctts"), decode.length);
   const sync = syncSamples(view, child(view, stbl, "stss")) ?? decode.map((_, index) => index + 1);
 
@@ -249,11 +264,13 @@ export const readMp4Keyframes = Effect.fnUntraced(function* <E>(read: ReadAt<E>,
 
       if (bytes.byteLength < boxSize) return Option.none<ReadonlyArray<number>>();
 
-      return keyframesFromMoov(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), {
-        type: "moov",
-        start: headerSize,
-        end: boxSize,
-      });
+      // A box pointing past its parent makes DataView throw; such a file has no usable index.
+      return Option.flatten(
+        Option.liftThrowable(keyframesFromMoov)(
+          new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+          { type: "moov", start: headerSize, end: boxSize },
+        ),
+      );
     }
 
     position += boxSize;

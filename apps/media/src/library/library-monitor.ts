@@ -173,7 +173,9 @@ const make = Effect.fn("LibraryMonitor.make")(function* (debounce: Duration.Dura
 
     const type = yield* Effect.tryPromise(() => fileSystemType(root)).pipe(Effect.option);
 
-    return Option.isSome(type) && LibraryPoller.isNetworkFileSystem(type.value)
+    // A folder `statfs` cannot read yet is usually a share that is not mounted; polling finds
+    // its files once it is, where events would never report them.
+    return Option.isNone(type) || LibraryPoller.isNetworkFileSystem(type.value)
       ? ("poll" as const)
       : ("events" as const);
   });

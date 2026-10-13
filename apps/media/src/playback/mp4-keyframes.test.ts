@@ -130,5 +130,23 @@ describe.skipIf(!hasFfmpeg)("MP4 keyframe index", () => {
         assert.isTrue(Option.isNone(yield* indexed(matroska)));
       }),
     );
+
+    it.effect("leaves a corrupt sample table to the packet scan instead of failing", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const file = yield* encode("corrupt.mp4", ["-preset", "ultrafast"]);
+        const bytes = yield* fs.readFile(file);
+        const stts = Buffer.from(bytes).indexOf("stts");
+
+        // The entry count and the first entry's sample count both claim far more than exists.
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+        view.setUint32(stts + 8, 0xff_ff_ff_f0);
+        view.setUint32(stts + 12, 0xff_ff_ff_f0);
+        yield* fs.writeFile(file, bytes);
+
+        assert.isTrue(Option.isNone(yield* indexed(file)));
+      }),
+    );
   });
 });

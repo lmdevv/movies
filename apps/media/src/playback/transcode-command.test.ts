@@ -149,7 +149,7 @@ describe("hlsCommandArgs", () => {
     expect(after(args, "-c:v")).toBe("libx264");
   });
 
-  it("burns an image subtitle in on the CPU, scaled to the picture, before the GPU takes over", () => {
+  it("draws a burned-in subtitle on the SDR picture at the output size, on a GPU between transfers", () => {
     const software = hlsCommandArgs({
       ...command(AudioPlan.Copy({ index: 1 }), "aac"),
       video: encode("software", { burnSubtitle: 3 }),
@@ -158,13 +158,15 @@ describe("hlsCommandArgs", () => {
     expect(software).not.toContain("-vf");
     expect(after(software, "-filter_complex")).toBe(
       [
-        "[0:0]scale=1920:1080:flags=bicubic[base]",
-        "[0:3][base]scale2ref=w=rw:h=rh[subtitle][picture]",
+        "[0:0]scale=1920:1080:flags=bicubic[picture]",
+        "[0:3]scale=1920:1080[subtitle]",
         "[picture][subtitle]overlay=eof_action=pass:repeatlast=0,format=yuv420p[video]",
       ].join(";"),
     );
     expect(after(software, "-map")).toBe("[video]");
 
+    // HDR on VA-API: decoded, tone-mapped, and scaled on the GPU first, so the subtitle is drawn
+    // on 8-bit SDR frames and never tone-mapped itself.
     const vaapi = hlsCommandArgs({
       ...command(AudioPlan.Copy({ index: 1 }), "aac"),
       videoCodec: "hevc",
@@ -172,13 +174,25 @@ describe("hlsCommandArgs", () => {
       video: encode("vaapi", { burnSubtitle: 3, toneMap: true }),
     });
 
-    // A burned-in subtitle needs frames in memory, so the GPU neither decodes nor gets them early.
-    expect(vaapi).not.toContain("-hwaccel");
+    expect(vaapi).toContain("-hwaccel");
     expect(after(vaapi, "-filter_complex")).toBe(
       [
-        "[0:0]null[base]",
-        "[0:3][base]scale2ref=w=rw:h=rh[subtitle][picture]",
-        "[picture][subtitle]overlay=eof_action=pass:repeatlast=0,format=p010le,hwupload,tonemap_vaapi=format=nv12:p=bt709:t=bt709:m=bt709,scale_vaapi=w=1920:h=1080:format=nv12[video]",
+        "[0:0]tonemap_vaapi=format=nv12:p=bt709:t=bt709:m=bt709,scale_vaapi=w=1920:h=1080:format=nv12,hwdownload,format=nv12[picture]",
+        "[0:3]scale=1920:1080[subtitle]",
+        "[picture][subtitle]overlay=eof_action=pass:repeatlast=0,format=nv12,hwupload[video]",
+      ].join(";"),
+    );
+
+    const qsv = hlsCommandArgs({
+      ...command(AudioPlan.Copy({ index: 1 }), "aac"),
+      video: encode("qsv", { burnSubtitle: 3 }),
+    });
+
+    expect(after(qsv, "-filter_complex")).toBe(
+      [
+        "[0:0]vpp_qsv=w=1920:h=1080:format=nv12,hwdownload,format=nv12[picture]",
+        "[0:3]scale=1920:1080[subtitle]",
+        "[picture][subtitle]overlay=eof_action=pass:repeatlast=0,format=nv12,hwupload=extra_hw_frames=64,format=qsv[video]",
       ].join(";"),
     );
   });
@@ -193,7 +207,7 @@ describe("hlsCommandArgs", () => {
       "-i",
       "/media/Film (2021).ts",
       "-filter_complex",
-      expect.stringContaining("[0:3][base]scale2ref"),
+      expect.stringContaining("[0:3]scale=1920:1080[subtitle]"),
     ]);
 
     // From 61.4 s: the picture from there, the subtitle from 30 s before it.
@@ -213,6 +227,6 @@ describe("hlsCommandArgs", () => {
       "-i",
       "/media/Film (2021).ts",
     ]);
-    expect(after(seeked, "-filter_complex")).toContain("[1:3][base]scale2ref");
+    expect(after(seeked, "-filter_complex")).toContain("[1:3]scale=1920:1080[subtitle]");
   });
 });
