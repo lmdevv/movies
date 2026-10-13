@@ -15,7 +15,9 @@ product name is `[movies]`, brackets included; the repo and packages use `movies
   translate their code into this repo. SyncLounge and stremio-core are MIT and may be reused with
   attribution. Effect, T3 Code and OpenCode are MIT and safe to reference.
 - **Load the `coding-standards` skill** before writing, reviewing, or refactoring TypeScript. It is
-  in `.agents/skills/coding-standards/`.
+  in `.agents/skills/coding-standards/`, copied from `dmmulroy/.dotfiles` at `574e1f2`; Dillon has
+  since removed it, so don't `skills update` it. Where any skill conflicts with this file, this file
+  wins: no lint suppressions or disabled rules, even where a skill shows them.
 - **Effect 4 reference.** `effect` is pinned in `pnpm-workspace.yaml`. Keep a read-only clone of
   the matching `Effect-TS/effect-smol` tag in `.repos/effect-smol` (gitignored) and read its
   `LLMS.md` before writing Effect code. Do not import from or edit it.
@@ -77,6 +79,30 @@ output directory derive from the worktree name; `scripts/dev-stack.sh env` print
 The Effect reference lives in `.repos/effect-smol`. Effect 4 stable releases are tagged in
 `Effect-TS/effect`, so clone the tag matching the pinned version:
 `git clone --depth 1 --branch effect@4.0.3 https://github.com/Effect-TS/effect .repos/effect-smol`.
+
+## Verify and review
+
+- Ports come from the worktree's stack: Convex API at base, auth at base + 1, media at base + 2, web
+  at base + 3. `scripts/dev-stack.sh env` prints them. Playwright uses `E2E_PORT`, else the stack's
+  web port, else 3011.
+- Stack suites need Docker and `scripts/dev-stack.sh up`: `pnpm --filter <pkg> test:stack` for
+  `@movies/backend`, `@movies/sdk`, `@movies/cli`, and `@movies/media`, then `pnpm --filter web exec
+  playwright test`. For the migration suites, `docker pull jellyfin/jellyfin:12.2` and set
+  `MOVIES_JELLYFIN_DOCKER=1`; without the image the media suite skips the real-Jellyfin case
+  silently, but the web migration spec starts Jellyfin anyway, pulling the image or failing.
+- Repeat runs: `pnpm --filter web exec playwright test --repeat-each=20`, `pnpm test --repeats=20`.
+- Project skills in `.agents/skills/`, pinned in `skills-lock.json`: `before-and-after` attaches UI
+  captures to a PR with `.agents/skills/before-and-after/scripts/format.mjs` and Vercel's
+  `agent-browser` CLI (`npm i -g agent-browser && agent-browser install`), plus `react-doctor`,
+  `react-best-practices`, and `diagnosing-bugs`. They're all model-invoked.
+- `scripts/stack-e2e.sh` builds the image and smoke-tests the packaged stack.
+- CI runs `check`, both stack jobs, and the Nix job. PRs matching the `paths` in
+  `.github/workflows/image.yml` also run its `build and smoke-test`. `main` has no branch
+  protection, so check every one yourself before merging. Never merge with admin bypass.
+- Every PR gets CodeRabbit, Codex automatic review, and Claude's `/code-review`.
+- Cloud environments: none yet. Pin the Claude one in `.claude/settings.json`
+  (`remote.defaultEnvironmentId`) and write the Codex ID here for `codex cloud exec --env`. Docker
+  suites run in Claude cloud only.
 
 ## Design
 
