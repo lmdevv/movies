@@ -50,8 +50,8 @@ service's `volumes:` (`- /mnt/nas/shows:/media/shows:ro`) and add `/media/shows`
   release is tagged, only `:main` exists: set `MOVIES_IMAGE=ghcr.io/lmdevv/movies:main`.
   `docker compose build` builds the image from your checkout instead. Images exist for amd64 and
   arm64; Quick Sync drivers are amd64 only.
-- **Settings.** Every name in `.env.example` and the table in the README; anything the media
-  service reads (`apps/media/README.md`) can go in `.env`.
+- **Settings.** Every name in `.env.example`, explained in the README's configuration table. The
+  install sets the rest (paths, ports, Convex credentials) itself.
 - **Privileges.** The entrypoint runs as root only to set up, then runs the media service as
   `PUID:PGID` with no capabilities. `init: true` reaps ffmpeg processes.
 

@@ -47,11 +47,6 @@ services:
     depends_on:
       convex:
         condition: service_healthy
-    # Every line of .env reaches the entrypoint, which passes the media service's settings on
-    # (apps/media/README.md), so a setting without a line below still works from .env.
-    env_file:
-      - path: .env
-        required: false
     environment:
       MOVIES_PUBLIC_URL: ${MOVIES_PUBLIC_URL:-http://localhost:8080}
       CONVEX_PUBLIC_URL: ${CONVEX_PUBLIC_URL:-http://localhost:3210}
@@ -60,7 +55,9 @@ services:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       TZ: ${TZ:-UTC}
-      # Media service settings. Empty means the service's default (README.md, Configuration).
+      # Media service settings, set in .env. Empty means the service's default (README.md,
+      # Configuration). The entrypoint passes exactly these on; scripts/check-deploy.sh keeps this
+      # list, the entrypoint's, and .env.example in step.
       LIBRARY_ROOTS: ${LIBRARY_ROOTS:-}
       TMDB_API_KEY: ${TMDB_API_KEY:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}

@@ -119,7 +119,7 @@ Jellyfin and Plex").
 
 Tests replay recorded servers (`testing/recorded-server.ts`): `fixtures/jellyfin.json` was
 recorded from a real Jellyfin with `node scripts/record-jellyfin-fixtures.ts` (Docker, the
-`jellyfin/jellyfin:12.2` image, or `JELLYFIN_IMAGE`); `fixtures/plex.json` is written from Plex's
+`jellyfin/jellyfin:12.2` image pinned by digest in `jellyfin-docker.ts`, or `JELLYFIN_IMAGE`); `fixtures/plex.json` is written from Plex's
 API documentation and needs checking against a real server.
 
 ## Tests against a real stack
@@ -140,7 +140,9 @@ claimed again after its lease expires (up to a minute, the release cron's interv
 The migration suite connects to the recorded Jellyfin and Plex servers, dry-runs, imports, and
 reads each profile's history, continue watching, My List, and collections back from Convex, then
 imports again through `movies import --wait` without duplicates. With `MOVIES_JELLYFIN_DOCKER=1`
-and the `jellyfin/jellyfin:12.2` image pulled, it also sets up a real Jellyfin in Docker over the
+and the pinned `jellyfin/jellyfin:12.2@sha256:…` image pulled (the reference in
+`.github/workflows/ci.yml`; a bare `12.2` pull counts only while the tag still has that digest), it
+also sets up a real Jellyfin in Docker over the
 fixture library (about 15 seconds) and imports from it with a password sign-in. The suites run one
 file at a time because each starts the service on the stack's media port.
 

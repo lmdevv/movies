@@ -7,7 +7,7 @@
 #     apps/media/README.md;
 #   - a setting the entrypoint passes on is missing from compose.yaml, deploy/compose/.env.example,
 #     the root .env.example, or the README's configuration table;
-#   - the Jellyfin test image is referenced with different digests.
+#   - the Jellyfin test image is referenced in code or CI without a digest, or with different ones.
 #
 #   scripts/check-deploy.sh
 set -euo pipefail
@@ -43,12 +43,16 @@ grep -qF '../deploy/convex-backend.image' nix/module.nix ||
 
 # --- Media service settings ---------------------------------------------------------------------
 
-# Every NAME in a Config call of the media service's configuration.
+# Every NAME in a Config call of the media service's configuration, including calls that span lines.
+config_source="$(tr '\n' ' ' <apps/media/src/media-config.ts)"
 mapfile -t config_names < <(
-  grep -oE 'Config\.[A-Za-z]+\([^)]*"[A-Z][A-Z0-9_]+"' apps/media/src/media-config.ts |
+  grep -oE 'Config\.[A-Za-z]+\([^()]*"[A-Z][A-Z0-9_]+"' <<<"$config_source" |
     grep -oE '"[A-Z][A-Z0-9_]+"' | tr -d '"' | sort -u
 )
-((${#config_names[@]} > 10)) || fail "found only ${#config_names[@]} settings in media-config.ts"
+# Each setting is read by one `yield* Config.…`; a different count means a call was not parsed.
+config_reads="$(grep -oE 'yield\* Config\.' <<<"$config_source" | wc -l)"
+((${#config_names[@]} == config_reads)) ||
+  fail "parsed ${#config_names[@]} setting names but media-config.ts has $config_reads Config reads"
 
 # Set by the entrypoint from the install's own layout and secrets.
 mapfile -t entrypoint_set < <(sed -n 's/^setting \([A-Z][A-Z0-9_]*\) .*/\1/p' deploy/compose/entrypoint.sh | sort -u)
@@ -90,13 +94,16 @@ done
 
 # --- Test images --------------------------------------------------------------------------------
 
+# Prose may name the tag; code and CI must use one pinned reference.
 mapfile -t jellyfin_refs < <(
-  git ls-files -z | xargs -0 grep -ohE 'jellyfin/jellyfin:[0-9.]+(@sha256:[0-9a-f]{64})?' 2>/dev/null | sort -u
+  git ls-files -z -- ':!*.md' |
+    xargs -0 grep -ohE 'jellyfin/jellyfin:[0-9][0-9.]*(@sha256:[0-9a-f]{64})?' 2>/dev/null | sort -u
 )
-mapfile -t jellyfin_digests < <(printf '%s\n' "${jellyfin_refs[@]}" | grep -oE '@sha256:[0-9a-f]{64}' | sort -u)
-if ((${#jellyfin_digests[@]} > 1)); then
-  fail "the Jellyfin test image is pinned to different digests: ${jellyfin_digests[*]}"
-fi
+((${#jellyfin_refs[@]} > 0)) || fail "found no Jellyfin test image reference"
+for ref in "${jellyfin_refs[@]}"; do
+  [[ "$ref" == *@sha256:* ]] || fail "the Jellyfin test image '$ref' is not pinned by digest"
+done
+((${#jellyfin_refs[@]} <= 1)) || fail "the Jellyfin test image is referenced as: ${jellyfin_refs[*]}"
 
 if ((failures > 0)); then
   exit 1
