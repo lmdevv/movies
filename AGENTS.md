@@ -89,6 +89,12 @@ The Effect reference lives in `.repos/effect-smol`. Effect 4 stable releases are
   jellyfin/jellyfin:12.2` and set `MOVIES_JELLYFIN_DOCKER=1`; without the image the real-Jellyfin
   case skips silently.
 - Repeat runs: `pnpm --filter web exec playwright test --repeat-each=20`, `pnpm test --repeats=20`.
+- Project skills in `.agents/skills/`, pinned in `skills-lock.json`: `create-verification-skill`
+  writes a `verify-<app>` skill when the repo has none, and `maintain-verification-skill` keeps it
+  current. `playwright-best-practices` covers flaky tests, `before-and-after` attaches UI captures
+  to a PR (needs the `agent-browser` CLI), plus `react-doctor`, `react-best-practices`, and
+  `diagnosing-bugs`. They're all model-invoked; after `skills update`, delete any
+  `disable-model-invocation` line it brings back.
 - `scripts/stack-e2e.sh` builds the image and smoke-tests the packaged stack.
 - CI runs `check`, both stack jobs, and the Nix job. PRs matching the `paths` in
   `.github/workflows/image.yml` also run its `build and smoke-test`. `main` has no branch

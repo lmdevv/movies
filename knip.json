@@ -3,7 +3,9 @@
   "ignore": ["tools/oxlint/**"],
   "ignoreDependencies": ["@effect/language-service"],
   "workspaces": {
-    ".": {},
+    ".": {
+      "entry": [".agents/skills/*/scripts/*.mjs"]
+    },
     "apps/media": {
       "entry": ["src/main.ts", "scripts/*.ts"],
       "project": ["src/**/*.ts", "scripts/**/*.ts"]
