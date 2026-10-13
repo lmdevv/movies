@@ -117,3 +117,24 @@ export const sampleIds = (tables: Iterable<string>): ReadonlyMap<string, string>
       return [table, sampled] as const;
     }),
   );
+
+/**
+ * Runs an internal function without arguments, such as a cron's, with the Convex CLI's admin
+ * access, so the suite can run scheduled upkeep now instead of waiting for its schedule.
+ */
+export const runInternal = (path: string): void => {
+  execFileSync(join(backendDir, "node_modules/.bin/convex"), ["run", path, "{}"], {
+    cwd: backendDir,
+    stdio: "ignore",
+  });
+};
+
+/** Every document of a table as JSON lines, read with the Convex CLI's admin access. */
+export const tableLines = (table: string): ReadonlyArray<string> =>
+  execFileSync(
+    join(backendDir, "node_modules/.bin/convex"),
+    ["data", table, "--limit", "10000", "--format", "jsonl"],
+    { cwd: backendDir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+  )
+    .split("\n")
+    .filter((line) => line.trim().startsWith("{"));
