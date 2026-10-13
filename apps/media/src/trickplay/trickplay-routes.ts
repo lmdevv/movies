@@ -8,9 +8,10 @@
  */
 import { PlaybackSessionEnded } from "@movies/contracts/media-playback";
 import { PlaybackTokenInvalid } from "@movies/contracts/playback-token";
-import { Effect, Layer, Match, Option, Redacted, Schema } from "effect";
+import { Effect, Layer, Match, Option, Schema } from "effect";
 import { HttpPlatform, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
+import { playbackTokenOf } from "../http/playback-token-param.ts";
 import * as PlaybackToken from "../playback/playback-token.ts";
 import * as TrickplayStore from "./trickplay-store.ts";
 
@@ -63,16 +64,6 @@ const errorResponse = (error: RouteError) =>
     ),
   );
 
-const tokenOf = (request: HttpServerRequest.HttpServerRequest) => {
-  const token = new URL(request.url, "http://media.invalid").searchParams.get("token");
-
-  return token === null || token === ""
-    ? Effect.fail(
-        new PlaybackTokenInvalid({ reason: "malformed", message: "Playback token is missing" }),
-      )
-    : Effect.succeed(Redacted.make(token));
-};
-
 /** Adds the route. */
 export const layer: Layer.Layer<
   never,
@@ -88,7 +79,7 @@ export const layer: Layer.Layer<
     const thumbnails = Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       const { fileId = "", version = "", name = "" } = yield* HttpRouter.params;
-      const grant = yield* verifier.verify(yield* tokenOf(request));
+      const grant = yield* verifier.verify(yield* playbackTokenOf(request));
 
       if (grant.fileId !== fileId) return yield* new TrickplayAccessDenied();
       const stored = yield* store.find(fileId, version, name);

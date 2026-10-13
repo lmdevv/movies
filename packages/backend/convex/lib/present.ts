@@ -22,6 +22,7 @@ import type {
   titleCard,
   user,
 } from "./validators";
+import { currentManifest } from "./trickplay";
 
 /** Provider IDs of a record nobody matched. */
 export const NO_EXTERNAL_IDS = { tmdb: null, imdb: null, tvdb: null };
@@ -78,7 +79,7 @@ export const presentMediaFile = (doc: Doc<"mediaFiles">): Infer<typeof mediaFile
   externalSubtitles: doc.externalSubtitles,
   hdr: doc.hdr,
   missing: doc.missing,
-  trickplay: doc.trickplay?.status === "ready" ? doc.trickplay.manifest : null,
+  trickplay: currentManifest(doc),
 });
 
 /** A profile's progress through one item. */

@@ -250,10 +250,19 @@ choices made while implementing them. Update it in the same PR that changes a de
   is on (the default); `libraries.generateTrickplay` queues every file without current thumbnails,
   including failed ones, paging through the library with scheduled mutations. The file's
   `trickplay` field follows its job: `pending`, `ready` with the manifest, `failed` (scans leave it
-  alone until an admin asks again), or absent. A missing file forgets its thumbnails.
+  alone until an admin asks again), or absent, each for the file's size and modification time
+  then. A file that changes while its job waits or runs gets a new job and the old one is
+  cancelled; thumbnails are shown and kept only while they match the file's current contents, and
+  a job that read other contents than the catalog has records nothing. A missing file, a removed
+  library, or a library turning thumbnails off cancels the jobs nobody needs.
+- A job retries (up to five attempts) when ffmpeg fails or the share or data folder is
+  unreadable, and fails for good only when the file is gone, has no video, or yields no frames.
+  With `TRICKPLAY=off` the media service runs no trickplay jobs; they wait, and run once it is on.
 - Generation is one ffmpeg run on one thread at the lowest CPU priority: keyframes only
   (`-skip_frame nokey`), one frame per `TRICKPLAY_INTERVAL_SECONDS` (10) taken as the last
-  keyframe at or before each tick, 320 pixels wide by the display aspect ratio, HDR tone-mapped
+  keyframe at or before each tick (`fps` with `round=up` and `start_time=0`; ffmpeg 6 emits nothing
+  for clips shorter than one interval without it), counted as ffmpeg picks them so a video shorter
+  than its container leaves no black tiles, 320 pixels wide by the display aspect ratio, HDR tone-mapped
   when ffmpeg has `zscale`, tiled 10 × 10 into JPEG sheets. A two-hour film takes about 23 s and
   3.8 MB (measured on a 32-thread desktop, Sintel looped to 1 h 58 min). Trickplay jobs have
   their own worker slots (`TRICKPLAY_CONCURRENCY`, 1), and `mediaService:pendingJobs` reads each

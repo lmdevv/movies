@@ -214,6 +214,17 @@ test("a keyboard seek shows its thumbnail for a moment", async () => {
   await expect(hover).toBeHidden({ timeout: 5_000 });
 });
 
+test("seeking with the focused scrubber's keys shows the thumbnail too", async () => {
+  await openPaused(page);
+  await page.getByRole("slider", { name: "Seek" }).focus();
+  await page.keyboard.press("PageUp");
+
+  const hover = page.locator('[data-slot="scrubber-hover"]');
+
+  await expect(hover.locator('[data-slot="sprite-thumbnail"]')).toBeVisible();
+  await expect(hover).toBeHidden({ timeout: 5_000 });
+});
+
 test("dragging the phone scrubber shows the thumbnail", async ({ browser }) => {
   const phone = await browser.newContext({ ...devices["iPhone 13 landscape"] });
   const handset = await phone.newPage();

@@ -957,6 +957,19 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       const [jobId] = await queuedFor();
 
       if (jobId === undefined) throw new Error("No trickplay job was queued");
+
+      // The worker is shown the ten oldest thumbnail jobs; earlier runs on this stack leave theirs.
+      const stray = await run(fixture.owner, "jobs.list", {
+        kind: "trickplay",
+        status: "pending",
+        limit: 100,
+      });
+
+      await Promise.all(
+        stray.flatMap((job) =>
+          job.id === jobId ? [] : [run(fixture.owner, "jobs.cancel", { jobId: job.id })],
+        ),
+      );
       expect((await fileOf())?.trickplay).toBeNull();
       expect(
         (await service(fixture.mediaService, "mediaService.pendingJobs", {})).map((job) => job.id),
@@ -1123,6 +1136,94 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         trickplay: false,
       });
       await expect.poll(() => jobsOf(queued), { timeout: 10_000 }).toStrictEqual(["cancelled"]);
+
+      // A job that made thumbnails of other contents than the catalog has records nothing.
+      await run(fixture.owner, "libraries.update", {
+        libraryId: library.libraryId,
+        trickplay: true,
+      });
+      const raced = await upsert(item("Raced"));
+
+      const racedJob = (
+        await run(fixture.owner, "jobs.list", { kind: "trickplay", status: "pending", limit: 100 })
+      ).find((job) => job.payload.kind === "trickplay" && job.payload.fileId === raced);
+
+      if (racedJob === undefined) throw new Error("No job was queued for the raced file");
+      const worker = `racer-${id}`;
+
+      const manifest = {
+        version: "abc-def",
+        intervalMs: 10_000,
+        tileWidth: 320,
+        tileHeight: 180,
+        columns: 10,
+        rows: 10,
+        thumbnailCount: 60,
+        sheetCount: 1,
+      };
+
+      await service(fixture.mediaService, "mediaService.claimJob", {
+        jobId: racedJob.id,
+        workerId: worker,
+        leaseMs: 60_000,
+      });
+      await service(fixture.mediaService, "mediaService.recordTrickplay", {
+        jobId: racedJob.id,
+        workerId: worker,
+        fileId: raced,
+        sizeBytes: Bytes.make(3_000_000),
+        mtimeMs: EpochMillis.make(1_760_000_000_000),
+        manifest,
+      });
+      expect(
+        await service(fixture.mediaService, "mediaService.trickplayVersions", { fileIds: [raced] }),
+      ).toStrictEqual([{ fileId: raced, version: null }]);
+      await service(fixture.mediaService, "mediaService.completeJob", {
+        jobId: racedJob.id,
+        workerId: worker,
+      });
+
+      // Thumbnails of a file's old contents never show, even where nothing queues new ones.
+      const redone = await upsert(item("Raced"));
+
+      const redoneJob = (
+        await run(fixture.owner, "jobs.list", { kind: "trickplay", status: "pending", limit: 100 })
+      ).find((job) => job.payload.kind === "trickplay" && job.payload.fileId === redone);
+
+      if (redoneJob === undefined) throw new Error("The raced file was not queued again");
+      await service(fixture.mediaService, "mediaService.claimJob", {
+        jobId: redoneJob.id,
+        workerId: worker,
+        leaseMs: 60_000,
+      });
+      await service(fixture.mediaService, "mediaService.recordTrickplay", {
+        jobId: redoneJob.id,
+        workerId: worker,
+        fileId: redone,
+        sizeBytes: Bytes.make(1_000_000),
+        mtimeMs: EpochMillis.make(1_760_000_000_000),
+        manifest,
+      });
+      await service(fixture.mediaService, "mediaService.completeJob", {
+        jobId: redoneJob.id,
+        workerId: worker,
+      });
+      expect(
+        await service(fixture.mediaService, "mediaService.trickplayVersions", {
+          fileIds: [redone],
+        }),
+      ).toStrictEqual([{ fileId: redone, version: "abc-def" }]);
+
+      await run(fixture.owner, "libraries.update", {
+        libraryId: library.libraryId,
+        trickplay: false,
+      });
+      await upsert(item("Raced", 4_000_000));
+      expect(
+        await service(fixture.mediaService, "mediaService.trickplayVersions", {
+          fileIds: [redone],
+        }),
+      ).toStrictEqual([{ fileId: redone, version: null }]);
 
       // Removing the library cancels the jobs of its files.
       await run(fixture.owner, "libraries.update", {

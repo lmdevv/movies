@@ -60,13 +60,15 @@ class MediaServiceKeyMissing extends Schema.TaggedError<MediaServiceKeyMissing>(
 
 /** The job kinds this service runs. Add a kind's handler here. */
 const jobHandlers = Effect.all([
-  ScanJob.handler,
-  MetadataJob.handler,
-  PersonJob.handler,
-  MigrationJob.handler,
-  BackupJob.handler,
-  TrickplayJob.handler,
-]);
+  Effect.all([
+    ScanJob.handler,
+    MetadataJob.handler,
+    PersonJob.handler,
+    MigrationJob.handler,
+    BackupJob.handler,
+  ]),
+  TrickplayJob.handlers,
+]).pipe(Effect.map(([always, trickplay]) => [...always, ...trickplay]));
 
 /** Route groups of registry `media` commands. Add a group's layer here. */
 const commandRoutes = Layer.mergeAll(

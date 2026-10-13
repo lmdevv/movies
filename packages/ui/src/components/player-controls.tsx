@@ -10,7 +10,7 @@ import {
   Volume2Icon,
   VolumeXIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ComponentProps, PointerEvent, ReactNode } from "react";
 
 import { PauseGlyph, PlayGlyph, SkipNextGlyph } from "./icons";
@@ -57,6 +57,21 @@ export function PlayerButton({
   );
 }
 
+/** How long a keyboard seek on the scrubber shows its preview. */
+const KEY_PREVIEW_MS = 1_200;
+
+/** Keys the slider seeks with. */
+const SEEK_KEYS: ReadonlySet<string> = new Set([
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+]);
+
 /** What the scrubber shows above a time: its thumbnail and chapter, when known. */
 export interface ScrubPreview {
   readonly thumbnail: SpriteTile | null;
@@ -98,7 +113,18 @@ export function Scrubber({
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
+  // Arrow and Page keys on the focused thumb seek too; their preview shows for a moment.
+  const [keyed, setKeyed] = useState(false);
+  const keyedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const length = Math.max(duration, 1);
+
+  useEffect(() => () => clearTimeout(keyedTimer.current), []);
+
+  const showKeyed = (): void => {
+    setKeyed(true);
+    clearTimeout(keyedTimer.current);
+    keyedTimer.current = setTimeout(() => setKeyed(false), KEY_PREVIEW_MS);
+  };
 
   // A drag ends wherever the pointer is released, even off the bar or without moving the value.
   useEffect(() => {
@@ -122,8 +148,8 @@ export function Scrubber({
     setHover(fraction * duration);
   };
 
-  // Dragging previews where the thumb is; otherwise the pointer, then a forced preview.
-  const shown = dragging ? Math.min(position, duration) : (hover ?? preview ?? null);
+  // Dragging or keying previews where the thumb is; otherwise the pointer, then a forced preview.
+  const shown = dragging || keyed ? Math.min(position, duration) : (hover ?? preview ?? null);
   const details = shown === null ? NO_PREVIEW : (describe?.(shown) ?? NO_PREVIEW);
 
   return (
@@ -193,6 +219,9 @@ export function Scrubber({
             ))}
           <Slider.Thumb
             aria-label="Seek"
+            onKeyDown={(event) => {
+              if (SEEK_KEYS.has(event.key)) showKeyed();
+            }}
             getAriaValueText={(_, value) =>
               `${formatTimecode(value)} of ${formatTimecode(duration)}`
             }

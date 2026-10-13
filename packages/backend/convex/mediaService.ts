@@ -23,13 +23,14 @@ import { MAX_JOB_ATTEMPTS, requireLease, requireLeaseOf } from "./lib/jobs";
 import { syncTitleGenres } from "./lib/genres";
 import { CREDIT_LIMIT, creditsOf, personKeyOf, replaceCredits } from "./lib/people";
 import { presentJob } from "./lib/present";
-import { settleTrickplay } from "./lib/trickplay";
+import { currentManifest, settleTrickplay } from "./lib/trickplay";
 import {
   backupArchive,
   claimedJob,
   endedSession,
   indexedFile,
   job,
+  jobKind,
   jobProgress,
   leaseArgs,
   mediaLibrary,
@@ -80,14 +81,20 @@ const requireLibrary = async (
 ): Promise<Doc<"libraries">> =>
   (await ctx.db.get(libraryId)) ?? fail("not_found", "No such library");
 
-/** Pending jobs of each kind the worker is shown; trickplay jobs run one or two at a time. */
-const PENDING_PER_KIND: ReadonlyArray<readonly [Doc<"jobs">["kind"], number]> = [
-  ["scan", 50],
-  ["metadata", 50],
-  ["backup", 50],
-  ["migration", 50],
-  ["trickplay", 10],
-];
+/**
+ * Pending jobs of each kind the worker is shown; trickplay jobs run one or two at a time. A record,
+ * so a new job kind fails to typecheck until it has a limit here.
+ */
+const PENDING_PER_KIND: Readonly<Record<Doc<"jobs">["kind"], number>> = {
+  scan: 50,
+  metadata: 50,
+  backup: 50,
+  migration: 50,
+  trickplay: 10,
+};
+
+/** Every job kind, from the validator itself. */
+const JOB_KINDS = jobKind.members.map((member) => member.value);
 
 /**
  * Jobs waiting for a worker, oldest first. Expired leases return here through a cron. Each kind
@@ -101,11 +108,11 @@ export const pendingJobs = query({
     await authorize(ctx, "media-service");
 
     const byKind = await Promise.all(
-      PENDING_PER_KIND.map(([kind, limit]) =>
+      JOB_KINDS.map((kind) =>
         ctx.db
           .query("jobs")
           .withIndex("by_kind_status", (q) => q.eq("kind", kind).eq("status", "pending"))
-          .take(limit),
+          .take(PENDING_PER_KIND[kind]),
       ),
     );
 
@@ -788,8 +795,9 @@ export const syncBackups = mutation({
 
 /**
  * Records a file's finished scrub thumbnails during its trickplay job. A file whose state moved
- * on meanwhile (marked missing, or queued again after a change) keeps its state; the media
- * service's sweep deletes thumbnails nobody records.
+ * on meanwhile (marked missing, or queued again after a change) keeps its state, and thumbnails
+ * made from other contents than the catalog has are dropped; the media service's sweep deletes
+ * thumbnails nobody records.
  */
 export const recordTrickplay = mutation({
   args: {
@@ -807,11 +815,19 @@ export const recordTrickplay = mutation({
     if (doc.payload.fileId !== fileId) return fail("invalid_args", "This job is for another file");
     const file = await ctx.db.get(fileId);
 
-    if (file?.trickplay?.status === "pending" && file.trickplay.jobId === jobId) {
-      await ctx.db.patch(fileId, {
-        trickplay: { status: "ready", sizeBytes, mtimeMs, manifest },
-      });
+    if (file?.trickplay?.status !== "pending" || file.trickplay.jobId !== jobId) {
+      return { ok: true as const };
     }
+
+    // Made from other contents than the catalog has: the file changed after its last scan. The
+    // frames cannot be trusted for this record; the scan that notices the change queues a job.
+    if (sizeBytes !== file.sizeBytes || mtimeMs !== file.mtimeMs) {
+      await ctx.db.patch(fileId, { trickplay: undefined });
+
+      return { ok: true as const };
+    }
+
+    await ctx.db.patch(fileId, { trickplay: { status: "ready", sizeBytes, mtimeMs, manifest } });
 
     return { ok: true as const };
   },
@@ -834,9 +850,7 @@ export const trickplayVersions = query({
         const file = id === null ? null : await ctx.db.get(id);
 
         const version =
-          file === null || file.missing || file.trickplay?.status !== "ready"
-            ? null
-            : file.trickplay.manifest.version;
+          file === null || file.missing ? null : (currentManifest(file)?.version ?? null);
 
         return { fileId, version };
       }),

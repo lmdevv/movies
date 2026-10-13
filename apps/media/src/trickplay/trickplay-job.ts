@@ -5,14 +5,16 @@
  * `mediaService:recordTrickplay`. These jobs have their own slots (`TRICKPLAY_CONCURRENCY`, one by
  * default), so a library's worth of them never holds up scans, metadata, or backups.
  *
- * A file that is gone, has no video, or that ffmpeg cannot read fails for good (Convex keeps the
- * failure until an admin asks again); an unreachable catalog, an unreadable share, or a full data
- * folder returns the job to the queue. With `TRICKPLAY=off` every job fails saying so.
+ * A file that is gone, has no video, or from which ffmpeg picks no frames fails for good (Convex
+ * keeps the failure until an admin asks again). Anything that may pass (an unreachable catalog, an
+ * unreadable share, a full data folder, ffmpeg exiting with an error) returns the job to the queue,
+ * up to five attempts. With `TRICKPLAY=off` this service runs no trickplay jobs: they wait, and run
+ * once it is turned on.
  */
 import { trickplayVersion } from "@movies/contracts/trickplay";
 import { Bytes, EpochMillis } from "@movies/contracts/units";
-import { Clock, Effect, Match } from "effect";
-import type { FileSystem, Path } from "effect";
+import { Clock, Effect, FileSystem, Match, Option } from "effect";
+import type { Path } from "effect";
 
 import * as MediaBackend from "../convex/media-backend.ts";
 import { JobFailed, type JobHandler } from "../jobs/job-worker.ts";
@@ -23,8 +25,6 @@ import { resolveInsideRoots } from "../playback/file-resolver.ts";
 import { generate } from "./trickplay-generator.ts";
 import * as TrickplayStore from "./trickplay-store.ts";
 
-const OFF = "Scrub thumbnails are turned off on this server (TRICKPLAY=off)";
-
 const count = (amount: number, noun: string): string =>
   `${String(amount)} ${noun}${amount === 1 ? "" : "s"}`;
 
@@ -33,14 +33,16 @@ type GenerateError = Effect.Error<ReturnType<typeof generate>>;
 const generateFailure = Match.type<GenerateError | TrickplayStore.TrickplayStorageFailed>().pipe(
   Match.tagsExhaustive({
     TrickplayUnavailable: (error) => new JobFailed({ message: error.message, retry: false }),
-    MediaToolFailed: (error) => new JobFailed({ message: error.message, retry: false }),
+    // A share that dropped, a full disk, or a killed process may pass; a corrupt file fails each
+    // of its five attempts in seconds.
+    MediaToolFailed: (error) => new JobFailed({ message: error.message, retry: true }),
     TrickplayStorageFailed: (error) => new JobFailed({ message: error.message, retry: true }),
   }),
 );
 
-/** The trickplay job handler. */
-export const handler: Effect.Effect<
-  JobHandler,
+/** The trickplay job handler, or none with `TRICKPLAY=off`, so the jobs wait for a service that runs them. */
+export const handlers: Effect.Effect<
+  ReadonlyArray<JobHandler>,
   never,
   | MediaBackend.Service
   | MediaConfig.Service
@@ -63,8 +65,11 @@ export const handler: Effect.Effect<
   >();
 
   const { interval, concurrency, enabled } = config.trickplay;
+  const fs = yield* FileSystem.FileSystem;
 
-  return {
+  if (!enabled) return [];
+
+  const handler = {
     kind: "trickplay",
     concurrency,
     run: Effect.fn("TrickplayJob.run")(function* (claim, workerId, reportProgress) {
@@ -74,7 +79,6 @@ export const handler: Effect.Effect<
         return yield* new JobFailed({ message: "This is not a trickplay job", retry: false });
       }
 
-      if (!enabled) return yield* new JobFailed({ message: OFF, retry: false });
       const { fileId } = job.payload;
 
       const file = yield* resolveInsideRoots(fileId).pipe(
@@ -88,10 +92,27 @@ export const handler: Effect.Effect<
         }),
       );
 
+      // The resolver caches a file's size and time for playback; a file replaced moments ago must
+      // be versioned by what ffmpeg is about to read.
+      const info = yield* fs
+        .stat(file.path)
+        .pipe(
+          Effect.mapError(
+            () => new JobFailed({ message: "The file could not be read", retry: true }),
+          ),
+        );
+
+      const sizeBytes = Number(info.size);
+
+      const modifiedAtMs = Option.match(info.mtime, {
+        onNone: () => 0,
+        onSome: (date) => date.getTime(),
+      });
+
       yield* reportProgress({ done: 0, total: 1, message: "Making thumbnails" });
 
       const started = yield* Clock.currentTimeMillis;
-      const version = trickplayVersion(file.sizeBytes, file.modifiedAtMs);
+      const version = trickplayVersion(sizeBytes, modifiedAtMs);
 
       const manifest = yield* store
         .publish(fileId, version, (folder) => generate(file, version, interval, folder))
@@ -102,8 +123,8 @@ export const handler: Effect.Effect<
           jobId: job.id,
           workerId,
           fileId,
-          sizeBytes: Bytes.make(file.sizeBytes),
-          mtimeMs: EpochMillis.make(Math.trunc(file.modifiedAtMs)),
+          sizeBytes: Bytes.make(sizeBytes),
+          mtimeMs: EpochMillis.make(Math.trunc(modifiedAtMs)),
           manifest,
         })
         .pipe(Effect.mapError((error) => new JobFailed({ message: error.message, retry: true })));
@@ -115,4 +136,6 @@ export const handler: Effect.Effect<
       return `${count(manifest.thumbnailCount, "thumbnail")} on ${count(manifest.sheetCount, "sheet")} in ${seconds} s`;
     }, Effect.provide(context)),
   } satisfies JobHandler;
+
+  return [handler];
 });

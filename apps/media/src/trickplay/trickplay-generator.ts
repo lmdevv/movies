@@ -15,7 +15,7 @@ import {
   type TrickplayVersion,
   trickplayLayout,
 } from "@movies/contracts/trickplay";
-import { Duration, Effect, FileSystem, Path, Schema } from "effect";
+import { Duration, Effect, FileSystem, Option, Path, Schema } from "effect";
 
 import * as MediaTools from "../media/media-tools.ts";
 import type { ResolvedMediaFile } from "../playback/file-resolver.ts";
@@ -50,6 +50,16 @@ const TONE_MAP = [
 
 const SHEET = /^(\d+)\.jpg$/u;
 
+/** Where ffmpeg lists the frames it picked, one `frame:` line each, inside the build folder. */
+const FRAME_LOG = "frames.txt";
+
+/**
+ * The frame log as a filter option value, or none when the folder's path holds characters
+ * filtergraph quoting cannot carry; the layout's count stands in then.
+ */
+const frameLogOption = (folder: string): string | null =>
+  /['\\]/u.test(folder) ? null : `'${folder}/${FRAME_LOG}'`;
+
 const SheetSize = Schema.Struct({
   streams: Schema.Tuple([Schema.Struct({ width: Schema.Int, height: Schema.Int })]),
 });
@@ -65,8 +75,17 @@ const thumbnailArgs = (
 ): ReadonlyArray<string> => {
   const filters = [
     // Slot `i` takes the last keyframe at or before `i * interval` (rounding up assigns frames to
-    // the next tick); the last, partial slot stays.
-    `fps=fps=1000/${String(Duration.toMillis(interval))}:round=up:eof_action=pass`,
+    // the next tick); the last, partial slot stays. ffmpeg 6 emits nothing for a clip shorter than
+    // one interval unless the first slot is pinned to zero.
+    `fps=fps=1000/${String(Duration.toMillis(interval))}:round=up:eof_action=pass:start_time=0`,
+    ...Option.match(Option.fromNullishOr(frameLogOption(folder)), {
+      onNone: () => [],
+      // `print` lists only frames that carry metadata, so each picked frame is tagged first.
+      onSome: (log) => [
+        "metadata=mode=add:key=movies.thumbnail:value=1",
+        `metadata=mode=print:key=movies.thumbnail:file=${log}`,
+      ],
+    }),
     `scale=${String(TRICKPLAY_TILE_WIDTH)}:trunc(ow/dar/2)*2:out_range=full`,
     "setsar=1",
     ...(toneMap ? [TONE_MAP] : []),
@@ -148,6 +167,7 @@ export const generate = Effect.fn("TrickplayGenerator.generate")(function* (
         Effect.catchTag("MediaToolFailed", (error) =>
           Effect.logInfo("TrickplayGenerator.tone_map_failed", error).pipe(
             Effect.andThen(sheets),
+            Effect.map((names) => [...names, FRAME_LOG]),
             Effect.flatMap((names) =>
               Effect.forEach(names, (name) =>
                 fs.remove(path.join(folder, name)).pipe(Effect.ignore),
@@ -187,7 +207,18 @@ export const generate = Effect.fn("TrickplayGenerator.generate")(function* (
   const [sheet] = size.streams;
   const perSheet = TRICKPLAY_COLUMNS * TRICKPLAY_ROWS;
   const layout = trickplayLayout(durationMs, Duration.toMillis(interval), perSheet);
-  const thumbnailCount = Math.min(layout.thumbnailCount, written * perSheet);
+  const log = path.join(folder, FRAME_LOG);
+
+  // The frames ffmpeg picked: fewer than the layout when the video ends before the container
+  // (a longer audio track), and the last sheet's padding is black, not thumbnails.
+  const picked = yield* fs.readFileString(log).pipe(
+    Effect.map((text) => text.split("\n").filter((line) => line.startsWith("frame:")).length),
+    Effect.orElseSucceed(() => layout.thumbnailCount),
+  );
+
+  yield* fs.remove(log).pipe(Effect.ignore);
+
+  const thumbnailCount = Math.max(1, Math.min(layout.thumbnailCount, picked, written * perSheet));
 
   return yield* Schema.decodeEffect(TrickplayManifest)({
     version,

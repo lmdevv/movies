@@ -16,7 +16,7 @@ const hasFrames = (file: Doc<"mediaFiles">): boolean =>
   !file.missing && file.probe.video.length > 0 && file.probe.durationMs > 0;
 
 /** Whether `file`'s recorded state (thumbnails, a failure, a queued job) is for its contents now. */
-const forCurrent = (file: Doc<"mediaFiles">): boolean =>
+export const forCurrent = (file: Doc<"mediaFiles">): boolean =>
   file.trickplay !== undefined &&
   file.trickplay.sizeBytes === file.sizeBytes &&
   file.trickplay.mtimeMs === file.mtimeMs;
@@ -75,6 +75,10 @@ export const queueTrickplay = async (
 
   return true;
 };
+
+/** The manifest players may use: thumbnails made from the file's contents now, or none. */
+export const currentManifest = (file: Doc<"mediaFiles">) =>
+  file.trickplay?.status === "ready" && forCurrent(file) ? file.trickplay.manifest : null;
 
 /**
  * Forgets `file`'s thumbnails and cancels its job, as when the file goes missing or its library

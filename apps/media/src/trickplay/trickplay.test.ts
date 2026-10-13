@@ -230,6 +230,40 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
       }).pipe(Effect.scoped),
     );
 
+    it.effect("counts only the frames there are when the audio outlasts the video", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+
+        const clip = yield* encode("long-audio.mkv", [
+          "-f",
+          "lavfi",
+          "-i",
+          "testsrc2=size=320x180:rate=24:duration=25",
+          "-f",
+          "lavfi",
+          "-i",
+          "sine=frequency=440:duration=60",
+          "-c:v",
+          "libx264",
+          "-preset",
+          "ultrafast",
+          "-g",
+          "24",
+          "-c:a",
+          "aac",
+        ]);
+
+        const file = yield* resolved(clip);
+        const folder = yield* fs.makeTempDirectoryScoped();
+        const manifest = yield* generate(file, "1-1", INTERVAL, folder);
+
+        // 60 seconds by the container, but frames only for 0:00, 0:10, and 0:20.
+        assert.isAbove(file.probe.durationSeconds, 59);
+        assert.strictEqual(manifest.thumbnailCount, 3);
+        assert.deepStrictEqual(yield* fs.readDirectory(folder), ["0.jpg"]);
+      }).pipe(Effect.scoped),
+    );
+
     it.effect("refuses files without video", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
