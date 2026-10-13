@@ -123,14 +123,18 @@ choices made while implementing them. Update it in the same PR that changes a de
   in batches of at most 100 with `upsertScanned` and `markMissing`. Missing files keep their
   records and history.
 - Library folders are normalized (trimmed, no repeated or trailing slashes) and may not equal,
-  contain, or sit inside another library's folder: a grant on one library must never expose
-  another's files. A migration reuses the library that already covers a folder.
+  contain, or sit inside another library's folder, nor nest within one library: a grant on one
+  library must never expose another's files. A migration reuses the library whose folder holds,
+  or lies inside, a folder it imports, and keeps only the outermost of nested source folders.
+  Libraries made before this rule may still overlap; `convex run maintenance:overlappingLibraries`
+  lists them.
 - `titles.list` pages by index position (the sort value and creation time of the last title read)
   instead of Convex's cursor, so one query can read several batches: limited profiles and kind
   filters still get full pages, up to 1000 titles read per page, and a library filter reads that
   library's own index. Continue watching resolves progress rows until its 20 rows are full and
-  spends at most 500 episode reads in all on next-episode lookups; a run of more than 100 watched
-  episodes in a row is skipped over.
+  spends at most 500 document reads (episodes and their progress rows) in all on next-episode
+  lookups, reading following episodes ten at a time; a run of more than 100 watched episodes in
+  a row is skipped over.
 - One `jobs` table holds scan, metadata, backup, and migration jobs; `payload` carries what each
   kind needs. A claim lasts 5 seconds to 10 minutes; `renewLease` reports progress and returns
   `cancelled` when an admin cancelled the job. A cron returns expired leases to the queue every
@@ -237,8 +241,9 @@ choices made while implementing them. Update it in the same PR that changes a de
   source library. Otherwise it is restricted and granted to the accounts whose profiles receive an
   imported user's history, for the imported users who could see it. When the source does not say
   who sees a library (Plex: a local server token cannot read sharing, which plex.tv holds), it
-  starts admins-only. The plan stores this per library (`PlannedLibrary.access`); plans stored
-  before it existed also add admins-only libraries. A library the import reuses keeps its access.
+  starts admins-only. The plan stores this per library (`PlannedLibrary.access`), and
+  `ensureLibrary` reads it from the stored plan, never from its caller; plans stored before it
+  existed also add admins-only libraries. A library the import reuses keeps its access.
   Jellyfin reports it through each user's `EnableAllFolders` and `EnabledFolders` policy. The
   Review screen says who each new library is shared with.
 - Users are never created. Each source user is suggested a profile of an existing account (same
