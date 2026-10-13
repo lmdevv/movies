@@ -65,10 +65,13 @@ pnpm fmt:check       # Oxfmt
 pnpm test            # Vitest
 pnpm test:e2e        # Playwright
 pnpm knip            # unused files, exports, and dependencies
+scripts/check-deploy.sh  # installs pin one Convex backend and expose every media setting
 ```
 
-`typecheck`, `lint`, `fmt:check`, and `test` run in the lefthook pre-commit hook and in CI. All
-four must pass before every commit.
+`typecheck`, `lint`, `fmt:check`, `test`, `knip`, and `scripts/check-deploy.sh` run in the lefthook
+pre-commit hook and in CI. All must pass before every commit. A new media service setting goes in
+`deploy/compose` (entrypoint, `compose.yaml`, `.env.example`), the root `.env.example`,
+`nix/module.nix`, and both READMEs; `check-deploy.sh` names what is missing.
 
 Each worktree gets its own stack: `scripts/dev-stack.sh up` starts a self-hosted Convex backend in
 Docker, deploys the functions, configures auth keys, the playback token secret and the media
@@ -87,7 +90,8 @@ The Effect reference lives in `.repos/effect-smol`. Effect 4 stable releases are
   web port, else 3011.
 - Stack suites need Docker and `scripts/dev-stack.sh up`: `pnpm --filter <pkg> test:stack` for
   `@movies/backend`, `@movies/sdk`, `@movies/cli`, and `@movies/media`, then `pnpm --filter web exec
-  playwright test`. For the migration suites, `docker pull jellyfin/jellyfin:12.2` and set
+  playwright test`. For the migration suites, pull the pinned image (`docker pull` the
+  `jellyfin/jellyfin:12.2@sha256:…` reference in `.github/workflows/ci.yml`) and set
   `MOVIES_JELLYFIN_DOCKER=1`; without the image the media suite skips the real-Jellyfin case
   silently, but the web migration spec starts Jellyfin anyway, pulling the image or failing.
 - Repeat runs: `pnpm --filter web exec playwright test --repeat-each=20`, `pnpm test --repeats=20`.
@@ -95,7 +99,9 @@ The Effect reference lives in `.repos/effect-smol`. Effect 4 stable releases are
   captures to a PR with `.agents/skills/before-and-after/scripts/format.mjs` and Vercel's
   `agent-browser` CLI (`npm i -g agent-browser && agent-browser install`), plus `react-doctor`,
   `react-best-practices`, and `diagnosing-bugs`. They're all model-invoked.
-- `scripts/stack-e2e.sh` builds the image and smoke-tests the packaged stack.
+- `scripts/stack-e2e.sh` builds the image and smoke-tests the packaged stack;
+  `scripts/nixos-module-e2e.sh` does the same for the NixOS module on a NixOS host, and
+  `nix build .#checks.x86_64-linux.vm -L` boots the module in a NixOS VM (needs KVM).
 - CI runs `check`, both stack jobs, and the Nix job. PRs matching the `paths` in
   `.github/workflows/image.yml` also run its `build and smoke-test`. `main` has no branch
   protection, so check every one yourself before merging. Never merge with admin bypass.

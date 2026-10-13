@@ -112,6 +112,20 @@ done
 check "an upgrade backs up first" '[[ "$(archives)" -gt "$before" ]]'
 check "the restarted service keeps its secrets" 'healthy'
 
+check "a deployed upgrade clears its backup marker" '! in_movies test -e /data/upgrade-backup'
+
+# A retried upgrade does not export everything again: after a failed deploy the version file still
+# names the old version and the marker the version already backed up for.
+after="$(archives)"
+in_movies sh -c 'cp /data/version /data/upgrade-backup && echo 0.0.0-previous > /data/version'
+compose restart movies >/dev/null
+for _ in $(seq 1 60); do
+  healthy && break
+  sleep 2
+done
+check "the service is healthy after the retried upgrade" 'healthy'
+check "a retried upgrade does not back up again" '[[ "$(archives)" -eq "$after" ]]'
+
 if [[ "${QSV:-0}" == 1 ]]; then
   check "the media user encodes with Quick Sync in the container" \
     'in_movies setpriv --reuid=movies --regid=movies --init-groups ffmpeg -hide_banner -nostdin \

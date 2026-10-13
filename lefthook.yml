@@ -9,3 +9,7 @@ pre-commit:
       run: pnpm fmt:check
     - name: test
       run: pnpm test
+    - name: knip
+      run: pnpm knip
+    - name: deploy
+      run: scripts/check-deploy.sh

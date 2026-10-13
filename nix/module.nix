@@ -26,9 +26,8 @@
 let
   cfg = config.services.movies;
 
-  # Keep in step with deploy/compose/compose.yaml, deploy/compose/Dockerfile, and
-  # scripts/dev-stack.sh.
-  convexImage = "ghcr.io/get-convex/convex-backend:5c7cb5bc7db457290f1769f95f1d1340912f7fd7@sha256:d715e9ec088784407ca4ba2d3db592702cd328d02c76cdca3852c0018f2a76b4";
+  # The pinned Convex backend, shared with compose.yaml, the Dockerfile, and scripts/dev-stack.sh.
+  pinnedConvexImage = lib.fileContents ../deploy/convex-backend.image;
 
   backend = config.virtualisation.oci-containers.backend;
   containerRuntime = lib.getExe pkgs.${backend};
@@ -57,8 +56,15 @@ let
       convex_public_url=${lib.escapeShellArg cfg.convexPublicUrl}
       backup_dir=${lib.escapeShellArg cfg.backupDir}
       owner=${lib.escapeShellArg "${cfg.user}:${cfg.group}"}
+      # The release plus a hash of the bundled functions and their dependencies (package.nix), so
+      # any build whose functions differ, such as one following `main`, backs up before it deploys.
       version=${lib.escapeShellArg cfg.package.version}
+      functions_hash=${lib.escapeShellArg "${cfg.package}/lib/movies/backend/.functions-hash"}
+      if [ -s "$functions_hash" ]; then
+        version="$version+$(cat "$functions_hash")"
+      fi
       version_file=${lib.escapeShellArg "${mediaDataDir}/version"}
+      upgrade_backup_file=${lib.escapeShellArg "${mediaDataDir}/upgrade-backup"}
 
       # The service's folders, in case they were removed since boot (tmpfiles creates them).
       install -d -m 700 -o ${lib.escapeShellArg cfg.user} -g ${lib.escapeShellArg cfg.group} \
@@ -81,12 +87,16 @@ let
       export CONVEX_SELF_HOSTED_URL="$convex_url"
       export CONVEX_SELF_HOSTED_ADMIN_KEY="$admin_key"
 
-      if [ -s "$version_file" ] && [ "$(cat "$version_file")" != "$version" ]; then
+      # One backup per target version: the version file changes only after a deploy succeeds, and
+      # a deploy that keeps failing must not export everything again on every restart.
+      if [ -s "$version_file" ] && [ "$(cat "$version_file")" != "$version" ] &&
+        [ "$(cat "$upgrade_backup_file" 2>/dev/null)" != "$version" ]; then
         name="movies-manual-$(date -u +%Y-%m-%dT%H-%M-%S-000Z).zip"
         log "upgrading from $(cat "$version_file") to $version; backing up to $name first"
         movies-convex export --include-file-storage --path "$backup_dir/.partial-$name"
         mv "$backup_dir/.partial-$name" "$backup_dir/$name"
         chown "$owner" "$backup_dir/$name"
+        printf '%s\n' "$version" >"$upgrade_backup_file"
       fi
 
       log "deploying the Convex functions ($version)"
@@ -103,6 +113,8 @@ let
       movies-configure-web --to /run/movies/web --convex-url "$convex_public_url"
       printf '%s\n' "$version" >"$version_file"
       chown "$owner" "$version_file"
+      # Deployed: the next upgrade, even to a version that failed before, backs up again.
+      rm -f "$upgrade_backup_file"
 
       # The service's secrets, readable by its user only.
       umask 077
@@ -127,7 +139,10 @@ in
       type = lib.types.package;
       default = pkgs.callPackage ./package.nix { };
       defaultText = lib.literalExpression "pkgs.callPackage ./package.nix { }";
-      description = "The [movies] package: media service, web app, and Convex functions.";
+      description = ''
+        The [movies] package: media service, web app, and Convex functions. Set it to `pkgs.movies`
+        to use the flake's overlay (or your override of it).
+      '';
     };
 
     ffmpegPackage = lib.mkOption {
@@ -236,10 +251,44 @@ in
       '';
     };
 
+    qsvDevice = lib.mkOption {
+      type = lib.types.str;
+      default = "/dev/dri/renderD128";
+      example = "/dev/dri/renderD129";
+      description = "DRM render node used for Quick Sync, for hosts with more than one GPU.";
+    };
+
     maxConcurrentTranscodes = lib.mkOption {
       type = lib.types.ints.positive;
       default = 3;
       description = "Upper bound on simultaneous video transcodes.";
+    };
+
+    streamIdleSeconds = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 60;
+      description = "A stream with no requests for this long is closed and its segments deleted.";
+    };
+
+    streamBufferAheadSeconds = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 120;
+      description = ''
+        How far a stream's ffmpeg may run ahead of the player before it pauses; it continues once
+        the player is within half of this.
+      '';
+    };
+
+    minFreeTranscodeMb = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 2048;
+      description = "Free space `transcodeDir` must keep, in MiB, before a new stream starts.";
+    };
+
+    libraryReconcileMinutes = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 360;
+      description = "Interval of the full library reconciliation that backs up file watching.";
     };
 
     tmdbApiKeyFile = lib.mkOption {
@@ -257,6 +306,41 @@ in
       default = null;
       example = "http://127.0.0.1:4318";
       description = "OTLP/HTTP collector for traces and logs. Nothing is exported without it.";
+    };
+
+    environmentFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      example = "/run/secrets/movies.env";
+      description = ''
+        Extra `KEY=value` lines for the media service, read by systemd as root: secrets such as
+        `TMDB_API_KEY`, kept out of the Nix store (agenix, sops-nix, or a root-only file; give a
+        string, since a path literal is copied into the store). Lines here override every other
+        setting, options and `extraEnvironment` included, except the generated Convex credentials,
+        so keep it to secrets.
+      '';
+    };
+
+    extraEnvironment = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = { };
+      example = {
+        LIBVA_DRIVER_NAME = "iHD";
+      };
+      description = ''
+        More environment variables for the media service, for settings without an option here
+        (see apps/media/README.md). They override the options' values. Values land in the Nix
+        store: use `environmentFile` for secrets.
+      '';
+    };
+
+    convexImage = lib.mkOption {
+      type = lib.types.str;
+      default = pinnedConvexImage;
+      description = ''
+        Convex backend image. The default is the version this release is tested with
+        (deploy/convex-backend.image); change it only to mirror that image.
+      '';
     };
 
     user = lib.mkOption {
@@ -302,7 +386,7 @@ in
     ];
 
     virtualisation.oci-containers.containers.movies-convex = {
-      image = convexImage;
+      image = cfg.convexImage;
       ports = [ "${cfg.listenAddress}:${toString cfg.convexPort}:3210" ];
       environment = {
         CONVEX_CLOUD_ORIGIN = cfg.convexPublicUrl;
@@ -340,7 +424,12 @@ in
         WEB_DIST_DIR = "/run/movies/web";
         LIBRARY_ROOTS = lib.concatStringsSep "," cfg.libraryDirs;
         HARDWARE_ACCELERATION = cfg.hardwareAcceleration;
+        QSV_DEVICE = cfg.qsvDevice;
         MAX_CONCURRENT_TRANSCODES = toString cfg.maxConcurrentTranscodes;
+        STREAM_IDLE_SECONDS = toString cfg.streamIdleSeconds;
+        STREAM_BUFFER_AHEAD_SECONDS = toString cfg.streamBufferAheadSeconds;
+        MIN_FREE_TRANSCODE_MB = toString cfg.minFreeTranscodeMb;
+        LIBRARY_RECONCILE_MINUTES = toString cfg.libraryReconcileMinutes;
         FFMPEG_PATH = lib.getExe' cfg.ffmpegPackage "ffmpeg";
         FFPROBE_PATH = lib.getExe' cfg.ffmpegPackage "ffprobe";
       }
@@ -351,7 +440,8 @@ in
         # NixOS keeps VA-API drivers and the oneVPL runtime here (hardware.graphics).
         LIBVA_DRIVERS_PATH = "/run/opengl-driver/lib/dri";
         ONEVPL_SEARCH_PATH = "/run/opengl-driver/lib";
-      };
+      }
+      // cfg.extraEnvironment;
 
       serviceConfig = {
         Type = "simple";
@@ -359,8 +449,11 @@ in
         Group = cfg.group;
         # Root and unsandboxed: reaches the container runtime, deploys, writes the environment.
         ExecStartPre = "+${lib.getExe setup}";
-        # Written by ExecStartPre; read before ExecStart, so it is optional only for the setup.
-        EnvironmentFile = "-/run/movies/media.env";
+        # media.env is written by ExecStartPre and read before ExecStart, so it is optional only
+        # for the setup. Later files win, so the generated credentials override environmentFile.
+        EnvironmentFile = lib.optional (cfg.environmentFile != null) cfg.environmentFile ++ [
+          "-/run/movies/media.env"
+        ];
         ExecStart = lib.getExe' cfg.package "movies-media";
         Restart = "on-failure";
         RestartSec = 5;

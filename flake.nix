@@ -38,10 +38,18 @@
         default = movies;
       });
 
-      nixosModules.default = import ./nix/module.nix;
+      # `pkgs.movies` for configurations that apply it; the module builds the same package.
+      overlays.default = final: _prev: {
+        movies = final.callPackage ./nix/package.nix { };
+      };
 
-      # Evaluates the module in minimal systems, so `nix flake check` catches option and type
-      # errors, builds the package, and shellchecks the startup script.
+      nixosModules = {
+        movies = import ./nix/module.nix;
+        default = self.nixosModules.movies;
+      };
+
+      # Builds the package, evaluates the module in minimal systems (catching option and type
+      # errors and shellchecking the startup script), and boots it in a NixOS VM (`vm`).
       checks = forLinux (
         pkgs:
         let
@@ -83,13 +91,18 @@
             );
         in
         {
+          package = self.packages.${pkgs.stdenv.hostPlatform.system}.movies;
           module = evaluate { };
           module-qsv = evaluate {
             hardwareAcceleration = "qsv";
             openFirewall = true;
             tmdbApiKeyFile = "/run/secrets/tmdb-api-key";
+            environmentFile = "/run/secrets/movies.env";
             otlpEndpoint = "http://127.0.0.1:4318";
+            qsvDevice = "/dev/dri/renderD129";
+            extraEnvironment.LIBVA_DRIVER_NAME = "iHD";
           };
+          vm = pkgs.callPackage ./nix/vm-test.nix { module = self.nixosModules.movies; };
         }
       );
     };
