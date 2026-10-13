@@ -6,7 +6,13 @@
  * `makeFunctionReference`, so they never compile Convex server code.
  */
 import type { FunctionPath } from "@movies/contracts/command";
-import { CommandFailure, commandError, Internal, Unauthenticated } from "@movies/contracts/errors";
+import {
+  CommandFailure,
+  commandError,
+  Internal,
+  NotFound,
+  Unauthenticated,
+} from "@movies/contracts/errors";
 import { ConvexClient, ConvexHttpClient } from "convex/browser";
 import type { FunctionReference } from "convex/server";
 import { makeFunctionReference } from "convex/server";
@@ -95,8 +101,15 @@ const isTokenRejection = (error: Error): boolean => {
 };
 
 /**
+ * Convex rejecting an argument against a `v.id(table)` validator before the function runs, such as
+ * a mistyped or truncated link or an ID from another table. Captures the table.
+ */
+const ID_VALIDATION_FAILURE = /ArgumentValidationError[\s\S]*^Validator: v\.id\("([^"]+)"\)$/mu;
+
+/**
  * Translates what a Convex client threw. `ConvexError` data carries a command failure; a token
- * Convex could not verify means the session is gone; "Server Error" is a function that crashed;
+ * Convex could not verify means the session is gone; an argument that is not an ID of its table
+ * names no record, so it is not found; any other "Server Error" is a function that crashed;
  * anything else is the network.
  */
 export const translateFailure = (operation: string, cause: unknown): CallError => {
@@ -122,6 +135,12 @@ export const translateFailure = (operation: string, cause: unknown): CallError =
 
   if (isTokenRejection(cause)) {
     return new Unauthenticated({ message: "The server rejected the session; sign in again" });
+  }
+
+  const badId = ID_VALIDATION_FAILURE.exec(cause.message);
+
+  if (badId !== null) {
+    return new NotFound({ message: `No such record in ${badId[1] ?? "the table"}` });
   }
 
   if (cause.message.includes("Server Error")) {

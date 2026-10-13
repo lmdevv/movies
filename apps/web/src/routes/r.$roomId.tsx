@@ -1,5 +1,6 @@
 import { RoomId } from "@movies/contracts/ids";
 import { useCommandQuery } from "@movies/sdk/react";
+import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Spinner } from "@movies/ui/components/spinner";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -7,6 +8,7 @@ import { Predicate, Schema } from "effect";
 import { useEffect } from "react";
 
 import { RoomDenied } from "@/components/player/room-states";
+import { describeFailure } from "@/lib/failure";
 import { RequireProfile, RequireSignedIn } from "@/session/guards";
 
 const decodeRoomId = Schema.decodeSync(RoomId);
@@ -73,7 +75,11 @@ function RoomLinkPage() {
       />
     ) : (
       <div className="on-media flex min-h-svh items-center justify-center bg-dark-bg px-6">
-        <CalmState title="Can't open this room" description={room.error.message} />
+        <CalmState
+          title="Can't open this room"
+          description={describeFailure(room.error)}
+          actions={<Button onClick={room.retry}>Try again</Button>}
+        />
       </div>
     );
   }

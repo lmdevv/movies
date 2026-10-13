@@ -51,14 +51,20 @@ export interface ActiveProfile {
 
 const ActiveProfileContext = createContext<ActiveProfile | null>(null);
 
-/** A whole-page failure with a way to try again. */
-export function PageFailure({ cause }: { readonly cause: unknown }) {
+/** A whole-page failure; Try again runs `retry`, such as a failed query's. */
+export function PageFailure({
+  cause,
+  retry,
+}: {
+  readonly cause: unknown;
+  readonly retry: () => void;
+}) {
   return (
     <div className="flex min-h-svh items-center justify-center bg-page px-6">
       <CalmState
         title="Something went wrong"
         description={describeFailure(cause)}
-        actions={<Button onClick={() => window.location.reload()}>Try again</Button>}
+        actions={<Button onClick={retry}>Try again</Button>}
       />
     </div>
   );
@@ -89,7 +95,7 @@ export function RequireProfile({ children }: { readonly children: ReactNode }) {
     return isFailure(profiles.error, "Unauthenticated") ? (
       <BlankPage />
     ) : (
-      <PageFailure cause={profiles.error} />
+      <PageFailure cause={profiles.error} retry={profiles.retry} />
     );
   }
 

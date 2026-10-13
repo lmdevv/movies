@@ -43,6 +43,8 @@ import * as Movies from "./movies";
 import type { QueryName } from "./movies-client";
 import { MoviesClient } from "./movies-client";
 import * as Playback from "./playback";
+import * as QueryWatch from "./query-watch";
+import type { QueryState } from "./query-watch";
 import type { PlayerPort } from "./room-sync/player-port";
 import * as RoomSync from "./room-sync/room-sync";
 import type { RoomSyncState } from "./room-sync/room-sync";
@@ -161,45 +163,36 @@ export const useMoviesRuntime = (): Runtime => {
   return runtime;
 };
 
-/** A query's state: loading, its decoded result, or a typed failure. */
-export type QueryState<A> =
-  | { readonly status: "loading" }
-  | { readonly status: "success"; readonly data: A }
-  | { readonly status: "error"; readonly error: CallError };
+export type { QueryState } from "./query-watch";
 
 const LOADING = { status: "loading" } as const;
 
+/** A skipped query: loading, with nothing to subscribe to. */
+const SKIPPED: QueryWatch.QueryWatch<never> = {
+  subscribe: () => () => undefined,
+  getSnapshot: () => LOADING,
+};
+
 /**
  * Subscribes to a query command, re-rendering on every change. Pass `"skip"` to wait. Arguments
- * the schema rejects report an `InvalidArgs` error without subscribing.
+ * the schema rejects report an `InvalidArgs` error without subscribing. Network failures and
+ * crashed functions retry with backoff first; a failure carries `retry` for a Try again button.
  */
 export const useCommandQuery = <Name extends QueryName>(
   name: Name,
   args: CommandArgs<Name> | "skip",
 ): QueryState<CommandResult<Name>> => {
   const runtime = useMoviesRuntime();
-  const [state, setState] = useState<QueryState<CommandResult<Name>>>(LOADING);
   // The subscription restarts only when the arguments' content changes.
   const key = args === "skip" ? null : `${name}:${JSON.stringify(args)}`;
 
-  useEffect(() => {
-    setState(LOADING);
+  const watch = useMemo(
+    (): QueryWatch.QueryWatch<CommandResult<Name>> =>
+      args === "skip" ? SKIPPED : QueryWatch.make(runtime, name, args),
+    [runtime, key],
+  );
 
-    if (args === "skip") return () => undefined;
-
-    const fiber = runtime.runFork(
-      Stream.runForEach(
-        Stream.unwrap(Effect.map(MoviesClient, (client) => client.subscribe(name, args))),
-        (data) => Effect.sync(() => setState({ status: "success", data })),
-      ).pipe(Effect.catch((error) => Effect.sync(() => setState({ status: "error", error })))),
-    );
-
-    return () => {
-      runtime.runFork(Fiber.interrupt(fiber));
-    };
-  }, [runtime, key]);
-
-  return state;
+  return useSyncExternalStore(watch.subscribe, watch.getSnapshot, watch.getSnapshot);
 };
 
 /** Returns a function that runs any command and resolves with its decoded result. */

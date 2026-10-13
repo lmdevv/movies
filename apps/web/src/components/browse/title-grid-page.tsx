@@ -5,6 +5,7 @@
 import type { ProfileId } from "@movies/contracts/ids";
 import type { TitleCard, TitleKind, TitleSort } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
+import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Chip } from "@movies/ui/components/chip";
 import { ChevronDownIcon } from "lucide-react";
@@ -54,13 +55,13 @@ function PageSubscription({
   readonly cursor: string | null;
   readonly index: number;
   readonly onPage: (index: number, page: LoadedPage) => void;
-  readonly onError: (cause: unknown) => void;
+  readonly onError: (cause: unknown, retry: () => void) => void;
 }) {
   const page = useCommandQuery("titles.list", { profileId, kind, sort, cursor, limit: PAGE_SIZE });
 
   useEffect(() => {
     if (page.status === "success") onPage(index, page.data);
-    else if (page.status === "error") onError(page.error);
+    else if (page.status === "error") onError(page.error, page.retry);
   }, [page, index, onPage, onError]);
 
   return null;
@@ -136,6 +137,12 @@ export function PosterGrid({ children }: { readonly children: ReactNode }) {
   );
 }
 
+/** A page that failed to load, and the way to load it again. */
+interface GridFailure {
+  readonly cause: unknown;
+  readonly retry: () => void;
+}
+
 /** Movies or Shows: every title of `kind` the profile may see. */
 export function TitleGridPage({ kind }: { readonly kind: TitleKind }) {
   const { profile } = useActiveProfile();
@@ -143,7 +150,7 @@ export function TitleGridPage({ kind }: { readonly kind: TitleKind }) {
   const [genre, setGenre] = useState<string | null>(null);
   const [pages, setPages] = useState<ReadonlyArray<LoadedPage | undefined>>([]);
   const [cursors, setCursors] = useState<ReadonlyArray<string | null>>([null]);
-  const [failure, setFailure] = useState<{ readonly cause: unknown } | null>(null);
+  const [failure, setFailure] = useState<GridFailure | null>(null);
 
   // A new sort starts over from the first page.
   const changeSort = (next: TitleSort): void => {
@@ -162,7 +169,10 @@ export function TitleGridPage({ kind }: { readonly kind: TitleKind }) {
     });
   }, []);
 
-  const onError = useCallback((cause: unknown) => setFailure({ cause }), []);
+  const onError = useCallback(
+    (cause: unknown, retry: () => void) => setFailure({ cause, retry }),
+    [],
+  );
 
   const loaded = pages.flatMap((page) => page?.items ?? []);
   const last = pages[cursors.length - 1];
@@ -240,6 +250,16 @@ export function TitleGridPage({ kind }: { readonly kind: TitleKind }) {
           className="py-24"
           title={`${label} didn't load`}
           description={describeFailure(failure.cause)}
+          actions={
+            <Button
+              onClick={() => {
+                setFailure(null);
+                failure.retry();
+              }}
+            >
+              Try again
+            </Button>
+          }
         />
       ) : !firstLoaded ? (
         <PosterGridSkeleton />
