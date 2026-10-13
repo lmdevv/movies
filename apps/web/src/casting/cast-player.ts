@@ -3,8 +3,8 @@
  * the receiver's player (`RemotePlayer`), and commands go through its `RemotePlayerController`. A
  * seek goes through `move`, which knows whether the receiver can seek by itself (a direct file) or
  * needs the stream moved first (HLS); until it lands, the player reports the target and counts as
- * buffering, as the element player does. Receivers play at normal speed only, so the room engine
- * corrects drift by seeking.
+ * buffering, as the element player does. Receivers play at normal speed only (`fixedRate`), so
+ * the room engine corrects drift by seeking.
  */
 import type { PlayerEvent, PlayerPort } from "@movies/sdk/effect";
 
@@ -42,6 +42,8 @@ export class CastPlayer implements PlayerPort {
   #pending: number | null = null;
   #moving: AbortController | null = null;
   #ended = false;
+  /** Where the receiver was when this player was disposed; reports read it from then on. */
+  #final: number | null = null;
   /** Where the receiver was and whether it was paused while connected; a disconnect resets the mirror. */
   #last = { positionMs: 0, paused: true };
   #state: RemoteState;
@@ -64,8 +66,16 @@ export class CastPlayer implements PlayerPort {
     this.#controller.addEventListener(this.#changeEvent, this.#onChange);
   }
 
-  /** Stops following the receiver. */
+  /** Receivers play at normal speed only. */
+  readonly fixedRate = true;
+
+  /**
+   * Stops following the receiver and keeps reporting where it was, so a report made afterwards
+   * (the session's exit report, after the receiver unloaded and its mirror reset) says where it
+   * stopped.
+   */
   dispose(): void {
+    this.#final = this.positionMs();
     this.#moving?.abort();
     this.#controller.removeEventListener(this.#changeEvent, this.#onChange);
     this.#listeners.clear();
@@ -136,9 +146,12 @@ export class CastPlayer implements PlayerPort {
     this.#refresh();
   };
 
-  readonly positionMs = (): number =>
-    this.#pending ??
-    (this.#remote.isConnected ? this.#remote.currentTime * 1000 : this.#last.positionMs);
+  readonly positionMs = (): number => this.#final ?? this.#pending ?? this.receiverPositionMs();
+
+  /** Where the receiver itself is, ignoring a seek in progress. */
+  receiverPositionMs(): number {
+    return this.#remote.isConnected ? this.#remote.currentTime * 1000 : this.#last.positionMs;
+  }
 
   readonly isPaused = (): boolean =>
     this.#remote.isConnected ? this.#remote.isPaused : this.#last.paused;

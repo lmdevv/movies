@@ -26,6 +26,7 @@ const players = fc.record({
   paused: fc.boolean(),
   buffering: fc.boolean(),
   playbackRate: fc.constantFrom(0.95, 1, 1.05, 2),
+  fixedRate: fc.constant(false),
 });
 
 const isSeek = PlayerCommand.$is("Seek");
@@ -35,6 +36,7 @@ const at = (clock: ClockAnchor, offsetMs: number, paused: boolean): PlayerSnapsh
   paused,
   buffering: false,
   playbackRate: clock.playbackRate,
+  fixedRate: false,
 });
 
 describe("follow", () => {
@@ -59,6 +61,24 @@ describe("follow", () => {
           expect(distance).toBeGreaterThanOrEqual(DEFAULT_TUNABLES.seekMs);
         }
       }),
+    );
+  });
+
+  it("seeks a player that cannot change its rate past its own threshold, and never nudges it", () => {
+    fc.assert(
+      fc.property(
+        playing,
+        fc.integer({ min: -5_000, max: 5_000 }),
+        fc.boolean(),
+        (clock, offset, recentlySought) => {
+          const cast = { ...at(clock, offset, false), playbackRate: 1, fixedRate: true };
+          const { commands } = follow(clock, NOW, cast, recentlySought, DEFAULT_TUNABLES);
+          const far = Math.abs(offset) >= DEFAULT_TUNABLES.fixedRateSeekMs;
+
+          expect(commands.some(PlayerCommand.$is("SetRate"))).toBe(false);
+          expect(commands.some(isSeek)).toBe(far && !recentlySought);
+        },
+      ),
     );
   });
 

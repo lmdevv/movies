@@ -10,7 +10,10 @@ import type { ReactElement, ReactNode } from "react";
 
 /** The Chromecast row: connect, or the device playing and how to stop. */
 export interface ChromecastOption {
+  /** Chrome is connecting to a device, which the page cannot cancel. */
   readonly connecting: boolean;
+  /** Connected and loading the stream on the device; cancelling disconnects. */
+  readonly starting: boolean;
   /** The device playing now, or null. */
   readonly deviceName: string | null;
   /** The media service's address is local to this computer, which a Chromecast cannot reach. */
@@ -30,16 +33,19 @@ function MenuRow({
   label,
   detail,
   onClick,
+  disabled = false,
 }: {
   readonly icon: ReactNode;
   readonly label: string;
   readonly detail: string;
   readonly onClick: () => void;
+  readonly disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className="flex cursor-pointer items-center gap-3 rounded-xs p-2 text-left font-sans text-body/label text-text transition-colors hover:bg-text/8 disabled:cursor-default disabled:opacity-(--opacity-disabled) [&_svg]:size-5 [&_svg]:shrink-0"
     >
       {icon}
@@ -48,6 +54,55 @@ function MenuRow({
         <span className="truncate text-caption/caption text-text-muted">{detail}</span>
       </span>
     </button>
+  );
+}
+
+/** The Chromecast row and, for a local address, why a Chromecast cannot reach it. */
+function ChromecastRow({
+  chromecast,
+  choose,
+}: {
+  readonly chromecast: ChromecastOption;
+  readonly choose: (action: () => void) => () => void;
+}) {
+  const icon = <CastIcon strokeWidth={1.75} aria-hidden />;
+
+  // Chrome's connection to a device cannot be cancelled from the page, so the row waits for it.
+  const row =
+    chromecast.deviceName !== null ? (
+      <MenuRow
+        icon={icon}
+        label="Stop casting"
+        detail={`Playing on ${chromecast.deviceName}`}
+        onClick={choose(chromecast.onDisconnect)}
+      />
+    ) : chromecast.starting ? (
+      <MenuRow
+        icon={icon}
+        label="Cancel casting"
+        detail="Connecting…"
+        onClick={choose(chromecast.onDisconnect)}
+      />
+    ) : (
+      <MenuRow
+        icon={icon}
+        label="Chromecast"
+        detail={chromecast.connecting ? "Connecting…" : "Choose a device"}
+        disabled={chromecast.connecting}
+        onClick={choose(chromecast.onConnect)}
+      />
+    );
+
+  return (
+    <>
+      {row}
+      {chromecast.unreachable ? (
+        <p role="note" className="px-2 pb-1 font-sans text-caption/caption text-warning">
+          This server is open at a local address. A Chromecast can't reach it; open [movies] at its
+          network address to cast.
+        </p>
+      ) : null}
+    </>
   );
 }
 
@@ -99,29 +154,9 @@ export function CastMenu({
               <span className="px-2 pt-2 pb-2.5 font-sans text-caption/caption font-medium tracking-caps text-text-muted uppercase">
                 Play on
               </span>
-              {chromecast === null ? null : chromecast.deviceName === null ? (
-                <MenuRow
-                  icon={<CastIcon strokeWidth={1.75} aria-hidden />}
-                  label={chromecast.connecting ? "Cancel casting" : "Chromecast"}
-                  detail={chromecast.connecting ? "Connecting…" : "Choose a device"}
-                  onClick={choose(
-                    chromecast.connecting ? chromecast.onDisconnect : chromecast.onConnect,
-                  )}
-                />
-              ) : (
-                <MenuRow
-                  icon={<CastIcon strokeWidth={1.75} aria-hidden />}
-                  label="Stop casting"
-                  detail={`Playing on ${chromecast.deviceName}`}
-                  onClick={choose(chromecast.onDisconnect)}
-                />
+              {chromecast === null ? null : (
+                <ChromecastRow chromecast={chromecast} choose={choose} />
               )}
-              {chromecast?.unreachable === true ? (
-                <p role="note" className="px-2 pb-1 font-sans text-caption/caption text-warning">
-                  This server is open at a local address. A Chromecast can't reach it; open [movies]
-                  at its network address to cast.
-                </p>
-              ) : null}
               {airplay === null ? null : (
                 <MenuRow
                   icon={<AirplayIcon strokeWidth={1.75} aria-hidden />}

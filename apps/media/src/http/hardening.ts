@@ -34,11 +34,17 @@ const bodyRefusal = (headers: Readonly<Record<string, string | undefined>>) => {
 };
 
 /**
- * Where Google serves the Cast sender SDK (`apps/web/src/casting/cast-sdk.ts`). No scheme: the
- * SDK loads its framework and platform scripts protocol-relative, so a page served over HTTP
- * fetches them over HTTP, and an HTTPS page only over HTTPS.
+ * The folders Google serves the Cast sender SDK from (`apps/web/src/casting/cast-sdk.ts`): the
+ * loader, the framework, and the platform scripts it picks. Only these, not the whole host, since
+ * `www.gstatic.com` also serves script gadgets (old AngularJS bundles) that would turn any HTML
+ * injection into script. No scheme: the loader fetches the rest protocol-relative, so a page
+ * served over HTTP fetches them over HTTP, and an HTTPS page only over HTTPS.
  */
-const CAST_SDK_ORIGIN = "www.gstatic.com";
+const CAST_SDK_SOURCES = [
+  "www.gstatic.com/cv/js/sender/v1/",
+  "www.gstatic.com/cast/sdk/libs/sender/1.0/",
+  "www.gstatic.com/eureka/clank/",
+].join(" ");
 
 /** The WebSocket origin that pairs with an HTTP origin, such as `wss://host` for `https://host`. */
 const socketOrigin = (origin: URL): string =>
@@ -49,11 +55,11 @@ const YOUTUBE_EMBED_ORIGIN = "https://www.youtube-nocookie.com";
 
 /**
  * The content security policy for the web app. Scripts come only from this origin (the theme
- * script is a file, not inline) and from `www.gstatic.com`, where the player loads Google's Cast
- * sender SDK in Chromium browsers. Styles allow inline `style` attributes and injected `<style>`
- * tags, which the UI kit's toasts and popovers use. The app talks to Convex over HTTP and
- * WebSockets and to this service, plays media from this service and from `blob:` URLs (MSE), and
- * shows TMDB posters while fixing a match. The only frames it embeds are YouTube trailers, from
+ * script is a file, not inline) and from the `www.gstatic.com` folders the player loads Google's
+ * Cast sender SDK from in Chromium browsers. Styles allow inline `style` attributes and injected
+ * `<style>` tags, which the UI kit's toasts and popovers use. The app talks to Convex over HTTP
+ * and WebSockets and to this service, plays media from this service and from `blob:` URLs (MSE),
+ * and shows TMDB posters while fixing a match. The only frames it embeds are YouTube trailers, from
  * the privacy-enhanced `youtube-nocookie.com` player. Without the public Convex URL the policy
  * allows any HTTP or WebSocket endpoint, which still keeps foreign scripts out.
  */
@@ -73,7 +79,7 @@ export const contentSecurityPolicy = (
 
   return [
     "default-src 'self'",
-    `script-src 'self' ${CAST_SDK_ORIGIN}`,
+    `script-src 'self' ${CAST_SDK_SOURCES}`,
     "style-src 'self' 'unsafe-inline'",
     `img-src 'self' data: blob: https://image.tmdb.org ${media}`,
     `media-src 'self' blob: ${media}`,

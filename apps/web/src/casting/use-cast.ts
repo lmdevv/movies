@@ -49,8 +49,10 @@ const FAILURES: Readonly<Record<CastFailure, string>> = {
 export interface Chromecast {
   /** Casting works in this browser and a device is on the network, or one is connected. */
   readonly available: boolean;
-  /** Connecting to a device, or loading the stream on it. */
+  /** Chrome is connecting to a device; this cannot be cancelled from the page. */
   readonly connecting: boolean;
+  /** Connected, and the stream is being negotiated and loaded on the device. */
+  readonly starting: boolean;
   /** The cast playing now, with its device and its player, or null. */
   readonly playback: CastPlayback | null;
   /** Opens Chrome's device picker. */
@@ -164,7 +166,10 @@ export const useCast = (
     setStarting(true);
 
     const start = async (): Promise<void> => {
-      const result = await CastPlayback.start(runtime, sdk, session, castable, cast);
+      const result = await CastPlayback.start(runtime, sdk, session, castable, cast, (message) => {
+        toast.error(message);
+        context?.endCurrentSession(true);
+      });
 
       if (cancelled) {
         if (Result.isSuccess(result)) end(result.success);
@@ -206,7 +211,8 @@ export const useCast = (
 
   return {
     available: sdk !== null && state !== "NO_DEVICES_AVAILABLE",
-    connecting: state === "CONNECTING" || starting,
+    connecting: state === "CONNECTING",
+    starting,
     playback,
     connect,
     disconnect,

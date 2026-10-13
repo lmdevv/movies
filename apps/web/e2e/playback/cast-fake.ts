@@ -60,6 +60,9 @@ const SDK = String.raw`
     fetches: [],
     current: null,
     idleReason: null,
+    // Set by \`holdConnection\`: the next connection waits for \`completeConnection\`.
+    holdConnection: false,
+    completeConnection: null,
     player: {
       isConnected: false,
       isMediaLoaded: false,
@@ -159,11 +162,27 @@ const SDK = String.raw`
     getCurrentSession: () => fake.session,
     requestSession: () => {
       setCastState("CONNECTING");
-      fake.session = session;
-      change("isConnected", true);
-      emitContext("sessionstatechanged", { sessionState: "SESSION_STARTED" });
-      setCastState("CONNECTED");
-      return Promise.resolve(undefined);
+
+      const connect = () => {
+        fake.session = session;
+        change("isConnected", true);
+        emitContext("sessionstatechanged", { sessionState: "SESSION_STARTED" });
+        setCastState("CONNECTED");
+      };
+
+      if (!fake.holdConnection) {
+        connect();
+        return Promise.resolve(undefined);
+      }
+
+      fake.holdConnection = false;
+      return new Promise((resolve) => {
+        fake.completeConnection = () => {
+          fake.completeConnection = null;
+          connect();
+          resolve(undefined);
+        };
+      });
     },
     endCurrentSession: () => window.__castFake.disconnect(),
     addEventListener: (type, handler) => {
@@ -282,6 +301,10 @@ const SDK = String.raw`
       playerState: fake.player.playerState,
     }),
     devicesAppear: () => setCastState("NOT_CONNECTED"),
+    holdConnection: () => {
+      fake.holdConnection = true;
+    },
+    completeConnection: () => fake.completeConnection?.(),
     advanceTo: (seconds) => change("currentTime", seconds),
     finish: () => {
       fake.idleReason = "FINISHED";
@@ -316,7 +339,13 @@ export const installCastFake = async (page: Page): Promise<void> => {
 /** Plays the receiver's part: `action` is a fake control such as `devicesAppear`. */
 export const castFake = (
   page: Page,
-  action: "devicesAppear" | "finish" | "disconnect" | "refetch",
+  action:
+    | "devicesAppear"
+    | "holdConnection"
+    | "completeConnection"
+    | "finish"
+    | "disconnect"
+    | "refetch",
 ): Promise<void> => page.evaluate(`window.__castFake.${action}()`);
 
 /** Moves the fake receiver's playback position. */

@@ -9,9 +9,12 @@ import type { NegotiateResponse } from "@movies/contracts/media-playback";
 
 import { subtitleTrackLabel } from "@/lib/media-facts";
 
+/** IPv4-mapped IPv6 loopback (`::ffff:127.0.0.1`) and unspecified (`::ffff:0.0.0.0`) addresses. */
+const MAPPED_LOCAL = /^\[::ffff:(?:7f[\da-f]{2}:[\da-f]{1,4}|0:0)\]$/;
+
 /**
- * Whether `mediaBaseUrl` names this computer only (`localhost`, a loopback address), which a
- * Chromecast on the network cannot reach.
+ * Whether `mediaBaseUrl` names this computer only (`localhost`, a loopback address) or no computer
+ * at all (`0.0.0.0`, `::`, a bind address), which a Chromecast on the network cannot reach.
  */
 export const localOnly = (mediaBaseUrl: string): boolean => {
   const host = URL.canParse(mediaBaseUrl) ? new URL(mediaBaseUrl).hostname : "";
@@ -20,7 +23,10 @@ export const localOnly = (mediaBaseUrl: string): boolean => {
     host === "localhost" ||
     host.endsWith(".localhost") ||
     host === "[::1]" ||
-    host.startsWith("127.")
+    host === "[::]" ||
+    host === "0.0.0.0" ||
+    host.startsWith("127.") ||
+    MAPPED_LOCAL.test(host)
   );
 };
 

@@ -38,6 +38,11 @@ export class SwitchablePlayer implements PlayerPort {
     for (const listener of this.#listeners) listener(event);
   };
 
+  /** Whether the current target plays at normal speed only. */
+  get fixedRate(): boolean {
+    return this.#target.fixedRate === true;
+  }
+
   readonly positionMs = (): number => this.#target.positionMs();
 
   readonly isPaused = (): boolean => this.#target.isPaused();

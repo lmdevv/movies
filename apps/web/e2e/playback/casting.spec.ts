@@ -258,6 +258,32 @@ test("ending the cast continues on the page where the TV was", async () => {
   await expectPlayingPast(page, 52);
 });
 
+test("while Chrome connects to a device, the menu waits for it rather than offering a cancel that does nothing", async () => {
+  await castFake(page, "holdConnection");
+  await revealControls(page);
+  await page.getByRole("button", { name: "Cast" }).click();
+  await page
+    .getByRole("dialog", { name: "Play on" })
+    .getByRole("button", { name: /Chromecast/u })
+    .click();
+  await expect(page.getByRole("dialog", { name: "Play on" })).toBeHidden();
+  await revealControls(page);
+  await page.getByRole("button", { name: "Cast", exact: true }).click();
+
+  const row = page
+    .getByRole("dialog", { name: "Play on" })
+    .getByRole("button", { name: /Chromecast/u });
+
+  await expect(row).toBeDisabled();
+  await expect(row).toContainText("Connecting…");
+  await page.keyboard.press("Escape");
+
+  await castFake(page, "completeConnection");
+  await expect(page.getByTestId("casting-state")).toHaveText("Playing on Living Room TV");
+  await castFake(page, "disconnect");
+  await expect(page.getByTestId("casting-state")).toBeHidden();
+});
+
 test("an MKV casts as fMP4 HLS, and a seek past what it produced moves the stream first", async () => {
   await page.goto(`/watch/${titleId(REMUX)}?start=0`);
   await expectPlayingPast(page, 1);

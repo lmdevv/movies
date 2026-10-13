@@ -118,7 +118,10 @@ describe("hardening", () => {
       convexPublicUrl: Option.some("https://convex.example/"),
     });
 
-    assert.include(policy, "script-src 'self' www.gstatic.com;");
+    assert.include(
+      policy,
+      "script-src 'self' www.gstatic.com/cv/js/sender/v1/ www.gstatic.com/cast/sdk/libs/sender/1.0/ www.gstatic.com/eureka/clank/;",
+    );
     assert.include(
       policy,
       "connect-src 'self' http://nas:4300 https://convex.example wss://convex.example;",

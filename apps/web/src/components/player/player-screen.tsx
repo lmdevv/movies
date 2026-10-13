@@ -797,6 +797,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
     chromecast: chromecast.available
       ? {
           connecting: chromecast.connecting,
+          starting: chromecast.starting,
           deviceName: casting?.deviceName ?? null,
           unreachable: started !== null && localOnly(started.mediaBaseUrl),
           onConnect: chromecast.connect,

@@ -114,6 +114,11 @@ describe("localOnly", () => {
     expect(localOnly("http://127.0.0.1:13242")).toBe(true);
     expect(localOnly("http://[::1]:8080")).toBe(true);
     expect(localOnly("http://movies.localhost")).toBe(true);
+    expect(localOnly("http://0.0.0.0:4300")).toBe(true);
+    expect(localOnly("http://[::]:4300")).toBe(true);
+    expect(localOnly("http://[::ffff:127.0.0.1]:4300")).toBe(true);
+    expect(localOnly("http://[::ffff:0.0.0.0]:4300")).toBe(true);
+    expect(localOnly("http://[::ffff:192.168.1.20]:8080")).toBe(false);
     expect(localOnly("http://192.168.1.20:8080")).toBe(false);
     expect(localOnly("https://nas.tailnet.ts.net")).toBe(false);
   });

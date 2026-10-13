@@ -17,8 +17,7 @@ import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { Milliseconds } from "@movies/contracts/units";
 import type { CallError } from "@movies/sdk/effect";
 import { MoviesClient, Playback } from "@movies/sdk/effect";
-import type { useMoviesRuntime } from "@movies/sdk/react";
-import { Data, Effect, Exit, Option, Result, Scope, Struct } from "effect";
+import { Data, Effect, Exit, Option, Result, Scope } from "effect";
 
 import { withoutFailedPath } from "./capabilities";
 import { ELEMENT_SEEKER, MediaElementPlayer, isBuffered } from "./media-element-player";
@@ -34,9 +33,9 @@ import {
 } from "./playback-policy";
 import type { AttachedStream, StreamFailure } from "./stream-attachment";
 import { attachStream } from "./stream-attachment";
+import { RENEW_BEFORE_MS, inGeneration, runSdk } from "./sdk-calls";
+import type { Runtime } from "./sdk-calls";
 import { SwitchablePlayer } from "./switchable-player";
-
-type Runtime = ReturnType<typeof useMoviesRuntime>;
 
 /** Where playback starts. */
 export type StartChoice = Data.TaggedEnum<{
@@ -94,9 +93,6 @@ export interface PlaybackSnapshot {
   readonly needsGesture: boolean;
 }
 
-/** Renew the token and stream this long before the token expires. */
-const RENEW_BEFORE_MS = 5 * 60 * 1000;
-
 /** Recoveries in a row, without playback resuming between them, before playback gives up. */
 const MAX_RECOVERIES = 3;
 
@@ -113,19 +109,6 @@ const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
-
-/**
- * Runs `effect` and returns its success or failure; defects, interruption, and an SDK that could
- * not open become `null`.
- */
-const run = async <A, E>(
-  runtime: Runtime,
-  effect: Effect.Effect<A, E, MoviesClient.MoviesClient>,
-): Promise<Result.Result<A, E> | null> => {
-  const exit = await runtime.runPromiseExit(Effect.result(effect));
-
-  return Exit.isSuccess(exit) ? exit.value : null;
-};
 
 const isPlaying = PlaybackPhase.$is("Playing");
 
@@ -245,7 +228,7 @@ export class PlaybackController {
   #createSession(): Promise<Result.Result<StartedPlayback, CallError> | null> {
     const request = this.#request;
 
-    return run(
+    return runSdk(
       this.#runtime,
       Effect.flatMap(MoviesClient.MoviesClient, (client) =>
         client.mutate("playback.createSession", {
@@ -278,7 +261,7 @@ export class PlaybackController {
   async #negotiate(started: StartedPlayback, positionMs: number, play = true): Promise<void> {
     this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.35 }) });
 
-    const negotiated = await run(
+    const negotiated = await runSdk(
       this.#runtime,
       Playback.negotiate(
         started,
@@ -369,7 +352,7 @@ export class PlaybackController {
 
         if (playback === null) return;
 
-        const moved = await run(
+        const moved = await runSdk(
           this.#runtime,
           Playback.seekStream(playback, Milliseconds.make(positionMs)),
         );
@@ -406,15 +389,7 @@ export class PlaybackController {
       return;
     }
 
-    const { generation, playlistUrl } = moved.value;
-
-    const next: Playback.Playback = {
-      started: playback.started,
-      stream: Struct.evolve(playback.stream, {
-        url: () => playlistUrl,
-        generation: () => generation,
-      }),
-    };
+    const next = inGeneration(playback, moved.value);
 
     const attached = this.#attached;
 
@@ -527,7 +502,7 @@ export class PlaybackController {
 
   /** Loads the stream's current generation at `positionMs`, renegotiating if that fails. */
   async #reloadPlaylist(playback: Playback.Playback, positionMs: number): Promise<void> {
-    const moved = await run(
+    const moved = await runSdk(
       this.#runtime,
       Playback.seekStream(playback, Milliseconds.make(positionMs)),
     );
@@ -572,7 +547,7 @@ export class PlaybackController {
     if (this.#parked) return;
     const wasPlaying = !this.#element.paused;
 
-    const renewed = await run(
+    const renewed = await runSdk(
       this.#runtime,
       Playback.renegotiate(
         playback,
@@ -686,7 +661,7 @@ export class PlaybackController {
     const current = this.#playback;
 
     if (current !== null && current.stream.streamId !== this.#reported?.stream.streamId) {
-      void run(this.#runtime, Playback.stop(current));
+      void runSdk(this.#runtime, Playback.stop(current));
     }
 
     // A session that never reached a stream has no reporter to end it.
