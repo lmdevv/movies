@@ -916,7 +916,7 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         roots: [`/stack-${id}/thumbnails`],
       });
 
-      const name = `Scrubbed ${TOKEN}`;
+      const name = `Scrubbed thumbs${id}`;
       const path = `/stack-${id}/thumbnails/a.mp4`;
       const original = scanned(path, { kind: "movie", name, ageRating: 0 }, null);
       const changed = scanned(path, { kind: "movie", name, ageRating: 0 }, null, { sizeBytes: 2_000_000 });
@@ -1052,7 +1052,7 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       const [unscrubbed] = await upsert(
         scanned(
           `/stack-${id}/thumbnails/b.mp4`,
-          { kind: "movie", name: `Unscrubbed ${TOKEN}`, ageRating: 0 },
+          { kind: "movie", name: `Unscrubbed thumbs${id}`, ageRating: 0 },
           null,
         ),
       );
