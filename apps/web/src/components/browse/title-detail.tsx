@@ -1,10 +1,11 @@
 /**
  * A movie's or show's page (05 Browse · 04, 05, 05b, and 09 iOS): the backdrop band with the title,
- * facts and technical badges, play and resume, My List, the overview, genres and tracks, the file
- * missing warning, and a show's episodes.
+ * facts, scores, and technical badges, play and resume, the trailer, My List, the overview, who made
+ * it, genres, studio, dates, tracks, and provider links, the file missing warning, a show's
+ * episodes, the cast and crew, the title's collection, and More like this.
  */
 import type { ProfileId } from "@movies/contracts/ids";
-import type { MediaFile, TitleDetail } from "@movies/contracts/models/catalog";
+import type { MediaFile, ShowStatus, TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommand } from "@movies/sdk/react";
 import { Badge } from "@movies/ui/components/badge";
 import { Button, buttonVariants } from "@movies/ui/components/button";
@@ -29,12 +30,80 @@ import { artworkUrl } from "@/lib/artwork";
 import { toastFailure } from "@/lib/failure";
 import { facts, formatRemaining, formatRuntime, plural } from "@/lib/format";
 import { fileBadges, trackSummary } from "@/lib/media-facts";
+import { formatDate, languageName, titleLinks } from "@/lib/metadata";
 
 import { Episodes } from "./episodes";
 import { playTarget, useMyListToggle, watchSearch } from "./play-target";
+import {
+  CastAndCrew,
+  CollectionRow,
+  CreditSummary,
+  ExternalLinks,
+  MoreLikeThis,
+  PeopleLinks,
+  Scores,
+  TrailerButton,
+} from "./title-extras";
 
 /** Names longer than this draw at display size instead of the billboard size. */
 const LONG_NAME = 12;
+
+/** Actors named in the "Starring" line. */
+const STARRING = 3;
+
+const STATUS_LABELS: Readonly<Record<ShowStatus, string>> = {
+  returning: "Returning series",
+  ended: "Ended",
+  canceled: "Canceled",
+  "in-production": "In production",
+  planned: "Planned",
+};
+
+/** Genres, each linking to its page. */
+function GenreLinks({ genres }: { readonly genres: ReadonlyArray<string> }) {
+  return (
+    <>
+      {genres.map((genre, index) => (
+        <span key={genre}>
+          {index === 0 ? null : ", "}
+          <Link
+            to="/genre/$genre"
+            params={{ genre }}
+            className="underline-offset-4 hover:underline"
+          >
+            {genre}
+          </Link>
+        </span>
+      ))}
+    </>
+  );
+}
+
+/** The rows under a title's page: cast and crew, its collection, and More like this. */
+function TitleRows({
+  title,
+  profileId,
+  phone,
+}: {
+  readonly title: TitleDetail;
+  readonly profileId: ProfileId;
+  readonly phone: boolean;
+}) {
+  return (
+    <div className={cn("flex flex-col", phone ? "pt-2" : "gap-11 pb-20")}>
+      <CastAndCrew title={title} />
+      {title.collection === null ? null : (
+        <CollectionRow
+          profileId={profileId}
+          collectionId={title.collection.id}
+          titleId={title.id}
+          phone={phone}
+        />
+      )}
+      <MoreLikeThis profileId={profileId} titleId={title.id} phone={phone} />
+    </div>
+  );
+}
 
 const sizeLabel = (bytes: number): string =>
   bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`;
@@ -63,6 +132,7 @@ export function TitleDetailView({
   const backdrop = artworkUrl(title.artwork.backdrop, "backdrop");
   const logo = artworkUrl(title.artwork.logo, "card");
   const missing = !title.available;
+  const links = titleLinks(title.kind, title.externalIds);
 
   const remaining =
     target.fraction === null || target.positionMs === null
@@ -214,9 +284,15 @@ export function TitleDetailView({
           </p>
           {watch(false)}
           {progress}
+          <Scores ratings={title.ratings} className="px-1" />
           {title.overview === null ? null : (
             <p className="px-1 text-body/body text-text">{title.overview}</p>
           )}
+          <CreditSummary
+            credits={[...title.crew, ...title.cast.slice(0, STARRING)]}
+            kinds={["creator", "director"]}
+            className="px-1 text-label/label"
+          />
         </div>
         <div className="flex justify-around px-6 pt-4.5 pb-1">
           <button
@@ -243,8 +319,17 @@ export function TitleDetailView({
               Play from start
             </Link>
           ) : null}
+          {title.trailer === null ? null : (
+            <TrailerButton trailer={title.trailer} name={title.name} phone />
+          )}
         </div>
         {title.kind === "show" ? <Episodes show={title} profileId={profileId} phone /> : null}
+        <TitleRows title={title} profileId={profileId} phone />
+        {links.length === 0 ? null : (
+          <div className="px-5 pt-6">
+            <ExternalLinks links={links} />
+          </div>
+        )}
       </div>
     );
   }
@@ -269,15 +354,20 @@ export function TitleDetailView({
         <div className="flex w-200 shrink-0 flex-col gap-5">
           {missing ? <MissingBanner title={title} canManage={canManage} phone={false} /> : null}
           {factLine}
+          <Scores ratings={title.ratings} />
           <div className="flex items-center gap-3">
             {watch(false)}
             {target.resuming ? watch(true) : null}
+            {title.trailer === null ? null : (
+              <TrailerButton trailer={title.trailer} name={title.name} phone={false} />
+            )}
             {myListButton}
           </div>
           {progress}
           {title.overview === null ? null : (
             <p className="w-170 pt-2 text-lead/6.75 text-text">{title.overview}</p>
           )}
+          <CreditSummary credits={title.crew} kinds={["creator", "director", "writer"]} />
           {file === undefined ? null : (
             <p className="flex items-center gap-2 pt-1 font-mono text-caption/caption text-text-muted">
               <HardDriveIcon className="size-3.5" strokeWidth={1.75} aria-hidden />
@@ -286,11 +376,42 @@ export function TitleDetailView({
           )}
         </div>
         <dl className="flex grow basis-0 flex-col gap-4.5 pt-0.5">
-          {title.genres.length === 0 ? null : <Meta label="Genres">{title.genres.join(", ")}</Meta>}
+          {title.cast.length === 0 ? null : (
+            <Meta label="Starring">
+              <PeopleLinks people={title.cast.slice(0, STARRING)} />
+            </Meta>
+          )}
+          {title.genres.length === 0 ? null : (
+            <Meta label="Genres">
+              <GenreLinks genres={title.genres} />
+            </Meta>
+          )}
+          {title.studios.length === 0 ? null : (
+            <Meta label={title.kind === "show" ? "Network" : "Studio"}>
+              {title.studios.join(", ")}
+            </Meta>
+          )}
+          {title.releaseDate === null ? null : (
+            <Meta label={title.kind === "show" ? "First aired" : "Released"}>
+              {formatDate(title.releaseDate)}
+            </Meta>
+          )}
+          {title.status === null ? null : <Meta label="Status">{STATUS_LABELS[title.status]}</Meta>}
+          {title.originalLanguage === null ? null : (
+            <Meta label="Original language">
+              {facts(languageName(title.originalLanguage), title.originalName)}
+            </Meta>
+          )}
           {tracks === null ? null : <Meta label="Audio · Subtitles">{tracks}</Meta>}
+          {links.length === 0 ? null : (
+            <Meta label="Elsewhere">
+              <ExternalLinks links={links} />
+            </Meta>
+          )}
         </dl>
       </div>
       {title.kind === "show" ? <Episodes show={title} profileId={profileId} phone={false} /> : null}
+      <TitleRows title={title} profileId={profileId} phone={false} />
     </div>
   );
 }

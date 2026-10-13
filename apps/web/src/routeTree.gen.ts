@@ -15,6 +15,7 @@ import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppAdminRouteImport } from './routes/_app/admin'
+import { Route as AppCollectionsRouteImport } from './routes/_app/collections'
 import { Route as AppMoviesRouteImport } from './routes/_app/movies'
 import { Route as AppMyListRouteImport } from './routes/_app/my-list'
 import { Route as AppSearchRouteImport } from './routes/_app/search'
@@ -33,6 +34,9 @@ import { Route as AppAdminBackupsRouteImport } from './routes/_app/admin/backups
 import { Route as AppAdminMigrationRouteImport } from './routes/_app/admin/migration'
 import { Route as AppAdminServerRouteImport } from './routes/_app/admin/server'
 import { Route as AppAdminUsersRouteImport } from './routes/_app/admin/users'
+import { Route as AppCollectionCollectionIdRouteImport } from './routes/_app/collection.$collectionId'
+import { Route as AppGenreGenreRouteImport } from './routes/_app/genre.$genre'
+import { Route as AppPersonPersonIdRouteImport } from './routes/_app/person.$personId'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
 import { Route as AppSettingsAccountRouteImport } from './routes/_app/settings/account'
 import { Route as AppSettingsApiKeysRouteImport } from './routes/_app/settings/api-keys'
@@ -71,6 +75,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const AppAdminRoute = AppAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCollectionsRoute = AppCollectionsRouteImport.update({
+  id: '/collections',
+  path: '/collections',
   getParentRoute: () => AppRoute,
 } as any)
 const AppMoviesRoute = AppMoviesRouteImport.update({
@@ -163,6 +172,22 @@ const AppAdminUsersRoute = AppAdminUsersRouteImport.update({
   path: '/users',
   getParentRoute: () => AppAdminRoute,
 } as any)
+const AppCollectionCollectionIdRoute =
+  AppCollectionCollectionIdRouteImport.update({
+    id: '/collection/$collectionId',
+    path: '/collection/$collectionId',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppGenreGenreRoute = AppGenreGenreRouteImport.update({
+  id: '/genre/$genre',
+  path: '/genre/$genre',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPersonPersonIdRoute = AppPersonPersonIdRouteImport.update({
+  id: '/person/$personId',
+  path: '/person/$personId',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -222,6 +247,7 @@ export interface FileRoutesByFullPath {
   '/sign-in': typeof SignInRoute
   '/welcome': typeof WelcomeRoute
   '/admin': typeof AppAdminRouteWithChildren
+  '/collections': typeof AppCollectionsRoute
   '/movies': typeof AppMoviesRoute
   '/my-list': typeof AppMyListRoute
   '/search': typeof AppSearchRoute
@@ -239,6 +265,9 @@ export interface FileRoutesByFullPath {
   '/admin/migration': typeof AppAdminMigrationRoute
   '/admin/server': typeof AppAdminServerRoute
   '/admin/users': typeof AppAdminUsersRoute
+  '/collection/$collectionId': typeof AppCollectionCollectionIdRoute
+  '/genre/$genre': typeof AppGenreGenreRoute
+  '/person/$personId': typeof AppPersonPersonIdRoute
   '/settings/account': typeof AppSettingsAccountRoute
   '/settings/api-keys': typeof AppSettingsApiKeysRoute
   '/settings/devices': typeof AppSettingsDevicesRoute
@@ -255,6 +284,7 @@ export interface FileRoutesByTo {
   '/device': typeof DeviceRoute
   '/sign-in': typeof SignInRoute
   '/welcome': typeof WelcomeRoute
+  '/collections': typeof AppCollectionsRoute
   '/movies': typeof AppMoviesRoute
   '/my-list': typeof AppMyListRoute
   '/search': typeof AppSearchRoute
@@ -272,6 +302,9 @@ export interface FileRoutesByTo {
   '/admin/migration': typeof AppAdminMigrationRoute
   '/admin/server': typeof AppAdminServerRoute
   '/admin/users': typeof AppAdminUsersRoute
+  '/collection/$collectionId': typeof AppCollectionCollectionIdRoute
+  '/genre/$genre': typeof AppGenreGenreRoute
+  '/person/$personId': typeof AppPersonPersonIdRoute
   '/settings/account': typeof AppSettingsAccountRoute
   '/settings/api-keys': typeof AppSettingsApiKeysRoute
   '/settings/devices': typeof AppSettingsDevicesRoute
@@ -291,6 +324,7 @@ export interface FileRoutesById {
   '/sign-in': typeof SignInRoute
   '/welcome': typeof WelcomeRoute
   '/_app/admin': typeof AppAdminRouteWithChildren
+  '/_app/collections': typeof AppCollectionsRoute
   '/_app/movies': typeof AppMoviesRoute
   '/_app/my-list': typeof AppMyListRoute
   '/_app/search': typeof AppSearchRoute
@@ -309,6 +343,9 @@ export interface FileRoutesById {
   '/_app/admin/migration': typeof AppAdminMigrationRoute
   '/_app/admin/server': typeof AppAdminServerRoute
   '/_app/admin/users': typeof AppAdminUsersRoute
+  '/_app/collection/$collectionId': typeof AppCollectionCollectionIdRoute
+  '/_app/genre/$genre': typeof AppGenreGenreRoute
+  '/_app/person/$personId': typeof AppPersonPersonIdRoute
   '/_app/settings/account': typeof AppSettingsAccountRoute
   '/_app/settings/api-keys': typeof AppSettingsApiKeysRoute
   '/_app/settings/devices': typeof AppSettingsDevicesRoute
@@ -329,6 +366,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/welcome'
     | '/admin'
+    | '/collections'
     | '/movies'
     | '/my-list'
     | '/search'
@@ -346,6 +384,9 @@ export interface FileRouteTypes {
     | '/admin/migration'
     | '/admin/server'
     | '/admin/users'
+    | '/collection/$collectionId'
+    | '/genre/$genre'
+    | '/person/$personId'
     | '/settings/account'
     | '/settings/api-keys'
     | '/settings/devices'
@@ -362,6 +403,7 @@ export interface FileRouteTypes {
     | '/device'
     | '/sign-in'
     | '/welcome'
+    | '/collections'
     | '/movies'
     | '/my-list'
     | '/search'
@@ -379,6 +421,9 @@ export interface FileRouteTypes {
     | '/admin/migration'
     | '/admin/server'
     | '/admin/users'
+    | '/collection/$collectionId'
+    | '/genre/$genre'
+    | '/person/$personId'
     | '/settings/account'
     | '/settings/api-keys'
     | '/settings/devices'
@@ -397,6 +442,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/welcome'
     | '/_app/admin'
+    | '/_app/collections'
     | '/_app/movies'
     | '/_app/my-list'
     | '/_app/search'
@@ -415,6 +461,9 @@ export interface FileRouteTypes {
     | '/_app/admin/migration'
     | '/_app/admin/server'
     | '/_app/admin/users'
+    | '/_app/collection/$collectionId'
+    | '/_app/genre/$genre'
+    | '/_app/person/$personId'
     | '/_app/settings/account'
     | '/_app/settings/api-keys'
     | '/_app/settings/devices'
@@ -487,6 +536,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AppAdminRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/collections': {
+      id: '/_app/collections'
+      path: '/collections'
+      fullPath: '/collections'
+      preLoaderRoute: typeof AppCollectionsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/movies': {
@@ -615,6 +671,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminUsersRouteImport
       parentRoute: typeof AppAdminRoute
     }
+    '/_app/collection/$collectionId': {
+      id: '/_app/collection/$collectionId'
+      path: '/collection/$collectionId'
+      fullPath: '/collection/$collectionId'
+      preLoaderRoute: typeof AppCollectionCollectionIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/genre/$genre': {
+      id: '/_app/genre/$genre'
+      path: '/genre/$genre'
+      fullPath: '/genre/$genre'
+      preLoaderRoute: typeof AppGenreGenreRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/person/$personId': {
+      id: '/_app/person/$personId'
+      path: '/person/$personId'
+      fullPath: '/person/$personId'
+      preLoaderRoute: typeof AppPersonPersonIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/': {
       id: '/_app/settings/'
       path: '/'
@@ -735,23 +812,31 @@ const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
 
 interface AppRouteChildren {
   AppAdminRoute: typeof AppAdminRouteWithChildren
+  AppCollectionsRoute: typeof AppCollectionsRoute
   AppMoviesRoute: typeof AppMoviesRoute
   AppMyListRoute: typeof AppMyListRoute
   AppSearchRoute: typeof AppSearchRoute
   AppSettingsRoute: typeof AppSettingsRouteWithChildren
   AppShowsRoute: typeof AppShowsRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppCollectionCollectionIdRoute: typeof AppCollectionCollectionIdRoute
+  AppGenreGenreRoute: typeof AppGenreGenreRoute
+  AppPersonPersonIdRoute: typeof AppPersonPersonIdRoute
   AppTitleTitleIdRoute: typeof AppTitleTitleIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppAdminRoute: AppAdminRouteWithChildren,
+  AppCollectionsRoute: AppCollectionsRoute,
   AppMoviesRoute: AppMoviesRoute,
   AppMyListRoute: AppMyListRoute,
   AppSearchRoute: AppSearchRoute,
   AppSettingsRoute: AppSettingsRouteWithChildren,
   AppShowsRoute: AppShowsRoute,
   AppIndexRoute: AppIndexRoute,
+  AppCollectionCollectionIdRoute: AppCollectionCollectionIdRoute,
+  AppGenreGenreRoute: AppGenreGenreRoute,
+  AppPersonPersonIdRoute: AppPersonPersonIdRoute,
   AppTitleTitleIdRoute: AppTitleTitleIdRoute,
 }
 

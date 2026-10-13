@@ -3,7 +3,7 @@
  * episode rows with progress, the next one highlighted.
  */
 import type { ProfileId } from "@movies/contracts/ids";
-import type { Episode, TitleDetail } from "@movies/contracts/models/catalog";
+import type { Episode, SeasonEpisode, TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { EpisodeRow } from "@movies/ui/components/media-card";
 import { ProgressBar } from "@movies/ui/components/progress-bar";
@@ -14,13 +14,37 @@ import { useState } from "react";
 
 import { artworkUrl } from "@/lib/artwork";
 import { facts, formatRuntime, plural, progressFraction, progressLabel } from "@/lib/format";
+import { creditLines, formatDate } from "@/lib/metadata";
 
 import { SelectMenu } from "./select-menu";
 
 const episodeFacts = (episode: Episode): string | undefined => {
-  const parts = facts(episode.available ? null : "File missing", progressLabel(episode.progress));
+  const parts = facts(
+    episode.rating === null ? null : `★ ${episode.rating.toFixed(1)}`,
+    episode.available ? null : "File missing",
+    progressLabel(episode.progress),
+  );
 
   return parts === "" ? undefined : parts;
+};
+
+/** `Mar 31, 2021 · 52m`, the air date and running time at the top of an episode row. */
+const episodeWhen = (episode: Episode): string | undefined => {
+  const parts = facts(
+    episode.airDate === null ? null : formatDate(episode.airDate),
+    episode.runtimeMs === null ? null : formatRuntime(episode.runtimeMs),
+  );
+
+  return parts === "" ? undefined : parts;
+};
+
+/** `Guest stars Ada Stream, Gus Guest · Directed by Dana Keyframe`. */
+const episodeCredits = (episode: SeasonEpisode): string | undefined => {
+  const lines = creditLines(episode.credits, ["guest-star", "director", "writer"]).map(
+    (line) => `${line.heading} ${line.people.map((person) => person.name).join(", ")}`,
+  );
+
+  return lines.length === 0 ? undefined : lines.join(" · ");
 };
 
 /** The episodes section of a show's page. Starts on the season of the next episode. */
@@ -134,10 +158,9 @@ export function Episodes({
                   <EpisodeRow
                     number={episode.episodeNumber}
                     title={episode.name}
-                    runtime={
-                      episode.runtimeMs === null ? undefined : formatRuntime(episode.runtimeMs)
-                    }
+                    runtime={episodeWhen(episode)}
                     synopsis={episode.overview ?? undefined}
+                    credits={episodeCredits(episode)}
                     facts={episodeFacts(episode)}
                     image={artworkUrl(episode.still, "card")}
                     progress={progressFraction(episode.progress) ?? undefined}

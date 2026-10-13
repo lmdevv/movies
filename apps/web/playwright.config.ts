@@ -23,8 +23,9 @@ if (chromium !== undefined && chromium !== "") launchOptions.executablePath = ch
  * `stack` runs the core flows against the worktree's dev stack (`scripts/dev-stack.sh up`) and the
  * real media service, which the suite starts itself; it skips without a fresh stack. `admin` then
  * runs the account and admin screens on the same stack as the owner `stack` created; it skips
- * without a stack. `player` and then `rooms` play generated clips through the real media service
- * as that owner, and `migration` imports from a Jellyfin through it last. The suites that run a
+ * without a stack. `metadata` scans an NFO library for the title, person, genre, and collection
+ * pages. `player` and then `rooms` play generated clips through the real media service as that
+ * owner, and `migration` imports from a Jellyfin through it last. The suites that run a
  * media service take turns, as it owns the stack's port.
  */
 export default defineConfig({
@@ -57,9 +58,16 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {
+      // Scans its own NFO library with its own media service as the owner, after the admin suites.
+      name: "metadata",
+      testMatch: /e2e\/metadata\/.*\.spec\.ts$/u,
+      dependencies: ["admin"],
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+    },
+    {
       name: "player",
       testMatch: /e2e\/playback\/player\.spec\.ts$/u,
-      dependencies: ["admin"],
+      dependencies: ["metadata"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {
