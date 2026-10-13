@@ -101,6 +101,33 @@ On NixOS, `environmentFile` adds secrets (such as `TMDB_API_KEY`) from a root-on
 `extraEnvironment` sets anything else. The media service's own settings are listed in
 `apps/media/README.md`.
 
+## Demo library
+
+No films of your own yet, or want to see every feature at once? Build a library of free Creative
+Commons films and shows:
+
+```sh
+scripts/demo-library.sh --dir ~/movies-demo                 # about 3 GB
+scripts/demo-library.sh --dir ~/movies-demo --set minimal   # about 0.6 GB
+scripts/demo-library.sh --dir ~/movies-demo --set full      # about 6 GB, adds Pioneer One
+```
+
+It needs `curl`, `ffmpeg`, and `unzip`, plus `spumux` from dvdauthor for the image subtitle
+(`nix develop` has all of them). Add `~/movies-demo/Movies` as a movies library and
+`~/movies-demo/Shows` as a shows library (with Compose, point `MOVIES_LIBRARY` at
+`~/movies-demo`).
+
+- **Movies:** Big Buck Bunny, Elephants Dream, Sintel, Tears of Steel (with subtitles in 20
+  languages), and Cosmos Laundromat. **Shows:** Caminandes (VP8 and Vorbis in Ogg, so it is always
+  transcoded) and, in the full set, the six episodes of Pioneer One.
+- **[movies] Feature Test:** the first five minutes of Sintel in four versions of one title:
+  direct play with chapters and sidecar subtitles, HDR10 HEVC for tone mapping, AC3 5.1 plus
+  stereo with ten text subtitles and an image (VobSub) subtitle, and an interlaced PAL MPEG-2
+  "DVD rip".
+- Every title has a Kodi-style NFO with IMDb and TMDB IDs, cast and crew, genres, and studios,
+  so it matches without a TMDB key, and local posters and backgrounds taken from the film.
+  Credits and licenses are written to `CREDITS.md` in the library folder.
+
 ## Remote access
 
 Keep both ports off the internet. For use away from home, join the host to a Tailscale tailnet and
