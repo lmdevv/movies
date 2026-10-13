@@ -30,7 +30,8 @@ function EditProfilePage() {
 
   if (profiles.status === "loading") return <BlankPage />;
 
-  if (profiles.status === "error") return <PageFailure cause={profiles.error} />;
+  if (profiles.status === "error")
+    return <PageFailure cause={profiles.error} retry={profiles.retry} />;
 
   const profile = profiles.data.find((candidate) => candidate.id === profileId);
 

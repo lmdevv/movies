@@ -19,7 +19,8 @@ const launchOptions: LaunchOptions = {};
 if (chromium !== undefined && chromium !== "") launchOptions.executablePath = chromium;
 
 /**
- * Browser tests against the Vite dev server. `kit` checks the UI kit gallery and needs no backend.
+ * Browser tests against the Vite dev server. `kit` checks the UI kit gallery and the not-found and
+ * error screens, and needs no backend.
  * `stack` runs the core flows against the worktree's dev stack (`scripts/dev-stack.sh up`) and the
  * real media service, which the suite starts itself; it skips without a fresh stack. `admin` then
  * runs the account and admin screens on the same stack as the owner `stack` created; it skips
@@ -40,7 +41,7 @@ export default defineConfig({
   projects: [
     {
       name: "kit",
-      testMatch: /kit\.spec\.ts$/u,
+      testMatch: /e2e\/(kit|route-states)\.spec\.ts$/u,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {

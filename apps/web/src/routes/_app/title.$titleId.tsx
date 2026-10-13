@@ -1,6 +1,6 @@
 import { TitleId } from "@movies/contracts/ids";
 import { useCommandQuery } from "@movies/sdk/react";
-import { buttonVariants } from "@movies/ui/components/button";
+import { Button, buttonVariants } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Schema } from "effect";
@@ -42,9 +42,12 @@ function TitlePage() {
           title={missing ? "This title isn't here" : "This title didn't load"}
           description={missing ? undefined : describeFailure(title.error)}
           actions={
-            <Link to="/" className={buttonVariants({ variant: "subtle" })}>
-              Go home
-            </Link>
+            <>
+              {missing ? null : <Button onClick={title.retry}>Try again</Button>}
+              <Link to="/" className={buttonVariants({ variant: "subtle" })}>
+                Go home
+              </Link>
+            </>
           }
         />
       </div>
