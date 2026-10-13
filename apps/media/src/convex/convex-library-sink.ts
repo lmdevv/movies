@@ -7,11 +7,19 @@
  * The sink keeps each library's latest progress for the job runner (`ScanProgress`).
  */
 import type { LibraryId } from "@movies/contracts/ids";
+import type { UpsertedFile } from "@movies/contracts/models/scan";
 import { Context, Effect, Layer, Option, Ref, Stream } from "effect";
 
 import * as ArtworkKeys from "../artwork/artwork-keys.ts";
 import * as LibrarySink from "../library/library-sink.ts";
-import { absolutePath, relativeTo, toScannedItem } from "./catalog-records.ts";
+import {
+  absolutePath,
+  digestOf,
+  relativeTo,
+  toScannedCollection,
+  toScannedCredits,
+  toScannedItem,
+} from "./catalog-records.ts";
 import * as MediaBackend from "./media-backend.ts";
 
 /** The latest progress of each library's running scan. */
@@ -28,6 +36,9 @@ const failed =
   (operation: LibrarySink.LibrarySinkFailed["operation"]) =>
   (cause: unknown): LibrarySink.LibrarySinkFailed =>
     new LibrarySink.LibrarySinkFailed({ operation, cause });
+
+/** Titles and episodes whose last write digest the sink remembers before starting over. */
+const SENT_CAPACITY = 50_000;
 
 /** Builds the sink and its progress board. */
 const make = Effect.gen(function* () {
@@ -66,19 +77,115 @@ const make = Effect.gen(function* () {
     );
   });
 
+  /**
+   * What this process last sent per title or episode, so a scan writes a show's credits once
+   * rather than once per episode file; Convex compares digests too, so a restart costs a read.
+   */
+  const sent = new Map<string, string>();
+
+  /** Sends `write` unless `key` last sent the same `digest`. */
+  const once = <E>(key: string, digest: string, write: Effect.Effect<unknown, E>) =>
+    Effect.suspend(() =>
+      sent.get(key) === digest
+        ? Effect.void
+        : write.pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                if (sent.size >= SENT_CAPACITY) sent.clear();
+                sent.set(key, digest);
+              }),
+            ),
+            Effect.asVoid,
+          ),
+    );
+
+  /** Credits and the collection of each title (and episode) a batch touched. */
+  const writeDetails = Effect.fn("ConvexLibrarySink.writeDetails")(function* (
+    folder: LibrarySink.LibraryFolder,
+    written: ReadonlyArray<{
+      readonly file: LibrarySink.ScannedFile;
+      readonly upserted: UpsertedFile;
+    }>,
+  ) {
+    const writes = yield* Effect.forEach(written, ({ file, upserted }) =>
+      Effect.gen(function* () {
+        if (file.title === undefined) return [];
+        const titleCredits = yield* toScannedCredits(folder, file.title.credits, keys.seal);
+        const collection = yield* toScannedCollection(folder, file.title.collection, keys.seal);
+        const titleHash = digestOf(titleCredits);
+
+        const titleWrites = [
+          once(
+            `credits:${upserted.titleId}`,
+            titleHash,
+            backend.call("mediaService.applyCredits", {
+              titleId: upserted.titleId,
+              episodeId: null,
+              credits: titleCredits,
+              hash: titleHash,
+            }),
+          ),
+          once(
+            `collection:${upserted.titleId}`,
+            digestOf(collection),
+            backend.call("mediaService.applyCollection", { titleId: upserted.titleId, collection }),
+          ),
+        ];
+
+        if (file.episode === undefined || upserted.episodeId === null) return titleWrites;
+        const episodeCredits = yield* toScannedCredits(folder, file.episode.credits, keys.seal);
+        const episodeHash = digestOf(episodeCredits);
+
+        return [
+          ...titleWrites,
+          once(
+            `credits:${upserted.episodeId}`,
+            episodeHash,
+            backend.call("mediaService.applyCredits", {
+              titleId: upserted.titleId,
+              episodeId: upserted.episodeId,
+              credits: episodeCredits,
+              hash: episodeHash,
+            }),
+          ),
+        ];
+      }),
+    );
+
+    // Episodes of one show repeat its title writes; `once` lets only the first through, so the
+    // writes of one batch run in order.
+    yield* Effect.forEach(writes.flat(), (write) => write, { discard: true });
+  });
+
   const upsertBatch = Effect.fn("ConvexLibrarySink.upsertBatch")(function* (
     folder: LibrarySink.LibraryFolder,
     scanned: ReadonlyArray<LibrarySink.ScannedFile>,
   ) {
-    const items = (yield* Effect.forEach(scanned, (file) =>
-      toScannedItem(folder, file, keys.seal),
-    )).flatMap((item) => (Option.isSome(item) ? [item.value] : []));
+    const prepared = yield* Effect.forEach(scanned, (file) =>
+      toScannedItem(folder, file, keys.seal).pipe(
+        Effect.map(Option.map((item) => ({ file, item }))),
+      ),
+    );
+
+    const items = prepared.flatMap((entry) => (Option.isSome(entry) ? [entry.value] : []));
 
     if (items.length === 0) return;
 
-    yield* backend
-      .call("mediaService.upsertScanned", { libraryId: folder.libraryId, items })
+    const upserted = yield* backend
+      .call("mediaService.upsertScanned", {
+        libraryId: folder.libraryId,
+        items: items.map((entry) => entry.item),
+      })
       .pipe(Effect.mapError(failed("upsertBatch")));
+
+    yield* writeDetails(
+      folder,
+      items.flatMap((entry, index) => {
+        const result = upserted[index];
+
+        return result === undefined ? [] : [{ file: entry.file, upserted: result }];
+      }),
+    ).pipe(Effect.mapError(failed("upsertBatch")));
   });
 
   const markMissing = Effect.fn("ConvexLibrarySink.markMissing")(function* (

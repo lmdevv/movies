@@ -3,8 +3,14 @@
   "backdrop_path": "/remux-backdrop.jpg",
   "budget": 0,
   "genres": [
-    { "id": 28, "name": "Action" },
-    { "id": 878, "name": "Science Fiction" }
+    {
+      "id": 28,
+      "name": "Action"
+    },
+    {
+      "id": 878,
+      "name": "Science Fiction"
+    }
   ],
   "homepage": "",
   "id": 500001,
@@ -15,7 +21,12 @@
   "popularity": 21.4,
   "poster_path": "/remux-poster.jpg",
   "production_companies": [
-    { "id": 1, "logo_path": null, "name": "Fixture Pictures", "origin_country": "US" }
+    {
+      "id": 1,
+      "logo_path": null,
+      "name": "Fixture Pictures",
+      "origin_country": "US"
+    }
   ],
   "release_date": "2015-06-12",
   "revenue": 0,
@@ -28,8 +39,216 @@
   "vote_count": 340,
   "release_dates": {
     "results": [
-      { "iso_3166_1": "GB", "release_dates": [{ "certification": "12A", "type": 3 }] },
-      { "iso_3166_1": "US", "release_dates": [{ "certification": "PG-13", "type": 3 }] }
+      {
+        "iso_3166_1": "GB",
+        "release_dates": [
+          {
+            "certification": "12A",
+            "type": 3
+          }
+        ]
+      },
+      {
+        "iso_3166_1": "US",
+        "release_dates": [
+          {
+            "certification": "PG-13",
+            "type": 3
+          }
+        ]
+      }
     ]
+  },
+  "production_countries": [
+    {
+      "iso_3166_1": "US",
+      "name": "United States of America"
+    }
+  ],
+  "belongs_to_collection": {
+    "id": 700001,
+    "name": "Remux Fixture Collection",
+    "poster_path": "/remux-collection-poster.jpg",
+    "backdrop_path": "/remux-collection-backdrop.jpg"
+  },
+  "credits": {
+    "cast": [
+      {
+        "adult": false,
+        "gender": 1,
+        "id": 9001,
+        "known_for_department": "Acting",
+        "name": "Ada Stream",
+        "original_name": "Ada Stream",
+        "popularity": 12.1,
+        "profile_path": "/ada.jpg",
+        "cast_id": 1,
+        "character": "Captain Codec",
+        "credit_id": "c1",
+        "order": 0
+      },
+      {
+        "adult": false,
+        "gender": 2,
+        "id": 9002,
+        "known_for_department": "Acting",
+        "name": "Bruno Bitrate",
+        "original_name": "Bruno Bitrate",
+        "popularity": 5.2,
+        "profile_path": null,
+        "cast_id": 2,
+        "character": "Muxer",
+        "credit_id": "c2",
+        "order": 1
+      }
+    ],
+    "crew": [
+      {
+        "adult": false,
+        "gender": 1,
+        "id": 9101,
+        "known_for_department": "Directing",
+        "name": "Dana Keyframe",
+        "original_name": "Dana Keyframe",
+        "popularity": 3.3,
+        "profile_path": "/dana.jpg",
+        "credit_id": "k1",
+        "department": "Directing",
+        "job": "Director"
+      },
+      {
+        "adult": false,
+        "gender": 1,
+        "id": 9101,
+        "known_for_department": "Directing",
+        "name": "Dana Keyframe",
+        "original_name": "Dana Keyframe",
+        "popularity": 3.3,
+        "profile_path": "/dana.jpg",
+        "credit_id": "k2",
+        "department": "Writing",
+        "job": "Screenplay"
+      },
+      {
+        "adult": false,
+        "gender": 2,
+        "id": 9102,
+        "known_for_department": "Sound",
+        "name": "Ezra Opus",
+        "original_name": "Ezra Opus",
+        "popularity": 1.1,
+        "profile_path": null,
+        "credit_id": "k3",
+        "department": "Sound",
+        "job": "Original Music Composer"
+      },
+      {
+        "adult": false,
+        "gender": 2,
+        "id": 9103,
+        "known_for_department": "Camera",
+        "name": "Gaffer Gray",
+        "original_name": "Gaffer Gray",
+        "popularity": 0.4,
+        "profile_path": null,
+        "credit_id": "k4",
+        "department": "Lighting",
+        "job": "Gaffer"
+      }
+    ]
+  },
+  "keywords": {
+    "keywords": [
+      {
+        "id": 1,
+        "name": "video codec"
+      },
+      {
+        "id": 2,
+        "name": "heist"
+      }
+    ]
+  },
+  "videos": {
+    "results": [
+      {
+        "iso_639_1": "en",
+        "iso_3166_1": "US",
+        "name": "Teaser",
+        "key": "teaserKey01",
+        "site": "YouTube",
+        "size": 1080,
+        "type": "Teaser",
+        "official": true,
+        "published_at": "2015-01-01T00:00:00.000Z",
+        "id": "v1"
+      },
+      {
+        "iso_639_1": "en",
+        "iso_3166_1": "US",
+        "name": "Fan Trailer",
+        "key": "fanTrailer1",
+        "site": "YouTube",
+        "size": 1080,
+        "type": "Trailer",
+        "official": false,
+        "published_at": "2015-02-01T00:00:00.000Z",
+        "id": "v2"
+      },
+      {
+        "iso_639_1": "en",
+        "iso_3166_1": "US",
+        "name": "Official Trailer",
+        "key": "dQw4w9WgXcQ",
+        "site": "YouTube",
+        "size": 1080,
+        "type": "Trailer",
+        "official": true,
+        "published_at": "2015-03-01T00:00:00.000Z",
+        "id": "v3"
+      },
+      {
+        "iso_639_1": "en",
+        "iso_3166_1": "US",
+        "name": "Vimeo Trailer",
+        "key": "123456",
+        "site": "Vimeo",
+        "size": 1080,
+        "type": "Trailer",
+        "official": true,
+        "published_at": "2015-03-01T00:00:00.000Z",
+        "id": "v4"
+      }
+    ]
+  },
+  "recommendations": {
+    "page": 1,
+    "results": [
+      {
+        "id": 10378,
+        "title": "Big Buck Bunny"
+      },
+      {
+        "id": 500002,
+        "title": "Remux Fixture 2"
+      }
+    ],
+    "total_pages": 1,
+    "total_results": 2
+  },
+  "similar": {
+    "page": 1,
+    "results": [
+      {
+        "id": 500002,
+        "title": "Remux Fixture 2"
+      },
+      {
+        "id": 500003,
+        "title": "Another"
+      }
+    ],
+    "total_pages": 1,
+    "total_results": 2
   }
 }

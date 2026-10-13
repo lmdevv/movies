@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
 import { enqueueJob, MAX_JOB_ATTEMPTS } from "./lib/jobs";
+import { removeTitleCredits } from "./lib/people";
 import { endAuthSession } from "./lib/viewer";
 import {
   HOST_ABANDON_TIMEOUT_MS,
@@ -202,6 +203,16 @@ export const purgeLibrary = internalMutation({
       .query("titles")
       .withIndex("by_library", (q) => q.eq("libraryId", libraryId))
       .take(20);
+
+    const cleared = await Promise.all(
+      titles.map((title) => removeTitleCredits(ctx, title._id, PURGE_BATCH)),
+    );
+
+    if (cleared.includes(false)) {
+      await ctx.scheduler.runAfter(0, internal.maintenance.purgeLibrary, { libraryId });
+
+      return null;
+    }
 
     await Promise.all(
       titles.map(async (title) => {

@@ -18,6 +18,7 @@ import {
 } from "./lib/catalog";
 import { fail } from "./lib/errors";
 import { MAX_JOB_ATTEMPTS, requireLease, requireLeaseOf } from "./lib/jobs";
+import { CREDIT_LIMIT, replaceCredits } from "./lib/people";
 import { presentJob } from "./lib/present";
 import {
   backupArchive,
@@ -29,13 +30,18 @@ import {
   leaseArgs,
   mediaLibrary,
   metadataTarget as metadataTargetResult,
+  nullable,
   ok,
   page,
   pageArgs,
+  personTarget as personTargetResult,
   playbackMode,
   resolvedFile,
+  scannedCollection,
+  scannedCredit,
   scannedEpisode,
   scannedItem,
+  scannedPersonDetails,
   scannedTitle,
   sessionStatus as sessionStatusResult,
   upsertedFile,
@@ -379,6 +385,7 @@ export const metadataTarget = query({
       externalIds: title.externalIds,
       artwork: title.artwork,
       episodes: episodes.map((episode) => ({
+        episodeId: episode._id,
         seasonNumber: episode.seasonNumber,
         episodeNumber: episode.episodeNumber,
       })),
@@ -419,6 +426,205 @@ export const applyMetadata = mutation({
     if (current.kind === "show") {
       await inSequence(checkBatch(episodes), (episode) => upsertEpisode(ctx, titleId, episode));
     }
+
+    return { ok: true as const };
+  },
+});
+
+/**
+ * Whether a metadata write may change `title`: a scan may change any title an admin did not match
+ * by hand; a metadata job holding its lease may change the title it is for.
+ */
+const mayWriteMetadata = async (
+  ctx: MutationCtx,
+  title: Doc<"titles">,
+  lease: { readonly jobId: Id<"jobs">; readonly workerId: string } | undefined,
+): Promise<boolean> => {
+  if (lease === undefined) return title.matchStatus !== "manual";
+  const held = await requireLeaseOf(ctx, lease.jobId, lease.workerId, "metadata");
+
+  return held.payload.titleId === title._id
+    ? true
+    : fail("invalid_args", "This job is for another title");
+};
+
+const optionalLease = v.optional(v.object(leaseArgs));
+
+export const applyCredits = mutation({
+  args: {
+    titleId: v.id("titles"),
+    episodeId: nullable(v.id("episodes")),
+    credits: v.array(scannedCredit),
+    hash: v.string(),
+    lease: optionalLease,
+  },
+  returns: v.object({
+    written: v.boolean(),
+    people: v.array(v.object({ personId: v.id("people"), needsDetails: v.boolean() })),
+  }),
+  handler: async (ctx, { titleId, episodeId, credits, hash, lease }) => {
+    await authorize(ctx, "media-service");
+
+    if (credits.length > CREDIT_LIMIT) {
+      return fail("invalid_args", `Send at most ${CREDIT_LIMIT} credits per call`);
+    }
+
+    const title = (await ctx.db.get(titleId)) ?? fail("not_found", "No such title");
+    const episode = episodeId === null ? null : await ctx.db.get(episodeId);
+
+    if (episodeId !== null && episode?.titleId !== titleId) {
+      return fail("not_found", "No such episode of this title");
+    }
+
+    const unchanged = (episode === null ? title.creditsHash : episode.creditsHash) === hash;
+
+    if (unchanged || !(await mayWriteMetadata(ctx, title, lease))) {
+      return { written: false, people: [] };
+    }
+
+    const people = await replaceCredits(ctx, titleId, episodeId, credits);
+
+    if (episode === null) await ctx.db.patch(titleId, { creditsHash: hash });
+    else await ctx.db.patch(episode._id, { creditsHash: hash });
+
+    return {
+      written: true,
+      people: people.map((person) => ({
+        personId: person._id,
+        needsDetails: person.detailsFetchedAt === null && person.externalIds.tmdb !== null,
+      })),
+    };
+  },
+});
+
+/** Where an automatically added member sorts: by year, so a film series reads in order. */
+const positionOf = (title: Doc<"titles">): number => title.overrides?.year ?? title.year ?? 9999;
+
+/**
+ * Puts a title in the collection its metadata names, creating the collection on first sight, and
+ * takes it out of any other collection its metadata put it in. A collection of the same name that
+ * an import created is reused, so a TMDB collection and a Jellyfin box set become one.
+ */
+export const applyCollection = mutation({
+  args: { titleId: v.id("titles"), collection: nullable(scannedCollection), lease: optionalLease },
+  returns: ok,
+  handler: async (ctx, { titleId, collection, lease }) => {
+    await authorize(ctx, "media-service");
+    const title = (await ctx.db.get(titleId)) ?? fail("not_found", "No such title");
+
+    if (!(await mayWriteMetadata(ctx, title, lease))) return { ok: true as const };
+    const now = Date.now();
+
+    const target =
+      collection === null
+        ? null
+        : ((await ctx.db
+            .query("collections")
+            .withIndex("by_source_key", (q) => q.eq("sourceKey", collection.sourceKey))
+            .first()) ??
+          (await ctx.db
+            .query("collections")
+            .withIndex("by_sort", (q) => q.eq("sortKey", collection.name.trim().toLowerCase()))
+            .first()));
+
+    const collectionId =
+      collection === null
+        ? null
+        : target === null
+          ? await ctx.db.insert("collections", {
+              name: collection.name.trim(),
+              sortKey: collection.name.trim().toLowerCase(),
+              sourceKey: collection.sourceKey,
+              createdAt: now,
+              updatedAt: now,
+              overview: collection.overview,
+              poster: collection.poster,
+              backdrop: collection.backdrop,
+            })
+          : target._id;
+
+    if (collection !== null && target !== null) {
+      await ctx.db.patch(target._id, {
+        overview: collection.overview ?? target.overview ?? null,
+        poster: collection.poster ?? target.poster ?? null,
+        backdrop: collection.backdrop ?? target.backdrop ?? null,
+        updatedAt: now,
+      });
+    }
+
+    const memberships = await ctx.db
+      .query("collectionItems")
+      .withIndex("by_title", (q) => q.eq("titleId", titleId))
+      .collect();
+
+    await Promise.all(
+      memberships.flatMap((member) =>
+        member.source === "metadata" && member.collectionId !== collectionId
+          ? [ctx.db.delete(member._id)]
+          : [],
+      ),
+    );
+
+    const member = memberships.some((entry) => entry.collectionId === collectionId);
+
+    if (collectionId !== null && !member) {
+      await ctx.db.insert("collectionItems", {
+        collectionId,
+        titleId,
+        position: positionOf(title),
+        source: "metadata",
+      });
+    }
+
+    return { ok: true as const };
+  },
+});
+
+export const personTarget = query({
+  args: { personId: v.id("people") },
+  returns: personTargetResult,
+  handler: async (ctx, { personId }) => {
+    await authorize(ctx, "media-service");
+    const person = (await ctx.db.get(personId)) ?? fail("not_found", "No such person");
+
+    return { personId, name: person.name, externalIds: person.externalIds };
+  },
+});
+
+/** Writes a person's details during a person job, or a metadata job for top-billed people. */
+export const applyPerson = mutation({
+  args: { ...leaseArgs, personId: v.id("people"), details: scannedPersonDetails },
+  returns: ok,
+  handler: async (ctx, { jobId, workerId, personId, details }) => {
+    await authorize(ctx, "media-service");
+    const held = await requireLease(ctx, jobId, workerId);
+
+    if (held.payload.kind !== "person" && held.payload.kind !== "metadata") {
+      return fail("invalid_args", "This job is not a person or metadata job");
+    }
+
+    if (held.payload.kind === "person" && held.payload.personId !== personId) {
+      return fail("invalid_args", "This job is for another person");
+    }
+
+    const person = (await ctx.db.get(personId)) ?? fail("not_found", "No such person");
+
+    await ctx.db.patch(personId, {
+      name: details.name,
+      externalIds: {
+        tmdb: person.externalIds.tmdb ?? details.externalIds.tmdb,
+        imdb: details.externalIds.imdb ?? person.externalIds.imdb,
+        tvdb: details.externalIds.tvdb ?? person.externalIds.tvdb,
+      },
+      profile: details.profile ?? person.profile,
+      biography: details.biography,
+      birthDate: details.birthDate,
+      deathDate: details.deathDate,
+      birthPlace: details.birthPlace,
+      knownFor: details.knownFor,
+      detailsFetchedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
 
     return { ok: true as const };
   },

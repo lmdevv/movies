@@ -170,5 +170,7 @@ export const overrideImport = v.object({
 export const collection = v.object({
   id: v.id("collections"),
   name: v.string(),
+  overview: nullable(v.string()),
+  artwork: v.object({ poster: nullable(v.string()), backdrop: nullable(v.string()) }),
   titles: v.array(titleCard),
 });

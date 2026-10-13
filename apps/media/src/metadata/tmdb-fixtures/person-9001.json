@@ -1,0 +1,21 @@
+{
+  "adult": false,
+  "also_known_as": [],
+  "biography": "Ada Stream plays captains of every codec.",
+  "birthday": "1980-02-29",
+  "deathday": null,
+  "gender": 1,
+  "homepage": null,
+  "id": 9001,
+  "imdb_id": "nm0009001",
+  "known_for_department": "Acting",
+  "name": "Ada Stream",
+  "place_of_birth": "Lisbon, Portugal",
+  "popularity": 12.1,
+  "profile_path": "/ada.jpg",
+  "external_ids": {
+    "imdb_id": "nm0009001",
+    "tvdb_id": 77,
+    "freebase_mid": null
+  }
+}

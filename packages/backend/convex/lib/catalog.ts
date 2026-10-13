@@ -9,6 +9,7 @@ import type { Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { fail } from "./errors";
+import { NO_EXTERNAL_IDS } from "./present";
 import type { scannedEpisode, scannedItem, scannedTitle } from "./validators";
 
 /** Text the title search index matches: names, the year, and any override name. */
@@ -69,11 +70,73 @@ const adjustPresent = async (
   }
 };
 
+const YOUTUBE_KEY = /^[\w-]{6,20}$/u;
+
+/** Only a well-formed key reaches the embed URL the web app builds. */
+const checkedTrailer = (trailer: Infer<typeof scannedTitle>["trailer"]) =>
+  trailer === undefined || trailer === null || YOUTUBE_KEY.test(trailer.key) ? trailer : null;
+
+/** Title fields only metadata-aware writers send; a writer that omits one leaves it as stored. */
+type RichMetadata = Partial<
+  Pick<
+    Doc<"titles">,
+    | "originalName"
+    | "releaseDate"
+    | "status"
+    | "originalLanguage"
+    | "studios"
+    | "countries"
+    | "tags"
+    | "ratings"
+    | "trailer"
+    | "recommendations"
+  >
+>;
+
+/** The rich metadata fields a scanned title carries, bounded and checked. */
+const richMetadata = (scanned: Infer<typeof scannedTitle>): RichMetadata => {
+  const rich: RichMetadata = {};
+  const trailer = checkedTrailer(scanned.trailer);
+
+  if (scanned.originalName !== undefined) rich.originalName = scanned.originalName;
+
+  if (scanned.releaseDate !== undefined) rich.releaseDate = scanned.releaseDate;
+
+  if (scanned.status !== undefined) rich.status = scanned.status;
+
+  if (scanned.originalLanguage !== undefined) rich.originalLanguage = scanned.originalLanguage;
+
+  if (scanned.studios !== undefined) rich.studios = scanned.studios.slice(0, TITLE_LIST_LIMIT);
+
+  if (scanned.countries !== undefined) {
+    rich.countries = scanned.countries.slice(0, TITLE_LIST_LIMIT);
+  }
+
+  if (scanned.tags !== undefined) rich.tags = scanned.tags.slice(0, TITLE_TAG_LIMIT);
+
+  if (scanned.ratings !== undefined) rich.ratings = scanned.ratings;
+
+  if (trailer !== undefined) rich.trailer = trailer;
+
+  if (scanned.recommendations !== undefined) {
+    rich.recommendations = scanned.recommendations.slice(0, TITLE_LIST_LIMIT);
+  }
+
+  return rich;
+};
+
+/** Most studios, countries, or recommendations a title keeps; `TITLE_LIST_LIMIT` in contracts. */
+export const TITLE_LIST_LIMIT = 20;
+
+/** Most keywords a title keeps; `TITLE_TAG_LIMIT` in contracts. */
+export const TITLE_TAG_LIMIT = 40;
+
 /** The fields a scan or metadata job writes onto a title. */
 export const titleMetadata = (scanned: Infer<typeof scannedTitle>) => {
   const sortName = scanned.sortName ?? scanned.name;
 
   return {
+    ...richMetadata(scanned),
     kind: scanned.kind,
     name: scanned.name,
     sortName,
@@ -166,12 +229,19 @@ export const upsertEpisode = async (
       name: seasonName,
       poster: scanned.seasonPoster,
       episodeCount: 0,
+      externalIds: scanned.seasonExternalIds ?? NO_EXTERNAL_IDS,
     }));
 
-  if (season !== null && (scanned.seasonName !== null || scanned.seasonPoster !== null)) {
+  if (
+    season !== null &&
+    (scanned.seasonName !== null ||
+      scanned.seasonPoster !== null ||
+      scanned.seasonExternalIds !== undefined)
+  ) {
     await ctx.db.patch(season._id, {
       name: scanned.seasonName ?? season.name,
       poster: scanned.seasonPoster ?? season.poster,
+      externalIds: scanned.seasonExternalIds ?? season.externalIds,
     });
   }
 
@@ -191,6 +261,8 @@ export const upsertEpisode = async (
     airDate: scanned.airDate ?? existing?.airDate ?? null,
     runtimeMs: scanned.runtimeMs ?? existing?.runtimeMs ?? null,
     still: scanned.still ?? existing?.still ?? null,
+    rating: scanned.rating ?? existing?.rating ?? null,
+    externalIds: scanned.externalIds ?? existing?.externalIds ?? NO_EXTERNAL_IDS,
   };
 
   if (existing !== null) {

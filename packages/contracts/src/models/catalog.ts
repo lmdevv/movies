@@ -2,7 +2,16 @@
 import { Schema } from "effect";
 
 import { AgeRating } from "../content-rating";
-import { EpisodeId, LibraryId, MediaFileId, SeasonId, TitleId, UserId } from "../ids";
+import {
+  CollectionId,
+  EpisodeId,
+  LibraryId,
+  MediaFileId,
+  PersonId,
+  SeasonId,
+  TitleId,
+  UserId,
+} from "../ids";
 import { Bytes, EpochMillis, Milliseconds } from "../units";
 
 /** What a library holds. `mixed` folders contain both movies and shows. */
@@ -99,6 +108,112 @@ export const TitleCard = Schema.Struct({
 
 /** A title in a row or grid. */
 export interface TitleCard extends Schema.Schema.Type<typeof TitleCard> {}
+
+/** A community score on a 0–10 scale with the number of votes behind it, when known. */
+export const CommunityRating = Schema.Struct({
+  value: Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 10 })),
+  votes: Schema.NullOr(Schema.Int),
+});
+
+/** A community score with its vote count. */
+export interface CommunityRating extends Schema.Schema.Type<typeof CommunityRating> {}
+
+/**
+ * Scores from rating sites. TMDB comes with TMDB metadata or an NFO; IMDb, Rotten Tomatoes, and
+ * Metacritic come from an NFO or from OMDb when `OMDB_API_KEY` is set.
+ */
+export const Ratings = Schema.Struct({
+  tmdb: Schema.NullOr(CommunityRating),
+  imdb: Schema.NullOr(CommunityRating),
+  /** The Rotten Tomatoes critics score, 0–100. */
+  rottenTomatoes: Schema.NullOr(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 }))),
+  /** The Metacritic score, 0–100. */
+  metacritic: Schema.NullOr(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 }))),
+});
+
+/** Scores from rating sites. */
+export interface Ratings extends Schema.Schema.Type<typeof Ratings> {}
+
+/** Ratings of a title nobody has scored. */
+export const NO_RATINGS: Ratings = {
+  tmdb: null,
+  imdb: null,
+  rottenTomatoes: null,
+  metacritic: null,
+};
+
+/** A YouTube video ID: what `youtube-nocookie.com/embed/<key>` plays. */
+export const YouTubeKey = Schema.String.check(Schema.isPattern(/^[\w-]{6,20}$/u));
+
+/** A title's trailer on YouTube, from TMDB videos or an NFO `<trailer>`. */
+export const Trailer = Schema.Struct({
+  site: Schema.Literal("youtube"),
+  key: YouTubeKey,
+  name: Schema.NullOr(Schema.String),
+});
+
+/** A title's trailer. */
+export interface Trailer extends Schema.Schema.Type<typeof Trailer> {}
+
+/** Whether a show still airs, from TMDB's status or an NFO `<status>`. */
+export const ShowStatus = Schema.Literals([
+  "returning",
+  "ended",
+  "canceled",
+  "in-production",
+  "planned",
+]);
+
+/** Whether a show still airs. */
+export type ShowStatus = typeof ShowStatus.Type;
+
+/** What a person did on a title or episode. */
+export const CreditKind = Schema.Literals([
+  "actor",
+  "guest-star",
+  "director",
+  "writer",
+  "creator",
+  "producer",
+  "composer",
+]);
+
+/** What a person did on a title or episode. */
+export type CreditKind = typeof CreditKind.Type;
+
+/** One person's credit on a title or an episode. */
+export const Credit = Schema.Struct({
+  personId: PersonId,
+  name: Schema.String,
+  kind: CreditKind,
+  /** The character an actor plays, or a crew member's job such as `Screenplay`. */
+  role: Schema.NullOr(Schema.String),
+  /** The person's photo as an artwork key. */
+  profile: Schema.NullOr(Schema.String),
+  /** Billing order; lower comes first. */
+  order: Schema.Int,
+});
+
+/** One person's credit. */
+export interface Credit extends Schema.Schema.Type<typeof Credit> {}
+
+/** A person in search results and lists. */
+export const PersonCard = Schema.Struct({
+  id: PersonId,
+  name: Schema.String,
+  profile: Schema.NullOr(Schema.String),
+  /** The department they are best known for, such as `Acting` or `Directing`. */
+  knownFor: Schema.NullOr(Schema.String),
+});
+
+/** A person in search results. */
+export interface PersonCard extends Schema.Schema.Type<typeof PersonCard> {}
+
+/** The collection a title belongs to, such as `Alien Collection`. */
+export const CollectionRef = Schema.Struct({ id: CollectionId, name: Schema.String });
+
+/** The collection a title belongs to. */
+export interface CollectionRef extends Schema.Schema.Type<typeof CollectionRef> {}
 
 /** High dynamic range format of a video stream. */
 export const HdrFormat = Schema.Literals(["none", "hdr10", "hdr10plus", "hlg", "dolby_vision"]);
@@ -236,12 +351,24 @@ export const Episode = Schema.Struct({
   airDate: Schema.NullOr(Schema.String),
   runtimeMs: Schema.NullOr(Milliseconds),
   still: Schema.NullOr(Schema.String),
+  /** The episode's community score on a 0–10 scale. */
+  rating: Schema.NullOr(Schema.Finite),
+  externalIds: ExternalIds,
   available: Schema.Boolean,
   progress: Schema.NullOr(Progress),
 });
 
 /** An episode. */
 export interface Episode extends Schema.Schema.Type<typeof Episode> {}
+
+/** An episode in a season's list, with its guest stars and its own directors and writers. */
+export const SeasonEpisode = Schema.Struct({
+  ...Episode.fields,
+  credits: Schema.Array(Credit),
+});
+
+/** An episode in a season's list. */
+export interface SeasonEpisode extends Schema.Schema.Type<typeof SeasonEpisode> {}
 
 /** A season in a show's detail page. */
 export const Season = Schema.Struct({
@@ -250,6 +377,7 @@ export const Season = Schema.Struct({
   name: Schema.String,
   poster: Schema.NullOr(Schema.String),
   episodeCount: Schema.Int,
+  externalIds: ExternalIds,
 });
 
 /** A season. */
@@ -264,6 +392,26 @@ export const TitleDetail = Schema.Struct({
   tagline: Schema.NullOr(Schema.String),
   externalIds: ExternalIds,
   matchStatus: MatchStatus,
+  originalName: Schema.NullOr(Schema.String),
+  /** First release or air date, `YYYY-MM-DD`. */
+  releaseDate: Schema.NullOr(Schema.String),
+  /** For shows: whether it still airs. */
+  status: Schema.NullOr(ShowStatus),
+  /** ISO 639-1 code of the original language, such as `en`. */
+  originalLanguage: Schema.NullOr(Schema.String),
+  /** Production companies of a movie, networks of a show. */
+  studios: Schema.Array(Schema.String),
+  /** Production countries. */
+  countries: Schema.Array(Schema.String),
+  /** Keywords. */
+  tags: Schema.Array(Schema.String),
+  ratings: Ratings,
+  trailer: Schema.NullOr(Trailer),
+  collection: Schema.NullOr(CollectionRef),
+  /** Top-billed actors in billing order. */
+  cast: Schema.Array(Credit),
+  /** Creators, directors, writers, producers, and composers. */
+  crew: Schema.Array(Credit),
   seasons: Schema.Array(Season),
   /** A movie's versions; empty for shows, whose files belong to episodes. */
   files: Schema.Array(MediaFile),
@@ -313,6 +461,12 @@ export interface HistoryEntry extends Schema.Schema.Type<typeof HistoryEntry> {}
 
 /** Sort orders for title lists. */
 export const TitleSort = Schema.Literals(["name", "added", "year"]);
+
+/** A genre and how many visible titles carry it. */
+export const GenreCount = Schema.Struct({ name: Schema.String, count: Schema.Int });
+
+/** A genre and its title count. */
+export interface GenreCount extends Schema.Schema.Type<typeof GenreCount> {}
 
 /** Sort orders for title lists. */
 export type TitleSort = typeof TitleSort.Type;

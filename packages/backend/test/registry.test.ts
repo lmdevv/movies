@@ -37,6 +37,7 @@ import * as metadata from "../convex/metadata";
 import * as migration from "../convex/migration";
 import * as migrationService from "../convex/migrationService";
 import * as myList from "../convex/myList";
+import * as people from "../convex/people";
 import * as playback from "../convex/playback";
 import * as profiles from "../convex/profiles";
 import * as rooms from "../convex/rooms";
@@ -71,6 +72,7 @@ const modules = {
   migration,
   migrationService,
   myList,
+  people,
   playback,
   profiles,
   rooms,

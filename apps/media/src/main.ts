@@ -33,6 +33,7 @@ import * as MetadataRoutes from "./http/metadata-routes.ts";
 import * as Outbound from "./http/outbound.ts";
 import * as JobWorker from "./jobs/job-worker.ts";
 import * as MetadataJob from "./jobs/metadata-job.ts";
+import * as PersonJob from "./jobs/person-job.ts";
 import * as ScanJob from "./jobs/scan-job.ts";
 import * as LibraryMonitor from "./library/library-monitor.ts";
 import * as MemoryLibrary from "./library/memory-library.ts";
@@ -59,6 +60,7 @@ class MediaServiceKeyMissing extends Schema.TaggedError<MediaServiceKeyMissing>(
 const jobHandlers = Effect.all([
   ScanJob.handler,
   MetadataJob.handler,
+  PersonJob.handler,
   MigrationJob.handler,
   BackupJob.handler,
 ]);

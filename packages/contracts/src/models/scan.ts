@@ -2,9 +2,29 @@
 import { Schema } from "effect";
 
 import { AgeRating } from "../content-rating";
-import { EpisodeId, JobId, LibraryId, MediaFileId, PlaybackSessionId, TitleId } from "../ids";
+import {
+  EpisodeId,
+  JobId,
+  LibraryId,
+  MediaFileId,
+  PersonId,
+  PlaybackSessionId,
+  TitleId,
+} from "../ids";
 import { Bytes, EpochMillis, Milliseconds } from "../units";
-import { Artwork, ExternalIds, ExternalSubtitle, LibraryKind, Probe, TitleKind } from "./catalog";
+import {
+  Artwork,
+  CommunityRating,
+  CreditKind,
+  ExternalIds,
+  ExternalSubtitle,
+  LibraryKind,
+  Probe,
+  Ratings,
+  ShowStatus,
+  TitleKind,
+  Trailer,
+} from "./catalog";
 import { Job } from "./jobs";
 
 /** Most items one scan or import write may carry. */
@@ -40,6 +60,18 @@ export const LeaseArgs = {
 /** How long a claim or renewal holds the lease: 5 seconds to 10 minutes. */
 export const LeaseMs = Schema.Int.check(Schema.isBetween({ minimum: 5_000, maximum: 600_000 }));
 
+/** Most studios, countries, or recommendations a title keeps. */
+export const TITLE_LIST_LIMIT = 20;
+
+/** Most keywords a title keeps. */
+export const TITLE_TAG_LIMIT = 40;
+
+/** Most credits one `mediaService.applyCredits` call may carry. */
+export const CREDIT_BATCH_LIMIT = 100;
+
+const Bounded = <Item extends Schema.Top>(item: Item, limit: number) =>
+  Schema.Array(item).check(Schema.isMaxLength(limit));
+
 /**
  * A title as the scanner identified and matched it. `matchKey` identifies the title within its
  * library across scans, such as `tmdb:603` or `local:the matrix (1999)`.
@@ -59,6 +91,17 @@ export const ScannedTitle = Schema.Struct({
   artwork: Artwork,
   externalIds: ExternalIds,
   matchStatus: Schema.Literals(["matched", "unmatched"]),
+  originalName: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  releaseDate: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  status: Schema.optionalKey(Schema.NullOr(ShowStatus)),
+  originalLanguage: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  studios: Schema.optionalKey(Bounded(Schema.String, TITLE_LIST_LIMIT)),
+  countries: Schema.optionalKey(Bounded(Schema.String, TITLE_LIST_LIMIT)),
+  tags: Schema.optionalKey(Bounded(Schema.String, TITLE_TAG_LIMIT)),
+  ratings: Schema.optionalKey(Ratings),
+  trailer: Schema.optionalKey(Schema.NullOr(Trailer)),
+  /** TMDB IDs of the provider's recommendations, best first; resolved against the library on read. */
+  recommendations: Schema.optionalKey(Bounded(Schema.String, TITLE_LIST_LIMIT)),
 });
 
 /** A scanned title. */
@@ -75,6 +118,9 @@ export const ScannedEpisode = Schema.Struct({
   still: Schema.NullOr(Schema.String),
   seasonName: Schema.NullOr(Schema.String),
   seasonPoster: Schema.NullOr(Schema.String),
+  rating: Schema.optionalKey(Schema.NullOr(CommunityRating)),
+  externalIds: Schema.optionalKey(ExternalIds),
+  seasonExternalIds: Schema.optionalKey(ExternalIds),
 });
 
 /** A scanned episode. */
@@ -110,6 +156,9 @@ export const UpsertedFile = Schema.Struct({
   titleId: TitleId,
   episodeId: Schema.NullOr(EpisodeId),
 });
+
+/** Where an upserted file landed. */
+export interface UpsertedFile extends Schema.Schema.Type<typeof UpsertedFile> {}
 
 /** A known file, for skipping unchanged files and detecting missing ones. */
 export const IndexedFile = Schema.Struct({
@@ -158,5 +207,70 @@ export const MetadataTarget = Schema.Struct({
   externalIds: ExternalIds,
   /** The title's current artwork, kept where the provider has none. */
   artwork: Artwork,
-  episodes: Schema.Array(Schema.Struct({ seasonNumber: Schema.Int, episodeNumber: Schema.Int })),
+  episodes: Schema.Array(
+    Schema.Struct({ episodeId: EpisodeId, seasonNumber: Schema.Int, episodeNumber: Schema.Int }),
+  ),
 });
+
+/** A person as a scan or metadata job found them on a credit. */
+export const ScannedPerson = Schema.Struct({
+  name: Schema.Trimmed.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+  externalIds: ExternalIds,
+  /** The person's photo as an artwork key. */
+  profile: Schema.NullOr(Schema.String),
+});
+
+/** A person on a credit. */
+export interface ScannedPerson extends Schema.Schema.Type<typeof ScannedPerson> {}
+
+/** One credit as a scan or metadata job found it. */
+export const ScannedCredit = Schema.Struct({
+  person: ScannedPerson,
+  kind: CreditKind,
+  role: Schema.NullOr(Schema.String),
+  order: Schema.Int,
+});
+
+/** One scanned credit. */
+export interface ScannedCredit extends Schema.Schema.Type<typeof ScannedCredit> {}
+
+/** A lease held by a metadata or person job, which may write titles an admin matched by hand. */
+export const OptionalLease = Schema.optionalKey(Schema.Struct(LeaseArgs));
+
+/** The collection a title belongs to, from TMDB or an NFO `<set>`. */
+export const ScannedCollection = Schema.Struct({
+  /** `tmdb:<id>` for TMDB collections, `set:<name>` for NFO sets. */
+  sourceKey: Schema.Trimmed.check(Schema.isMinLength(1), Schema.isMaxLength(300)),
+  name: Schema.Trimmed.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+  overview: Schema.NullOr(Schema.String),
+  poster: Schema.NullOr(Schema.String),
+  backdrop: Schema.NullOr(Schema.String),
+});
+
+/** The collection a title belongs to. */
+export interface ScannedCollection extends Schema.Schema.Type<typeof ScannedCollection> {}
+
+/** A person's details from the metadata provider. */
+export const ScannedPersonDetails = Schema.Struct({
+  name: Schema.Trimmed.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+  externalIds: ExternalIds,
+  profile: Schema.NullOr(Schema.String),
+  biography: Schema.NullOr(Schema.String),
+  birthDate: Schema.NullOr(Schema.String),
+  deathDate: Schema.NullOr(Schema.String),
+  birthPlace: Schema.NullOr(Schema.String),
+  knownFor: Schema.NullOr(Schema.String),
+});
+
+/** A person's details. */
+export interface ScannedPersonDetails extends Schema.Schema.Type<typeof ScannedPersonDetails> {}
+
+/** A person for a person job: who to look up. */
+export const PersonTarget = Schema.Struct({
+  personId: PersonId,
+  name: Schema.String,
+  externalIds: ExternalIds,
+});
+
+/** A person to look up. */
+export interface PersonTarget extends Schema.Schema.Type<typeof PersonTarget> {}

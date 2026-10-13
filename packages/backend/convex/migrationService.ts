@@ -579,8 +579,20 @@ export const importCollections = mutation({
         .withIndex("by_collection_position", (q) => q.eq("collectionId", collectionId))
         .collect();
 
-      await inSequence(members, (member) => ctx.db.delete(member._id));
-      const titleIds = [...new Set(item.titleIds)].slice(0, COLLECTION_LIMIT);
+      // Members a title's metadata added (a TMDB collection or NFO set) stay; the import's own
+      // members are replaced.
+      const kept = new Set(
+        members.flatMap((member) => (member.source === "metadata" ? [member.titleId] : [])),
+      );
+
+      await inSequence(
+        members.filter((member) => member.source !== "metadata"),
+        (member) => ctx.db.delete(member._id),
+      );
+
+      const titleIds = [...new Set(item.titleIds)]
+        .filter((titleId) => !kept.has(titleId))
+        .slice(0, COLLECTION_LIMIT);
 
       const present = await inSequence(titleIds, async (titleId) =>
         (await ctx.db.get(titleId)) === null ? [] : [titleId],

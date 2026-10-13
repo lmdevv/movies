@@ -1,0 +1,17 @@
+{
+  "id": 700001,
+  "name": "Remux Fixture Collection",
+  "overview": "Every Remux Fixture film.",
+  "poster_path": "/remux-collection-poster.jpg",
+  "backdrop_path": "/remux-collection-backdrop.jpg",
+  "parts": [
+    {
+      "id": 500001,
+      "title": "Remux Fixture"
+    },
+    {
+      "id": 500002,
+      "title": "Remux Fixture 2"
+    }
+  ]
+}

@@ -11,7 +11,51 @@
       "runtime": 24,
       "season_number": 1,
       "still_path": "/s01e01.jpg",
-      "vote_average": 8.1
+      "vote_average": 8.1,
+      "vote_count": 14,
+      "crew": [
+        {
+          "job": "Director",
+          "department": "Directing",
+          "credit_id": "e1",
+          "adult": false,
+          "gender": 1,
+          "id": 9101,
+          "known_for_department": "Directing",
+          "name": "Dana Keyframe",
+          "original_name": "Dana Keyframe",
+          "popularity": 3.3,
+          "profile_path": "/dana.jpg"
+        },
+        {
+          "job": "Writer",
+          "department": "Writing",
+          "credit_id": "e2",
+          "adult": false,
+          "gender": 1,
+          "id": 9401,
+          "known_for_department": "Writing",
+          "name": "Wren Writer",
+          "original_name": "Wren Writer",
+          "popularity": 1.0,
+          "profile_path": null
+        }
+      ],
+      "guest_stars": [
+        {
+          "character": "Visiting Engineer",
+          "credit_id": "g1",
+          "order": 0,
+          "adult": false,
+          "gender": 2,
+          "id": 9501,
+          "known_for_department": "Acting",
+          "name": "Gus Guest",
+          "original_name": "Gus Guest",
+          "popularity": 2.0,
+          "profile_path": "/gus.jpg"
+        }
+      ]
     },
     {
       "air_date": "2021-01-08",
@@ -22,7 +66,9 @@
       "runtime": null,
       "season_number": 1,
       "still_path": null,
-      "vote_average": 0
+      "vote_average": 0,
+      "crew": [],
+      "guest_stars": []
     }
   ],
   "id": 2001,
