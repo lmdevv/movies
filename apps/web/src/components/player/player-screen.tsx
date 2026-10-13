@@ -471,11 +471,17 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       const choice = parseQualityChoice(id);
 
       if (choice === undefined) return;
-      saveQualityChoice(choice);
       controller?.selectQuality(choice);
     },
     [controller],
   );
+
+  // Remember the quality the player settled on: a choice the service refused is reverted first.
+  const settledQuality = snapshot?.quality ?? null;
+
+  useEffect(() => {
+    if (settledQuality !== null) saveQualityChoice(settledQuality);
+  }, [settledQuality]);
 
   // Show the chosen subtitle track; the element keeps one text track per <track>. While a TV
   // plays, it shows the subtitles and the paused element shows none.

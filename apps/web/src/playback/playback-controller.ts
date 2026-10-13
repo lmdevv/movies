@@ -122,6 +122,16 @@ const sleep = (ms: number): Promise<void> =>
 
 const isPlaying = PlaybackPhase.$is("Playing");
 
+/**
+ * Answers to a negotiation the viewer asked for (another quality or picture subtitle) that mean
+ * the service cannot give that stream now; the choice is undone and the current stream plays on.
+ */
+const UNHONOURED = [
+  "UnsupportedPlayback",
+  "TranscodeCapacityReached",
+  "InsufficientTranscodeSpace",
+] as const;
+
 /** Plays one request in one element. Create it, `start` it, and `dispose` it. */
 export class PlaybackController {
   /** The element as the SDK sees it. */
@@ -651,7 +661,7 @@ export class PlaybackController {
     if (Result.isFailure(renewed)) {
       if (
         options.revert !== undefined &&
-        Predicate.isTagged(renewed.failure, "UnsupportedPlayback")
+        UNHONOURED.some((tag) => Predicate.isTagged(renewed.failure, tag))
       ) {
         options.revert();
 
