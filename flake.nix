@@ -27,6 +27,8 @@
             pkgs.pnpm
             # ffmpeg-full carries libvpl (Intel QSV); the default ffmpeg does not.
             pkgs.ffmpeg-full
+            # spumux renders the demo library's image (VobSub) subtitle.
+            pkgs.dvdauthor
           ];
         };
       });
