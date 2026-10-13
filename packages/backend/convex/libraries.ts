@@ -8,6 +8,7 @@ import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { visibleLibraryIds } from "./lib/access";
 import { fail } from "./lib/errors";
+import { checkDisplayName } from "./lib/bounds";
 import { enqueueJob } from "./lib/jobs";
 import { checkRoots } from "./lib/roots";
 import { presentLibrary, presentLibraryDetail } from "./lib/present";
@@ -54,15 +55,7 @@ const grantedUsers = async (ctx: QueryCtx, libraryId: Id<"libraries">) => {
 const detail = async (ctx: QueryCtx, doc: Doc<"libraries">) =>
   presentLibraryDetail(doc, await isScanning(ctx, doc._id), await grantedUsers(ctx, doc._id));
 
-const checkName = (name: string): string => {
-  const trimmed = name.trim();
-
-  if (trimmed.length === 0 || trimmed.length > 80) {
-    return fail("invalid_args", "Library names have 1 to 80 characters");
-  }
-
-  return trimmed;
-};
+const checkName = (name: string): string => checkDisplayName(name, "Library names");
 
 /** Libraries the account can see. */
 export const list = query({
@@ -165,7 +158,10 @@ export const update = mutation({
   },
 });
 
-/** Removes a library from [movies]. Files on disk are untouched; its catalog is purged in batches. */
+/**
+ * Removes a library from [movies]. Files on disk are untouched; its catalog is purged in batches,
+ * which also end the playback and rooms on its titles.
+ */
 export const remove = mutation({
   args: { libraryId: v.id("libraries") },
   returns: ok,

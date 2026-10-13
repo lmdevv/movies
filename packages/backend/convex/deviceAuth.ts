@@ -11,6 +11,7 @@ import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import type { QueryCtx } from "./_generated/server";
 import { action, internalMutation, mutation, query } from "./_generated/server";
+import { checkDisplayName } from "./lib/bounds";
 import { normalizeUserCode, randomSecret, randomUserCode, sha256Hex } from "./lib/crypto";
 import { siteUrl } from "./lib/env";
 import { fail } from "./lib/errors";
@@ -65,7 +66,7 @@ export const insert = internalMutation({
     await ctx.db.insert("deviceCodes", {
       deviceCodeHash,
       userCode,
-      clientName: clientName.trim(),
+      clientName: checkDisplayName(clientName, "Device names"),
       status: "pending",
       expiresAt,
     });

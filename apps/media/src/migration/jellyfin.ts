@@ -19,6 +19,7 @@ import type {
   SourceItem,
   SourceItemState,
   SourceLibrary,
+  SourceLibraryAccess,
   SourceManifest,
   SourceSession,
   SourceTarget,
@@ -62,6 +63,8 @@ const Users = Schema.Array(
       Schema.Struct({
         isAdministrator: optional(Schema.Boolean),
         isDisabled: optional(Schema.Boolean),
+        enableAllFolders: optional(Schema.Boolean),
+        enabledFolders: optional(Schema.Array(Schema.String)),
       }),
     ),
   }),
@@ -161,6 +164,39 @@ const kindOf = (type: string): SourceItem["kind"] | null => {
   if (type === "Series") return "series";
 
   return type === "Episode" ? "episode" : null;
+};
+
+type JellyfinUser = (typeof Users.Type)[number];
+
+/** Jellyfin writes folder IDs with dashes in policies and without them on virtual folders. */
+const folderKey = (id: string): string => id.replaceAll("-", "").toLowerCase();
+
+/** Whether a user's policy lets them see a library; null when the policy does not say. */
+const userSees = (user: JellyfinUser, libraryId: string): boolean | null => {
+  const policy = user.policy;
+
+  if (policy?.enableAllFolders === true) return true;
+
+  if (policy?.enableAllFolders === undefined || policy.enableAllFolders === null) return null;
+
+  return (policy.enabledFolders ?? []).some((folder) => folderKey(folder) === folderKey(libraryId));
+};
+
+/** Who among the active users can see a library, from their policies. */
+const accessOf = (users: ReadonlyArray<JellyfinUser>, libraryId: string): SourceLibraryAccess => {
+  const seen = users.map((user) => ({ userId: user.id, sees: userSees(user, libraryId) }));
+
+  // No active users says nothing about who may see it; `every` would call that everyone.
+  if (seen.length === 0) return { kind: "unknown" };
+
+  if (seen.every(({ sees }) => sees === true)) return { kind: "everyone" };
+
+  if (seen.every(({ sees }) => sees === null)) return { kind: "unknown" };
+
+  return {
+    kind: "users",
+    userIds: seen.flatMap(({ userId, sees }) => (sees === true ? [userId] : [])),
+  };
 };
 
 const libraryKind = (collectionType: string | null | undefined): SourceLibrary["kind"] => {
@@ -300,6 +336,8 @@ const openSession = Effect.fnUntraced(function* (target: SourceTarget) {
   const users = yield* http.get("users", "/Users", {}, Users);
   const folders = yield* http.get("libraries", "/Library/VirtualFolders", {}, VirtualFolders);
 
+  const activeUsers = users.filter((user) => user.policy?.isDisabled !== true);
+
   const libraries = folders.flatMap((folder): Array<SourceLibrary> => {
     const libraryId = text(folder.itemId);
 
@@ -311,19 +349,18 @@ const openSession = Effect.fnUntraced(function* (target: SourceTarget) {
             name: folder.name,
             kind: libraryKind(folder.collectionType),
             paths: folder.locations ?? [],
+            access: accessOf(activeUsers, libraryId),
           },
         ];
   });
 
-  const sourceUsers = users
-    .filter((user) => user.policy?.isDisabled !== true)
-    .map((user): SourceUser => ({
-      userId: user.id,
-      name: user.name,
-      email: null,
-      isAdmin: user.policy?.isAdministrator === true,
-      history: "full",
-    }));
+  const sourceUsers = activeUsers.map((user): SourceUser => ({
+    userId: user.id,
+    name: user.name,
+    email: null,
+    isAdmin: user.policy?.isAdministrator === true,
+    history: "full",
+  }));
 
   const videoLibraries = libraries.filter((library) => library.kind !== "other");
 

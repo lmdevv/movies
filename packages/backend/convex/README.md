@@ -3,7 +3,9 @@
 Plain TypeScript with `v` validators; no Effect here. Each public function authorizes first with
 `authorize(ctx, scope)` from `lib/viewer.ts`. Profile, PIN, library, and rating checks go through
 `lib/access.ts`; results are built by `lib/present.ts` against the validators in
-`lib/validators.ts`, which mirror `@movies/contracts`.
+`lib/validators.ts`, which mirror `@movies/contracts`. `lib/bounds.ts` enforces the contracts'
+length and range bounds that validators cannot express, and holds the constants shared with
+contracts; `lib/roots.ts` keeps library folders apart.
 
 | Module                                                 | Role                                                                 |
 | ------------------------------------------------------ | -------------------------------------------------------------------- |
@@ -20,7 +22,6 @@ Plain TypeScript with `v` validators; no Effect here. Each public function autho
 | `jobs.ts`, `metadata.ts`, `backups.ts`, `migration.ts` | Admin and background jobs                                            |
 | `mediaService.ts`                                      | Everything the media service calls (scope `media-service`)           |
 | `maintenance.ts`, `crons.ts`                           | Presence, expiry, lease, idle-session sweeps, nightly backup, purges |
-| `healthCheck.ts`                                       | The scaffold's health probe, used by the web shell                   |
 
 ## Tests
 

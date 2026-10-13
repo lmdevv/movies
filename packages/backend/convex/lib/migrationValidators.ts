@@ -63,11 +63,18 @@ const plannedUser = v.object({
   history: v.union(v.literal("full"), v.literal("plays")),
 });
 
+/** Mirrors `PlannedLibraryAccess`. */
+export const plannedLibraryAccess = v.union(
+  v.object({ kind: v.literal("everyone") }),
+  v.object({ kind: v.literal("users"), sourceUserIds: v.array(v.string()) }),
+);
+
 /** Mirrors `PlannedLibrary`. */
 const plannedLibrary = v.object({
   name: v.string(),
   kind: libraryKind,
   roots: v.array(v.string()),
+  access: v.optional(plannedLibraryAccess),
 });
 
 /** Mirrors `StoredMigrationPlan`. */

@@ -2,6 +2,7 @@ import type { JobId } from "@movies/contracts/ids";
 import type {
   MigrationConnection,
   MigrationSourceFailure,
+  PlannedLibraryAccess,
 } from "@movies/contracts/models/migration";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
@@ -115,6 +116,19 @@ function UnmappedFolder({
     </form>
   );
 }
+
+/**
+ * Who a library the import adds is shared with: everyone, as on the source, or admins and the
+ * imported people who could see it there. A source that does not say leaves it to admins.
+ */
+const sharedWith = (access: PlannedLibraryAccess): string => {
+  if (access.kind === "everyone") return "everyone";
+  const people = access.sourceUserIds.length;
+
+  if (people === 0) return "admins only";
+
+  return people === 1 ? "admins and 1 person" : `admins and ${formatCount(people)} people`;
+};
 
 /**
  * 02 Review: the dry run's summary before anything is written. Each source user's history goes to
@@ -246,7 +260,10 @@ export function Review({
                 {library.roots.length === 0 ? "—" : library.roots.join(", ")}
               </span>
               <span className="shrink-0 font-sans text-label/5 text-text-muted">
-                {library.name} · {library.existingLibraryId === null ? "new" : "already here"}
+                {library.name} ·{" "}
+                {library.existingLibraryId === null
+                  ? `new, ${sharedWith(library.access)}`
+                  : "already here"}
               </span>
             </div>
             {library.unmappedFolders.map((folder) => (

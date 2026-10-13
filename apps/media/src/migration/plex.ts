@@ -301,6 +301,9 @@ const openSession = Effect.fnUntraced(function* (target: SourceTarget) {
     name: section.title,
     kind: libraryKind(section.type),
     paths: (section.Location ?? []).map((location) => location.path),
+    // A local server token cannot read which libraries the owner shared with whom (plex.tv
+    // holds that), so the import opens added libraries to admins only.
+    access: { kind: "unknown" },
   }));
 
   const videoLibraries = libraries.filter((library) => library.kind !== "other");

@@ -207,6 +207,10 @@ export default defineSchema({
     .index("by_kind_tmdb", ["kind", "externalIds.tmdb"])
     .index("by_library", ["libraryId"])
     .index("by_library_status", ["libraryId", "matchStatus"])
+    // `titles.list` filtered by library, in each of its orders.
+    .index("by_library_sort", ["libraryId", "sortKey"])
+    .index("by_library_added", ["libraryId", "addedAt"])
+    .index("by_library_year", ["libraryId", "year"])
     .index("by_kind_sort", ["kind", "sortKey"])
     .index("by_kind_added", ["kind", "addedAt"])
     .index("by_kind_year", ["kind", "year"])
@@ -374,7 +378,9 @@ export default defineSchema({
     .index("by_status_ended", ["status", "endedAt"])
     .index("by_status_report", ["status", "lastReportAt"])
     .index("by_user_status", ["userId", "status"])
-    .index("by_auth_session", ["authSessionId"]),
+    .index("by_auth_session", ["authSessionId"])
+    // Ending the playback of a removed library's titles.
+    .index("by_title_status", ["titleId", "status"]),
 
   rooms: defineTable({
     titleId: v.id("titles"),
@@ -391,7 +397,10 @@ export default defineSchema({
     hostLastSeenAt: v.number(),
     hostAway: v.boolean(),
     endedAt: v.optional(v.number()),
-  }).index("by_status", ["status"]),
+  })
+    .index("by_status", ["status"])
+    // Ending the rooms of a removed library's titles.
+    .index("by_title_status", ["titleId", "status"]),
 
   roomMembers: defineTable({
     roomId: v.id("rooms"),

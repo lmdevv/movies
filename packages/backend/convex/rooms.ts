@@ -9,7 +9,15 @@ import type { Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { loadAudience, loadVisibleTitle, visibleLibraryIds } from "./lib/access";
+import {
+  canSee,
+  isProfileUnlocked,
+  loadAudience,
+  loadVisibleTitle,
+  visibleLibraryIds,
+} from "./lib/access";
+import { checkDeviceId, checkMilliseconds } from "./lib/bounds";
+import { endRoom } from "./lib/endings";
 import { fail } from "./lib/errors";
 import { resolvePlayable } from "./lib/playable";
 import { presentEpisode, presentRoomClock, presentTitleCard } from "./lib/present";
@@ -75,14 +83,54 @@ const presentRoom = async (ctx: QueryCtx, doc: Doc<"rooms">): Promise<Infer<type
   };
 };
 
-/** Whether the viewer is in the room on any device. */
-const isMember = async (ctx: QueryCtx, viewer: Viewer, roomId: Id<"rooms">): Promise<boolean> => {
+/** The viewer's memberships of the room, one per device it joined on. */
+const membershipsOf = async (
+  ctx: QueryCtx,
+  viewer: Viewer,
+  roomId: Id<"rooms">,
+): Promise<Array<Doc<"roomMembers">>> => {
   const members = await ctx.db
     .query("roomMembers")
     .withIndex("by_room_device", (q) => q.eq("roomId", roomId))
     .collect();
 
-  return members.some((member) => member.userId === viewer.userId);
+  return members.filter((member) => member.userId === viewer.userId);
+};
+
+/**
+ * Whether one of the profiles the viewer joined with, unlocked on this session, may still see the
+ * room's title: the host can
+ * switch the room to a title a guest's profile may not see, and then that guest stops seeing it.
+ */
+const membersMaySee = async (
+  ctx: QueryCtx,
+  viewer: Viewer,
+  memberships: ReadonlyArray<Doc<"roomMembers">>,
+  title: Doc<"titles">,
+): Promise<boolean> => {
+  const libraryIds = await visibleLibraryIds(ctx, viewer);
+  const profiles = await Promise.all(memberships.map((member) => ctx.db.get(member.profileId)));
+
+  // A profile joined on another session may have a PIN this session has not entered.
+  return profiles.some(
+    (profile) =>
+      profile !== null &&
+      isProfileUnlocked(viewer, profile) &&
+      canSee({ viewer, profile, libraryIds }, title),
+  );
+};
+
+/** Whether the viewer, as a member, may read the room: see `membersMaySee`. */
+const memberMayRead = async (
+  ctx: QueryCtx,
+  viewer: Viewer,
+  room: Doc<"rooms">,
+): Promise<boolean> => {
+  const title = await ctx.db.get(room.titleId);
+
+  return (
+    title !== null && membersMaySee(ctx, viewer, await membershipsOf(ctx, viewer, room._id), title)
+  );
 };
 
 /**
@@ -119,10 +167,7 @@ const hostCommand = async (
   return presentRoomClock(await loadRoom(ctx, current._id));
 };
 
-const checkPosition = (positionMs: number): number =>
-  Number.isFinite(positionMs) && positionMs >= 0
-    ? positionMs
-    : fail("invalid_args", "Positions are zero or more milliseconds");
+const checkPosition = (positionMs: number): number => checkMilliseconds(positionMs, "Positions");
 
 export const create = mutation({
   args: {
@@ -136,6 +181,7 @@ export const create = mutation({
   returns: roomResult,
   handler: async (ctx, args) => {
     const viewer = await authorize(ctx, "play");
+    checkDeviceId(args.deviceId);
     const audience = await loadAudience(ctx, viewer, args.profileId);
     const title = await loadVisibleTitle(ctx, audience, args.titleId);
 
@@ -156,11 +202,7 @@ export const create = mutation({
         const previous = await ctx.db.get(member.roomId);
 
         if (previous !== null && member.role === "host" && previous.status !== "ended") {
-          await ctx.db.patch(previous._id, {
-            status: "ended",
-            endedAt: now,
-            revision: previous.revision + 1,
-          });
+          await endRoom(ctx, previous, now);
         }
 
         await ctx.db.delete(member._id);
@@ -197,24 +239,42 @@ export const create = mutation({
   },
 });
 
-/** A room as members and account holders who can see its title see it. */
+/**
+ * A room as its members see it, while a profile they joined with may see its title. Someone with
+ * the room's link who has not joined names the profile they would join with: when that profile may
+ * see the title they get the room without its members, so the link page can open the player.
+ * Everyone else gets `not_found`, as for a missing room.
+ */
 export const get = query({
-  args: { roomId: v.id("rooms") },
+  args: { roomId: v.id("rooms"), profileId: v.optional(v.id("profiles")) },
   returns: roomResult,
-  handler: async (ctx, { roomId }) => {
+  handler: async (ctx, { roomId, profileId }) => {
     const viewer = await authorize(ctx, "read");
     const found = await loadRoom(ctx, roomId);
     const title = await ctx.db.get(found.titleId);
-    const libraries = await visibleLibraryIds(ctx, viewer);
 
-    if (
-      !(await isMember(ctx, viewer, roomId)) &&
-      (title === null || !libraries.has(title.libraryId))
-    ) {
+    if (title === null) return fail("not_found", "No such room");
+    const memberships = await membershipsOf(ctx, viewer, roomId);
+
+    if (memberships.length > 0) {
+      return (await membersMaySee(ctx, viewer, memberships, title))
+        ? presentRoom(ctx, found)
+        : fail("not_found", "No such room");
+    }
+
+    // Any profile that cannot be used here (another account's, or PIN-locked on this session)
+    // answers as a missing room does, so the reply never tells whether the room exists.
+    const profile = profileId === undefined ? null : await ctx.db.get(profileId);
+
+    if (profile?.userId !== viewer.userId || !isProfileUnlocked(viewer, profile)) {
       return fail("not_found", "No such room");
     }
 
-    return presentRoom(ctx, found);
+    const libraryIds = await visibleLibraryIds(ctx, viewer);
+
+    if (!canSee({ viewer, profile, libraryIds }, title)) return fail("not_found", "No such room");
+
+    return { ...(await presentRoom(ctx, found)), members: [] };
   },
 });
 
@@ -232,7 +292,10 @@ export const current = query({
     const rooms = await Promise.all(memberships.map((member) => ctx.db.get(member.roomId)));
     const live = rooms.find((doc) => doc !== null && doc.status !== "ended");
 
-    return live === undefined || live === null ? null : presentRoom(ctx, live);
+    // Read only as `rooms.get` would allow: a joined profile still unlocked that may see the title.
+    return live === undefined || live === null || !(await memberMayRead(ctx, viewer, live))
+      ? null
+      : presentRoom(ctx, live);
   },
 });
 
@@ -241,6 +304,7 @@ export const join = mutation({
   returns: roomResult,
   handler: async (ctx, { roomId, profileId, deviceId }) => {
     const viewer = await authorize(ctx, "play");
+    checkDeviceId(deviceId);
     const found = await loadRoom(ctx, roomId);
 
     if (found.status === "ended") return fail("conflict", "This room has ended");
@@ -275,18 +339,6 @@ export const join = mutation({
   },
 });
 
-const endRoom = async (ctx: MutationCtx, doc: Doc<"rooms">): Promise<void> => {
-  const now = Date.now();
-
-  await ctx.db.patch(doc._id, {
-    status: "ended",
-    positionAtAnchorMs: livePosition(doc, now),
-    anchorServerTime: now,
-    revision: doc.revision + 1,
-    endedAt: now,
-  });
-};
-
 /** Leaves the room. A guest leaving changes nothing else; the host leaving ends the room. */
 export const leave = mutation({
   args: { roomId: v.id("rooms"), deviceId: v.string() },
@@ -303,7 +355,7 @@ export const leave = mutation({
     if (member?.userId !== viewer.userId) return { ok: true as const };
     await ctx.db.delete(member._id);
 
-    if (member.role === "host" && found.status !== "ended") await endRoom(ctx, found);
+    if (member.role === "host" && found.status !== "ended") await endRoom(ctx, found, Date.now());
 
     return { ok: true as const };
   },
@@ -462,7 +514,7 @@ export const end = mutation({
       return fail("forbidden", "Only the host's device can end the room");
     }
 
-    if (found.status !== "ended") await endRoom(ctx, found);
+    if (found.status !== "ended") await endRoom(ctx, found, Date.now());
 
     return { ok: true as const };
   },

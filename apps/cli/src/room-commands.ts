@@ -7,7 +7,7 @@
 import { targetPosition } from "@movies/contracts/clock";
 import { commands } from "@movies/contracts/commands";
 import { NotFound } from "@movies/contracts/errors";
-import { EpisodeId, RoomId } from "@movies/contracts/ids";
+import { EpisodeId, ProfileId, RoomId } from "@movies/contracts/ids";
 import type { Room, RoomClock } from "@movies/contracts/models/rooms";
 import type { EpochMillis, Milliseconds } from "@movies/contracts/units";
 import {
@@ -35,6 +35,22 @@ import type { Connection } from "./session";
 import { connect } from "./session";
 import { findTitle } from "./watch-commands";
 
+/**
+ * Arguments to read a room: its ID and, for a room this account has not joined, the profile that
+ * would join (`--profile-id`, else the viewing profile), which must be able to see its title.
+ */
+const roomQuery = (invocation: Invocation, connection: Connection, roomId: RoomId) =>
+  Option.match(
+    Option.orElse(
+      Option.map(stringFlag(invocation.tokens, "profile-id"), (value) => ProfileId.make(value)),
+      () => connection.viewingProfileId,
+    ),
+    {
+      onNone: () => ({ roomId }),
+      onSome: (profileId) => ({ roomId, profileId }),
+    },
+  );
+
 /** The room named on the command line, or the one this device is in. */
 const resolveRoom = Effect.fn("Rooms.resolve")(function* (
   invocation: Invocation,
@@ -44,7 +60,10 @@ const resolveRoom = Effect.fn("Rooms.resolve")(function* (
 
   if (Option.isSome(named)) {
     return yield* connection.withSession(
-      connection.client.query("rooms.get", { roomId: RoomId.make(named.value) }),
+      connection.client.query(
+        "rooms.get",
+        roomQuery(invocation, connection, RoomId.make(named.value)),
+      ),
     );
   }
 
@@ -214,7 +233,7 @@ const describeRoom = (room: Room, liveMs: number): string =>
 
 const status: ShortcutCommand = {
   path: "rooms status",
-  options: { watch: { type: "boolean" } },
+  options: { watch: { type: "boolean" }, "profile-id": { type: "string" } },
   positionals: true,
   run: (invocation) =>
     Effect.gen(function* () {
@@ -238,12 +257,16 @@ const status: ShortcutCommand = {
 
       if (!booleanFlag(invocation.tokens, "watch")) return yield* snapshot(room);
 
-      yield* connection.client.subscribe("rooms.get", { roomId: room.id }).pipe(
-        Stream.mapEffect(snapshot),
-        Stream.runForEach((next) =>
-          output.out(invocation.format === "json" ? JSON.stringify(next.json) : `${next.human}\n`),
-        ),
-      );
+      yield* connection.client
+        .subscribe("rooms.get", roomQuery(invocation, connection, room.id))
+        .pipe(
+          Stream.mapEffect(snapshot),
+          Stream.runForEach((next) =>
+            output.out(
+              invocation.format === "json" ? JSON.stringify(next.json) : `${next.human}\n`,
+            ),
+          ),
+        );
 
       return textOutcome({ ok: true }, "The room ended.");
     }),

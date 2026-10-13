@@ -2,10 +2,12 @@
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import { internalMutation } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
+import { endPlaybackSession, endRoom, endTitlePlayback } from "./lib/endings";
 import { enqueueJob, MAX_JOB_ATTEMPTS } from "./lib/jobs";
 import { removeTitleGenres, syncTitleGenres } from "./lib/genres";
 import { removeTitleCredits } from "./lib/people";
+import { overlappingLibraries as findOverlaps } from "./lib/roots";
 import { endAuthSession } from "./lib/viewer";
 import {
   HOST_ABANDON_TIMEOUT_MS,
@@ -49,13 +51,7 @@ export const sweepRooms = internalMutation({
         const silentFor = now - room.hostLastSeenAt;
 
         if (silentFor > HOST_ABANDON_TIMEOUT_MS) {
-          await ctx.db.patch(room._id, {
-            status: "ended",
-            positionAtAnchorMs: livePosition(room, now),
-            anchorServerTime: now,
-            revision: room.revision + 1,
-            endedAt: now,
-          });
+          await endRoom(ctx, room, now);
         } else if (silentFor > HOST_PRESENCE_TIMEOUT_MS && room.status !== "paused") {
           await ctx.db.patch(room._id, {
             status: "paused",
@@ -163,7 +159,7 @@ export const endIdlePlayback = internalMutation({
         const signedOut = (await ctx.db.get(session.authSessionId)) === null;
 
         if (idle || signedOut) {
-          await ctx.db.patch(session._id, { status: "ended", state: "paused", endedAt: now });
+          await endPlaybackSession(ctx, session, now);
         }
       }),
     );
@@ -211,7 +207,11 @@ export const backfillTitleGenres = internalMutation({
   },
 });
 
-/** Deletes a removed library's catalog in batches, rescheduling until it is gone. History stays. */
+/**
+ * Deletes a removed library's catalog in batches, rescheduling until it is gone: files, then
+ * titles with their seasons, episodes, and collection memberships. Each batch first ends the
+ * playback sessions and rooms on the titles it touches. History stays.
+ */
 export const purgeLibrary = internalMutation({
   args: { libraryId: v.id("libraries") },
   returns: v.null(),
@@ -221,7 +221,15 @@ export const purgeLibrary = internalMutation({
       .withIndex("by_library_path", (q) => q.eq("libraryId", libraryId))
       .take(PURGE_BATCH);
 
+    const now = Date.now();
+
     if (files.length > 0) {
+      // Playback of these files' titles ends as the files go, a batch at a time.
+      await Promise.all(
+        [...new Set(files.map((file) => file.titleId))].map((titleId) =>
+          endTitlePlayback(ctx, titleId, now),
+        ),
+      );
       await Promise.all(files.map((file) => ctx.db.delete(file._id)));
       await ctx.scheduler.runAfter(0, internal.maintenance.purgeLibrary, { libraryId });
 
@@ -255,7 +263,15 @@ export const purgeLibrary = internalMutation({
           .withIndex("by_title_order", (q) => q.eq("titleId", title._id))
           .collect();
 
-        await Promise.all([...seasons, ...episodes].map((doc) => ctx.db.delete(doc._id)));
+        const memberships = await ctx.db
+          .query("collectionItems")
+          .withIndex("by_title", (q) => q.eq("titleId", title._id))
+          .collect();
+
+        await endTitlePlayback(ctx, title._id, now);
+        await Promise.all(
+          [...seasons, ...episodes, ...memberships].map((doc) => ctx.db.delete(doc._id)),
+        );
         await removeTitleGenres(ctx, title._id);
         await ctx.db.delete(title._id);
       }),
@@ -351,4 +367,15 @@ export const clearProfilePin = internalMutation({
 
     return { cleared: true };
   },
+});
+
+/**
+ * Lists libraries whose folders overlap, for the operator: `convex run
+ * maintenance:overlappingLibraries`. New folders can no longer overlap, but libraries made before
+ * that rule may; a grant on either exposes the other's files until one's folders change.
+ */
+export const overlappingLibraries = internalQuery({
+  args: {},
+  returns: v.array(v.object({ outer: v.string(), inner: v.string(), folder: v.string() })),
+  handler: async (ctx) => findOverlaps(await ctx.db.query("libraries").collect()),
 });
