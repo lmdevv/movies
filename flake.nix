@@ -109,6 +109,12 @@
             qsvDevice = "/dev/dri/renderD129";
             extraEnvironment.LIBVA_DRIVER_NAME = "iHD";
           };
+          module-vaapi = evaluate {
+            hardwareAcceleration = "vaapi";
+            vaapiDevice = "/dev/dri/renderD129";
+            libraryWatch = "poll";
+            libraryPollSeconds = 120;
+          };
           vm = pkgs.callPackage ./nix/vm-test.nix { module = self.nixosModules.movies; };
         }
       );

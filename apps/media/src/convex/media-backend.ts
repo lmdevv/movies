@@ -87,6 +87,14 @@ export interface Options {
 
 const READY_WAIT = Duration.seconds(15);
 
+/**
+ * Longest one call may wait for its answer. The WebSocket transport queues calls while it
+ * reconnects; without a bound, a call made during an outage waits for as long as the outage lasts.
+ * A timed-out mutation may still apply later, as any lost answer may, so callers retry only
+ * idempotent work.
+ */
+const CALL_TIMEOUT = Duration.seconds(30);
+
 /** Capped exponential backoff with jitter, for sign-in and resubscription. */
 const backoff = Schedule.min([
   Schedule.exponential("500 millis"),
@@ -185,7 +193,20 @@ const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
   const callOnce = <Name extends FunctionName>(name: Name, wire: Schema.JsonObject) =>
     transport
       .call(mediaServiceFunctions[name].kind, mediaServiceFunctions[name].function, wire)
-      .pipe(Effect.flatMap((raw) => decodeResult(name, raw)));
+      .pipe(
+        Effect.timeoutOrElse({
+          duration: CALL_TIMEOUT,
+          orElse: () =>
+            Effect.fail(
+              new TransportError({
+                operation: name,
+                message: `Transport failed: ${name} did not answer within ${String(Duration.toSeconds(CALL_TIMEOUT))} seconds`,
+                cause: null,
+              }),
+            ),
+        }),
+        Effect.flatMap((raw) => decodeResult(name, raw)),
+      );
 
   const call = <Name extends FunctionName>(
     name: Name,

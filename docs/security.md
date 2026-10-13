@@ -119,8 +119,15 @@ A review of `packages/backend` found these after the table above; each has a sta
   readable by anyone who can reach the port.
 - **Six-hour playback tokens** are verified offline; while the media service is disconnected from
   Convex it cannot learn of revocations (documented in the architecture).
-- **No rate limiting in the media service.** Tokens are 256-bit HMACs, so guessing is not the risk;
-  the body cap, per-account device limit, transcode limit, and throttling bound the cost of abuse.
+- **Rate limiting in the media service covers only the routes without a token.** `/artwork/*`
+  (600 requests at once, then 100 per second) and `/api/health` (60, then 10 per second) have a
+  token bucket per client address and answer `429` with `Retry-After` beyond it. Behind a reverse
+  proxy every client shares the proxy's address, and forwarded headers are not trusted, so the
+  budget is shared there. Token routes are not limited: tokens are 256-bit HMACs, so guessing is
+  not the risk, and the body cap, per-account device limit, transcode and remux limits
+  (`MAX_CONCURRENT_TRANSCODES`, `MAX_CONCURRENT_REMUXES`), at most two subtitle conversions and two
+  artwork resizes at once, a 20 MB cap and 30-second limit on artwork downloads, and throttling
+  bound the cost of abuse.
 - **Lockouts can be triggered by others:** ten wrong passwords lock that account's password sign-in
   for a while, and five wrong PINs lock a profile for five minutes (about 60 guesses an hour
   against a four-digit PIN, enough for parental controls, not for secrets).

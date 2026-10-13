@@ -4,6 +4,9 @@
  * host into `DATA_DIR/artwork/originals`. Resized copies (one of `ARTWORK_WIDTHS`, JPEG) are made
  * with ffmpeg on first request and kept in `DATA_DIR/artwork/w<width>`, keyed by the source and,
  * for local files, its size and modification time, so a replaced poster gets a fresh copy.
+ *
+ * The route is unauthenticated, so the work behind it is bounded: a download stops after
+ * `DOWNLOAD_TIMEOUT` or `MAX_DOWNLOAD_BYTES`, and at most `MAX_RESIZES` ffmpeg resizes run at once.
  */
 import { createHash } from "node:crypto";
 
@@ -20,6 +23,8 @@ import {
   Option,
   Path,
   Schema,
+  Semaphore,
+  Stream,
 } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
@@ -74,6 +79,44 @@ const CONTENT_TYPES: ReadonlyMap<string, string> = new Map([
   ["webp", "image/webp"],
 ]);
 
+/** A provider image larger than this is refused; TMDB originals are a few megabytes. */
+const MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
+
+const DOWNLOAD_TIMEOUT = Duration.seconds(30);
+
+/** Resizes that run at once; more wait their turn. */
+const MAX_RESIZES = 2;
+
+/** The download was larger than `MAX_DOWNLOAD_BYTES`. */
+class ArtworkTooLarge extends Schema.TaggedError<ArtworkTooLarge>()("ArtworkTooLarge", {}) {
+  override get message(): string {
+    return "Artwork too large";
+  }
+}
+
+/** The download did not finish within `DOWNLOAD_TIMEOUT`. */
+class ArtworkDownloadTimedOut extends Schema.TaggedError<ArtworkDownloadTimedOut>()(
+  "ArtworkDownloadTimedOut",
+  {},
+) {
+  override get message(): string {
+    return "Artwork download timed out";
+  }
+}
+
+/** Joins chunks into one array. */
+const concatChunks = (chunks: ReadonlyArray<Uint8Array>): Uint8Array => {
+  const out = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0));
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  return out;
+};
+
 const contentTypeOf = (path: string): string =>
   CONTENT_TYPES.get(path.split(".").at(-1)?.toLowerCase() ?? "") ?? "application/octet-stream";
 
@@ -88,6 +131,7 @@ const make = Effect.gen(function* () {
   const tools = yield* MediaTools.Service;
   const http = yield* HttpClient.HttpClient;
   const directory = path.join(config.dataDir, "artwork");
+  const resizes = yield* Semaphore.make(MAX_RESIZES);
 
   const provide = <A, E>(
     effect: Effect.Effect<A, E, MediaConfig.Service | FileSystem.FileSystem | Path.Path>,
@@ -96,6 +140,20 @@ const make = Effect.gen(function* () {
       Effect.provideService(MediaConfig.Service, config),
       Effect.provideService(FileSystem.FileSystem, fs),
       Effect.provideService(Path.Path, path),
+    );
+
+  /** Whether `target` exists; touches it, so the cache pruner keeps images still in use. */
+  const cached = (target: string) =>
+    fs.exists(target).pipe(
+      Effect.tap((exists) =>
+        exists
+          ? Clock.currentTimeMillis.pipe(
+              Effect.flatMap((now) => fs.utimes(target, now / 1000, now / 1000)),
+              Effect.ignore,
+            )
+          : Effect.void,
+      ),
+      Effect.orElseSucceed(() => false),
     );
 
   /** Writes `bytes` to `target` through a temporary file, so readers never see a partial file. */
@@ -116,15 +174,35 @@ const make = Effect.gen(function* () {
     const extension = url.split(".").at(-1)?.toLowerCase() ?? "jpg";
     const target = path.join(directory, "originals", `${hash(url)}.${extension}`);
 
-    if (yield* fs.exists(target).pipe(Effect.orElseSucceed(() => false))) return target;
+    if (yield* cached(target)) return target;
 
     const bytes = yield* http.execute(HttpClientRequest.get(url)).pipe(
       Effect.flatMap(HttpClientResponse.filterStatusOk),
-      Effect.flatMap((response) => response.arrayBuffer),
+      Effect.flatMap((response) =>
+        Number(response.headers["content-length"] ?? "0") > MAX_DOWNLOAD_BYTES
+          ? Effect.fail(new ArtworkTooLarge())
+          : response.stream.pipe(
+              Stream.runFoldEffect(
+                () => ({ chunks: new Array<Uint8Array>(), size: 0 }),
+                (read, chunk) =>
+                  read.size + chunk.length > MAX_DOWNLOAD_BYTES
+                    ? Effect.fail(new ArtworkTooLarge())
+                    : Effect.succeed({
+                        chunks: [...read.chunks, chunk],
+                        size: read.size + chunk.length,
+                      }),
+              ),
+              Effect.map((read) => concatChunks(read.chunks)),
+            ),
+      ),
+      Effect.timeoutOrElse({
+        duration: DOWNLOAD_TIMEOUT,
+        orElse: () => Effect.fail(new ArtworkDownloadTimedOut()),
+      }),
       Effect.mapError((cause) => new ArtworkUnavailable({ cause })),
     );
 
-    yield* writeAtomically(target, new Uint8Array(bytes)).pipe(
+    yield* writeAtomically(target, bytes).pipe(
       Effect.mapError((cause) => new ArtworkUnavailable({ cause })),
     );
 
@@ -158,28 +236,30 @@ const make = Effect.gen(function* () {
   ) {
     const target = path.join(directory, `w${String(width)}`, `${hash(fingerprint)}.jpg`);
 
-    if (yield* fs.exists(target).pipe(Effect.orElseSucceed(() => false))) return target;
+    if (yield* cached(target)) return target;
     yield* fs.makeDirectory(path.dirname(target), { recursive: true }).pipe(Effect.orDie);
     const temporary = `${target}.${(yield* Clock.currentTimeNanos).toString(36)}.part.jpg`;
 
-    yield* tools
-      .ffmpeg([
-        "-hide_banner",
-        "-nostdin",
-        "-v",
-        "error",
-        "-y",
-        "-i",
-        file,
-        "-vf",
-        `scale='min(${String(width)},iw)':-2`,
-        "-frames:v",
-        "1",
-        "-q:v",
-        "3",
-        temporary,
-      ])
-      .pipe(Effect.mapError((cause) => new ArtworkUnavailable({ cause })));
+    yield* resizes.withPermits(1)(
+      tools
+        .ffmpeg([
+          "-hide_banner",
+          "-nostdin",
+          "-v",
+          "error",
+          "-y",
+          "-i",
+          file,
+          "-vf",
+          `scale='min(${String(width)},iw)':-2`,
+          "-frames:v",
+          "1",
+          "-q:v",
+          "3",
+          temporary,
+        ])
+        .pipe(Effect.mapError((cause) => new ArtworkUnavailable({ cause }))),
+    );
 
     yield* fs
       .rename(temporary, target)

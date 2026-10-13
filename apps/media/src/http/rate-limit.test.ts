@@ -1,0 +1,32 @@
+import { assert, describe, it } from "@effect/vitest";
+import { Option } from "effect";
+
+import { makeLimiter } from "./rate-limit.ts";
+
+const budget = { burst: 3, perSecond: 2 };
+
+describe("rate limit", () => {
+  it("allows a burst, refuses beyond it, and refills over time", () => {
+    const take = makeLimiter();
+
+    assert.deepStrictEqual(
+      [0, 0, 0].map((now) => Option.isNone(take("a", budget, now))),
+      [true, true, true],
+    );
+    assert.deepStrictEqual(take("a", budget, 0), Option.some(1));
+
+    // Another address has its own bucket.
+    assert.isTrue(Option.isNone(take("b", budget, 0)));
+
+    // Half a second refills one token at two per second.
+    assert.isTrue(Option.isNone(take("a", budget, 500)));
+    assert.isTrue(Option.isSome(take("a", budget, 500)));
+
+    // A long pause refills to the burst, never beyond.
+    const after = [60_000, 60_000, 60_000, 60_000].map((now) =>
+      Option.isNone(take("a", budget, now)),
+    );
+
+    assert.deepStrictEqual(after, [true, true, true, false]);
+  });
+});

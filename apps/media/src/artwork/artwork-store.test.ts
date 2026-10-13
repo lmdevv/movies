@@ -1,0 +1,115 @@
+import { createServer } from "node:http";
+
+import { NodeHttpServer, NodeServices } from "@effect/platform-node";
+import { assert, describe, layer } from "@effect/vitest";
+import { Context, Effect, FileSystem, Layer, Option, Predicate, Stream } from "effect";
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientRequest,
+  HttpRouter,
+  HttpServer,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/http";
+
+import * as MediaTools from "../media/media-tools.ts";
+import { testConfigLayer } from "../testing/test-config.ts";
+import * as ArtworkKeys from "./artwork-keys.ts";
+import * as ArtworkStore from "./artwork-store.ts";
+
+const SMALL = new Uint8Array(1024).fill(7);
+
+/** One megabyte, sent 21 times without a Content-Length: more than the store accepts. */
+const MEGABYTE = new Uint8Array(1024 * 1024).fill(1);
+
+/** A local stand-in for image.tmdb.org. */
+class ImageHost extends Context.Service<ImageHost, { readonly baseUrl: string }>()(
+  "test/ImageHost",
+) {}
+
+const respond = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+
+  return request.url.includes("oversized")
+    ? HttpServerResponse.stream(Stream.fromIterable(Array.from({ length: 21 }, () => MEGABYTE)), {
+        contentType: "image/jpeg",
+      })
+    : HttpServerResponse.uint8Array(SMALL, { contentType: "image/jpeg" });
+});
+
+const imageHost = Layer.effect(
+  ImageHost,
+  HttpServer.addressFormattedWith((baseUrl) => Effect.succeed(ImageHost.of({ baseUrl }))),
+).pipe(
+  Layer.provideMerge(
+    HttpRouter.serve(HttpRouter.add("GET", "/*", respond), {
+      disableLogger: true,
+      disableListenLog: true,
+    }),
+  ),
+  Layer.provideMerge(NodeHttpServer.layer(createServer, { port: 0, host: "127.0.0.1" })),
+);
+
+/** The real HTTP client, with requests for image.tmdb.org sent to the stand-in. */
+const redirectedClient = Layer.effect(
+  HttpClient.HttpClient,
+  Effect.gen(function* () {
+    const host = yield* ImageHost;
+    const client = yield* HttpClient.HttpClient;
+
+    return client.pipe(
+      HttpClient.mapRequest((request) =>
+        HttpClientRequest.setUrl(
+          request,
+          request.url.replace("https://image.tmdb.org", host.baseUrl),
+        ),
+      ),
+    );
+  }),
+).pipe(Layer.provide(FetchHttpClient.layer));
+
+const storeLayer = Layer.unwrap(
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dataDir = yield* fs.makeTempDirectoryScoped({ prefix: "movies-artwork-" });
+
+    return ArtworkStore.layer.pipe(
+      Layer.provideMerge(ArtworkKeys.layer),
+      Layer.provide(MediaTools.layer),
+      Layer.provide(redirectedClient),
+      Layer.provideMerge(testConfigLayer({ DATA_DIR: dataDir })),
+    );
+  }).pipe(Effect.orDie),
+).pipe(Layer.provideMerge(imageHost), Layer.provideMerge(NodeServices.layer));
+
+describe("artwork store", () => {
+  layer(storeLayer, { excludeTestServices: true })((it) => {
+    it.effect("downloads provider images and refuses ones over the size cap", () =>
+      Effect.gen(function* () {
+        const store = yield* ArtworkStore.Service;
+        const keys = yield* ArtworkKeys.Service;
+        const fs = yield* FileSystem.FileSystem;
+
+        const small = yield* keys.seal(
+          ArtworkKeys.ArtworkSource.Remote({ url: "https://image.tmdb.org/t/p/w500/small.jpg" }),
+        );
+
+        const image = yield* store.image(small, Option.none());
+
+        assert.deepStrictEqual(yield* fs.readFile(image.path), SMALL);
+
+        const oversized = yield* keys.seal(
+          ArtworkKeys.ArtworkSource.Remote({
+            url: "https://image.tmdb.org/t/p/original/oversized.jpg",
+          }),
+        );
+
+        const error = yield* store.image(oversized, Option.none()).pipe(Effect.flip);
+
+        assert.isTrue(Predicate.isTagged(error, "ArtworkUnavailable"));
+        assert.include(String(error.cause), "ArtworkTooLarge");
+      }),
+    );
+  });
+});

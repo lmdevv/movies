@@ -84,7 +84,7 @@ export interface ClientCapabilities extends Schema.Schema.Type<typeof ClientCapa
 
 /** One subtitle track a client can choose. */
 export const SubtitleTrack = Schema.Struct({
-  /** Stable ID within the file: `e<stream index>` for embedded, `x<position>` for sidecar files. */
+  /** Stable ID within the file: `e<stream index>` for embedded tracks, `x` and a hash of the file name for sidecar files. */
   id: Schema.String,
   source: Schema.Literals(["embedded", "sidecar"]),
   /** ffmpeg codec name or sidecar extension, such as `subrip`, `ass`, or `hdmv_pgs_subtitle`. */

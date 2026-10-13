@@ -8,6 +8,7 @@ import { KeyframeIndexFailed } from "@movies/contracts/media-playback";
 import { Context, Duration, Effect, FileSystem, Layer, Option, Schema } from "effect";
 
 import * as DiskCache from "../disk-cache.ts";
+import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import type { ResolvedMediaFile } from "./file-resolver.ts";
 import { readMatroskaKeyframes } from "./matroska-cues.ts";
@@ -50,6 +51,7 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const tools = yield* MediaTools.Service;
   const cache = yield* DiskCache.Service;
+  const scanTimeout = (yield* MediaConfig.Service).fileScanTimeout;
 
   const fromMatroska = (path: string) =>
     Effect.scoped(
@@ -65,17 +67,20 @@ const make = Effect.gen(function* () {
     );
 
   const fromPacketScan = Effect.fn("KeyframeIndex.packetScan")(function* (path: string) {
-    const csv = yield* tools.ffprobe([
-      "-v",
-      "error",
-      "-select_streams",
-      "v:0",
-      "-show_entries",
-      "packet=pts_time,flags",
-      "-of",
-      "csv=p=0",
-      path,
-    ]);
+    const csv = yield* tools.ffprobe(
+      [
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "packet=pts_time,flags",
+        "-of",
+        "csv=p=0",
+        path,
+      ],
+      { timeout: scanTimeout },
+    );
 
     return parsePacketList(csv);
   });
@@ -117,5 +122,5 @@ const make = Effect.gen(function* () {
 export const layer: Layer.Layer<
   Service,
   never,
-  FileSystem.FileSystem | MediaTools.Service | DiskCache.Service
+  FileSystem.FileSystem | MediaTools.Service | DiskCache.Service | MediaConfig.Service
 > = Layer.effect(Service, make);

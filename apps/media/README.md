@@ -52,11 +52,19 @@ Required: `MEDIA_BASE_URL`, `DATA_DIR`, `TRANSCODE_DIR`, `PLAYBACK_TOKEN_SECRET`
 approves nothing, so every scan is refused), `PORT` (4300), `HOST` (all interfaces),
 `BACKUP_DIR` (`/data/backups`), `TMDB_API_KEY` (v3 key or v4 read token), `OMDB_API_KEY`
 (IMDb, Rotten Tomatoes, and Metacritic scores; without it titles keep TMDB's), `WEB_DIST_DIR`,
-`MAX_CONCURRENT_TRANSCODES` (3), `HARDWARE_ACCELERATION` (`auto`, `qsv`, `none`),
-`QSV_DEVICE` (`/dev/dri/renderD128`), `STREAM_IDLE_SECONDS` (60), `STREAM_BUFFER_AHEAD_SECONDS` (120: ffmpeg pauses this far ahead of the player), `MIN_FREE_TRANSCODE_MB`
-(2048), `LIBRARY_RECONCILE_MINUTES` (360), `TRICKPLAY` (`on` or `off`: scrub thumbnail jobs),
-`TRICKPLAY_INTERVAL_SECONDS` (10, from 1 to 600), `TRICKPLAY_CONCURRENCY` (1: files given
-thumbnails at once, besides other jobs), `FFMPEG_PATH`, `FFPROBE_PATH`,
+`MAX_CONCURRENT_TRANSCODES` (3), `MAX_CONCURRENT_REMUXES` (10: HLS streams that copy the video),
+`HARDWARE_ACCELERATION` (`auto` tries Quick Sync, then VA-API, then software; `qsv`, `vaapi`,
+`none`), `QSV_DEVICE` and `VAAPI_DEVICE` (`/dev/dri/renderD128`), `STREAM_IDLE_SECONDS` (60),
+`STREAM_BUFFER_AHEAD_SECONDS` (120: ffmpeg pauses this far ahead of the player),
+`MIN_FREE_TRANSCODE_MB` (2048), `LIBRARY_RECONCILE_MINUTES` (360), `LIBRARY_WATCH` (`auto`: file
+events on local disks, polling on NFS, SMB/CIFS, 9p and FUSE mounts; `events`; `poll`),
+`LIBRARY_POLL_SECONDS` (60), `PROBE_TIMEOUT_SECONDS` (60: ffprobe probes, artwork resizes, and
+other short tool runs), `FILE_SCAN_TIMEOUT_SECONDS` (900: keyframe scans and embedded subtitle
+extraction, which read a whole file), `CACHE_MAX_MB` (2048: provider responses, keyframe indexes,
+subtitles, and artwork under `DATA_DIR`, pruned hourly, least recently used first), `TRICKPLAY`
+(`on` or `off`: scrub thumbnail jobs), `TRICKPLAY_INTERVAL_SECONDS` (10, from 1 to 600),
+`TRICKPLAY_CONCURRENCY` (1: files given thumbnails at once, besides other jobs), `FFMPEG_PATH`,
+`FFPROBE_PATH`,
 `OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVEX_URL`, `CONVEX_PUBLIC_URL` (the Convex URL browsers use; it
 narrows the web app's content security policy), `MEDIA_SERVICE_API_KEY`,
 `CONVEX_SELF_HOSTED_ADMIN_KEY` and `CONVEX_BACKEND_DIR` (backups), `BACKUP_RETENTION_DAYS` (14). The dev stack sets

@@ -86,8 +86,11 @@ export interface Interface {
   readonly libraryPollInterval: Duration.Duration;
   /** Longest an ffprobe probe of one file may run. */
   readonly probeTimeout: Duration.Duration;
-  /** Longest a keyframe scan (ffprobe reading every packet) of one file may run. */
-  readonly keyframeScanTimeout: Duration.Duration;
+  /**
+   * Longest a tool run that reads a whole file may take: a keyframe scan, or extracting an
+   * embedded subtitle track. Every other ffprobe and ffmpeg run to completion gets `probeTimeout`.
+   */
+  readonly fileScanTimeout: Duration.Duration;
   /** Size the caches under `DATA_DIR` (provider responses, indexes, subtitles, artwork) are pruned to. */
   readonly cacheMaxBytes: number;
   readonly ffmpegPath: string;
@@ -208,9 +211,9 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
       Config.withDefault(60),
     );
 
-    const keyframeScanTimeoutSeconds = yield* Config.schema(
+    const fileScanTimeoutSeconds = yield* Config.schema(
       PositiveInt,
-      "KEYFRAME_SCAN_TIMEOUT_SECONDS",
+      "FILE_SCAN_TIMEOUT_SECONDS",
     ).pipe(Config.withDefault(900));
 
     const cacheMaxMb = yield* Config.schema(PositiveInt, "CACHE_MAX_MB").pipe(
@@ -261,7 +264,7 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
       libraryWatch,
       libraryPollInterval: Duration.seconds(libraryPollSeconds),
       probeTimeout: Duration.seconds(probeTimeoutSeconds),
-      keyframeScanTimeout: Duration.seconds(keyframeScanTimeoutSeconds),
+      fileScanTimeout: Duration.seconds(fileScanTimeoutSeconds),
       cacheMaxBytes: cacheMaxMb * MEBIBYTE,
       ffmpegPath,
       ffprobePath,

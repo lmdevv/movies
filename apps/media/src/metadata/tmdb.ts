@@ -46,6 +46,8 @@ export interface TmdbOptions {
   readonly timeout: Duration.Duration;
   /** Request budget per second, shared by every TMDB request of this process. */
   readonly requestsPerSecond: number;
+  /** Longest one request may take, from sending it to reading its body. */
+  readonly requestTimeout: Duration.Duration;
 }
 
 /** Production TMDB endpoints with a one-week cache and a conservative request budget. */
@@ -57,6 +59,7 @@ export const defaultOptions = (apiKey: Option.Option<Redacted.Redacted>): TmdbOp
   cacheMaxAge: Duration.days(7),
   timeout: Duration.seconds(20),
   requestsPerSecond: 20,
+  requestTimeout: Duration.seconds(15),
 });
 
 const PROVIDER = "tmdb";
@@ -514,7 +517,12 @@ const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
             yield* cache.write(PROVIDER, cacheKey, fresh);
 
             return fresh;
-          });
+          }).pipe(
+            Effect.timeoutOrElse({
+              duration: options.requestTimeout,
+              orElse: () => Effect.fail(failed(null, "timed out")),
+            }),
+          );
 
       return yield* Schema.decodeEffect(Schema.fromJsonString(schema))(body).pipe(
         Effect.mapError((error) => failed(null, error.message)),

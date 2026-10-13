@@ -245,14 +245,24 @@ in
       type = lib.types.enum [
         "auto"
         "qsv"
+        "vaapi"
         "none"
       ];
       default = "auto";
       description = ''
-        Intel Quick Sync for transcoding. `auto` gives the service the render nodes and probes them,
-        falling back to software encoding; `qsv` also enables the host's Intel media driver and
-        oneVPL runtime (Gen12+, Tiger Lake and newer); `none` keeps the service away from the GPU.
+        GPU transcoding. `auto` gives the service the render nodes and probes Quick Sync, then
+        VA-API, falling back to software encoding; `qsv` also enables the host's Intel media driver
+        and oneVPL runtime (Gen12+, Tiger Lake and newer); `vaapi` enables the host's graphics stack
+        with the Intel media driver (AMD's VA-API driver comes with Mesa) for GPUs whose ffmpeg
+        lacks Quick Sync; `none` keeps the service away from the GPU.
       '';
+    };
+
+    vaapiDevice = lib.mkOption {
+      type = lib.types.str;
+      default = "/dev/dri/renderD128";
+      example = "/dev/dri/renderD129";
+      description = "DRM render node used for VA-API, for hosts with more than one GPU.";
     };
 
     qsvDevice = lib.mkOption {
@@ -266,6 +276,12 @@ in
       type = lib.types.ints.positive;
       default = 3;
       description = "Upper bound on simultaneous video transcodes.";
+    };
+
+    maxConcurrentRemuxes = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 10;
+      description = "Upper bound on simultaneous HLS streams that copy the video (remux, audio-only).";
     };
 
     streamIdleSeconds = lib.mkOption {
@@ -316,6 +332,50 @@ in
         default = 1;
         description = "Files given scrub thumbnails at once, besides scans and other jobs.";
       };
+    };
+
+    libraryWatch = lib.mkOption {
+      type = lib.types.enum [
+        "auto"
+        "events"
+        "poll"
+      ];
+      default = "auto";
+      description = ''
+        How libraries notice changes. `auto` uses file system events on local disks and polls
+        network file systems (NFS, SMB/CIFS, 9p, sshfs and other FUSE mounts), which send none;
+        `events` and `poll` force one way for every library.
+      '';
+    };
+
+    libraryPollSeconds = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 60;
+      description = "How often polled library folders are checked for changes.";
+    };
+
+    probeTimeoutSeconds = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 60;
+      description = "Longest an ffprobe probe, artwork resize, or other short tool run may take.";
+    };
+
+    fileScanTimeoutSeconds = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 900;
+      description = ''
+        Longest a tool run that reads a whole file may take: a keyframe scan, or extracting an
+        embedded subtitle track. Raise it for very large files on slow network shares.
+      '';
+    };
+
+    cacheMaxMb = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 2048;
+      description = ''
+        Size in MiB the media service's caches (provider responses, keyframe indexes, subtitles,
+        artwork) are pruned to, least recently used first.
+      '';
     };
 
     tmdbApiKeyFile = lib.mkOption {
@@ -406,13 +466,15 @@ in
     };
     users.groups = lib.mkIf (cfg.group == "movies") { movies = { }; };
 
-    hardware.graphics = lib.mkIf (cfg.hardwareAcceleration == "qsv") {
-      enable = true;
-      extraPackages = [
-        pkgs.intel-media-driver
-        pkgs.vpl-gpu-rt
-      ];
-    };
+    hardware.graphics =
+      lib.mkIf (cfg.hardwareAcceleration == "qsv" || cfg.hardwareAcceleration == "vaapi")
+        {
+          enable = true;
+          extraPackages = [
+            pkgs.intel-media-driver
+          ]
+          ++ lib.optionals (cfg.hardwareAcceleration == "qsv") [ pkgs.vpl-gpu-rt ];
+        };
 
     systemd.tmpfiles.rules = [
       "d ${cfg.dataDir} 0711 root root -"
@@ -462,7 +524,9 @@ in
         LIBRARY_ROOTS = lib.concatStringsSep "," cfg.libraryDirs;
         HARDWARE_ACCELERATION = cfg.hardwareAcceleration;
         QSV_DEVICE = cfg.qsvDevice;
+        VAAPI_DEVICE = cfg.vaapiDevice;
         MAX_CONCURRENT_TRANSCODES = toString cfg.maxConcurrentTranscodes;
+        MAX_CONCURRENT_REMUXES = toString cfg.maxConcurrentRemuxes;
         STREAM_IDLE_SECONDS = toString cfg.streamIdleSeconds;
         STREAM_BUFFER_AHEAD_SECONDS = toString cfg.streamBufferAheadSeconds;
         MIN_FREE_TRANSCODE_MB = toString cfg.minFreeTranscodeMb;
@@ -470,6 +534,11 @@ in
         TRICKPLAY = if cfg.trickplay.enable then "on" else "off";
         TRICKPLAY_INTERVAL_SECONDS = toString cfg.trickplay.intervalSeconds;
         TRICKPLAY_CONCURRENCY = toString cfg.trickplay.concurrency;
+        LIBRARY_WATCH = cfg.libraryWatch;
+        LIBRARY_POLL_SECONDS = toString cfg.libraryPollSeconds;
+        PROBE_TIMEOUT_SECONDS = toString cfg.probeTimeoutSeconds;
+        FILE_SCAN_TIMEOUT_SECONDS = toString cfg.fileScanTimeoutSeconds;
+        CACHE_MAX_MB = toString cfg.cacheMaxMb;
         FFMPEG_PATH = lib.getExe' cfg.ffmpegPackage "ffmpeg";
         FFPROBE_PATH = lib.getExe' cfg.ffmpegPackage "ffprobe";
       }

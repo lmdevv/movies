@@ -17,6 +17,7 @@ import { ffmpegAvailable, qsvUsable } from "../testing/fixture-library.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
 import * as MediaTestServer from "../testing/media-test-server.ts";
 import { signTestToken } from "../testing/test-config.ts";
+import { sidecarTrackId } from "../subtitles/subtitle-tracks.ts";
 
 const hasFfmpeg = await ffmpegAvailable();
 
@@ -528,8 +529,8 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           result.subtitles.map((track) => [track.id, track.source, track.language, track.forced]),
           [
             ["e3", "embedded", "eng", false],
-            ["x0", "sidecar", "eng", false],
-            ["x1", "sidecar", "fre", true],
+            [sidecarTrackId("Remux Fixture (2015).en.srt"), "sidecar", "eng", false],
+            [sidecarTrackId("Remux Fixture (2015).fr.forced.ass"), "sidecar", "fre", true],
           ],
         );
 
@@ -548,6 +549,24 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         assert.match(texts[0] ?? "", /00:01\.0\d\d --> 00:03\.0\d\d/);
         assert.include(texts[1], "Second");
         assert.include(texts[2], "Bonjour");
+      }),
+    );
+
+    it.effect("limits how fast one address may call the unauthenticated routes", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+
+        const statuses = yield* Effect.forEach(
+          Array.from({ length: 150 }, (_, index) => index),
+          () => get(`${server.baseUrl}/api/health`),
+          { concurrency: 16 },
+        );
+
+        const refused = statuses.filter((response) => response.status === 429);
+
+        assert.isAbove(refused.length, 0);
+        assert.isAtLeast(statuses.filter((response) => response.status === 200).length, 60);
+        assert.match(refused[0]?.headers["retry-after"] ?? "", /^\d+$/);
       }),
     );
 
