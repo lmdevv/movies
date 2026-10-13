@@ -1,0 +1,283 @@
+import { NodeServices } from "@effect/platform-node";
+import { assert, describe, layer } from "@effect/vitest";
+import { MediaFileId } from "@movies/contracts/ids";
+import { TrickplayManifest, trickplayVersion } from "@movies/contracts/trickplay";
+import { Duration, Effect, Exit, FileSystem, Layer, Option, Path, Schema } from "effect";
+
+import { probeFile } from "../media/media-probe.ts";
+import * as MediaTools from "../media/media-tools.ts";
+import type { ResolvedMediaFile } from "../playback/file-resolver.ts";
+import { ffmpegAvailable } from "../testing/fixture-library.ts";
+import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
+import { testConfigLayer } from "../testing/test-config.ts";
+import { generate } from "./trickplay-generator.ts";
+import * as TrickplayStore from "./trickplay-store.ts";
+
+const hasFfmpeg = await ffmpegAvailable();
+
+const INTERVAL = Duration.seconds(10);
+
+const testLayer = Layer.unwrap(
+  Effect.gen(function* () {
+    const workspace = yield* FixtureWorkspace.Service;
+    const path = yield* Path.Path;
+    const config = testConfigLayer({ DATA_DIR: path.join(workspace.root, "data") });
+
+    return Layer.mergeAll(TrickplayStore.layer, MediaTools.layer).pipe(Layer.provide(config));
+  }),
+).pipe(Layer.provideMerge(FixtureWorkspace.layer), Layer.provideMerge(NodeServices.layer));
+
+/** Encodes a test clip into the workspace with `args` after the inputs. */
+const encode = Effect.fn(function* (name: string, args: ReadonlyArray<string>) {
+  const { root } = yield* FixtureWorkspace.Service;
+  const path = yield* Path.Path;
+  const tools = yield* MediaTools.Service;
+  const output = path.join(root, name);
+
+  yield* tools.ffmpeg(["-hide_banner", "-nostdin", "-v", "error", "-y", ...args, output]);
+
+  return output;
+});
+
+/** A file as playback resolves it, probed for real. */
+const resolved = Effect.fn(function* (file: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const info = yield* fs.stat(file);
+
+  return {
+    fileId: MediaFileId.make("file1"),
+    path: file,
+    sizeBytes: Number(info.size),
+    modifiedAtMs: 1_760_000_000_000,
+    probe: yield* probeFile(file),
+    subtitles: [],
+  } satisfies ResolvedMediaFile;
+});
+
+/** A stand-in build that writes `sheets` fake sheets and returns their manifest. */
+const built = (sheets: number) => (folder: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+
+    yield* Effect.forEach(
+      Array.from({ length: sheets }, (_, index) => index),
+      (index) =>
+        fs.writeFileString(path.join(folder, `${String(index)}.jpg`), "jpeg").pipe(Effect.orDie),
+    );
+
+    return yield* Schema.decodeEffect(TrickplayManifest)({
+      version: "a-1",
+      intervalMs: 10_000,
+      tileWidth: 320,
+      tileHeight: 180,
+      columns: 10,
+      rows: 10,
+      thumbnailCount: sheets * 100,
+      sheetCount: sheets,
+    }).pipe(Effect.orDie);
+  });
+
+const sizeOf = Effect.fn(function* (image: string) {
+  const tools = yield* MediaTools.Service;
+
+  const json = yield* tools.ffprobe([
+    "-v",
+    "error",
+    "-show_entries",
+    "stream=width,height",
+    "-of",
+    "csv=p=0",
+    image,
+  ]);
+
+  return json.trim();
+});
+
+describe.skipIf(!hasFfmpeg)("trickplay", () => {
+  layer(testLayer, { excludeTestServices: true, timeout: "120 seconds" })((it) => {
+    it.effect("tiles a thumbnail every interval, sized by the display aspect ratio", () =>
+      Effect.gen(function* () {
+        const store = yield* TrickplayStore.Service;
+        const fs = yield* FileSystem.FileSystem;
+
+        // 360 × 270 pixels drawn 4:3 wide display as 16:9, as DVDs and some broadcasts do.
+        const clip = yield* encode("anamorphic.mkv", [
+          "-f",
+          "lavfi",
+          "-i",
+          "testsrc2=size=360x270:rate=24:duration=35",
+          "-vf",
+          "setsar=4/3",
+          "-c:v",
+          "libx264",
+          "-preset",
+          "ultrafast",
+          "-g",
+          "24",
+        ]);
+
+        const file = yield* resolved(clip);
+        const version = trickplayVersion(file.sizeBytes, file.modifiedAtMs);
+
+        const manifest = yield* store.publish("file1", version, (folder) =>
+          generate(file, version, INTERVAL, folder),
+        );
+
+        assert.deepStrictEqual(manifest, {
+          version,
+          intervalMs: 10_000,
+          tileWidth: 320,
+          tileHeight: 180,
+          columns: 10,
+          rows: 10,
+          thumbnailCount: 4,
+          sheetCount: 1,
+        });
+
+        const sheet = yield* store.find("file1", version, "0.jpg");
+        const stored = yield* store.find("file1", version, "manifest.json");
+
+        assert.isTrue(Option.isSome(sheet) && Option.isSome(stored));
+        assert.strictEqual(yield* sizeOf(Option.getOrThrow(sheet)), "3200,1800");
+        assert.deepStrictEqual(
+          yield* Schema.decodeEffect(Schema.fromJsonString(TrickplayManifest))(
+            yield* fs.readFileString(Option.getOrThrow(stored)),
+          ),
+          manifest,
+        );
+      }),
+    );
+
+    it.effect("tone-maps HDR video or falls back to the frames as they decode", () =>
+      Effect.gen(function* () {
+        const { library } = yield* FixtureWorkspace.Service;
+        const path = yield* Path.Path;
+        const fs = yield* FileSystem.FileSystem;
+        const file = yield* resolved(path.join(library.moviesRoot, library.hdrMovie));
+        const folder = yield* fs.makeTempDirectoryScoped();
+
+        assert.strictEqual(file.probe.video?.dynamicRange, "hdr10");
+
+        const manifest = yield* generate(file, "1-1", INTERVAL, folder);
+
+        assert.strictEqual(manifest.thumbnailCount, 1);
+        assert.strictEqual(manifest.tileWidth, 320);
+        assert.deepStrictEqual(yield* fs.readDirectory(folder), ["0.jpg"]);
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("refuses files without video", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+
+        const clip = yield* encode("audio.m4a", [
+          "-f",
+          "lavfi",
+          "-i",
+          "sine=frequency=440:duration=3",
+          "-c:a",
+          "aac",
+        ]);
+
+        const folder = yield* fs.makeTempDirectoryScoped();
+        const exit = yield* Effect.exit(generate(yield* resolved(clip), "1-1", INTERVAL, folder));
+
+        assert.isTrue(Exit.isFailure(exit));
+        assert.include(String(Exit.isFailure(exit) ? exit.cause : ""), "no video");
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect(
+      "replaces older versions, keeps them after a failed build, and stays inside its folder",
+      () =>
+        Effect.gen(function* () {
+          const store = yield* TrickplayStore.Service;
+
+          yield* store.publish("file2", "a-1", built(1));
+          yield* store.publish("file2", "b-2", built(2));
+
+          assert.isTrue(Option.isNone(yield* store.find("file2", "a-1", "0.jpg")));
+          assert.isTrue(Option.isSome(yield* store.find("file2", "b-2", "1.jpg")));
+
+          const failed = yield* Effect.exit(
+            store.publish("file2", "c-3", () => Effect.fail("broken")),
+          );
+
+          assert.isTrue(Exit.isFailure(failed));
+          assert.isTrue(Option.isSome(yield* store.find("file2", "b-2", "0.jpg")));
+          assert.isTrue(Option.isNone(yield* store.find("file2", "c-3", "manifest.json")));
+
+          for (const [fileId, version, name] of [
+            ["file2", "b-2", "../../file1/x.jpg"],
+            ["..", "b-2", "0.jpg"],
+            ["file2", "..", "0.jpg"],
+            ["file2", "b-2", "0.png"],
+            ["file2", "b-2", ".building-x"],
+          ] as const) {
+            assert.isTrue(
+              Option.isNone(yield* store.find(fileId, version, name)),
+              `${fileId}/${version}/${name}`,
+            );
+          }
+        }),
+    );
+
+    it.effect("sweeps thumbnails the catalog no longer uses, sparing recent ones", () =>
+      Effect.gen(function* () {
+        const store = yield* TrickplayStore.Service;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const { root } = yield* FixtureWorkspace.Service;
+        const base = path.join(root, "data", "trickplay");
+
+        const stub = (fileId: string, version: string, ageHours: number) =>
+          Effect.gen(function* () {
+            const folder = path.join(base, fileId, version);
+            const then = new Date(Date.now() - ageHours * 3_600_000);
+
+            yield* fs.makeDirectory(folder, { recursive: true });
+            yield* fs.writeFileString(path.join(folder, "0.jpg"), "jpeg");
+            yield* fs.utimes(folder, then, then);
+          });
+
+        yield* stub("kept", "k-1", 5);
+        yield* stub("kept", "k-0", 5);
+        yield* stub("gone", "g-1", 5);
+        yield* stub("fresh", "f-1", 0);
+        yield* stub("unknown", "u-1", 5);
+
+        const asked: Array<string> = [];
+
+        const removed = yield* store.sweep((fileIds) => {
+          asked.push(...fileIds);
+
+          return Effect.succeed(
+            new Map([
+              ["kept", "k-1"],
+              ["gone", null],
+              ["fresh", null],
+            ]),
+          );
+        });
+
+        const left = (fileId: string) =>
+          fs.readDirectory(path.join(base, fileId)).pipe(Effect.orElseSucceed(() => []));
+
+        assert.strictEqual(removed, 3);
+        assert.deepStrictEqual(asked.toSorted(), [
+          "file1",
+          "file2",
+          "fresh",
+          "gone",
+          "kept",
+          "unknown",
+        ]);
+        assert.deepStrictEqual(yield* left("kept"), ["k-1"]);
+        assert.deepStrictEqual(yield* left("gone"), []);
+        assert.deepStrictEqual(yield* left("unknown"), []);
+        assert.deepStrictEqual(yield* left("fresh"), ["f-1"]);
+      }),
+    );
+  });
+});

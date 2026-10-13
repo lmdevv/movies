@@ -129,6 +129,11 @@ export const toCatalogProbe = (probe: MediaProbe): Probe => ({
     forced: subtitle.forced,
     hearingImpaired: subtitle.hearingImpaired,
   })),
+  chapters: probe.chapters.map((chapter) => ({
+    startMs: Milliseconds.make(Math.round(chapter.startSeconds * 1000)),
+    endMs: Milliseconds.make(Math.round(chapter.endSeconds * 1000)),
+    title: chapter.title ?? null,
+  })),
 });
 
 const decodeContainer = Schema.decodeUnknownOption(Container);
@@ -180,6 +185,11 @@ const toMediaProbe = (probe: Probe): MediaProbe => {
       default: subtitle.default,
       forced: subtitle.forced,
       hearingImpaired: subtitle.hearingImpaired ?? false,
+    })),
+    chapters: (probe.chapters ?? []).map((chapter) => ({
+      startSeconds: chapter.startMs / 1000,
+      endSeconds: chapter.endMs / 1000,
+      title: chapter.title ?? undefined,
     })),
   };
 };

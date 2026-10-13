@@ -150,6 +150,30 @@ describe("parseFfprobeJson", () => {
     }),
   );
 
+  it.effect("reads chapters from the first frame, in order, without empty markers", () =>
+    Effect.gen(function* () {
+      const json = JSON.stringify({
+        format: { format_name: "mov,mp4,m4a,3gp,3g2,mj2", duration: "300.0", start_time: "1.5" },
+        streams: [],
+        chapters: [
+          { start_time: "61.5", end_time: "131.5", tags: { title: "The Wall" } },
+          { start_time: "1.5", end_time: "61.5", tags: { title: "Opening" } },
+          { start_time: "131.5", end_time: "301.5", tags: { title: " " } },
+          { start_time: "301.5", end_time: "301.5", tags: { title: "Empty" } },
+          { start_time: "nope", end_time: "1" },
+        ],
+      });
+
+      const probe = yield* parseFfprobeJson(json, "/media/feature.mp4");
+
+      assert.deepStrictEqual(probe.chapters, [
+        { startSeconds: 0, endSeconds: 60, title: "Opening" },
+        { startSeconds: 60, endSeconds: 130, title: "The Wall" },
+        { startSeconds: 130, endSeconds: 300, title: undefined },
+      ]);
+    }),
+  );
+
   it.effect("fails with a typed error on output that is not a probe", () =>
     Effect.gen(function* () {
       const error = yield* parseFfprobeJson("{}", "/a/b.mkv").pipe(Effect.flip);

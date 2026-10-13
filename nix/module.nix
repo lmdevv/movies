@@ -295,6 +295,29 @@ in
       description = "Interval of the full library reconciliation that backs up file watching.";
     };
 
+    trickplay = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Make scrub thumbnails (sprite sheets the player shows over the seek bar) for new and
+          changed files, in the background at the lowest CPU priority.
+        '';
+      };
+
+      intervalSeconds = lib.mkOption {
+        type = lib.types.ints.between 1 600;
+        default = 10;
+        description = "Seconds between scrub thumbnails.";
+      };
+
+      concurrency = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 1;
+        description = "Files given scrub thumbnails at once, besides scans and other jobs.";
+      };
+    };
+
     tmdbApiKeyFile = lib.mkOption {
       type = lib.types.nullOr lib.types.path;
       default = null;
@@ -444,6 +467,9 @@ in
         STREAM_BUFFER_AHEAD_SECONDS = toString cfg.streamBufferAheadSeconds;
         MIN_FREE_TRANSCODE_MB = toString cfg.minFreeTranscodeMb;
         LIBRARY_RECONCILE_MINUTES = toString cfg.libraryReconcileMinutes;
+        TRICKPLAY = if cfg.trickplay.enable then "on" else "off";
+        TRICKPLAY_INTERVAL_SECONDS = toString cfg.trickplay.intervalSeconds;
+        TRICKPLAY_CONCURRENCY = toString cfg.trickplay.concurrency;
         FFMPEG_PATH = lib.getExe' cfg.ffmpegPackage "ffmpeg";
         FFPROBE_PATH = lib.getExe' cfg.ffmpegPackage "ffprobe";
       }

@@ -54,7 +54,9 @@ approves nothing, so every scan is refused), `PORT` (4300), `HOST` (all interfac
 (IMDb, Rotten Tomatoes, and Metacritic scores; without it titles keep TMDB's), `WEB_DIST_DIR`,
 `MAX_CONCURRENT_TRANSCODES` (3), `HARDWARE_ACCELERATION` (`auto`, `qsv`, `none`),
 `QSV_DEVICE` (`/dev/dri/renderD128`), `STREAM_IDLE_SECONDS` (60), `STREAM_BUFFER_AHEAD_SECONDS` (120: ffmpeg pauses this far ahead of the player), `MIN_FREE_TRANSCODE_MB`
-(2048), `LIBRARY_RECONCILE_MINUTES` (360), `FFMPEG_PATH`, `FFPROBE_PATH`,
+(2048), `LIBRARY_RECONCILE_MINUTES` (360), `TRICKPLAY` (`on` or `off`: scrub thumbnail jobs),
+`TRICKPLAY_INTERVAL_SECONDS` (10, from 1 to 600), `TRICKPLAY_CONCURRENCY` (1: files given
+thumbnails at once, besides other jobs), `FFMPEG_PATH`, `FFPROBE_PATH`,
 `OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVEX_URL`, `CONVEX_PUBLIC_URL` (the Convex URL browsers use; it
 narrows the web app's content security policy), `MEDIA_SERVICE_API_KEY`,
 `CONVEX_SELF_HOSTED_ADMIN_KEY` and `CONVEX_BACKEND_DIR` (backups), `BACKUP_RETENTION_DAYS` (14). The dev stack sets

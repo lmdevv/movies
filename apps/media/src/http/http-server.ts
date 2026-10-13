@@ -11,6 +11,7 @@ import { Effect, Layer, Option } from "effect";
 import { HttpMiddleware, HttpRouter } from "effect/http";
 
 import * as MediaConfig from "../media-config.ts";
+import * as TrickplayRoutes from "../trickplay/trickplay-routes.ts";
 import { apiLayer } from "./api-handlers.ts";
 import * as ArtworkRoutes from "./artwork-routes.ts";
 import * as Hardening from "./hardening.ts";
@@ -21,6 +22,7 @@ import * as WebApp from "./web-app.ts";
 export const routesLayer = Layer.mergeAll(
   apiLayer,
   MediaRoutes.layer,
+  TrickplayRoutes.layer,
   ArtworkRoutes.layer,
   WebApp.layer,
   Hardening.layer,

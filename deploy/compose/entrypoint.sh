@@ -145,6 +145,9 @@ optional_settings=(
   STREAM_BUFFER_AHEAD_SECONDS
   MIN_FREE_TRANSCODE_MB
   LIBRARY_RECONCILE_MINUTES
+  TRICKPLAY
+  TRICKPLAY_INTERVAL_SECONDS
+  TRICKPLAY_CONCURRENCY
 )
 for name in "${optional_settings[@]}"; do
   setting "$name" "${!name:-}"

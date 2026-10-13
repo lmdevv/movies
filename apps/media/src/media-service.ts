@@ -21,6 +21,7 @@ import * as PlaybackNegotiator from "./playback/playback-negotiator.ts";
 import * as PlaybackToken from "./playback/playback-token.ts";
 import * as StreamSessions from "./playback/stream-sessions.ts";
 import * as SubtitleConverter from "./subtitles/subtitle-tracks.ts";
+import * as TrickplayStore from "./trickplay/trickplay-store.ts";
 
 /** Scanning, metadata, negotiation, streaming, and subtitles over the integration seams. */
 export const servicesLayer = Layer.mergeAll(
@@ -39,5 +40,6 @@ export const servicesLayer = Layer.mergeAll(
   Layer.provideMerge(PlaybackToken.layer),
   Layer.provideMerge(EndedSessions.layer),
   Layer.provideMerge(DiskCache.layer),
+  Layer.provideMerge(TrickplayStore.layer),
   Layer.provideMerge(MediaTools.layer),
 );
