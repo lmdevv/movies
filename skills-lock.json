@@ -13,29 +13,11 @@
       "skillPath": "coding-standards/SKILL.md",
       "computedHash": "4e740075d71028a0d0ee59e2ec28721d8e021be93726dcf9e19b76eff1fd9293"
     },
-    "create-verification-skill": {
-      "source": "backnotprop/pstack",
-      "sourceType": "github",
-      "skillPath": "skills/create-verification-skill/SKILL.md",
-      "computedHash": "1a096d6f6707ba90440de5fe94bdad1e2a26e5160a6c1bc84f632fd8e4ae4294"
-    },
     "diagnosing-bugs": {
       "source": "mattpocock/skills",
       "sourceType": "github",
       "skillPath": "skills/engineering/diagnosing-bugs/SKILL.md",
       "computedHash": "ede7254edbd22fcab97a0941511f7d440d8f9a249348fea97c50987ad5501674"
-    },
-    "maintain-verification-skill": {
-      "source": "backnotprop/pstack",
-      "sourceType": "github",
-      "skillPath": "skills/maintain-verification-skill/SKILL.md",
-      "computedHash": "273ceda1dc53a0f13b4c695b6bbd01217325cd348b6f7995e07d0b8196162b75"
-    },
-    "playwright-best-practices": {
-      "source": "currents-dev/playwright-best-practices-skill",
-      "sourceType": "github",
-      "skillPath": "playwright-best-practices/SKILL.md",
-      "computedHash": "7eb144f734450fee649dc1d209114775ddda07cbf45be84fe969d3d4f3971dce"
     },
     "react-best-practices": {
       "source": "poteto/noodle",
