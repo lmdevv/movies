@@ -2214,7 +2214,12 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         hash: "hidden-v2",
       });
 
-      expect(await searchPeople(stranger.session, stranger.profile, "Prolific")).toStrictEqual([]);
+      const prolific = await findPerson(fixture.owner, fixture.ownerProfile, "Prolific");
+
+      // Search matches any word, so other people of this run show up; never a hidden one.
+      expect(await searchPeople(stranger.session, stranger.profile, "Prolific")).not.toContain(
+        prolific,
+      );
 
       await service(fixture.mediaService, "mediaService.applyCredits", {
         titleId: fixture.titles.show,
@@ -2223,9 +2228,9 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         hash: "show-v1",
       });
 
-      const [found] = await searchPeople(stranger.session, stranger.profile, "Prolific");
-
-      expect(found).toBe(await findPerson(fixture.owner, fixture.ownerProfile, "Prolific"));
+      expect((await searchPeople(stranger.session, stranger.profile, "Prolific"))[0]).toBe(
+        prolific,
+      );
     });
 
     it("keeps a title an import put in its metadata collection when a later import leaves it out", async () => {
