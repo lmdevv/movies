@@ -65,3 +65,7 @@ temp
 # Playwright
 test-results
 playwright-report
+
+# Claude Code (per-user)
+.claude/settings.local.json
+.claude/worktrees/
