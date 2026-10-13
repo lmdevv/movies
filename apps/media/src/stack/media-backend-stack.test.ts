@@ -1,0 +1,147 @@
+/**
+ * The media service's Convex connection against the worktree's real Convex, through a TCP proxy
+ * that plays the network: Convex down at startup, connections cut while signed in, and a server
+ * that accepts and never answers.
+ *
+ *   scripts/dev-stack.sh up && pnpm --filter @movies/media test:stack
+ *
+ * Skipped unless `MOVIES_STACK_TESTS=1`.
+ */
+import { assert, describe, layer } from "@effect/vitest";
+import { Duration, Effect, Fiber, Layer, Redacted, Schedule, Stream } from "effect";
+
+import { EpochMillis } from "@movies/contracts/units";
+
+import { TransportError } from "@movies/sdk/effect";
+
+import * as MediaBackend from "../convex/media-backend.ts";
+import { findMediaStack } from "../testing/stack-processes.ts";
+import { startTcpProxy } from "../testing/tcp-proxy.ts";
+
+const stack = findMediaStack();
+
+const proxy = stack === undefined ? undefined : await startTcpProxy(new URL(stack.convexUrl));
+
+/** Convex is down when the service starts. */
+proxy?.setMode("refuse");
+
+const backendLayer = Layer.unwrap(
+  Effect.sync(() =>
+    MediaBackend.layer({
+      convexUrl: `http://127.0.0.1:${String(proxy?.port ?? 0)}`,
+      apiKey: Redacted.make(stack?.mediaServiceKey ?? ""),
+      callTimeout: Duration.seconds(3),
+    }),
+  ),
+).pipe(Layer.orDie);
+
+/** Waits up to `within` until the connection reports `status`. */
+const awaitStatus = (status: "connected" | "connecting", within: Duration.Input) =>
+  Effect.gen(function* () {
+    const backend = yield* MediaBackend.Service;
+
+    yield* backend.status.pipe(
+      Effect.repeat({
+        until: (current) => current === status,
+        schedule: Schedule.spaced("100 millis"),
+      }),
+      Effect.timeout(within),
+    );
+  });
+
+describe.skipIf(stack === undefined)("media service Convex connection", () => {
+  layer(backendLayer, { excludeTestServices: true, timeout: "300 seconds" })((it) => {
+    it.effect(
+      "keeps retrying while Convex is down, then signs in once it is back",
+      () =>
+        Effect.gen(function* () {
+          const backend = yield* MediaBackend.Service;
+
+          yield* Effect.sleep(Duration.seconds(2));
+          assert.strictEqual(yield* backend.status, "connecting");
+
+          const early = yield* backend.call("mediaService.pendingJobs", {}).pipe(Effect.flip);
+
+          assert.instanceOf(early, TransportError);
+
+          proxy?.setMode("open");
+          // Backoff doubles from half a second; a few seconds of refusals stay under eight.
+          yield* awaitStatus("connected", Duration.seconds(20));
+
+          // The WebSocket keeps its own reconnect backoff from the outage; calls wait for it, each
+          // within its timeout, and callers retry as the job worker and watchers do.
+          assert.isArray(
+            yield* backend
+              .call("mediaService.pendingJobs", {})
+              .pipe(Effect.retry({ times: 15, schedule: Schedule.spaced("2 seconds") })),
+          );
+        }),
+      90_000,
+    );
+
+    it.effect(
+      "carries on after its connections are cut, subscriptions included",
+      () =>
+        Effect.gen(function* () {
+          const backend = yield* MediaBackend.Service;
+
+          const updates = yield* backend
+            .subscribe("mediaService.libraries", {})
+            .pipe(Stream.take(2), Stream.runCollect, Effect.forkScoped);
+
+          yield* Effect.sleep(Duration.seconds(1));
+          proxy?.drop();
+
+          // The WebSocket reconnects on its own; the call waits for it, within its timeout.
+          const after = yield* backend
+            .call("mediaService.pendingJobs", {})
+            .pipe(Effect.retry({ times: 5, schedule: Schedule.spaced("1 second") }));
+
+          assert.isArray(after);
+
+          // A dropped subscription resumes and delivers the query's result again.
+          const delivered = yield* Fiber.join(updates).pipe(Effect.timeout(Duration.seconds(45)));
+
+          assert.strictEqual(delivered.length, 2);
+        }),
+      90_000,
+    );
+
+    it.effect(
+      "gives up on a call that gets no answer, and works again afterwards",
+      () =>
+        Effect.gen(function* () {
+          const backend = yield* MediaBackend.Service;
+
+          // A query with arguments no one asked before must reach the server: none is cached.
+          const fresh = () =>
+            backend.call("mediaService.endedSessions", {
+              after: EpochMillis.make(Date.now() + Math.floor(Math.random() * 1_000_000)),
+              limit: 1,
+            });
+
+          proxy?.setMode("blackhole");
+          proxy?.drop();
+          // Let the client notice the cut and reconnect into the black hole.
+          yield* Effect.sleep(Duration.seconds(1));
+
+          const started = Date.now();
+          const error = yield* fresh().pipe(Effect.flip);
+
+          assert.instanceOf(error, TransportError);
+          assert.include(error.message, "did not answer within 3 seconds");
+          assert.isBelow(Date.now() - started, 10_000);
+
+          proxy?.setMode("open");
+          proxy?.drop();
+
+          const recovered = yield* Effect.suspend(fresh).pipe(
+            Effect.retry({ times: 20, schedule: Schedule.spaced("2 seconds") }),
+          );
+
+          assert.deepStrictEqual(recovered, []);
+        }),
+      90_000,
+    );
+  });
+});

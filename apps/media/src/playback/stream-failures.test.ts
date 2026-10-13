@@ -302,4 +302,36 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
       30_000,
     );
   });
+
+  layer(MediaTestServer.layer({ MIN_FREE_TRANSCODE_MB: "1000000000" }), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })((it) => {
+    it.effect(
+      "refuses a stream while the transcode folder is too full, and keeps no slot",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+          const { library } = yield* FixtureWorkspace.Service;
+          const fileId = server.fileId("movies", library.directMovie);
+
+          for (const sid of ["full-1", "full-2", "full-3", "full-4"]) {
+            const response = yield* negotiateRequest(
+              server.baseUrl,
+              signTestToken({ fid: fileId, sid }),
+            ).pipe(Effect.orDie);
+
+            // Refused for space every time, never for capacity: a refusal frees its slot.
+            assert.strictEqual(response.status, 507);
+            assert.deepInclude(yield* response.json.pipe(Effect.orDie), {
+              _tag: "InsufficientTranscodeSpace",
+              requiredBytes: 1_000_000_000 * 1024 * 1024,
+            });
+          }
+
+          assert.deepStrictEqual(yield* streamFolders(), []);
+        }),
+      30_000,
+    );
+  });
 });

@@ -41,17 +41,17 @@ import {
 import * as BackendHealth from "../backend-health.ts";
 
 /** A media service function by its registry name, such as `mediaService.claimJob`. */
-type FunctionName = keyof MediaServiceFunctions;
+export type FunctionName = keyof MediaServiceFunctions;
 
 /** Media service functions served by a Convex query; only these can be subscribed to. */
-type QueryName = {
+export type QueryName = {
   readonly [Name in FunctionName]: MediaServiceFunctions[Name]["kind"] extends "query"
     ? Name
     : never;
 }[FunctionName];
 
 /** Decoded arguments of a media service function. */
-type FunctionArgs<Name extends FunctionName> = MediaServiceFunctions[Name]["args"]["Type"];
+export type FunctionArgs<Name extends FunctionName> = MediaServiceFunctions[Name]["args"]["Type"];
 
 /** Decoded result of a media service function. */
 export type FunctionResult<Name extends FunctionName> =
@@ -83,6 +83,8 @@ export class Service extends Context.Service<Service, Interface>()("@movies/medi
 export interface Options {
   readonly convexUrl: string;
   readonly apiKey: Redacted.Redacted;
+  /** Longest one call may wait for its answer; 30 seconds when absent. */
+  readonly callTimeout?: Duration.Duration;
 }
 
 const READY_WAIT = Duration.seconds(15);
@@ -93,7 +95,7 @@ const READY_WAIT = Duration.seconds(15);
  * A timed-out mutation may still apply later, as any lost answer may, so callers retry only
  * idempotent work.
  */
-const CALL_TIMEOUT = Duration.seconds(30);
+const DEFAULT_CALL_TIMEOUT = Duration.seconds(30);
 
 /** Capped exponential backoff with jitter, for sign-in and resubscription. */
 const backoff = Schedule.min([
@@ -142,6 +144,7 @@ const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
   const generation = yield* Ref.make(0);
   const signingIn = yield* Semaphore.make(1);
   const attempts = yield* Ref.make(0);
+  const callTimeout = options.callTimeout ?? DEFAULT_CALL_TIMEOUT;
 
   const signInOnce = auth
     .signIn(Auth.Credentials.ApiKey({ key: options.apiKey }))
@@ -195,12 +198,12 @@ const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
       .call(mediaServiceFunctions[name].kind, mediaServiceFunctions[name].function, wire)
       .pipe(
         Effect.timeoutOrElse({
-          duration: CALL_TIMEOUT,
+          duration: callTimeout,
           orElse: () =>
             Effect.fail(
               new TransportError({
                 operation: name,
-                message: `Transport failed: ${name} did not answer within ${String(Duration.toSeconds(CALL_TIMEOUT))} seconds`,
+                message: `Transport failed: ${name} did not answer within ${String(Duration.toSeconds(callTimeout))} seconds`,
                 cause: null,
               }),
             ),
