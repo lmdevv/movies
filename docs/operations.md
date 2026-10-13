@@ -171,10 +171,11 @@ reachable by every browser and CLI that uses [movies].
 
 ## Hardware acceleration
 
-The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it can, and falls back
-to software encoding when a QSV run fails.
+The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it can, then VA-API
+(Intel and AMD), and falls back to software encoding when a GPU run fails.
 
-- Compose: add `-f compose.qsv.yaml` to pass `/dev/dri` through. The image carries Debian's ffmpeg
+- Compose: add `-f compose.qsv.yaml` (or `-f compose.vaapi.yaml` for VA-API) to pass `/dev/dri`
+  through. The image carries Debian's ffmpeg
   7.1 (built with libvpl), Intel's iHD VA-API driver, and the oneVPL GPU runtime (amd64), which
   cover Gen12 and newer iGPUs (Tiger Lake onwards) and Arc cards. Older iGPUs need the retired
   Media SDK runtime, which the image does not carry; they transcode in software.

@@ -40,7 +40,8 @@ account is the owner), and add `/media/library` (or a folder in it) as a library
   Convex, never written to `.env`.
 - The media service runs as `PUID:PGID`, which must be able to read the library. Libraries mount
   read-only; add one line per folder under `volumes:` in `compose.yaml`.
-- Intel Quick Sync: `docker compose -f compose.yaml -f compose.qsv.yaml up -d` (GPU setup in
+- Intel Quick Sync: `docker compose -f compose.yaml -f compose.qsv.yaml up -d`; VA-API on Intel or
+  AMD GPUs: `-f compose.vaapi.yaml` instead (GPU setup in
   [docs/homelab.md](docs/homelab.md#gpu-transcoding)).
 - Upgrade with the checkout at the new release tag, then `docker compose pull && docker compose
   up -d`; each upgrade backs up first ([docs/operations.md](docs/operations.md#upgrading)).

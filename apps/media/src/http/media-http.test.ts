@@ -13,7 +13,11 @@ import * as ArtworkKeys from "../artwork/artwork-keys.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import { parseFfprobeJson } from "../media/media-probe.ts";
 import * as PlaybackReporter from "../playback/playback-reporter.ts";
-import { ffmpegAvailable, qsvUsable } from "../testing/fixture-library.ts";
+import {
+  ffmpegAvailable,
+  qsvUsable,
+  softwareToneMappingAvailable,
+} from "../testing/fixture-library.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
 import * as MediaTestServer from "../testing/media-test-server.ts";
 import { signTestToken } from "../testing/test-config.ts";
@@ -22,6 +26,8 @@ import { sidecarTrackId } from "../subtitles/subtitle-tracks.ts";
 const hasFfmpeg = await ffmpegAvailable();
 
 const hasQsv = hasFfmpeg && (await qsvUsable());
+
+const canToneMap = hasFfmpeg && (await softwareToneMappingAvailable());
 
 const browser: ClientCapabilities = {
   containers: ["mp4", "webm"],
@@ -410,22 +416,35 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
       }),
     );
 
-    it.effect("refuses HDR tone mapping without hardware", () =>
+    it.effect("tone-maps HDR to SDR in software when ffmpeg can, and refuses it otherwise", () =>
       Effect.gen(function* () {
         const server = yield* MediaTestServer.Service;
         const { library } = yield* FixtureWorkspace.Service;
         const fileId = server.fileId("movies", library.hdrMovie);
+        const token = signTestToken({ fid: fileId, sid: "hdr" });
+        const result = yield* negotiate({ token, capabilities: browser });
 
-        const result = yield* negotiate({
-          token: signTestToken({ fid: fileId, sid: "hdr" }),
-          capabilities: browser,
-        });
+        if (!canToneMap) {
+          assert.strictEqual(result.status, 422);
+          assert.deepStrictEqual(result.body, {
+            _tag: "UnsupportedPlayback",
+            reason: "hdr-tone-mapping-requires-hardware",
+          });
 
-        assert.strictEqual(result.status, 422);
-        assert.deepStrictEqual(result.body, {
-          _tag: "UnsupportedPlayback",
-          reason: "hdr-tone-mapping-requires-hardware",
-        });
+          return;
+        }
+
+        const stream = yield* negotiated({ token, capabilities: browser });
+
+        assert.strictEqual(stream.mode, "transcode-software");
+        assert.strictEqual(stream.video.dynamicRange, "sdr");
+
+        const { init, segment } = yield* fetchSegment(local(server.baseUrl, stream.url), 0);
+        const probe = yield* probeBytes(concat(yield* bytes(init), yield* bytes(segment)));
+
+        assert.strictEqual(probe.video?.codec, "h264");
+        assert.strictEqual(probe.video?.dynamicRange, "sdr");
+        assert.strictEqual(probe.video?.bitDepth, 8);
       }),
     );
 

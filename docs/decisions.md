@@ -160,7 +160,12 @@ choices made while implementing them. Update it in the same PR that changes a de
   `FileResolverUnavailable`, `SegmentNotReady`, transport) → retry later, `UnsupportedPlayback`
   → tell the viewer.
 - Playback modes are one vocabulary everywhere: `direct`, `remux`, `audio-transcode`,
-  `transcode-qsv`, `transcode-software`.
+  `transcode-qsv`, `transcode-vaapi`, `transcode-software`.
+- GPU encoders: `HARDWARE_ACCELERATION=auto` test-encodes with Quick Sync, then VA-API, and uses
+  the first that works; `qsv` and `vaapi` trust the setting. A GPU run that fails marks that
+  encoder unavailable for the process and the session continues in software. HDR is tone-mapped
+  to SDR on the GPU (`vpp_qsv`, `tonemap_vaapi`) or in software with `zscale` and `tonemap` when
+  the ffmpeg build has them; without either, HDR that the client cannot display is refused.
 - A stream's ffmpeg pauses (`SIGSTOP`) once its output runs `STREAM_BUFFER_AHEAD_SECONDS` (120)
   past the furthest segment the player asked for, and continues (`SIGCONT`) when the player is
   within half of that. A remux copies at disk speed, and without the pause every play wrote most of

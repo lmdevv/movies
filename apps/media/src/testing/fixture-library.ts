@@ -279,6 +279,17 @@ export const ffmpegAvailable = async (): Promise<boolean> => {
 };
 
 /** True when `FFMPEG_PATH` (or `ffmpeg`) can encode with Intel QSV on `QSV_DEVICE`. */
+/** Whether this ffmpeg can tone-map HDR in software (`zscale` and `tonemap`). */
+export const softwareToneMappingAvailable = async (): Promise<boolean> => {
+  try {
+    const { stdout } = await run(ffmpegPath, ["-hide_banner", "-filters"]);
+
+    return /\szscale\s/u.test(stdout) && /\stonemap\s/u.test(stdout);
+  } catch {
+    return false;
+  }
+};
+
 export const qsvUsable = async (): Promise<boolean> => {
   try {
     await run(ffmpegPath, [...qsvProbeArgs(process.env["QSV_DEVICE"] ?? "/dev/dri/renderD128")]);

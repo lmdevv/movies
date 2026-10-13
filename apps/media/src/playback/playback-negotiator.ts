@@ -54,6 +54,20 @@ export class Service extends Context.Service<Service, Interface>()(
  */
 const KEYFRAME_WAIT = Duration.seconds(2);
 
+/**
+ * The ffmpeg stream index of the bitmap subtitle track `trackId` names; -1 for one that is not an
+ * embedded bitmap track, which the ladder refuses.
+ */
+const burnedStreamIndex = (
+  file: FileResolver.ResolvedMediaFile,
+  trackId: string | undefined,
+): number | undefined => {
+  if (trackId === undefined) return undefined;
+  const track = subtitleTracks(file).find((candidate) => candidate.id === trackId);
+
+  return track?.kind === "bitmap" && track.source === "embedded" ? Number(track.id.slice(1)) : -1;
+};
+
 /** Media URLs carry the token because `<video>` and segment fetches cannot set headers. */
 export const withToken = (url: string, token: Redacted.Redacted): string =>
   `${url}?token=${encodeURIComponent(Redacted.value(token))}`;
@@ -83,11 +97,14 @@ const make = Effect.gen(function* () {
     );
 
     yield* Effect.annotateCurrentSpan({ fileId: grant.fileId, sessionId: grant.sessionId });
-    const qsv = yield* hardware.qsvAvailable;
+    const burnSubtitle = burnedStreamIndex(file, request.burnInSubtitle);
 
     const decision = {
       audioIndex: request.audioStreamIndex,
-      hardwareTranscoding: qsv,
+      hardware: yield* hardware.encoder,
+      softwareToneMapping: yield* hardware.softwareToneMapping,
+      quality: request.quality,
+      burnSubtitle,
     };
 
     const preferred = decidePlayback(file.probe, request.capabilities, decision);
@@ -205,6 +222,8 @@ const make = Effect.gen(function* () {
       client: request.capabilities,
       audioIndex: request.audioStreamIndex,
       startSeconds,
+      quality: request.quality,
+      burnSubtitle,
       keyframes: knownKeyframes,
     });
 
@@ -224,6 +243,7 @@ const make = Effect.gen(function* () {
       ...common,
       video: outputVideo,
       mode: started.mode,
+      burnedInSubtitle: burnSubtitle === undefined ? undefined : request.burnInSubtitle,
       streamId: started.streamId,
       generation: started.generation,
       url: withToken(

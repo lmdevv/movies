@@ -1,25 +1,39 @@
 /**
- * Whether Intel Quick Sync can be used for video transcodes. In `auto` mode the first query runs
- * a one-second QSV test encode and remembers the answer; a QSV failure during playback marks it
- * unavailable for the rest of the process so later sessions go straight to software.
+ * Which GPU encoder video transcodes may use. `HARDWARE_ACCELERATION=qsv` or `vaapi` trusts the
+ * setting; `auto` runs a one-second test encode on first use, Intel Quick Sync first and then
+ * VA-API (Intel and AMD GPUs whose ffmpeg lacks Quick Sync), and remembers the answer; `none`
+ * never uses the GPU. An encoder that fails during playback is marked unavailable for the rest of
+ * the process, so later sessions try the next one, and finally software. It also knows whether
+ * this ffmpeg can tone-map HDR in software, which needs the `zscale` and `tonemap` filters.
  */
 import { Context, Effect, Layer, Ref } from "effect";
 
 import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
 
+/** A GPU encoder family. */
+export type HardwareEncoder = "qsv" | "vaapi";
+
 /** Hardware transcoding availability. */
 export interface Interface {
-  readonly qsvAvailable: Effect.Effect<boolean>;
-  /** Stops offering QSV after it failed at runtime. */
-  readonly markQsvUnavailable: (reason: string) => Effect.Effect<void>;
+  /** The encoder new transcodes use, or undefined for software. */
+  readonly encoder: Effect.Effect<HardwareEncoder | undefined>;
+  /** Stops offering `encoder` after it failed at runtime. */
+  readonly markUnavailable: (encoder: HardwareEncoder, reason: string) => Effect.Effect<void>;
   readonly qsvDevice: string;
+  readonly vaapiDevice: string;
+  /** Whether ffmpeg has the filters software tone mapping needs; checked once. */
+  readonly softwareToneMapping: Effect.Effect<boolean>;
 }
 
 /** Hardware transcoding availability. */
 export class Service extends Context.Service<Service, Interface>()(
   "@movies/media/HardwareAcceleration",
 ) {}
+
+const testSource = ["-f", "lavfi", "-i", "testsrc2=size=320x240:rate=10:duration=1"];
+
+const testOutput = ["-f", "null", "-"];
 
 /** Arguments of the QSV test encode: one second of generated video through `h264_qsv`. */
 export const qsvProbeArgs = (device: string): ReadonlyArray<string> => [
@@ -31,59 +45,112 @@ export const qsvProbeArgs = (device: string): ReadonlyArray<string> => [
   `qsv=hw:${device}`,
   "-filter_hw_device",
   "hw",
-  "-f",
-  "lavfi",
-  "-i",
-  "testsrc2=size=320x240:rate=10:duration=1",
+  ...testSource,
   "-vf",
   "hwupload=extra_hw_frames=16,format=qsv",
   "-c:v",
   "h264_qsv",
-  "-f",
-  "null",
-  "-",
+  ...testOutput,
 ];
+
+/** Arguments of the VA-API test encode: one second of generated video through `h264_vaapi`. */
+const vaapiProbeArgs = (device: string): ReadonlyArray<string> => [
+  "-hide_banner",
+  "-nostdin",
+  "-v",
+  "error",
+  "-init_hw_device",
+  `vaapi=va:${device}`,
+  "-filter_hw_device",
+  "va",
+  ...testSource,
+  "-vf",
+  "format=nv12,hwupload",
+  "-c:v",
+  "h264_vaapi",
+  ...testOutput,
+];
+
+/** The encoders each `HARDWARE_ACCELERATION` setting may use, in the order they are tried. */
+const CANDIDATES: Readonly<
+  Record<MediaConfig.Interface["hardwareAcceleration"], ReadonlyArray<HardwareEncoder>>
+> = {
+  auto: ["qsv", "vaapi"],
+  qsv: ["qsv"],
+  vaapi: ["vaapi"],
+  none: [],
+};
 
 /** Builds the availability check from the configured mode. */
 const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
   const tools = yield* MediaTools.Service;
-  const disabled = yield* Ref.make(config.hardwareAcceleration === "none");
+  const disabled = yield* Ref.make<ReadonlySet<HardwareEncoder>>(new Set());
 
-  const probe = yield* Effect.cached(
-    config.hardwareAcceleration === "qsv"
-      ? Effect.succeed(true)
-      : tools.ffmpeg(qsvProbeArgs(config.qsvDevice)).pipe(
-          Effect.timeout("15 seconds"),
-          Effect.as(true),
-          Effect.tapError((error) => Effect.logInfo("HardwareAcceleration.qsv_unavailable", error)),
-          Effect.orElseSucceed(() => false),
-          Effect.tap((available) =>
-            Effect.logInfo("HardwareAcceleration.probed").pipe(
-              Effect.annotateLogs({ qsv: available }),
+  /** Whether `encoder` works: trusted when configured explicitly, tested once in `auto`. */
+  const probeOf = (encoder: HardwareEncoder, args: ReadonlyArray<string>) =>
+    Effect.cached(
+      config.hardwareAcceleration === encoder
+        ? Effect.succeed(true)
+        : tools.ffmpeg(args).pipe(
+            Effect.timeout("15 seconds"),
+            Effect.as(true),
+            Effect.tapError((error) =>
+              Effect.logInfo("HardwareAcceleration.unavailable", error).pipe(
+                Effect.annotateLogs({ encoder }),
+              ),
+            ),
+            Effect.orElseSucceed(() => false),
+            Effect.tap((available) =>
+              Effect.logInfo("HardwareAcceleration.probed").pipe(
+                Effect.annotateLogs({ encoder, available }),
+              ),
             ),
           ),
-        ),
-  );
+    );
 
-  const qsvAvailable = Effect.gen(function* () {
-    if (yield* Ref.get(disabled)) return false;
+  const qsv = yield* probeOf("qsv", qsvProbeArgs(config.qsvDevice));
+  const vaapi = yield* probeOf("vaapi", vaapiProbeArgs(config.vaapiDevice));
 
-    return yield* probe;
+  const probes: Readonly<Record<HardwareEncoder, Effect.Effect<boolean>>> = { qsv, vaapi };
+  const candidates = CANDIDATES[config.hardwareAcceleration];
+
+  const encoder = Effect.gen(function* () {
+    const off = yield* Ref.get(disabled);
+
+    for (const name of candidates) {
+      if (!off.has(name) && (yield* probes[name])) return name;
+    }
+
+    return undefined;
   });
 
-  const markQsvUnavailable = Effect.fn("HardwareAcceleration.markQsvUnavailable")(function* (
+  const markUnavailable = Effect.fn("HardwareAcceleration.markUnavailable")(function* (
+    failed: HardwareEncoder,
     reason: string,
   ) {
-    yield* Ref.set(disabled, true);
-    yield* Effect.logWarning("HardwareAcceleration.qsv_disabled").pipe(
-      Effect.annotateLogs({ reason }),
+    yield* Ref.update(disabled, (current) => new Set(current).add(failed));
+    yield* Effect.logWarning("HardwareAcceleration.disabled").pipe(
+      Effect.annotateLogs({ encoder: failed, reason }),
     );
   });
 
-  return Service.of({ qsvAvailable, markQsvUnavailable, qsvDevice: config.qsvDevice });
+  const softwareToneMapping = yield* Effect.cached(
+    tools.ffmpeg(["-hide_banner", "-filters"]).pipe(
+      Effect.map((list) => /\szscale\s/u.test(list) && /\stonemap\s/u.test(list)),
+      Effect.orElseSucceed(() => false),
+    ),
+  );
+
+  return Service.of({
+    encoder,
+    markUnavailable,
+    softwareToneMapping,
+    qsvDevice: config.qsvDevice,
+    vaapiDevice: config.vaapiDevice,
+  });
 });
 
-/** Availability from `HARDWARE_ACCELERATION` and `QSV_DEVICE`. */
+/** Availability from `HARDWARE_ACCELERATION`, `QSV_DEVICE`, and `VAAPI_DEVICE`. */
 export const layer: Layer.Layer<Service, never, MediaConfig.Service | MediaTools.Service> =
   Layer.effect(Service, make);

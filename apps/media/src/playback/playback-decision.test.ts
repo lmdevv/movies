@@ -49,14 +49,16 @@ const probe = (
   stream: VideoStream,
   tracks: ReadonlyArray<AudioTrack>,
   durationSeconds = 600,
+  extra: Pick<MediaProbe, "bitRate"> & { readonly subtitles?: MediaProbe["subtitles"] } = {},
 ): MediaProbe => ({
   container,
   formatName: container,
   durationSeconds,
   startSeconds: 0,
+  bitRate: extra.bitRate,
   video: stream,
   audio: tracks,
-  subtitles: [],
+  subtitles: extra.subtitles ?? [],
   chapters: [],
 });
 
@@ -99,9 +101,12 @@ const safari: ClientCapabilities = {
   mse: false,
 };
 
-const software = { audioIndex: undefined, hardwareTranscoding: false };
+/** Software only, and an ffmpeg without `zscale`, so HDR cannot be tone-mapped. */
+const software = { audioIndex: undefined, hardware: undefined, softwareToneMapping: false };
 
-const hardware = { audioIndex: undefined, hardwareTranscoding: true };
+const hardware = { audioIndex: undefined, hardware: "qsv", softwareToneMapping: false } as const;
+
+const vaapi = { audioIndex: undefined, hardware: "vaapi", softwareToneMapping: false } as const;
 
 describe("decidePlayback", () => {
   it("plays compatible files directly", () => {
@@ -126,9 +131,7 @@ describe("decidePlayback", () => {
   it("remuxes to play a non-default audio track", () => {
     const twoTracks = probe("mp4", h264, [aac, audio(3, "aac", 2, false)]);
 
-    expect(
-      decidePlayback(twoTracks, chrome, { audioIndex: 3, hardwareTranscoding: false }),
-    ).toStrictEqual(
+    expect(decidePlayback(twoTracks, chrome, { ...software, audioIndex: 3 })).toStrictEqual(
       PlaybackPlan.Hls({
         mode: "remux",
         video: VideoPlan.Copy(),
@@ -157,6 +160,7 @@ describe("decidePlayback", () => {
           height: 2160,
           toneMap: true,
           bitrate: 20_000_000,
+          burnSubtitle: undefined,
         }),
         audio: AudioPlan.Copy({ index: 1 }),
       }),
@@ -181,6 +185,7 @@ describe("decidePlayback", () => {
           height: 1080,
           toneMap: false,
           bitrate: 8_000_000,
+          burnSubtitle: undefined,
         }),
         audio: AudioPlan.Copy({ index: 1 }),
       }),
@@ -197,6 +202,7 @@ describe("decidePlayback", () => {
           height: 720,
           toneMap: false,
           bitrate: 4_000_000,
+          burnSubtitle: undefined,
         }),
         audio: AudioPlan.Copy({ index: 1 }),
       }),
@@ -218,10 +224,7 @@ describe("decidePlayback", () => {
     ).toStrictEqual(PlaybackPlan.Unsupported({ reason: "no-adaptive-streaming" }));
 
     expect(
-      decidePlayback(probe("mp4", h264, [aac]), chrome, {
-        audioIndex: 9,
-        hardwareTranscoding: false,
-      }),
+      decidePlayback(probe("mp4", h264, [aac]), chrome, { ...software, audioIndex: 9 }),
     ).toStrictEqual(PlaybackPlan.Unsupported({ reason: "audio-track-not-found" }));
 
     expect(decidePlayback(probe("mkv", h264, [aac], 0), chrome, software)).toStrictEqual(
@@ -235,5 +238,83 @@ describe("decidePlayback", () => {
         software,
       ),
     ).toStrictEqual(PlaybackPlan.Unsupported({ reason: "no-transcode-target" }));
+  });
+
+  it("transcodes on VA-API with tone mapping, and in software with it when ffmpeg can", () => {
+    expect(decidePlayback(probe("mkv", hevcHdr, [aac]), chrome, vaapi)).toMatchObject({
+      mode: "transcode-vaapi",
+      video: { encoder: "vaapi", width: 3840, height: 2160, toneMap: true },
+    });
+
+    expect(
+      decidePlayback(probe("mkv", hevcHdr, [aac]), chrome, {
+        ...software,
+        softwareToneMapping: true,
+      }),
+    ).toMatchObject({
+      mode: "transcode-software",
+      video: { encoder: "software", width: 1920, height: 1080, toneMap: true },
+    });
+  });
+
+  it("encodes down to the viewer's quality cap, and leaves sources within it alone", () => {
+    const capped = decidePlayback(probe("mp4", h264, [aac]), chrome, {
+      ...software,
+      quality: { maxHeight: 720 },
+    });
+
+    expect(capped).toMatchObject({
+      mode: "transcode-software",
+      video: { width: 1280, height: 720, bitrate: 4_000_000 },
+    });
+
+    // A bitrate cap below the source's sends it to an encode at the cap.
+    const heavy = probe("mkv", h264, [aac], 600, { bitRate: 30_000_000 });
+
+    expect(
+      decidePlayback(heavy, chrome, { ...vaapi, quality: { maxBitrate: 3_000_000 } }),
+    ).toMatchObject({ mode: "transcode-vaapi", video: { height: 1080, bitrate: 3_000_000 } });
+
+    expect(
+      decidePlayback(probe("mp4", h264, [aac]), chrome, {
+        ...software,
+        quality: { maxHeight: 1080, maxBitrate: 40_000_000 },
+      }),
+    ).toStrictEqual(PlaybackPlan.Direct({ audioIndex: 1 }));
+  });
+
+  it("burns an image subtitle in with an encode, and refuses other tracks", () => {
+    const withPgs = probe("mp4", h264, [aac], 600, {
+      bitRate: undefined,
+      subtitles: [
+        {
+          index: 4,
+          codec: "hdmv_pgs_subtitle",
+          kind: "bitmap",
+          default: false,
+          forced: false,
+          hearingImpaired: false,
+        },
+        {
+          index: 5,
+          codec: "subrip",
+          kind: "text",
+          default: false,
+          forced: false,
+          hearingImpaired: false,
+        },
+      ],
+    });
+
+    expect(decidePlayback(withPgs, chrome, { ...hardware, burnSubtitle: 4 })).toMatchObject({
+      mode: "transcode-qsv",
+      video: { encoder: "qsv", burnSubtitle: 4 },
+    });
+    expect(decidePlayback(withPgs, chrome, { ...software, burnSubtitle: 5 })).toStrictEqual(
+      PlaybackPlan.Unsupported({ reason: "subtitle-not-burnable" }),
+    );
+    expect(decidePlayback(withPgs, chrome, software)).toStrictEqual(
+      PlaybackPlan.Direct({ audioIndex: 1 }),
+    );
   });
 });

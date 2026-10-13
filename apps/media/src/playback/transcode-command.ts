@@ -2,7 +2,10 @@
  * ffmpeg arguments for one HLS generation. Output keeps the source timeline (`-copyts` with
  * `frag_discont`), so every fragment's `sidx` time matches the session's segment plan, and the
  * HLS muxer starts a new fragment file at every keyframe; the session groups fragments into the
- * planned segments. Transcodes place keyframes on the planned segment starts.
+ * planned segments. Transcodes place keyframes on the planned segment starts. Encodes run in
+ * software (libx264), on Intel Quick Sync, or through VA-API (Intel and AMD); a GPU decodes the
+ * source itself when it can, and tone-maps HDR to SDR (`vpp_qsv`, `tonemap_vaapi`), as does the
+ * software path with `zscale`.
  */
 import { AudioPlan, VideoPlan } from "./playback-decision.ts";
 
@@ -24,32 +27,116 @@ export interface HlsCommand {
   readonly segmentStarts: ReadonlyArray<number>;
   readonly outputDirectory: string;
   readonly qsvDevice: string;
+  readonly vaapiDevice: string;
 }
 
-/** Codecs the Arc and later Intel media engines decode in hardware. */
-const QSV_DECODERS: ReadonlySet<string> = new Set(["h264", "hevc", "av1", "vp9", "mpeg2video"]);
+/** Codecs Intel (Quick Sync, VA-API) and AMD (VA-API) media engines decode in hardware. */
+const HARDWARE_DECODERS: ReadonlySet<string> = new Set([
+  "h264",
+  "hevc",
+  "av1",
+  "vp9",
+  "mpeg2video",
+]);
+
+/**
+ * HDR to SDR in software: linearize, map with Hable onto 100 nits, convert to BT.709. Needs
+ * ffmpeg's `zscale` (libzimg) and `tonemap`; negotiation checks for them first.
+ */
+const SOFTWARE_TONE_MAP =
+  "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv";
 
 const seconds = (value: number): string => value.toFixed(6);
 
+type Encode = Extract<VideoPlan, { readonly _tag: "Encode" }>;
+
+/** A one-input chain for `-vf`, or a graph with the subtitle input for `-filter_complex`. */
+interface FilterGraph {
+  readonly kind: "simple" | "complex";
+  readonly graph: string;
+}
+
+/** Whether the source decodes on the GPU straight into the encoder's filters. */
+const decodesOnGpu = (command: HlsCommand, video: Encode): boolean =>
+  video.encoder !== "software" &&
+  video.burnSubtitle === undefined &&
+  HARDWARE_DECODERS.has(command.videoCodec);
+
+/** Filters from frames in system memory to frames the GPU encoder takes, scaled to the target. */
+const gpuFilters = (command: HlsCommand, video: Encode, uploaded: boolean): string => {
+  const size = `w=${String(video.width)}:h=${String(video.height)}`;
+
+  const upload = uploaded
+    ? ""
+    : `format=${command.videoBitDepth > 8 ? "p010le" : "nv12"},hwupload${video.encoder === "qsv" ? "=extra_hw_frames=64" : ""},`;
+
+  if (video.encoder === "qsv") {
+    const toneMapping = video.toneMap
+      ? ":tonemap=1:out_color_matrix=bt709:out_color_primaries=bt709:out_color_transfer=bt709"
+      : "";
+
+    return `${upload}vpp_qsv=${size}:format=nv12${toneMapping}`;
+  }
+
+  const toneMapping = video.toneMap ? "tonemap_vaapi=format=nv12:p=bt709:t=bt709:m=bt709," : "";
+
+  return `${upload}${toneMapping}scale_vaapi=${size}:format=nv12`;
+};
+
+/**
+ * The video filter graph: scale (and tone-map) on the CPU or the GPU, with an image subtitle
+ * drawn on first when one is burned in. A subtitle's canvas (720x576 for DVD) is scaled to the
+ * picture it covers, and drawn after tone mapping, as subtitles are SDR.
+ */
+const videoFilters = (command: HlsCommand, video: Encode): FilterGraph => {
+  const software = video.encoder === "software";
+  const scale = `scale=${String(video.width)}:${String(video.height)}:flags=bicubic`;
+
+  // Frames in system memory before any subtitle: the software path scales and tone-maps here.
+  const before = software ? [scale, ...(video.toneMap ? [SOFTWARE_TONE_MAP] : [])] : [];
+
+  const after = software
+    ? "format=yuv420p"
+    : gpuFilters(command, video, decodesOnGpu(command, video));
+
+  if (video.burnSubtitle === undefined) {
+    return { kind: "simple", graph: [...before, after].join(",") };
+  }
+
+  const base = before.length === 0 ? "null" : before.join(",");
+
+  return {
+    kind: "complex",
+    graph: [
+      `[0:${String(command.videoIndex)}]${base}[base]`,
+      `[0:${String(video.burnSubtitle)}][base]scale2ref=w=rw:h=rh[subtitle][picture]`,
+      `[picture][subtitle]overlay=eof_action=pass:repeatlast=0,${after}[video]`,
+    ].join(";"),
+  };
+};
+
 const videoArgs = (command: HlsCommand): ReadonlyArray<string> =>
   VideoPlan.$match(command.video, {
-    Copy: () => ["-c:v", "copy", ...(command.videoCodec === "hevc" ? ["-tag:v", "hvc1"] : [])],
-    Encode: ({ encoder, width, height, toneMap, bitrate }) => {
+    Copy: () => [
+      "-map",
+      `0:${String(command.videoIndex)}`,
+      "-c:v",
+      "copy",
+      ...(command.videoCodec === "hevc" ? ["-tag:v", "hvc1"] : []),
+    ],
+    Encode: (video) => {
       const keyframes = ["-force_key_frames", command.segmentStarts.map(seconds).join(",")];
+      const rate = String(video.bitrate);
+      const filters = videoFilters(command, video);
 
-      const rate = [
-        "-b:v",
-        String(bitrate),
-        "-maxrate",
-        String(bitrate),
-        "-bufsize",
-        String(bitrate * 2),
-      ];
+      const graph =
+        filters.kind === "simple"
+          ? ["-map", `0:${String(command.videoIndex)}`, "-vf", filters.graph]
+          : ["-filter_complex", filters.graph, "-map", "[video]"];
 
-      if (encoder === "software") {
+      if (video.encoder === "software") {
         return [
-          "-vf",
-          `scale=${width}:${height}:flags=bicubic,format=yuv420p`,
+          ...graph,
           "-c:v",
           "libx264",
           "-preset",
@@ -59,33 +146,28 @@ const videoArgs = (command: HlsCommand): ReadonlyArray<string> =>
           "-crf",
           "23",
           "-maxrate",
-          String(bitrate),
+          rate,
           "-bufsize",
-          String(bitrate * 2),
+          String(video.bitrate * 2),
           ...keyframes,
         ];
       }
 
-      const upload = QSV_DECODERS.has(command.videoCodec)
-        ? ""
-        : `format=${command.videoBitDepth > 8 ? "p010le" : "nv12"},hwupload=extra_hw_frames=64,`;
+      const bitrate = ["-b:v", rate, "-maxrate", rate, "-bufsize", String(video.bitrate * 2)];
 
-      const toneMapping = toneMap
-        ? ":tonemap=1:out_color_matrix=bt709:out_color_primaries=bt709:out_color_transfer=bt709"
-        : "";
-
-      return [
-        "-vf",
-        `${upload}vpp_qsv=w=${width}:h=${height}:format=nv12${toneMapping}`,
-        "-c:v",
-        "h264_qsv",
-        "-preset",
-        "veryfast",
-        ...rate,
-        "-forced_idr",
-        "1",
-        ...keyframes,
-      ];
+      return video.encoder === "qsv"
+        ? [
+            ...graph,
+            "-c:v",
+            "h264_qsv",
+            "-preset",
+            "veryfast",
+            ...bitrate,
+            "-forced_idr",
+            "1",
+            ...keyframes,
+          ]
+        : [...graph, "-c:v", "h264_vaapi", "-profile:v", "high", ...bitrate, ...keyframes];
     },
   });
 
@@ -110,14 +192,30 @@ const audioArgs = (command: HlsCommand): ReadonlyArray<string> =>
   });
 
 const hardwareInput = (command: HlsCommand): ReadonlyArray<string> => {
-  const usesQsv = VideoPlan.$is("Encode")(command.video) && command.video.encoder === "qsv";
+  const video = command.video;
 
-  if (!usesQsv) return [];
-  const device = ["-init_hw_device", `qsv=hw:${command.qsvDevice}`, "-filter_hw_device", "hw"];
+  if (!VideoPlan.$is("Encode")(video) || video.encoder === "software") return [];
+  const onGpu = decodesOnGpu(command, video);
 
-  return QSV_DECODERS.has(command.videoCodec)
-    ? [...device, "-hwaccel", "qsv", "-hwaccel_output_format", "qsv"]
-    : device;
+  if (video.encoder === "qsv") {
+    return [
+      "-init_hw_device",
+      `qsv=hw:${command.qsvDevice}`,
+      "-filter_hw_device",
+      "hw",
+      ...(onGpu ? ["-hwaccel", "qsv", "-hwaccel_output_format", "qsv"] : []),
+    ];
+  }
+
+  return [
+    "-init_hw_device",
+    `vaapi=va:${command.vaapiDevice}`,
+    "-filter_hw_device",
+    "va",
+    ...(onGpu
+      ? ["-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi", "-hwaccel_device", "va"]
+      : []),
+  ];
 };
 
 /** The full ffmpeg argument list for `command`. */
@@ -135,10 +233,8 @@ export const hlsCommandArgs = (command: HlsCommand): ReadonlyArray<string> => {
     "-copyts",
     "-i",
     command.input,
-    "-map",
-    `0:${command.videoIndex}`,
-    ...audioArgs(command),
     ...videoArgs(command),
+    ...audioArgs(command),
     "-map_metadata",
     "-1",
     "-map_chapters",

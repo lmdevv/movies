@@ -158,10 +158,22 @@ the container. On NixOS the module adds the `movies` user to `render` and `video
 DRM devices in the unit's sandbox whenever `hardwareAcceleration` is not `none`. With rootless
 Podman, add `--group-add keep-groups` so the container keeps your user's `render` membership.
 
-**Intel and AMD VA-API.** The passthrough is the same (`/dev/dri`, the render group), and the
-image includes the VA-API runtime. `LIBVA_DRIVER_NAME` (`iHD` for Intel, `radeonsi` for AMD)
-overrides the driver libva detects. Encoding through plain VA-API, for AMD GPUs and older Intel
-iGPUs, is not in this release; those hosts transcode in software.
+**Intel and AMD VA-API**, for AMD GPUs, older Intel iGPUs, and any ffmpeg without Quick Sync. The
+passthrough is the same (`/dev/dri`, the render group), and the amd64 image carries Intel's iHD
+and Mesa's AMD VA-API drivers. `LIBVA_DRIVER_NAME` (`iHD` for Intel, `radeonsi` for AMD) overrides
+the driver libva detects.
+
+- Compose: `docker compose -f compose.yaml -f compose.vaapi.yaml up -d` sets
+  `HARDWARE_ACCELERATION=vaapi`; `VAAPI_DEVICE` picks another render node.
+- NixOS: `hardwareAcceleration = "vaapi"` enables `hardware.graphics` with `intel-media-driver`
+  (Mesa provides AMD's driver); `vaapiDevice` picks the node.
+- `auto` tries Quick Sync first, then VA-API, then software. HDR is tone-mapped on the GPU
+  (`tonemap_vaapi`, Intel); a GPU that cannot fails over to software, which tone-maps with
+  `zscale` when the ffmpeg build has it.
+- Check a host by hand with the same pipeline the service runs (the render node may differ):
+  `ffmpeg -init_hw_device vaapi=va:/dev/dri/renderD128 -filter_hw_device va -hwaccel vaapi
+  -hwaccel_output_format vaapi -hwaccel_device va -i input.mkv -t 10 -vf
+  scale_vaapi=w=1280:h=720:format=nv12 -c:v h264_vaapi -b:v 4000000 -f null -`.
 
 Check the GPU from inside the container:
 

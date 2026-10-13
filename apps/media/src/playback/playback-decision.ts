@@ -1,13 +1,21 @@
 /**
  * The playback ladder: direct play, then remux to fMP4 HLS, then audio-only transcode, then a
- * hardware (QSV) video transcode with tone mapping when needed, then a software transcode capped
- * at 1080p. Pure: it reads a probe, what the client says it can decode, and whether QSV works.
+ * hardware (Quick Sync or VA-API) video transcode with tone mapping when needed, then a software
+ * transcode capped at 1080p, tone-mapped when this ffmpeg can. A quality cap the viewer chose
+ * (`maxHeight`, `maxBitrate`) sends a source above it down the ladder to an encode within it, and
+ * an image subtitle (PGS, VobSub) to burn in always means an encode. Pure: it reads a probe, what
+ * the client says it can decode, and what the encoders can do.
  */
-import type { ClientCapabilities, UnsupportedReason } from "@movies/contracts/media-playback";
+import type {
+  ClientCapabilities,
+  PlaybackQuality,
+  UnsupportedReason,
+} from "@movies/contracts/media-playback";
 import type { PlaybackMode } from "@movies/contracts/models/playback";
 import { Data } from "effect";
 
 import type { AudioTrack, MediaProbe, VideoStream } from "../media/media-probe.ts";
+import type { HardwareEncoder } from "./hardware-acceleration.ts";
 
 /** A video codec the client decodes, with optional limits. */
 type VideoCodecSupport = ClientCapabilities["videoCodecs"][number];
@@ -16,12 +24,14 @@ type VideoCodecSupport = ClientCapabilities["videoCodecs"][number];
 export type VideoPlan = Data.TaggedEnum<{
   Copy: {};
   Encode: {
-    readonly encoder: "qsv" | "software";
+    readonly encoder: HardwareEncoder | "software";
     readonly width: number;
     readonly height: number;
-    /** HDR to SDR conversion, only on QSV. */
+    /** HDR to SDR conversion. */
     readonly toneMap: boolean;
     readonly bitrate: number;
+    /** ffmpeg stream index of an image subtitle drawn onto the picture. */
+    readonly burnSubtitle: number | undefined;
   };
 }>;
 
@@ -57,7 +67,14 @@ export const PlaybackPlan = Data.taggedEnum<PlaybackPlan>();
 export interface DecisionOptions {
   /** ffmpeg stream index of the requested audio track; the default track when absent. */
   readonly audioIndex: number | undefined;
-  readonly hardwareTranscoding: boolean;
+  /** The GPU encoder transcodes use; software when absent. */
+  readonly hardware: HardwareEncoder | undefined;
+  /** Whether this ffmpeg can tone-map HDR to SDR in software (`zscale` and `tonemap`). */
+  readonly softwareToneMapping: boolean;
+  /** The viewer's quality cap; none plays the best the client takes. */
+  readonly quality?: PlaybackQuality | undefined;
+  /** ffmpeg stream index of an embedded image subtitle to burn into the picture. */
+  readonly burnSubtitle?: number | undefined;
   /**
    * Whether the video may be copied (remux, audio-only transcode); false when the session must
    * encode, such as while the file's keyframes are still being indexed. Direct play is unaffected.
@@ -161,6 +178,14 @@ const selectAudio = (
   return probe.audio.find((track) => track.default) ?? probe.audio[0];
 };
 
+/** Whether `probe` exceeds the viewer's cap, so its video must be encoded down. */
+const exceeds = (probe: MediaProbe, video: VideoStream, quality: PlaybackQuality | undefined) =>
+  quality !== undefined &&
+  ((quality.maxHeight !== undefined && video.height > quality.maxHeight) ||
+    (quality.maxBitrate !== undefined &&
+      probe.bitRate !== undefined &&
+      probe.bitRate > quality.maxBitrate));
+
 /** Chooses how to deliver `probe` to `client`. */
 export const decidePlayback = (
   probe: MediaProbe,
@@ -173,8 +198,21 @@ export const decidePlayback = (
   const audio = selectAudio(probe, options.audioIndex);
 
   if (audio === "missing") return PlaybackPlan.Unsupported({ reason: "audio-track-not-found" });
+
+  const burnSubtitle = options.burnSubtitle;
+
+  if (
+    burnSubtitle !== undefined &&
+    !probe.subtitles.some((track) => track.index === burnSubtitle && track.kind === "bitmap")
+  ) {
+    return PlaybackPlan.Unsupported({ reason: "subtitle-not-burnable" });
+  }
+
   const defaultAudio = probe.audio.find((track) => track.default) ?? probe.audio[0];
-  const videoOk = decodesVideo(client, video);
+
+  // A cap the source exceeds, or a subtitle drawn onto the picture, leaves only an encode.
+  const mustEncode = burnSubtitle !== undefined || exceeds(probe, video, options.quality);
+  const videoOk = decodesVideo(client, video) && !mustEncode;
   const audioOk = audio === undefined || decodesAudio(client, audio);
 
   // Browsers play the file's default audio track; another track needs HLS.
@@ -214,37 +252,31 @@ export const decidePlayback = (
 
   if (h264 === undefined) return PlaybackPlan.Unsupported({ reason: "no-transcode-target" });
   const toneMap = video.dynamicRange !== "sdr";
-  const clientBounds = { width: client.maxWidth, height: client.maxHeight };
+  const encoder = options.hardware ?? "software";
 
-  if (options.hardwareTranscoding) {
-    const size = fit(video, clientBounds);
-
-    return PlaybackPlan.Hls({
-      mode: "transcode-qsv",
-      video: VideoPlan.Encode({
-        encoder: "qsv",
-        ...size,
-        toneMap,
-        bitrate: bitrateFor(size.height),
-      }),
-      audio: audioPlan,
-    });
+  if (encoder === "software" && toneMap && !options.softwareToneMapping) {
+    return PlaybackPlan.Unsupported({ reason: "hdr-tone-mapping-requires-hardware" });
   }
 
-  if (toneMap) return PlaybackPlan.Unsupported({ reason: "hdr-tone-mapping-requires-hardware" });
+  const capHeight = options.quality?.maxHeight ?? Number.POSITIVE_INFINITY;
+  const softwareMax = encoder === "software" ? SOFTWARE_MAX : { width: Infinity, height: Infinity };
 
   const size = fit(video, {
-    width: Math.min(client.maxWidth, SOFTWARE_MAX.width),
-    height: Math.min(client.maxHeight, SOFTWARE_MAX.height),
+    width: Math.min(client.maxWidth, softwareMax.width),
+    height: Math.min(client.maxHeight, softwareMax.height, capHeight),
   });
 
   return PlaybackPlan.Hls({
-    mode: "transcode-software",
+    mode: `transcode-${encoder}`,
     video: VideoPlan.Encode({
-      encoder: "software",
+      encoder,
       ...size,
-      toneMap: false,
-      bitrate: bitrateFor(size.height),
+      toneMap,
+      bitrate: Math.min(
+        bitrateFor(size.height),
+        options.quality?.maxBitrate ?? Number.POSITIVE_INFINITY,
+      ),
+      burnSubtitle,
     }),
     audio: audioPlan,
   });

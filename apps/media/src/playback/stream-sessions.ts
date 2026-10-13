@@ -14,6 +14,7 @@
 import {
   type ClientCapabilities,
   InsufficientTranscodeSpace,
+  type PlaybackQuality,
   type KeyframeIndexFailed,
   SegmentNotFound,
   SegmentNotReady,
@@ -67,6 +68,9 @@ interface StartRequest {
   readonly client: ClientCapabilities;
   readonly audioIndex: number | undefined;
   readonly startSeconds: number;
+  /** The viewer's quality cap and burned-in subtitle, which a fallback to software keeps. */
+  readonly quality: PlaybackQuality | undefined;
+  readonly burnSubtitle: number | undefined;
   /** The file's keyframes, when negotiation already has them; copies index the file otherwise. */
   readonly keyframes: ReadonlyArray<number> | undefined;
 }
@@ -194,6 +198,8 @@ interface Session {
   readonly file: ResolvedMediaFile;
   readonly client: ClientCapabilities;
   readonly audioIndex: number | undefined;
+  readonly quality: PlaybackQuality | undefined;
+  readonly burnSubtitle: number | undefined;
   readonly plan: SegmentPlan;
   readonly scope: Scope.Closeable;
   readonly mode: Ref.Ref<Exclude<PlaybackMode, "direct">>;
@@ -214,6 +220,15 @@ interface Produced {
 }
 
 const isEncode = VideoPlan.$is("Encode");
+
+/** The GPU encoder each GPU mode runs on; only these modes can fall back to software. */
+const HARDWARE_MODES: Partial<Record<PlaybackMode, HardwareAcceleration.HardwareEncoder>> = {
+  "transcode-qsv": "qsv",
+  "transcode-vaapi": "vaapi",
+};
+
+const hardwareOf = (mode: PlaybackMode): HardwareAcceleration.HardwareEncoder | undefined =>
+  HARDWARE_MODES[mode];
 
 const isClosed = (scope: Scope.Scope): boolean => Predicate.isTagged(scope.state, "Closed");
 
@@ -380,6 +395,7 @@ const make = Effect.gen(function* () {
       segmentStarts: session.plan.starts.slice(startSegment),
       outputDirectory: directory,
       qsvDevice: hardware.qsvDevice,
+      vaapiDevice: hardware.vaapiDevice,
     });
 
     const exit = yield* Deferred.make<void, MediaTools.MediaToolFailed>();
@@ -419,19 +435,23 @@ const make = Effect.gen(function* () {
   });
 
   /**
-   * After a QSV failure, switches the session to software when the ladder allows it, reports the
-   * mode change, and returns the new mode; otherwise fails with the ladder's reason.
+   * After a GPU encoder failed, switches the session to software when the ladder allows it,
+   * reports the mode change, and returns the new mode; otherwise fails with the ladder's reason.
    */
   const fallBackToSoftware = Effect.fn("StreamSessions.fallBackToSoftware")(function* (
     session: Session,
+    encoder: HardwareAcceleration.HardwareEncoder,
     detail: string,
   ) {
-    yield* hardware.markQsvUnavailable(detail);
+    yield* hardware.markUnavailable(encoder, detail);
 
     // The session already encodes on a grid plan; it keeps encoding, now in software.
     const plan = decidePlayback(session.file.probe, session.client, {
       audioIndex: session.audioIndex,
-      hardwareTranscoding: false,
+      hardware: undefined,
+      softwareToneMapping: yield* hardware.softwareToneMapping,
+      quality: session.quality,
+      burnSubtitle: session.burnSubtitle,
       copyVideo: false,
     });
 
@@ -489,11 +509,13 @@ const make = Effect.gen(function* () {
           Effect.annotateLogs({ streamId: session.streamId, mode, generation: generation.number }),
         );
 
-        if (mode !== "transcode-qsv") {
+        const encoder = hardwareOf(mode);
+
+        if (encoder === undefined) {
           return yield* new TranscodeFailed({ streamId: session.streamId, mode, detail });
         }
 
-        yield* fallBackToSoftware(session, detail);
+        yield* fallBackToSoftware(session, encoder, detail);
 
         return yield* startGeneration(session, generation.number + 1, index);
       }),
@@ -796,6 +818,8 @@ const make = Effect.gen(function* () {
       file,
       client: request.client,
       audioIndex: request.audioIndex,
+      quality: request.quality,
+      burnSubtitle: request.burnSubtitle,
       plan: segmentPlan,
       scope,
       mode: yield* Ref.make(plan.mode),
@@ -846,7 +870,7 @@ const make = Effect.gen(function* () {
     // Only a hardware encoder can fail over, and its answer may name another mode; any other
     // stream answers at once, and the player's first requests overlap the encoder's first segment.
     const generation =
-      plan.mode === "transcode-qsv"
+      hardwareOf(plan.mode) !== undefined
         ? yield* firstSegment(session, segmentIndex)
         : yield* startGeneration(session, 1, segmentIndex);
 
