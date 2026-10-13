@@ -6,6 +6,8 @@
 import { DeviceId, ProfileId } from "@movies/contracts/ids";
 import { Option, Schema } from "effect";
 
+import { randomUuid } from "./secure-context";
+
 const PROFILE_KEY = "movies.profile";
 
 const DEVICE_KEY = "movies.device";
@@ -46,7 +48,7 @@ export const saveProfileChoice = (profileId: ProfileId | null): void => {
  */
 export const loadDeviceId = (): DeviceId =>
   Option.getOrElse(decodeDeviceId(read(DEVICE_KEY)), () => {
-    const created = DeviceId.make(`web-${crypto.randomUUID()}`);
+    const created = DeviceId.make(`web-${randomUuid()}`);
 
     write(DEVICE_KEY, created);
 
