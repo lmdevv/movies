@@ -17,7 +17,9 @@ public_url="${MOVIES_PUBLIC_URL%/}"
 convex_public_url="${CONVEX_PUBLIC_URL%/}"
 convex_url="${CONVEX_URL%/}"
 credentials="${CONVEX_CREDENTIALS_DIR:-/run/convex-credentials}"
-version="$(node -p 'require("/app/backend/package.json").version')"
+# The release, plus the commit for images built from a branch, so an upgrade along `main` backs up
+# first too.
+version="$(node -p 'require("/app/backend/package.json").version')${MOVIES_REVISION:++$MOVIES_REVISION}"
 puid="${PUID:-1000}"
 pgid="${PGID:-1000}"
 
@@ -112,9 +114,22 @@ setting BACKUP_DIR "$data/backups"
 setting TRANSCODE_DIR /transcode
 setting WEB_DIST_DIR /run/movies/web
 setting LIBRARY_ROOTS "${LIBRARY_ROOTS:-/media}"
-for name in BACKUP_RETENTION_DAYS TMDB_API_KEY OTEL_EXPORTER_OTLP_ENDPOINT HARDWARE_ACCELERATION \
-  QSV_DEVICE MAX_CONCURRENT_TRANSCODES STREAM_IDLE_SECONDS STREAM_BUFFER_AHEAD_SECONDS MIN_FREE_TRANSCODE_MB \
-  LIBRARY_RECONCILE_MINUTES; do
+# The media service's optional settings, passed on when set (apps/media/README.md). Every one is
+# in compose.yaml and .env.example too; scripts/check-deploy.sh keeps them in step.
+optional_settings=(
+  BACKUP_RETENTION_DAYS
+  TMDB_API_KEY
+  OTEL_EXPORTER_OTLP_ENDPOINT
+  HARDWARE_ACCELERATION
+  QSV_DEVICE
+  LIBVA_DRIVER_NAME
+  MAX_CONCURRENT_TRANSCODES
+  STREAM_IDLE_SECONDS
+  STREAM_BUFFER_AHEAD_SECONDS
+  MIN_FREE_TRANSCODE_MB
+  LIBRARY_RECONCILE_MINUTES
+)
+for name in "${optional_settings[@]}"; do
   setting "$name" "${!name:-}"
 done
 unset admin_key media_service_api_key playback_token_secret CONVEX_SELF_HOSTED_ADMIN_KEY TMDB_API_KEY

@@ -59,7 +59,10 @@ narrows the web app's content security policy), `MEDIA_SERVICE_API_KEY`,
 `CONVEX_SELF_HOSTED_ADMIN_KEY` and `CONVEX_BACKEND_DIR` (backups), `BACKUP_RETENTION_DAYS` (14). The dev stack sets
 `LIBRARY_ROOTS` to its own `library` folder unless `MOVIES_LIBRARY_ROOTS` says otherwise.
 
-QSV needs an ffmpeg built with libvpl; the Nix dev shell uses `ffmpeg-full` for that.
+QSV needs an ffmpeg built with libvpl; the Nix dev shell uses `ffmpeg-full` for that. ffmpeg and
+ffprobe see `LIBVA_DRIVER_NAME`, `LIBVA_DRIVERS_PATH`, and `ONEVPL_SEARCH_PATH` when they are set.
+The installs expose every setting: `deploy/compose/.env.example`, the NixOS module's options, and
+the README's configuration table (`scripts/check-deploy.sh` keeps them in step).
 
 Every response carries a content security policy (scripts from this origin only), `nosniff`,
 `Referrer-Policy: no-referrer` (media URLs carry tokens), and `frame-ancestors 'none'`. Request

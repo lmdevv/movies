@@ -1,17 +1,17 @@
 # [movies] with Docker Compose: the self-hosted Convex backend and the media service, which also
 # serves the web app. From this folder:
 #
-#   cp .env.example .env        # then set MOVIES_LIBRARY and the URLs; see README.md
+#   cp .env.example .env        # then set MOVIES_LIBRARY and the URLs; see docs/homelab.md
 #   docker compose up -d
 #
 # Open MOVIES_PUBLIC_URL, create the owner account, and add /media/library as a library.
 # Optional: Intel Quick Sync with `-f compose.yaml -f compose.qsv.yaml`; an OpenTelemetry
-# collector with `--profile telemetry`.
+# collector with `--profile telemetry`. Upgrades: docs/operations.md.
 name: movies
 
 services:
   convex:
-    # Keep in step with Dockerfile, nix/module.nix, and scripts/dev-stack.sh.
+    # Must equal deploy/convex-backend.image (scripts/check-deploy.sh).
     image: ghcr.io/get-convex/convex-backend:5c7cb5bc7db457290f1769f95f1d1340912f7fd7@sha256:d715e9ec088784407ca4ba2d3db592702cd328d02c76cdca3852c0018f2a76b4
     restart: unless-stopped
     environment:
@@ -35,16 +35,23 @@ services:
       start_period: 30s
 
   movies:
-    image: ${MOVIES_IMAGE:-ghcr.io/lmdevv/movies:main}
+    # `latest` is the newest release; pin a version (`:0.1`, `:0.1.2`) or follow `main` for the edge.
+    image: ${MOVIES_IMAGE:-ghcr.io/lmdevv/movies:latest}
     build:
       context: ../..
       dockerfile: deploy/compose/Dockerfile
     restart: unless-stopped
     # Reaps ffmpeg processes and forwards signals to the service.
     init: true
+    # The health check is the image's (GET /api/health; see the Dockerfile).
     depends_on:
       convex:
         condition: service_healthy
+    # Every line of .env reaches the entrypoint, which passes the media service's settings on
+    # (apps/media/README.md), so a setting without a line below still works from .env.
+    env_file:
+      - path: .env
+        required: false
     environment:
       MOVIES_PUBLIC_URL: ${MOVIES_PUBLIC_URL:-http://localhost:8080}
       CONVEX_PUBLIC_URL: ${CONVEX_PUBLIC_URL:-http://localhost:3210}
@@ -53,15 +60,28 @@ services:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       TZ: ${TZ:-UTC}
+      # Media service settings. Empty means the service's default (README.md, Configuration).
+      LIBRARY_ROOTS: ${LIBRARY_ROOTS:-}
       TMDB_API_KEY: ${TMDB_API_KEY:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      HARDWARE_ACCELERATION: ${HARDWARE_ACCELERATION:-auto}
-      MAX_CONCURRENT_TRANSCODES: ${MAX_CONCURRENT_TRANSCODES:-3}
-      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      HARDWARE_ACCELERATION: ${HARDWARE_ACCELERATION:-}
+      QSV_DEVICE: ${QSV_DEVICE:-}
+      LIBVA_DRIVER_NAME: ${LIBVA_DRIVER_NAME:-}
+      MAX_CONCURRENT_TRANSCODES: ${MAX_CONCURRENT_TRANSCODES:-}
+      STREAM_IDLE_SECONDS: ${STREAM_IDLE_SECONDS:-}
+      STREAM_BUFFER_AHEAD_SECONDS: ${STREAM_BUFFER_AHEAD_SECONDS:-}
+      MIN_FREE_TRANSCODE_MB: ${MIN_FREE_TRANSCODE_MB:-}
+      LIBRARY_RECONCILE_MINUTES: ${LIBRARY_RECONCILE_MINUTES:-}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-}
     ports:
       - "${MOVIES_BIND:-127.0.0.1}:${MOVIES_PORT:-8080}:8080"
     volumes:
+      # Service state and nightly backups (/data/backups). Bind a host folder to keep backups
+      # elsewhere, such as `- /srv/backups/movies:/data/backups`.
       - movies-data:/data
+      # Disposable HLS segments. To keep them in memory instead, replace this line with
+      #   - { type: tmpfs, target: /transcode, tmpfs: { size: 8g } }
+      # sized above MIN_FREE_TRANSCODE_MB (2 GiB) plus a few GB per stream.
       - movies-transcode:/transcode
       # The backend's instance secret, from which the admin key is derived at startup.
       - type: volume
@@ -73,6 +93,7 @@ services:
       # Libraries, read-only. Add one line per folder and add /media/<name> as a library.
       - ${MOVIES_LIBRARY:-./library}:/media/library:ro
 
+  # No health check: the collector image holds only its binary, with nothing to probe it from.
   otel-collector:
     profiles: [telemetry]
     image: otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6

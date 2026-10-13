@@ -6,8 +6,8 @@
 #   docker build -f deploy/compose/Dockerfile -t movies .
 
 ARG NODE_IMAGE=node:24.21.0-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66
-# Keep in step with compose.yaml, nix/module.nix, and scripts/dev-stack.sh: `generate_key` derives
-# the admin key from the backend's instance secret and must match its version.
+# Must equal deploy/convex-backend.image (scripts/check-deploy.sh), like compose.yaml: `generate_key`
+# derives the admin key from the backend's instance secret and must match its version.
 ARG CONVEX_IMAGE=ghcr.io/get-convex/convex-backend:5c7cb5bc7db457290f1769f95f1d1340912f7fd7@sha256:d715e9ec088784407ca4ba2d3db592702cd328d02c76cdca3852c0018f2a76b4
 
 FROM ${CONVEX_IMAGE} AS convex
@@ -62,7 +62,12 @@ COPY --from=build /out/media /app/media
 COPY --from=build /out/web /app/web
 COPY deploy/compose/entrypoint.sh /app/bin/entrypoint
 
+# The commit the image was built from, set by CI; the entrypoint adds it to the version it records.
+# Declared late so a new commit does not rebuild the layers above.
+ARG MOVIES_REVISION=""
+
 ENV NODE_ENV=production \
+    MOVIES_REVISION=${MOVIES_REVISION} \
     MOVIES_PUBLIC_URL=http://localhost:8080 \
     CONVEX_PUBLIC_URL=http://localhost:3210 \
     CONVEX_URL=http://convex:3210 \
