@@ -87,8 +87,10 @@ The Effect reference lives in `.repos/effect-smol`. Effect 4 stable releases are
   `@movies/backend`, `@movies/sdk`, `@movies/cli`, and `@movies/media`, then
   `pnpm --filter web exec playwright test`. Set `MOVIES_JELLYFIN_DOCKER=1` for the migration suites.
 - Repeat runs: `pnpm --filter web exec playwright test --repeat-each=20`, `pnpm test --repeats=20`.
-- CI runs `check`, both stack jobs, and the Nix job. `main` has no branch protection, so check them
-  yourself before merging. Never merge with admin bypass.
+- `scripts/stack-e2e.sh` builds the image and smoke-tests the packaged stack.
+- CI runs `check`, both stack jobs, and the Nix job. PRs touching `apps/`, `packages/`, `deploy/`,
+  or the lockfile also run the `Image` workflow's `build and smoke-test`. `main` has no branch
+  protection, so check every one yourself before merging. Never merge with admin bypass.
 - Every PR gets CodeRabbit, Codex automatic review, and Claude's `/code-review`.
 - Cloud environments: none yet. Pin the Claude one in `.claude/settings.json`
   (`remote.defaultEnvironmentId`) and write the Codex ID here for `codex cloud exec --env`. Docker
