@@ -12,6 +12,7 @@ import {
 } from "@movies/ui/components/dialog";
 import { FieldError, TextField } from "@movies/ui/components/text-field";
 import { Input } from "@movies/ui/components/input";
+import { Switch } from "@movies/ui/components/switch";
 import { useNavigate } from "@tanstack/react-router";
 import { PlusIcon, XIcon } from "lucide-react";
 import { useState } from "react";
@@ -65,8 +66,9 @@ function ChoiceRow<Value extends string>({
 }
 
 /**
- * Add a library, or change one's name, folders, and access. Editing also offers Remove, which
- * asks again before it forgets the library; files on disk are never touched.
+ * Add a library, or change one's name, folders, access, and scrub thumbnails. Editing also offers
+ * Generate now (thumbnails for every file that has none) and Remove, which asks again before it
+ * forgets the library; files on disk are never touched.
  *
  * @param library - The library to edit; omit to add one.
  */
@@ -99,6 +101,7 @@ function LibraryForm({
   const [kind, setKind] = useState<LibraryKind>(library?.kind ?? "movies");
   const [access, setAccess] = useState<LibraryAccess>(library?.access ?? "everyone");
   const [roots, setRoots] = useState<ReadonlyArray<string>>(library?.roots ?? [""]);
+  const [trickplay, setTrickplay] = useState(library?.trickplay ?? true);
   const [removing, setRemoving] = useState(false);
   const folders = roots.map((root) => root.trim()).filter((root) => root.length > 0);
   const relative = folders.some((root) => !root.startsWith("/"));
@@ -111,7 +114,13 @@ function LibraryForm({
         return `Added ${name.trim()}. Scanning now.`;
       }
 
-      await update({ libraryId: library.id, name: name.trim(), roots: folders, access });
+      await update({
+        libraryId: library.id,
+        name: name.trim(),
+        roots: folders,
+        access,
+        trickplay,
+      });
 
       return `Saved ${name.trim()}`;
     },
@@ -201,6 +210,9 @@ function LibraryForm({
             labels={ACCESS_LABELS}
             onChange={setAccess}
           />
+          {library === undefined ? null : (
+            <TrickplayRow library={library} checked={trickplay} onCheckedChange={setTrickplay} />
+          )}
           {save.error === undefined ? null : <FieldError>{save.error}</FieldError>}
         </DialogBody>
         <DialogFooter className={library === undefined ? undefined : "justify-between"}>
@@ -224,6 +236,44 @@ function LibraryForm({
         </DialogFooter>
       </form>
     </DialogContent>
+  );
+}
+
+/** Whether scans make scrub thumbnails, and Generate now for the files that have none. */
+function TrickplayRow({
+  library,
+  checked,
+  onCheckedChange,
+}: {
+  readonly library: LibraryDetail;
+  readonly checked: boolean;
+  readonly onCheckedChange: (checked: boolean) => void;
+}) {
+  const generate = useCommand("libraries.generateTrickplay");
+
+  const action = useAction(() => generate({ libraryId: library.id }), {
+    success: () => `Making scrub thumbnails for ${library.name}`,
+  });
+
+  return (
+    <div className="flex items-center gap-4">
+      <span className="grow font-sans text-body/5 font-semibold text-text">
+        Generate scrub thumbnails
+      </span>
+      <Button
+        variant="raised"
+        size="xs"
+        disabled={action.pending}
+        onClick={() => void action.run()}
+      >
+        Generate now
+      </Button>
+      <Switch
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        aria-label="Generate scrub thumbnails"
+      />
+    </div>
   );
 }
 

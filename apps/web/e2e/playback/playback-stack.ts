@@ -34,7 +34,23 @@ export interface ClipSpec {
   /** H.264 plays in every browser; Chromium has no HEVC decoder, so HEVC is transcoded. */
   readonly video: "h264" | "hevc";
   readonly audio: ReadonlyArray<ClipAudio>;
+  /** Chapter markers: start seconds and titles; each runs to the next one or the end. */
+  readonly chapters?: ReadonlyArray<{ readonly start: number; readonly title: string }>;
 }
+
+/** Chapters in ffmpeg's metadata format, times in milliseconds. */
+const chapterMetadata = (chapters: NonNullable<ClipSpec["chapters"]>, seconds: number): string =>
+  [
+    ";FFMETADATA1",
+    ...chapters.flatMap((chapter, index) => [
+      "[CHAPTER]",
+      "TIMEBASE=1/1000",
+      `START=${String(chapter.start * 1000)}`,
+      `END=${String((chapters[index + 1]?.start ?? seconds) * 1000)}`,
+      `title=${chapter.title}`,
+    ]),
+    "",
+  ].join("\n");
 
 const VIDEO_ARGS: Readonly<Record<ClipSpec["video"], ReadonlyArray<string>>> = {
   h264: ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "30", "-pix_fmt", "yuv420p"],
@@ -78,6 +94,16 @@ export const encodeClip = async (output: string, spec: ClipSpec): Promise<void> 
   ]);
 
   await mkdir(dirname(output), { recursive: true });
+
+  const chapters = spec.chapters ?? [];
+  const metadata = `${output}.chapters.txt`;
+
+  if (chapters.length > 0) await writeFile(metadata, chapterMetadata(chapters, spec.seconds));
+
+  // The chapters file is the input after the audio inputs.
+  const chapterArgs =
+    chapters.length === 0 ? [] : ["-i", metadata, "-map_chapters", String(spec.audio.length + 1)];
+
   await run(ffmpegPath, [
     "-hide_banner",
     "-nostdin",
@@ -89,6 +115,7 @@ export const encodeClip = async (output: string, spec: ClipSpec): Promise<void> 
     "-i",
     `testsrc2=size=640x360:rate=24:duration=${duration}`,
     ...audioInputs,
+    ...chapterArgs,
     "-map",
     "0:v",
     ...VIDEO_ARGS[spec.video],
@@ -98,6 +125,8 @@ export const encodeClip = async (output: string, spec: ClipSpec): Promise<void> 
     ...(output.endsWith(".mp4") ? ["-movflags", "+faststart"] : []),
     output,
   ]);
+
+  if (chapters.length > 0) await rm(metadata);
 };
 
 /** An NFO that names a movie, so scans match it without a metadata provider. */

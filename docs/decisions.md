@@ -243,6 +243,36 @@ choices made while implementing them. Update it in the same PR that changes a de
 - Migration carries the source's provider IDs: they fill IDs a matched title lacks, and an
   unmatched title that gains one is queued for a metadata refresh.
 
+## Scrub thumbnails and chapters
+
+- A `trickplay` job per file makes its scrub thumbnails. Scans queue one for each new or changed
+  file (another size or modification time) when the library's "Generate scrub thumbnails" setting
+  is on (the default); `libraries.generateTrickplay` queues every file without current thumbnails,
+  including failed ones, paging through the library with scheduled mutations. The file's
+  `trickplay` field follows its job: `pending`, `ready` with the manifest, `failed` (scans leave it
+  alone until an admin asks again), or absent. A missing file forgets its thumbnails.
+- Generation is one ffmpeg run on one thread at the lowest CPU priority: keyframes only
+  (`-skip_frame nokey`), one frame per `TRICKPLAY_INTERVAL_SECONDS` (10) taken as the first
+  keyframe at or after each tick, 320 pixels wide by the display aspect ratio, HDR tone-mapped
+  when ffmpeg has `zscale`, tiled 10 × 10 into JPEG sheets. A two-hour film takes about 23 s and
+  3.8 MB (measured on a 32-thread desktop, Sintel looped to 1 h 58 min). Trickplay jobs have
+  their own worker slots (`TRICKPLAY_CONCURRENCY`, 1), and `mediaService:pendingJobs` reads each
+  kind on its own, so thousands of queued thumbnails never hold up a scan or a backup.
+- Sheets live in `DATA_DIR/trickplay/<fileId>/<version>/` with `manifest.json`; the version is the
+  file's size and modification time in base 36, so a replaced file never shows old frames. A new
+  version is built in a hidden folder and renamed into place, and replaces the file's others. A
+  sweep a minute after startup and every `LIBRARY_RECONCILE_MINUTES` deletes folders the catalog
+  no longer names (`mediaService:trickplayVersions`), sparing ones younger than an hour.
+- Players read the manifest from `MediaFile.trickplay` and load
+  `/media/trickplay/<fileId>/<version>/<n>.jpg?token=` with the session's playback token. Frames
+  are content, not artwork: a sealed key like artwork's would let anyone holding a URL see frames
+  of private videos forever, while the token is bound to one file and one session and stops working
+  when either ends. Responses are `private, max-age=31536000, immutable`: the version changes with
+  the file.
+- Chapters come from ffprobe (`-show_chapters`), measured from the first frame, clipped to the
+  file's length, without empty markers; `Probe.chapters` is absent for files scanned before, so a
+  full scan picks them up.
+
 ## Playback and progress
 
 - `playback.createSession` is a mutation: it authorizes the profile and library, picks the file,

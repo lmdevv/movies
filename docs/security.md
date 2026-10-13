@@ -94,6 +94,10 @@ A review of `packages/backend` found these after the table above; each has a sta
 - **Playback tokens:** constant-time HMAC verification, then audience and expiry; every media route
   verifies the token, and every stream lookup requires the token's session and file to match, so a
   token for one file or session cannot reach another's stream.
+- **Scrub thumbnails** are served only to a playback token for their file, like the stream; the
+  route takes a file ID, version, and name that must match `[0-9a-z]` IDs, a base-36 version, and
+  `manifest.json` or `<n>.jpg`, and resolves inside `DATA_DIR/trickplay` (`trickplay.test.ts`,
+  media stack test "reads chapters and makes scrub thumbnails").
 - **Artwork keys** are AES-256-GCM sealings under a key derived from `PLAYBACK_TOKEN_SECRET`; `?w=`
   takes a fixed list; cache names are hashes.
 - **No user-supplied ffmpeg arguments or paths:** every spawn is built from server-side state; the
