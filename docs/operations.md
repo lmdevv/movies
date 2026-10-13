@@ -95,11 +95,65 @@ On NixOS, run the same commands as root with `movies-convex` (from the package) 
 `node node_modules/convex/bin/main.js`, `CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210`, the
 admin key from `/run/movies/media.env`, then `systemctl restart movies`.
 
-## Upgrades
+## Upgrading
 
-Pull the new image (`docker compose pull && docker compose up -d`) or update the flake input and
-rebuild. The first start of a new version backs up before it deploys the new functions, so a bad
-upgrade can be rolled back by starting the old version and restoring that archive.
+Releases are git tags `vX.Y.Z`. Each one publishes the image as `X.Y.Z`, `X.Y`, and `latest`
+(pre-releases such as `v0.2.0-rc.1` only as `0.2.0-rc.1`); `main` publishes `:main`, the edge,
+and every build also gets `sha-<commit>`. The NixOS module follows whatever revision the flake
+input points at.
+
+| Track     | Compose `MOVIES_IMAGE`                              | NixOS flake input             |
+| --------- | --------------------------------------------------- | ----------------------------- |
+| A release | `ghcr.io/lmdevv/movies:latest`, `:0.2`, or `:0.2.1` | `github:lmdevv/movies/v0.2.1` |
+| Edge      | `ghcr.io/lmdevv/movies:main`                        | `github:lmdevv/movies`        |
+
+### Compose
+
+Keep the checkout at the release you run: `compose.yaml` pins the Convex backend that release was
+tested with, and the image derives the Convex admin key with that backend's tool.
+
+```sh
+cd movies && git fetch --tags && git checkout v0.2.0      # or `git pull` on main for the edge
+cd deploy/compose
+docker compose pull
+docker compose up -d
+docker compose logs -f movies    # "upgrading from 0.1.0 to 0.2.0; backing up to ... first"
+```
+
+### NixOS
+
+```sh
+nix flake update movies          # or point the input at the new tag
+nixos-rebuild switch
+journalctl -u movies -f
+```
+
+### What an upgrade does
+
+The first start of a new version (the image's version and commit, or the Nix package's store
+path) exports a backup, `movies-manual-<timestamp>.zip`, before it deploys the new functions.
+Convex refuses to deploy a schema the stored documents do not match, so such a deploy fails
+and the start stops with the old functions still in place. Convex backend upgrades ride along with [movies] releases; never change
+its image on your own.
+
+### Rolling back
+
+1. Go back to the previous version: `git checkout v0.1.0` and its image tag
+   (`MOVIES_IMAGE=ghcr.io/lmdevv/movies:0.1.0`, then `docker compose up -d`), or
+   `nixos-rebuild switch --rollback`.
+2. If the older functions start, restore the `movies-manual-…` archive the upgrade took (Admin →
+   Backups, or `movies restore`). If they do not deploy over the newer data, restore without the
+   media service (above) and start it again.
+
+### Releasing
+
+For maintainers: set `version` in `packages/backend/package.json` to `X.Y.Z` on `main`, then tag
+and push the tag. The image workflow refuses a tag that does not match that version, runs the
+packaged-stack smoke test, and publishes the multi-arch image.
+
+```sh
+git tag -a v0.2.0 -m "[movies] 0.2.0" && git push origin v0.2.0
+```
 
 ## Remote access
 
