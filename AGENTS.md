@@ -14,8 +14,9 @@ product name is `[movies]`, brackets included; the repo and packages use `movies
   (GPL) and Streamyfin (MPL-2.0) may be read for ideas and edge cases. Never copy, port, or
   translate their code into this repo. SyncLounge and stremio-core are MIT and may be reused with
   attribution. Effect, T3 Code and OpenCode are MIT and safe to reference.
-- **Follow the `coding-standards` skill** when writing, reviewing, or refactoring TypeScript. It is
-  in `.agents/skills/coding-standards/`, from `dmmulroy/skills`.
+- **Load the `coding-standards` skill** before writing, reviewing, or refactoring TypeScript. It is
+  in `.agents/skills/coding-standards/`, from `dmmulroy/skills`. Where it conflicts with this file,
+  this file wins: no lint suppressions, even where its examples use them.
 - **Effect 4 reference.** `effect` is pinned in `pnpm-workspace.yaml`. Keep a read-only clone of
   the matching `Effect-TS/effect-smol` tag in `.repos/effect-smol` (gitignored) and read its
   `LLMS.md` before writing Effect code. Do not import from or edit it.
