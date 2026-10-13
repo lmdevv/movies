@@ -112,7 +112,12 @@ choices made while implementing them. Update it in the same PR that changes a de
   down or refuses the key; a session that ends signs in again, and a call refused as
   `unauthenticated` is retried once after that.
 - Scans: a `full` scan job re-reads every file; a `quick` one skips files whose size and
-  modification time did not change; watchers and the periodic reconciliation are quick. Convex
+  modification time did not change; watchers and the periodic reconciliation are quick. Local
+  disks are watched with file events; network file systems (NFS, SMB/CIFS, 9p, FUSE, found with
+  `statfs`) send none for changes made elsewhere, so `LIBRARY_WATCH=auto` polls them every
+  `LIBRARY_POLL_SECONDS`, one `stat` per folder, reading a folder again only when its modification
+  time moved. A watcher whose folder fails, ends, or is replaced restarts with backoff (one second
+  up to five minutes) and rescans once it is back. Convex
   stores absolute paths. A title's match key is its kind plus a provider ID (`movie:tmdb:603`),
   else its normalized name and year (`show:local:fixture show (2021)`). Extras (trailers,
   featurettes) belong to no title and are not stored. A multi-episode file is stored under its

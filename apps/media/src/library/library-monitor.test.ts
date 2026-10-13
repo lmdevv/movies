@@ -24,41 +24,44 @@ class Watched extends Context.Service<Watched, { readonly root: string }>()(
   "test/WatchedLibrary",
 ) {}
 
-const monitorLayer = Layer.unwrap(
-  Effect.gen(function* () {
-    const workspace = yield* FixtureWorkspace.Service;
-    const path = yield* Path.Path;
-    const copy = yield* workspace.copy.pipe(Effect.orDie);
+/** The monitor over a fresh copy of the fixture movies, with extra environment `overrides`. */
+const monitorLayer = (overrides: Readonly<Record<string, string>> = {}) =>
+  Layer.unwrap(
+    Effect.gen(function* () {
+      const workspace = yield* FixtureWorkspace.Service;
+      const path = yield* Path.Path;
+      const copy = yield* workspace.copy.pipe(Effect.orDie);
 
-    const config = testConfigLayer({
-      LIBRARY_ROOTS: workspace.root,
-      DATA_DIR: path.join(workspace.root, "data"),
-      LIBRARY_RECONCILE_MINUTES: "600",
-    });
+      const config = testConfigLayer({
+        LIBRARY_ROOTS: workspace.root,
+        DATA_DIR: path.join(workspace.root, "data"),
+        LIBRARY_RECONCILE_MINUTES: "600",
+        ...overrides,
+      });
 
-    const scanner = LibraryScanner.layer.pipe(
-      Layer.provideMerge(MemoryLibrary.layer),
-      Layer.provide(MetadataResolver.layer),
-      Layer.provide(Tmdb.layerWithOptions(Tmdb.defaultOptions(Option.none()))),
-      Layer.provide(Omdb.layerWithOptions(Omdb.defaultOptions(Option.none()))),
-      Layer.provide(DiskCache.layer),
-      Layer.provide(MediaTools.layer),
-    );
+      const scanner = LibraryScanner.layer.pipe(
+        Layer.provideMerge(MemoryLibrary.layer),
+        Layer.provide(MetadataResolver.layer),
+        Layer.provide(Tmdb.layerWithOptions(Tmdb.defaultOptions(Option.none()))),
+        Layer.provide(Omdb.layerWithOptions(Omdb.defaultOptions(Option.none()))),
+        Layer.provide(DiskCache.layer),
+        Layer.provide(MediaTools.layer),
+      );
 
-    const monitor = LibraryMonitor.layerTracking([{ libraryId, roots: [copy.movies] }]).pipe(
-      Layer.provideMerge(LibraryMonitor.layer(Duration.millis(200))),
-    );
+      const monitor = LibraryMonitor.layerTracking([{ libraryId, roots: [copy.movies] }]).pipe(
+        Layer.provideMerge(LibraryMonitor.layer(Duration.millis(200))),
+      );
 
-    return monitor.pipe(
-      Layer.merge(Layer.succeed(Watched, Watched.of({ root: copy.movies }))),
-      Layer.provideMerge(scanner),
-      Layer.provideMerge(config),
-    );
-  }),
-).pipe(
-  Layer.provideMerge(FixtureWorkspace.layer),
-  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, FetchHttpClient.layer)),
-);
+      return monitor.pipe(
+        Layer.merge(Layer.succeed(Watched, Watched.of({ root: copy.movies }))),
+        Layer.provideMerge(scanner),
+        Layer.provideMerge(config),
+      );
+    }),
+  ).pipe(
+    Layer.provideMerge(FixtureWorkspace.layer),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, FetchHttpClient.layer)),
+  );
 
 /** Polls the store until `check` holds, for up to fifteen seconds. */
 const eventually = (check: (files: ReadonlyMap<string, MemoryLibrary.StoredFile>) => boolean) =>
@@ -77,7 +80,10 @@ const eventually = (check: (files: ReadonlyMap<string, MemoryLibrary.StoredFile>
   );
 
 describe.skipIf(!hasFfmpeg)("LibraryMonitor", () => {
-  layer(monitorLayer, { excludeTestServices: true, timeout: "60 seconds" })((it) => {
+  layer(monitorLayer({ LIBRARY_WATCH: "events" }), {
+    excludeTestServices: true,
+    timeout: "60 seconds",
+  })((it) => {
     it.effect(
       "scans at startup and rescans after file changes",
       () =>
@@ -109,6 +115,60 @@ describe.skipIf(!hasFfmpeg)("LibraryMonitor", () => {
         }),
       // Each step may wait up to 15 seconds for the watcher; the default 5 second budget is
       // shorter than one step under load.
+      60_000,
+    );
+
+    it.effect(
+      "starts watching again after the library folder goes away and comes back",
+      () =>
+        Effect.gen(function* () {
+          const { root } = yield* Watched;
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const parked = `${root}.parked`;
+
+          yield* eventually((files) => files.has("New Movie (2024)/New Movie (2024).mkv"));
+
+          // An unmounted share: the watched folder disappears, then a new one with a new film
+          // appears in its place.
+          yield* fs.copy(root, parked);
+          yield* fs.remove(root, { recursive: true });
+          yield* Effect.sleep(Duration.millis(500));
+          yield* fs.makeDirectory(path.join(parked, "Returned (2025)"));
+          yield* fs.copyFile(
+            path.join(parked, "New Movie (2024)", "New Movie (2024).mkv"),
+            path.join(parked, "Returned (2025)", "Returned (2025).mkv"),
+          );
+          yield* fs.rename(parked, root);
+
+          yield* eventually((files) => files.has("Returned (2025)/Returned (2025).mkv"));
+        }),
+      60_000,
+    );
+  });
+
+  layer(monitorLayer({ LIBRARY_WATCH: "poll", LIBRARY_POLL_SECONDS: "1" }), {
+    excludeTestServices: true,
+    timeout: "60 seconds",
+  })((it) => {
+    it.effect(
+      "polls a library that sends no file events",
+      () =>
+        Effect.gen(function* () {
+          const { library } = yield* FixtureWorkspace.Service;
+          const { root } = yield* Watched;
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+
+          yield* eventually((files) => files.size === 4);
+          yield* fs.makeDirectory(path.join(root, "Polled (2023)"));
+          yield* fs.copyFile(
+            path.join(root, library.messyMovie),
+            path.join(root, "Polled (2023)", "Polled (2023).mkv"),
+          );
+
+          yield* eventually((files) => files.has("Polled (2023)/Polled (2023).mkv"));
+        }),
       60_000,
     );
   });

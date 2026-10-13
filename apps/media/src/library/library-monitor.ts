@@ -1,9 +1,12 @@
 /**
  * Keeps libraries in sync with disk. File change events are hints: a debounced burst triggers
- * an incremental scan. A periodic incremental scan is authoritative and covers network shares
- * that send no events, and a watcher that cannot start (an unmounted share) is retried at the
- * same cadence. Scans of one library never overlap, whether a watcher, the reconciliation, or a
- * scan job started them.
+ * an incremental scan. Network file systems (NFS, SMB/CIFS, 9p, FUSE) send no events for changes
+ * made elsewhere, so `LIBRARY_WATCH=auto` polls folders on them every `LIBRARY_POLL_SECONDS`
+ * instead (`library-poller.ts`); `events` and `poll` force one way. A watcher that fails or ends
+ * (an unmounted share, a deleted root) starts again with capped backoff and rescans once it is
+ * back, since changes may have been missed meanwhile. A periodic incremental scan is
+ * authoritative and catches whatever both miss. Scans of one library never overlap, whether a
+ * watcher, a poll, the reconciliation, or a scan job started them.
  *
  * The set of libraries comes from the caller: the approved roots in standalone mode, or the
  * Convex `libraries` subscription. A library with a folder outside `LIBRARY_ROOTS` is scanned
@@ -18,13 +21,18 @@ import {
   FiberMap,
   FileSystem,
   Layer,
+  Option,
+  Path,
   Ref,
   Schedule,
+  Schema,
   Semaphore,
   Stream,
 } from "effect";
 
 import * as MediaConfig from "../media-config.ts";
+import { fileSystemType } from "../platform/node-directories.ts";
+import * as LibraryPoller from "./library-poller.ts";
 import * as LibraryScanner from "./library-scanner.ts";
 
 /** A library and the folders to keep in sync. */
@@ -62,9 +70,22 @@ interface MonitorTiming {
   /** Quiet period after the last change event before scanning. */
   readonly debounce: Duration.Duration;
   readonly reconcileInterval: Duration.Duration;
+  readonly pollInterval: Duration.Duration;
 }
 
 const DEFAULT_DEBOUNCE = Duration.seconds(3);
+
+/** A watcher that failed or ended starts again after 1, 2, 4… seconds, at most five minutes. */
+const watchRestart = Schedule.min([
+  Schedule.exponential("1 second"),
+  Schedule.spaced("5 minutes"),
+]).pipe(Schedule.jittered);
+
+/** The file change stream ended, or its folder was removed or replaced while it watched. */
+class WatchEnded extends Schema.TaggedError<WatchEnded>()("WatchEnded", {}) {}
+
+/** How one folder is kept in sync. */
+type WatchMode = "events" | "poll";
 
 /** One watcher per library and folder set; a change of folders restarts it. */
 const keyOf = (library: MonitoredLibrary): string =>
@@ -75,7 +96,14 @@ const make = Effect.fn("LibraryMonitor.make")(function* (debounce: Duration.Dura
   const scanner = yield* LibraryScanner.Service;
   const fs = yield* FileSystem.FileSystem;
   const config = yield* MediaConfig.Service;
-  const timing: MonitorTiming = { debounce, reconcileInterval: config.reconcileInterval };
+  const path = yield* Path.Path;
+
+  const timing: MonitorTiming = {
+    debounce,
+    reconcileInterval: config.reconcileInterval,
+    pollInterval: config.libraryPollInterval,
+  };
+
   const locks = yield* Ref.make<ReadonlyMap<LibraryId, Semaphore.Semaphore>>(new Map());
   const watchers = yield* FiberMap.make<string>();
   const tracked = yield* Ref.make<ReadonlySet<string>>(new Set());
@@ -126,20 +154,88 @@ const make = Effect.fn("LibraryMonitor.make")(function* (debounce: Duration.Dura
       ),
   );
 
+  /** The folder's identity; a watcher keeps following the old one after it is replaced. */
+  const identity = (root: string) =>
+    fs.stat(root).pipe(
+      Effect.map((info) => `${String(info.dev)}:${String(Option.getOrElse(info.ino, () => 0))}`),
+      Effect.orElseSucceed(() => "missing"),
+    );
+
+  const snapshot = (root: string, previous: LibraryPoller.Snapshot) =>
+    LibraryPoller.snapshot(root, previous).pipe(
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.provideService(Path.Path, path),
+    );
+
+  /** Events, or polling for a network file system; `LIBRARY_WATCH` decides, `auto` by `statfs`. */
+  const watchModeOf = Effect.fnUntraced(function* (root: string) {
+    if (config.libraryWatch !== "auto") return config.libraryWatch satisfies WatchMode;
+
+    const type = yield* Effect.tryPromise(() => fileSystemType(root)).pipe(Effect.option);
+
+    return Option.isSome(type) && LibraryPoller.isNetworkFileSystem(type.value)
+      ? ("poll" as const)
+      : ("events" as const);
+  });
+
   /** Watches and reconciles one library until interrupted. */
   const monitor = Effect.fn("LibraryMonitor.monitor")(
     function* (library: MonitoredLibrary) {
       const rescan = (reason: "change" | "reconcile") =>
         scan(library, "incremental", reason).pipe(Effect.ignore);
 
-      const watch = (root: string) =>
-        fs.watch(root, { recursive: true }).pipe(
-          Stream.debounce(timing.debounce),
-          Stream.runForEach(() => rescan("change")),
-          Effect.tapError((error) => Effect.logWarning("LibraryMonitor.watch_failed", error)),
-          Effect.retry(Schedule.spaced(timing.reconcileInterval)),
-          Effect.ignore,
+      const restarts = yield* Ref.make(0);
+
+      // After a restart, rescan: changes made while nothing watched were not reported. Node's
+      // watcher reports its folder's removal as one event and then nothing, so every burst also
+      // checks that the folder is still the one being watched.
+      const watchEvents = (root: string) =>
+        Effect.gen(function* () {
+          if ((yield* Ref.get(restarts)) > 0) yield* rescan("change");
+          const watched = yield* identity(root);
+
+          yield* fs.watch(root, { recursive: true }).pipe(
+            Stream.debounce(timing.debounce),
+            Stream.runForEach(() =>
+              identity(root).pipe(
+                Effect.flatMap((current) =>
+                  current === watched ? rescan("change") : Effect.fail(new WatchEnded()),
+                ),
+              ),
+            ),
+          );
+
+          return yield* new WatchEnded();
+        }).pipe(
+          Effect.tapError((error) =>
+            Ref.update(restarts, (count) => count + 1).pipe(
+              Effect.andThen(Effect.logWarning("LibraryMonitor.watch_failed", error)),
+            ),
+          ),
+          Effect.retry(watchRestart),
         );
+
+      // Each poll costs one `stat` per folder; a share that is away is skipped until it returns.
+      const poll = Effect.fnUntraced(function* (root: string) {
+        let previous = (yield* snapshot(root, new Map())).snapshot;
+
+        for (;;) {
+          yield* Effect.sleep(timing.pollInterval);
+          const next = yield* snapshot(root, previous);
+
+          previous = next.snapshot;
+
+          if (next.changed) yield* rescan("change");
+        }
+      });
+
+      const watch = Effect.fnUntraced(function* (root: string) {
+        const mode = yield* watchModeOf(root);
+
+        yield* Effect.logInfo("LibraryMonitor.watching").pipe(Effect.annotateLogs({ mode }));
+
+        return yield* mode === "poll" ? poll(root) : watchEvents(root);
+      });
 
       // Watch before the startup scan, so a change made while it runs is not missed.
       const watching = yield* Effect.forkChild(
@@ -190,7 +286,7 @@ export const layer = (
 ): Layer.Layer<
   Service,
   never,
-  LibraryScanner.Service | FileSystem.FileSystem | MediaConfig.Service
+  LibraryScanner.Service | FileSystem.FileSystem | Path.Path | MediaConfig.Service
 > => Layer.effect(Service, make(debounce));
 
 /** Tracks a fixed set of libraries for the lifetime of the layer, as standalone mode does. */
