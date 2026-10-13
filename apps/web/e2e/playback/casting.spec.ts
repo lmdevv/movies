@@ -1,0 +1,355 @@
+/**
+ * Chromecast, watch rooms while casting, and the system's media controls, against the real media
+ * service. Google's Cast SDK is replaced by a scripted fake (`cast-fake.ts`) installed in the
+ * browser, so the app's loader, its negotiation for the device, and its commands run for real; the
+ * test plays the receiver. Media Session handlers are read from `navigator.mediaSession` through a
+ * recorder installed the same way. Runs after the scrubbing suite on the same stack.
+ */
+import { join } from "node:path";
+
+import { RoomId } from "@movies/contracts/ids";
+import { MEDIA_ROUTES } from "@movies/contracts/media-playback";
+import type { TitleId } from "@movies/contracts/ids";
+import { expect, test } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
+import { Schema } from "effect";
+
+import { NO_STACK, ownedStack, signInOwner, useSession } from "../admin/session";
+import type { Client } from "../admin/session";
+import { buildMediaService, startMediaService } from "../stack/media-service";
+import type { MediaService } from "../stack/media-service";
+import { advanceReceiver, castFake, installCastFake, receiver } from "./cast-fake";
+import {
+  capture,
+  encodeClip,
+  expectPlayingPast,
+  expectPositionNear,
+  makeWorkspace,
+  movieNfo,
+  offline,
+  removePath,
+  revealControls,
+  scanLibrary,
+  titlesByName,
+  videoState,
+  writeText,
+} from "./playback-stack";
+
+const stack = await ownedStack();
+
+test.skip(stack === null, NO_STACK);
+
+test.describe.configure({ mode: "serial" });
+
+const SETUP_TIMEOUT_MS = 240_000;
+
+const run = Date.now().toString(36);
+
+/** Plays directly on a Chromecast; has English subtitles. */
+const DIRECT = "Lantern Pier";
+
+/** H.264 in Matroska: a Chromecast plays it as remuxed fMP4 HLS. */
+const REMUX = "Salt Road";
+
+const SRT = `1
+00:00:00,500 --> 00:02:00,000
+The pier lights come on one by one.
+`;
+
+let workspace = "";
+
+let media: MediaService | undefined;
+
+let owner: Client;
+
+let context: BrowserContext;
+
+let page: Page;
+
+const titles = new Map<string, TitleId>();
+
+const titleId = (name: string): TitleId => {
+  const id = titles.get(name);
+
+  if (id === undefined) throw new Error(`${name} was not scanned`);
+
+  return id;
+};
+
+/** Records the handlers the app gives the system's media controls, for the tests to press. */
+const MEDIA_SESSION_RECORDER = `
+(() => {
+  const handlers = {};
+  window.__mediaSessionHandlers = handlers;
+  const session = navigator.mediaSession;
+  const set = session.setActionHandler.bind(session);
+  session.setActionHandler = (action, handler) => {
+    handlers[action] = handler;
+    set(action, handler);
+  };
+})();
+`;
+
+test.beforeAll(async ({ browser }) => {
+  if (stack === null) return;
+
+  test.setTimeout(SETUP_TIMEOUT_MS);
+  workspace = await makeWorkspace("movies-web-casting-");
+
+  const films = join(workspace, "Films");
+  const folder = (name: string): string => join(films, `${name} (2022)`);
+
+  await Promise.all([
+    encodeClip(join(folder(DIRECT), `${DIRECT} (2022).mp4`), {
+      seconds: 120,
+      video: "h264",
+      audio: [{ codec: "aac", language: "eng" }],
+    }),
+    writeText(join(folder(DIRECT), `${DIRECT} (2022).en.srt`), SRT),
+    encodeClip(join(folder(REMUX), `${REMUX} (2022).mkv`), {
+      seconds: 120,
+      video: "h264",
+      audio: [{ codec: "aac", language: "eng" }],
+    }),
+    ...[DIRECT, REMUX].map((name) =>
+      writeText(join(folder(name), "movie.nfo"), movieNfo(name, 2022)),
+    ),
+  ]);
+
+  buildMediaService();
+  media = await startMediaService(offline(stack), [workspace]);
+  owner = await signInOwner(stack);
+
+  const libraryId = await scanLibrary(owner.sdk, {
+    name: `Casting ${run}`,
+    kind: "movies",
+    root: films,
+    access: "everyone",
+  });
+
+  (await titlesByName(owner.sdk, libraryId)).forEach((id, name) => titles.set(name, id));
+
+  context = await browser.newContext();
+  page = await context.newPage();
+  await installCastFake(page);
+  await page.addInitScript({ content: MEDIA_SESSION_RECORDER });
+  await useSession(page, owner);
+});
+
+test.afterAll(async () => {
+  if (stack === null) return;
+
+  await context.close();
+  await owner.sdk.dispose();
+  await media?.stop();
+  await removePath(workspace);
+});
+
+/** Opens the cast menu and connects to the fake Chromecast. */
+const castToTv = async (target: Page): Promise<void> => {
+  await revealControls(target);
+  await target.getByRole("button", { name: "Cast" }).click();
+  await target
+    .getByRole("dialog", { name: "Play on" })
+    .getByRole("button", { name: /Chromecast/u })
+    .click();
+  await expect(target.getByTestId("casting-state")).toHaveText("Playing on Living Room TV");
+};
+
+/** The reported position of the newest session playing `name`, as Convex has it. */
+const reportedSeconds = async (name: string): Promise<number> => {
+  const sessions = await owner.sdk.query("playback.active", {});
+
+  const session = sessions
+    .filter((each) => each.titleId === titleId(name))
+    .toSorted((left, right) => right.startedAt - left.startedAt)[0];
+
+  return (session?.positionMs ?? 0) / 1000;
+};
+
+test("a Chromecast on the network gets a cast button, and casting loads the session's stream there", async () => {
+  await page.goto(`/watch/${titleId(DIRECT)}?start=0`);
+  await expectPlayingPast(page, 2);
+  await revealControls(page);
+  await expect(page.getByRole("button", { name: "Cast" })).toBeHidden();
+
+  await page.getByTestId("player").press("c");
+  await castFake(page, "devicesAppear");
+  await revealControls(page);
+  await page.getByRole("button", { name: "Cast" }).click();
+
+  // The stack's media service answers on 127.0.0.1, which no Chromecast can reach.
+  const menu = page.getByRole("dialog", { name: "Play on" });
+
+  await expect(menu.getByRole("note")).toContainText("can't reach");
+  await expect(menu).toHaveCSS("opacity", "1");
+  await capture(page, "cast-menu");
+  await menu.getByRole("button", { name: /Chromecast/u }).click();
+  await expect(page.getByTestId("casting-state")).toHaveText("Playing on Living Room TV");
+
+  const [load] = (await receiver(page)).loads;
+  const local = await videoState(page);
+
+  expect(load).toMatchObject({
+    contentType: "video/mp4",
+    streamType: "BUFFERED",
+    hlsSegmentFormat: null,
+    title: DIRECT,
+    seriesTitle: null,
+    autoplay: true,
+    activeTrackIds: [1],
+  });
+  expect(load?.contentId).toMatch(
+    new RegExp(`^${stack?.mediaUrl ?? ""}/media/direct/\\w+\\?token=v1\\.`, "u"),
+  );
+  expect(load?.tracks).toEqual([
+    expect.objectContaining({ trackId: 1, contentType: "text/vtt", name: "English" }),
+  ]);
+  expect(load?.tracks[0]?.url).toMatch(/\/media\/subtitles\/\w+\/x0\.vtt\?token=v1\./u);
+  expect(load?.currentTime).toBeGreaterThan(1.5);
+  expect(local.paused).toBe(true);
+  await expect(page.getByRole("dialog", { name: "Play on" })).toBeHidden();
+  // The TV shows the subtitles; the paused page shows none.
+  expect(
+    await page
+      .getByTestId("player-video")
+      .evaluate((element) =>
+        element instanceof HTMLVideoElement
+          ? Array.from(element.textTracks).filter((track) => track.mode === "showing").length
+          : -1,
+      ),
+  ).toBe(0);
+  await capture(page, "casting");
+});
+
+test("the controls drive the receiver, and progress follows it", async () => {
+  await advanceReceiver(page, 30);
+  await page.getByTestId("player").press("k");
+  await expect.poll(async () => (await receiver(page)).isPaused).toBe(true);
+
+  await page.getByTestId("player").press("l");
+  await expect.poll(async () => (await receiver(page)).commands).toContainEqual(["seek", 40]);
+  await expect.poll(() => reportedSeconds(DIRECT), { timeout: 10_000 }).toBeCloseTo(40, 0);
+
+  await page.getByTestId("player").press("ArrowDown");
+  await page.getByTestId("player").press("m");
+  await page.getByTestId("player").press("c");
+
+  const seen = await receiver(page);
+
+  expect(seen.commands.map(([command]) => command)).toEqual(
+    expect.arrayContaining(["playOrPause", "seek", "setVolumeLevel", "muteOrUnmute"]),
+  );
+  expect(seen.trackChanges.at(-1)).toEqual([]);
+});
+
+test("ending the cast continues on the page where the TV was", async () => {
+  await page.getByTestId("player").press("k");
+  await advanceReceiver(page, 52);
+  await castFake(page, "disconnect");
+  await expect(page.getByTestId("casting-state")).toBeHidden();
+  await expectPositionNear(page, 52, 1.5);
+  await expectPlayingPast(page, 52);
+});
+
+test("an MKV casts as fMP4 HLS, and a seek past what it produced moves the stream first", async () => {
+  await page.goto(`/watch/${titleId(REMUX)}?start=0`);
+  await expectPlayingPast(page, 1);
+  // A reload starts the fake SDK over, as a new page starts Google's.
+  await castFake(page, "devicesAppear");
+  await castToTv(page);
+
+  const first = (await receiver(page)).loads.at(-1);
+
+  expect(first).toMatchObject({
+    contentType: "application/x-mpegurl",
+    hlsSegmentFormat: "fmp4",
+    title: REMUX,
+  });
+  expect(first?.contentId).toMatch(/\/media\/hls\/[\w-]+\/\d+\/index\.m3u8\?token=v1\./u);
+
+  const before = (await receiver(page)).loads.length;
+
+  await revealControls(page);
+
+  const box = await page.locator('[data-slot="scrubber"]').boundingBox();
+
+  if (box === null) throw new Error("The scrubber is not on screen");
+
+  // The receiver cannot move the stream itself, so the page asks the media service first.
+  const seekRequest = page.waitForRequest(
+    (request) => request.method() === "POST" && request.url().endsWith(MEDIA_ROUTES.seek),
+  );
+
+  await page.mouse.click(box.x + box.width * 0.9, box.y + box.height / 2);
+  await seekRequest;
+
+  // Then either the stream started a new generation there and the receiver reloads it, or that
+  // part was already produced and the receiver seeks in place.
+  await expect
+    .poll(async () => {
+      const seen = await receiver(page);
+      const reloaded = seen.loads.length > before ? seen.loads.at(-1) : undefined;
+
+      return reloaded === undefined
+        ? seen.commands.some(([command, at]) => command === "seek" && Number(at) > 100)
+        : reloaded.currentTime > 100 && reloaded.contentId !== first?.contentId;
+    })
+    .toBe(true);
+
+  // Leaving the player stops the TV but keeps the device, so the next title casts by itself. The
+  // app navigates in place, as it does to the next episode; a reload would start the fake over.
+  await page.evaluate(
+    (path) => {
+      window.history.pushState({}, "", path);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    },
+    `/watch/${titleId(DIRECT)}?start=0`,
+  );
+  await expect(page.getByTestId("casting-state")).toHaveText("Playing on Living Room TV");
+  await expect.poll(async () => (await receiver(page)).loads.at(-1)?.title).toBe(DIRECT);
+});
+
+test("a watch room follows the device its host casts to", async () => {
+  await castFake(page, "disconnect");
+  await page.goto(`/watch/${titleId(DIRECT)}?start=0`);
+  await expectPlayingPast(page, 2);
+  await revealControls(page);
+  await page.getByRole("button", { name: "Watch together" }).click();
+  await page
+    .getByRole("dialog", { name: "Watch together" })
+    .getByRole("button", { name: "Start room" })
+    .click();
+  await expect(page).toHaveURL(/[?&]room=/u);
+
+  const roomId = Schema.decodeSync(RoomId)(new URL(page.url()).searchParams.get("room") ?? "");
+  const clock = async () => (await owner.sdk.query("rooms.get", { roomId })).clock;
+
+  await castFake(page, "devicesAppear");
+  await castToTv(page);
+  await page.getByTestId("player").press("k");
+  await expect.poll(async () => (await clock()).status).toBe("paused");
+
+  await advanceReceiver(page, 60);
+  await page.getByTestId("player").press("l");
+  await expect
+    .poll(async () => (await clock()).positionAtAnchorMs, { timeout: 10_000 })
+    .toBeGreaterThan(65_000);
+  await castFake(page, "disconnect");
+});
+
+test("the system's media controls show what plays and drive the player", async () => {
+  await page.goto(`/watch/${titleId(DIRECT)}?start=0`);
+  await expectPlayingPast(page, 2);
+  await expect.poll(() => page.evaluate(() => navigator.mediaSession.metadata?.title)).toBe(DIRECT);
+  expect(await page.evaluate(() => navigator.mediaSession.playbackState)).toBe("playing");
+
+  await page.evaluate("window.__mediaSessionHandlers.pause()");
+  await expect.poll(async () => (await videoState(page)).paused).toBe(true);
+  await page.evaluate("window.__mediaSessionHandlers.seekto({ action: 'seekto', seekTime: 90 })");
+  await expectPositionNear(page, 90, 1);
+  await page.evaluate("window.__mediaSessionHandlers.play()");
+  await expectPlayingPast(page, 90.5);
+  await page.evaluate("window.__mediaSessionHandlers.seekbackward({ action: 'seekbackward' })");
+  await expect.poll(async () => (await videoState(page)).currentTime).toBeLessThan(85);
+});

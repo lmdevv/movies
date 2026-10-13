@@ -452,14 +452,17 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
     [controller],
   );
 
-  // Show the chosen subtitle track; the element keeps one text track per <track>.
+  // Show the chosen subtitle track; the element keeps one text track per <track>. While a TV
+  // plays, it shows the subtitles and the paused element shows none.
+  const shownSubtitle = casting === null ? subtitleId : null;
+
   useEffect(() => {
     if (video === null) return;
 
     for (const track of Array.from(video.textTracks)) {
-      track.mode = track.id === subtitleId ? "showing" : "disabled";
+      track.mode = track.id === shownSubtitle ? "showing" : "disabled";
     }
-  }, [video, subtitleId, stream]);
+  }, [video, shownSubtitle, stream]);
 
   // Rooms.
   const copyLink = useCallback((id: RoomId) => {

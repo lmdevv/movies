@@ -285,6 +285,44 @@ choices made while implementing them. Update it in the same PR that changes a de
   file's length, without empty markers; `Probe.chapters` is absent for files scanned before, so a
   full scan picks them up.
 
+## Casting and system controls
+
+- Chromecast uses Google's Cast Web Sender SDK with the Default Media Receiver. The web app loads
+  `cast_sender.js?loadCastFramework=1` from `www.gstatic.com` only in Chromium browsers and only
+  once the player opens; Safari and Firefox never download it. The content security policy allows
+  scripts from `www.gstatic.com` without a scheme: the SDK loads its framework and platform
+  scripts protocol-relative, so a page served over HTTP fetches them over HTTP (checked in Chrome
+  against the media service's real policy: with `https://` only, `cast_framework.js` was blocked).
+- A cast continues the page's playback session; it is not a new device. The receiver gets its own
+  stream, negotiated through the same ladder with the Chromecast client profile in
+  `@movies/contracts/cast` (1080p H.264 and AAC, MP4 or fMP4 HLS, on every model; HEVC Main 10,
+  2160p, HDR10 and HLG only for models whose name says they play them, since the sender SDK
+  reports no codecs). Its absolute URLs carry the session's playback token in the query, as every
+  media URL does, because a receiver cannot send headers; no other token kind exists, and the
+  token stops working when the session ends.
+- The page's element pauses and `PlaybackController.output` switches to the receiver, so progress
+  reports and a watch room's engine follow the TV. Subtitles are the stream's WebVTT tracks;
+  subtitle and audio choices, and token renewals, reload or retrack the receiver at its position.
+  A seek goes through `seekStream` first, because a receiver asking for segments outside what the
+  stream produced would get `StreamGenerationGone`; a new generation reloads the receiver there.
+  Disconnecting, from the page or the TV, stops the receiver's stream and continues on the page at
+  the TV's position. Leaving the player stops the TV but keeps the device connected, so the next
+  episode or title casts by itself. The cast menu warns when the media service's address is
+  `localhost` or a loopback address, which no Chromecast can reach.
+- AirPlay plays the `<video>` element's own source, so Safari plays HLS natively (hls.js is never
+  used there) and the element carries `x-webkit-airplay="allow"`; the menu offers AirPlay only
+  after `webkitplaybacktargetavailabilitychanged` reports a device, and the element keeps firing
+  its events, so progress keeps reporting. Browsers without the Cast SDK or AirPlay get the
+  standard Remote Playback API (`video.remote.prompt()`), which cannot send Media Source streams.
+- The Media Session API publishes the title, show, episode, and artwork, and handles play, pause,
+  seek backward and forward, seek to, and previous and next episode (within the season); handlers
+  act on the session's output, so they also drive a TV. Picture in picture uses the standard API,
+  or Safari's presentation modes.
+- SharePlay (Apple's GroupActivities) exists only for native apps; the web app does not imitate
+  it. Join watching rooms are the cross-platform equivalent, and keep working while the host or a
+  guest casts, because the room engine follows the session's output. SharePlay ships with the
+  native iOS and tvOS app (V1).
+
 ## Playback and progress
 
 - `playback.createSession` is a mutation: it authorizes the profile and library, picks the file,
