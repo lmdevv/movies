@@ -14,6 +14,7 @@
  */
 import type { LibraryId } from "@movies/contracts/ids";
 import {
+  Clock,
   Context,
   Duration,
   Effect,
@@ -24,7 +25,6 @@ import {
   Option,
   Path,
   Ref,
-  Schedule,
   Schema,
   Semaphore,
   Stream,
@@ -75,11 +75,16 @@ interface MonitorTiming {
 
 const DEFAULT_DEBOUNCE = Duration.seconds(3);
 
-/** A watcher that failed or ended starts again after 1, 2, 4… seconds, at most five minutes. */
-const watchRestart = Schedule.min([
-  Schedule.exponential("1 second"),
-  Schedule.spaced("5 minutes"),
-]).pipe(Schedule.jittered);
+/** A watch that ran this long before failing counts as healthy: its restarts start over. */
+const HEALTHY_WATCH = Duration.minutes(10);
+
+/** Failures in a row after a watch that ran `ranMillis` and failed, following `previous`. */
+export const failuresAfter = (previous: number, ranMillis: number): number =>
+  ranMillis >= Duration.toMillis(HEALTHY_WATCH) ? 1 : previous + 1;
+
+/** A watcher that failed `failures` times in a row starts again after 1, 2, 4… s, at most 5 min. */
+export const restartDelay = (failures: number): Duration.Duration =>
+  Duration.min(Duration.seconds(2 ** Math.min(Math.max(failures - 1, 0), 9)), Duration.minutes(5));
 
 /** The file change stream ended, or its folder was removed or replaced while it watched. */
 class WatchEnded extends Schema.TaggedError<WatchEnded>()("WatchEnded", {}) {}
@@ -226,21 +231,29 @@ const make = Effect.fn("LibraryMonitor.make")(function* (debounce: Duration.Dura
 
       // The mode is chosen again on every restart: a share mounted over the folder after startup
       // (seen as the folder being replaced) is polled from then on.
-      const watch = (root: string) =>
+      const watchOnce = (root: string) =>
         Effect.gen(function* () {
           const mode = yield* watchModeOf(root);
 
           yield* Effect.logInfo("LibraryMonitor.watching").pipe(Effect.annotateLogs({ mode }));
 
           return yield* mode === "poll" ? poll(root) : watchEvents(root);
-        }).pipe(
-          Effect.tapError((error) =>
-            Ref.update(restarts, (count) => count + 1).pipe(
-              Effect.andThen(Effect.logWarning("LibraryMonitor.watch_failed", error)),
-            ),
-          ),
-          Effect.retry(watchRestart),
-        );
+        });
+
+      const watch = Effect.fnUntraced(function* (root: string) {
+        let failures = 0;
+
+        for (;;) {
+          const started = yield* Clock.currentTimeMillis;
+          const error = yield* Effect.flip(watchOnce(root));
+          const ran = (yield* Clock.currentTimeMillis) - started;
+
+          failures = failuresAfter(failures, ran);
+          yield* Ref.update(restarts, (count) => count + 1);
+          yield* Effect.logWarning("LibraryMonitor.watch_failed", error);
+          yield* Effect.sleep(restartDelay(failures));
+        }
+      });
 
       // Watch before the startup scan, so a change made while it runs is not missed.
       const watching = yield* Effect.forkChild(

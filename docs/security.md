@@ -147,8 +147,9 @@ A review of `packages/backend` found these after the table above; each has a sta
   so an install served over plain HTTP loads it over HTTP, open to anyone on the path to Google.
   Serve [movies] over HTTPS (Tailscale Serve, a reverse proxy) to keep it on HTTPS; browsers other
   than Chromium never load it.
-- **Artwork downloads** from `image.tmdb.org` have no size cap, interrupted downloads can leave
-  `.part` files, and first-time subtitle conversions and keyframe scans are not de-duplicated.
+- **First-time subtitle conversions are not de-duplicated:** two requests for the same track
+  before it is cached convert it twice (at most two conversions run at once). Keyframe scans are
+  shared by everyone waiting on the same file.
 - **Check-then-open races in the library.** Paths are checked by their real path and then opened
   by name (ffmpeg opens files itself), so someone who can write to a library folder can swap a
   folder for a link between the two. Libraries are mounted read-only to the service, and whoever

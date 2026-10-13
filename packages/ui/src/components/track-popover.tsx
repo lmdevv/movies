@@ -140,7 +140,8 @@ export function TrackPopover({
             aria-label={label}
             className="origin-(--transform-origin) shadow-overlay transition-[opacity,scale] data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
           >
-            <TrackPanel choices={choices} />
+            {/* On a phone the panel can be wider than the screen: cap it there, and its columns scroll. */}
+            <TrackPanel choices={choices} className="max-w-(--available-width) overflow-x-auto" />
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>

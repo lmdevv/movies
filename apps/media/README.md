@@ -2,7 +2,7 @@
 
 Node + Effect HttpApi media service. It scans approved library folders, probes files with
 ffprobe, merges local NFO/artwork with TMDB metadata, negotiates playback, serves direct files
-with byte ranges, produces fMP4 HLS (remux, audio-only transcode, Intel QSV transcode with HDR
+with byte ranges, produces fMP4 HLS (remux, audio-only transcode, Intel QSV or VA-API transcode with HDR
 tone mapping, or software transcode capped at 1080p), converts text subtitles to WebVTT, and
 hosts the built web app.
 
@@ -31,7 +31,7 @@ playback events are logged. `CONVEX_URL` without the key refuses to start.
 | `GET /media/hls/:streamId/:generation/index.m3u8?token=` | VOD playlist of one generation                                      |
 | `GET /media/hls/:streamId/:generation/init.mp4?token=`   | fMP4 init segment                                                   |
 | `GET /media/hls/:streamId/:generation/:index.m4s?token=` | fMP4 media segment                                                  |
-| `GET /media/subtitles/:fileId/:track.vtt?token=`         | WebVTT (`e<stream>` embedded, `x<n>` sidecar)                       |
+| `GET /media/subtitles/:fileId/:track.vtt?token=`         | WebVTT (`e<stream>` embedded, `x<file-name hash>` sidecar)          |
 | `GET /artwork/:key?w=`                                   | Artwork by sealed key, original or resized (185–1280), no token     |
 | `POST /api/metadata/candidates`                          | `metadata.searchCandidates` command (bearer Convex token, `manage`) |
 | `POST /api/migration/connect`                            | `migration.connect` command (bearer Convex token, `admin`)          |

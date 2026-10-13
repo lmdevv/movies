@@ -175,14 +175,14 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
 (Intel and AMD), and falls back to software encoding when a GPU run fails.
 
 - Compose: add `-f compose.qsv.yaml` (or `-f compose.vaapi.yaml` for VA-API) to pass `/dev/dri`
-  through. The image carries Debian's ffmpeg
-  7.1 (built with libvpl), Intel's iHD VA-API driver, and the oneVPL GPU runtime (amd64), which
-  cover Gen12 and newer iGPUs (Tiger Lake onwards) and Arc cards. Older iGPUs need the retired
-  Media SDK runtime, which the image does not carry; they transcode in software.
+  through. The image carries Debian's ffmpeg 7.1 (built with libvpl), Intel's iHD VA-API driver,
+  the oneVPL GPU runtime, and Mesa's VA-API drivers (amd64). Quick Sync covers Gen12 and newer
+  iGPUs (Tiger Lake onwards) and Arc cards; older Intel iGPUs and AMD GPUs encode through VA-API.
 - NixOS: `hardwareAcceleration = "qsv"` enables `hardware.graphics` with `intel-media-driver` and
   `vpl-gpu-rt`, gives the service the DRM render nodes and the `render` and `video` groups, and
   uses `ffmpeg-full` (the default nixpkgs `ffmpeg` has no libvpl). `"auto"` grants the devices and
-  probes them without changing the host's graphics configuration.
+  probes them without changing the host's graphics configuration. `"vaapi"` does the same for
+  VA-API, with `vaapiDevice` for the render node.
 - Verified on an Arc A380 in both installs (`QSV=1 scripts/stack-e2e.sh`,
   `HARDWARE_ACCELERATION=auto scripts/nixos-module-e2e.sh`).
 
@@ -192,7 +192,7 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
   `journalctl -u movies`).
 - With `OTEL_EXPORTER_OTLP_ENDPOINT` (Compose) or `otlpEndpoint` (NixOS) set to an OTLP/HTTP
   collector, the media service exports traces and logs: library scans, playback negotiation, the
-  first HLS segment, seeks, encoder failures and QSV fallbacks, backups and restores, and
+  first HLS segment, seeks, encoder failures and GPU-to-software fallbacks, backups and restores, and
   migrations. `docker compose --profile telemetry up -d` starts a local collector that prints
   them (`deploy/compose/otel-collector.yaml`).
 - Every log line and export is redacted on the way out: fields named like credentials and values

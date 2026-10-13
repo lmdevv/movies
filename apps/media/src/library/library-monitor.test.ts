@@ -2,6 +2,7 @@ import { NodeServices } from "@effect/platform-node";
 import { assert, describe, layer } from "@effect/vitest";
 import { Context, Duration, Effect, FileSystem, Layer, Option, Path, Schedule } from "effect";
 import { FetchHttpClient } from "effect/http";
+import { test } from "vitest";
 
 import * as DiskCache from "../disk-cache.ts";
 import { LibraryId } from "@movies/contracts/ids";
@@ -171,5 +172,21 @@ describe.skipIf(!hasFfmpeg)("LibraryMonitor", () => {
         }),
       60_000,
     );
+  });
+});
+
+describe("watch restarts", () => {
+  test("back off while a watch keeps failing, and start over after one that ran well", () => {
+    const delays: Array<number> = [];
+    let failures = 0;
+
+    // Six quick failures back off to 32 s; then a watch that ran for an hour fails.
+    for (const ranMillis of [10, 10, 10, 10, 10, 10, 3_600_000, 10]) {
+      failures = LibraryMonitor.failuresAfter(failures, ranMillis);
+      delays.push(Duration.toSeconds(LibraryMonitor.restartDelay(failures)));
+    }
+
+    assert.deepStrictEqual(delays, [1, 2, 4, 8, 16, 32, 1, 2]);
+    assert.strictEqual(Duration.toMinutes(LibraryMonitor.restartDelay(40)), 5);
   });
 });
