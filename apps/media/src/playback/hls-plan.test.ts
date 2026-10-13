@@ -50,6 +50,11 @@ describe("HLS segment plans", () => {
 
     expect(resumed).toStrictEqual([0, 4, 8, 12, 16, 20, 22, 24, 26, 28, 32, 36]);
     expect(resumed.every((time) => keyframes.includes(time))).toBe(true);
+
+    // Audio primed 5 ms ahead puts the file's start before its first keyframe.
+    expect(
+      planKeyframeSegments(keyframes, -0.005, 40, { quickStart: -0.005 }).starts,
+    ).toStrictEqual([0, 2, 4, 6, 8, 12, 16, 20, 24, 28, 32, 36]);
   });
 
   it("keeps every plan continuous and ascending around the switch to normal length", () => {

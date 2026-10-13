@@ -91,8 +91,12 @@ export const planKeyframeSegments = (
   const starts: Array<number> = [];
   const { quickStart } = options;
 
+  // A start before the first keyframe (audio primed a few milliseconds ahead of the video) plays
+  // from the first segment, so the quick segments begin there.
   const quickFrom =
-    quickStart === undefined ? undefined : usable.findLast((time) => time <= quickStart);
+    quickStart === undefined
+      ? undefined
+      : (usable.findLast((time) => time <= quickStart) ?? usable[0]);
 
   const isQuick = (time: number): boolean =>
     quickFrom !== undefined && time >= quickFrom && time < quickFrom + QUICK_COPY_SECONDS;
