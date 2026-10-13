@@ -28,6 +28,29 @@ const PRUNE_EVERY = Duration.hours(1);
 /** A `.part` file older than this belongs to a write that will never finish. */
 const ABANDONED_AFTER = Duration.hours(1);
 
+/** A cache hit marks its file used again only when the last mark is older than this. */
+const MARK_AFTER = Duration.days(1);
+
+/**
+ * Marks `file` as used now, for the least-recently-used order, by its modification time. A file
+ * marked within the last day is left alone: the order only needs that accuracy, and a poster
+ * grid would otherwise write metadata for every image on every load.
+ */
+export const markUsed = Effect.fnUntraced(function* (file: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const now = yield* Clock.currentTimeMillis;
+  const info = yield* fs.stat(file);
+
+  const modifiedAt = Option.match(info.mtime, {
+    onNone: () => 0,
+    onSome: (date) => date.getTime(),
+  });
+
+  if (now - modifiedAt >= Duration.toMillis(MARK_AFTER)) {
+    yield* fs.utimes(file, now / 1000, now / 1000);
+  }
+});
+
 /** The cache folders under `dataDir`. */
 export const cacheDirectories = (dataDir: string, path: Path.Path): ReadonlyArray<string> => [
   path.join(dataDir, "cache"),
@@ -43,22 +66,26 @@ const listFiles = Effect.fnUntraced(function* (roots: ReadonlyArray<string>) {
     fs.readDirectory(root, { recursive: true }).pipe(
       Effect.orElseSucceed(() => []),
       Effect.flatMap((names) =>
-        Effect.forEach(names, (name) =>
-          fs.stat(path.join(root, name)).pipe(
-            Effect.map((info) =>
-              info.type === "File"
-                ? Option.some<CacheFile>({
-                    path: path.join(root, name),
-                    size: Number(info.size),
-                    modifiedAt: Option.match(info.mtime, {
-                      onNone: () => 0,
-                      onSome: (date) => date.getTime(),
-                    }),
-                  })
-                : Option.none(),
+        Effect.forEach(
+          names,
+          (name) =>
+            fs.stat(path.join(root, name)).pipe(
+              Effect.map((info) =>
+                info.type === "File"
+                  ? Option.some<CacheFile>({
+                      path: path.join(root, name),
+                      size: Number(info.size),
+                      modifiedAt: Option.match(info.mtime, {
+                        onNone: () => 0,
+                        onSome: (date) => date.getTime(),
+                      }),
+                    })
+                  : Option.none(),
+              ),
+              Effect.orElseSucceed(() => Option.none<CacheFile>()),
             ),
-            Effect.orElseSucceed(() => Option.none<CacheFile>()),
-          ),
+          // A data folder on a slow disk or a share holds tens of thousands of resized images.
+          { concurrency: 16 },
         ),
       ),
     ),

@@ -4,7 +4,11 @@ import { assert, describe, layer } from "@effect/vitest";
 import { Duration, Effect, FileSystem, Result, Schedule, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
-import { type ClientCapabilities, NegotiateResponse } from "@movies/contracts/media-playback";
+import {
+  type ClientCapabilities,
+  NegotiateResponse,
+  SeekResponse,
+} from "@movies/contracts/media-playback";
 
 import { LibraryId } from "@movies/contracts/ids";
 
@@ -33,6 +37,12 @@ const slowQsv = await writeFakeFfmpeg({ hlsDelayMs: 3000, qsvFailsAfterSeconds: 
 
 /** Every HLS run fails before writing anything. */
 const brokenStart = await writeFakeFfmpeg({ hlsFailsAtStart: true });
+
+/**
+ * HLS runs that start at 6 s or later fail before writing anything; runs from the start write
+ * one second, so a seek to 8 s is beyond what a request may wait for and needs a run of its own.
+ */
+const damagedEnd = await writeFakeFfmpeg({ hlsFailsFromSeconds: 6, hlsFromStartSeconds: 1 });
 
 /** Keyframe scans take twelve seconds, as for a large file on a slow share. */
 const slowScan = await writeSlowFfprobe(12_000);
@@ -597,6 +607,62 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
           );
 
           assert.strictEqual(negotiated.mode, "remux");
+        }),
+      60_000,
+    );
+  });
+
+  layer(MediaTestServer.layer({ FFMPEG_PATH: damagedEnd }), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })((it) => {
+    it.effect(
+      "keeps a stream that played when a seek's run fails, so a seek elsewhere still works",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+          const { library } = yield* FixtureWorkspace.Service;
+          const token = signTestToken({ fid: server.fileId("movies", library.directMovie) });
+
+          const negotiated = yield* negotiateRequest(server.baseUrl, token).pipe(
+            Effect.flatMap((response) => response.json),
+            Effect.flatMap(decodeNegotiation),
+            Effect.orDie,
+          );
+
+          const streamId = negotiated.streamId ?? "";
+          const playlist = new URL(local(server.baseUrl, negotiated.url));
+
+          const segment = (generation: number, index: number) =>
+            HttpClient.get(
+              new URL(
+                `/media/hls/${streamId}/${String(generation)}/${String(index)}.m4s${playlist.search}`,
+                playlist,
+              ).toString(),
+            ).pipe(Effect.map((response) => response.status));
+
+          const seek = (positionSeconds: number) =>
+            HttpClient.execute(
+              HttpClientRequest.post(`${server.baseUrl}/api/playback/seek`).pipe(
+                HttpClientRequest.bodyJsonUnsafe({ token, streamId, positionSeconds }),
+              ),
+            ).pipe(
+              Effect.flatMap((response) => response.json),
+              Effect.flatMap(Schema.decodeUnknownEffect(SeekResponse)),
+              Effect.orDie,
+            );
+
+          assert.strictEqual(yield* segment(negotiated.generation ?? 1, 0), 200);
+
+          // Segment 5 starts at 8 s, in the part this ffmpeg cannot read.
+          const broken = yield* seek(8);
+
+          assert.strictEqual(yield* segment(broken.generation, 5), 500);
+
+          // The stream is still there: a seek back starts a run that works.
+          const back = yield* seek(0);
+
+          assert.strictEqual(yield* segment(back.generation, 0), 200);
         }),
       60_000,
     );

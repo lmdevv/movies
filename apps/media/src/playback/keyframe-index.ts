@@ -170,19 +170,8 @@ const make = Effect.gen(function* () {
 
     const fresh: Pending = yield* Deferred.make<ReadonlyArray<number>, KeyframeIndexFailed>();
 
-    const [deferred, started] = yield* Ref.modify(
-      running,
-      (current: Running): readonly [readonly [Pending, boolean], Running] => {
-        const existing = current.get(key);
-
-        return existing === undefined
-          ? [[fresh, true], new Map(current).set(key, fresh)]
-          : [[existing, false], current];
-      },
-    );
-
-    if (started) {
-      yield* index(file).pipe(
+    const scanInto = (deferred: Pending) =>
+      index(file).pipe(
         Effect.tap((times) =>
           encodeKeyframes(times).pipe(
             Effect.orDie,
@@ -203,11 +192,30 @@ const make = Effect.gen(function* () {
             Effect.as(Exit.isSuccess(exit)),
           ),
         ),
+        Effect.interruptible,
         Effect.forkIn(scope),
       );
-    }
 
-    return deferred;
+    // Registering the scan and forking it happen together: a caller interrupted in between would
+    // leave a registered scan that never runs, and every later caller waiting on it forever.
+    return yield* Effect.uninterruptible(
+      Effect.gen(function* () {
+        const [deferred, started] = yield* Ref.modify(
+          running,
+          (current: Running): readonly [readonly [Pending, boolean], Running] => {
+            const existing = current.get(key);
+
+            return existing === undefined
+              ? [[fresh, true], new Map(current).set(key, fresh)]
+              : [[existing, false], current];
+          },
+        );
+
+        if (started) yield* scanInto(deferred);
+
+        return deferred;
+      }),
+    );
   });
 
   const keyframes = Effect.fn("KeyframeIndex.keyframes")(function* (file: ResolvedMediaFile) {

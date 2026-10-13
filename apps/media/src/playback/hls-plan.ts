@@ -54,7 +54,9 @@ export const planGridSegments = (
 ): SegmentPlan => {
   const count = Math.max(1, Math.ceil(duration / SEGMENT_SECONDS));
   const end = start + duration;
-  const grid = Array.from({ length: count }, (_, index) => start + index * SEGMENT_SECONDS);
+  // Offsets from `start` are whole seconds, so equal boundaries compare equal before `start` is
+  // added once; adding it to each part separately can round two equal times apart.
+  const grid = Array.from({ length: count }, (_, index) => index * SEGMENT_SECONDS);
 
   const cell =
     options.quickStart === undefined
@@ -65,15 +67,12 @@ export const planGridSegments = (
         );
 
   const quick =
-    cell === undefined
-      ? []
-      : QUICK_GRID_OFFSETS.flatMap((offset) => {
-          const time = start + cell * SEGMENT_SECONDS + offset;
+    cell === undefined ? [] : QUICK_GRID_OFFSETS.map((offset) => cell * SEGMENT_SECONDS + offset);
 
-          return time < end ? [time] : [];
-        });
-
-  const starts = [...new Set([...grid, ...quick])].toSorted((left, right) => left - right);
+  const starts = [...new Set([...grid, ...quick])]
+    .filter((offset) => start + offset < end)
+    .toSorted((left, right) => left - right)
+    .map((offset) => start + offset);
 
   return { starts: withoutShortTail(starts, end), end };
 };

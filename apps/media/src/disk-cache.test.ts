@@ -130,17 +130,18 @@ describe("disk cache", () => {
           const cache = yield* cacheIn(dataDir);
           const path = yield* Path.Path;
 
-          // Files get their modification time from the real clock; the touch on read uses this one.
+          // Files get their modification time from the real clock; the mark on read uses this one,
+          // and marks a file only when its last mark is a day old.
           yield* TestClock.setTime(Date.now());
           yield* cache.write("tmdb", "first", "x".repeat(10_000));
-          yield* TestClock.adjust(Duration.hours(1));
+          yield* TestClock.adjust(Duration.days(2));
           yield* cache.write("tmdb", "second", "x".repeat(10_000));
-          yield* TestClock.adjust(Duration.hours(1));
-          yield* cache.read("tmdb", "first", Duration.days(1));
+          yield* TestClock.adjust(Duration.days(2));
+          yield* cache.read("tmdb", "first", Duration.days(30));
           yield* prune(cacheDirectories(dataDir, path), 15_000);
 
-          assert.isTrue(Option.isSome(yield* cache.read("tmdb", "first", Duration.days(1))));
-          assert.isTrue(Option.isNone(yield* cache.read("tmdb", "second", Duration.days(1))));
+          assert.isTrue(Option.isSome(yield* cache.read("tmdb", "first", Duration.days(30))));
+          assert.isTrue(Option.isNone(yield* cache.read("tmdb", "second", Duration.days(30))));
         }),
       ),
     );

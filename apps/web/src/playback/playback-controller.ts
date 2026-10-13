@@ -99,6 +99,11 @@ export interface PlaybackSnapshot {
    */
   readonly subtitleId: string | null;
   readonly quality: QualityChoice;
+  /**
+   * The quality the loaded stream was negotiated with, once one has loaded; it trails `quality`
+   * while a change negotiates, and never takes a choice the service refused.
+   */
+  readonly loadedQuality: QualityChoice | null;
   /** The browser refused to start playback until the viewer interacts with the page. */
   readonly needsGesture: boolean;
 }
@@ -164,6 +169,7 @@ export class PlaybackController {
     audioStreamIndex: null,
     subtitleId: null,
     quality: "auto",
+    loadedQuality: null,
     needsGesture: false,
   };
   readonly #listeners = new Set<() => void>();
@@ -301,6 +307,7 @@ export class PlaybackController {
 
     const ticket = ++this.#negotiation;
     const version = this.#choicesVersion;
+    const { quality } = this.#snapshot;
 
     const negotiated = await runSdk(
       this.#runtime,
@@ -325,7 +332,7 @@ export class PlaybackController {
 
     this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.7 }) });
     this.#startReporting(playback);
-    await this.#load(playback, play);
+    await this.#load(playback, play, quality);
     this.#catchUpOnChoices(version, ticket);
   }
 
@@ -358,8 +365,11 @@ export class PlaybackController {
     return this.#loading?.play ?? !this.#element.paused;
   }
 
-  /** Puts `playback`'s stream into the element, then plays it when `play` is set. */
-  async #load(playback: Playback.Playback, play: boolean): Promise<void> {
+  /**
+   * Puts `playback`'s stream, negotiated at `quality`, into the element, then plays it when `play`
+   * is set.
+   */
+  async #load(playback: Playback.Playback, play: boolean, quality: QualityChoice): Promise<void> {
     this.#detach();
 
     const generation = ++this.#generation;
@@ -391,6 +401,7 @@ export class PlaybackController {
     }
 
     this.#attached = attached;
+    this.#update({ loadedQuality: quality });
     this.player.setSeeker(stream.mode === "direct" ? ELEMENT_SEEKER : this.#hlsSeeker());
 
     if (play) await this.#play();
@@ -633,6 +644,7 @@ export class PlaybackController {
     const wasPlaying = this.#playing();
     const ticket = ++this.#negotiation;
     const version = this.#choicesVersion;
+    const { quality } = this.#snapshot;
 
     const renewed = await runSdk(
       this.#runtime,
@@ -674,6 +686,7 @@ export class PlaybackController {
     await this.#load(
       renewed.success,
       options.play ?? (wasPlaying || !isPlaying(this.#snapshot.phase)),
+      quality,
     );
     this.#catchUpOnChoices(version, ticket);
   }

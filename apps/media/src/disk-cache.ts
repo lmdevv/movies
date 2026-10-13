@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 
 import { Clock, Context, Duration, Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 
+import { markUsed } from "./cache-pruner.ts";
 import * as MediaConfig from "./media-config.ts";
 
 /** Cached text by namespace and key. */
@@ -63,7 +64,9 @@ const make = Effect.fn("DiskCache.make")(function* (directory: string) {
     );
 
     // The pruner removes the least recently used entries first, by modification time.
-    if (Option.isSome(fresh)) yield* fs.utimes(file, now / 1000, now / 1000).pipe(Effect.ignore);
+    if (Option.isSome(fresh)) {
+      yield* markUsed(file).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.ignore);
+    }
 
     return Option.map(fresh, (value) => value.body);
   });

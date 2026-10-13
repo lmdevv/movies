@@ -20,6 +20,10 @@ export interface FakeFfmpegBehavior {
   readonly hlsDelayMs?: number;
   /** HLS runs exit with status 1 before writing anything, as a broken source or codec would. */
   readonly hlsFailsAtStart?: boolean;
+  /** HLS runs that seek to this many seconds or later fail at start, as a damaged part would. */
+  readonly hlsFailsFromSeconds?: number;
+  /** HLS runs from the start of the file write only this many seconds, then finish. */
+  readonly hlsFromStartSeconds?: number;
 }
 
 /** Arguments of a Quick Sync run that have no software equivalent, each followed by a value. */
@@ -44,7 +48,19 @@ if (hls && behavior.hlsDelayMs !== undefined) {
   await new Promise((resolve) => setTimeout(resolve, behavior.hlsDelayMs));
 }
 
-if (hls && behavior.hlsFailsAtStart === true) {
+const seekTo = Number(args[args.indexOf("-ss") + 1] ?? 0);
+const damaged =
+  behavior.hlsFailsFromSeconds !== undefined &&
+  args.includes("-ss") &&
+  seekTo >= behavior.hlsFailsFromSeconds;
+
+if (hls && !args.includes("-ss") && behavior.hlsFromStartSeconds !== undefined) {
+  const format = args.indexOf("hls") - 1;
+
+  args = [...args.slice(0, format), "-t", String(behavior.hlsFromStartSeconds), ...args.slice(format)];
+}
+
+if (hls && (behavior.hlsFailsAtStart === true || damaged)) {
   console.error("Conversion failed!");
   process.exit(1);
 }

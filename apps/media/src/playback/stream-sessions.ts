@@ -210,6 +210,8 @@ interface Session {
   readonly lastActivity: Ref.Ref<number>;
   /** The furthest segment the player asked for, which the encoder may run ahead of. */
   readonly requested: Ref.Ref<number>;
+  /** Whether any segment of any generation has been answered. */
+  readonly served: Ref.Ref<boolean>;
 }
 
 /** The produced range of a generation, in planned segment indexes. */
@@ -575,11 +577,14 @@ const make = Effect.gen(function* () {
             onFailure: (cause) => String(cause),
           }).slice(-300);
 
-          // A run that failed before writing anything is a stream that cannot start: close it now,
-          // freeing its slot and reporting it failed, rather than holding it until it idles out.
+          // A stream whose encoder failed before it ever served a segment cannot start: close it
+          // now, freeing its slot and reporting it failed, rather than holding it until it idles
+          // out. One that played before keeps going; a seek may still work elsewhere in the file.
+          const neverServed = !(yield* Ref.get(session.served));
+
           return yield* encoderFailed(session, generation, index, detail).pipe(
             Effect.tapErrorTag("TranscodeFailed", () =>
-              fragments.length === 0 ? closeSession(session, "failed") : Effect.void,
+              neverServed ? closeSession(session, "failed") : Effect.void,
             ),
           );
         }
@@ -595,6 +600,8 @@ const make = Effect.gen(function* () {
             : fragments
                 .filter((fragment) => fragment.start <= (session.plan.starts[index] ?? 0))
                 .slice(-1);
+
+        yield* Ref.set(session.served, true);
 
         return {
           paths: covering.map((fragment) => fragment.path),
@@ -851,6 +858,7 @@ const make = Effect.gen(function* () {
       lock: yield* Semaphore.make(1),
       lastActivity: yield* Ref.make(yield* Clock.currentTimeMillis),
       requested: yield* Ref.make(0),
+      served: yield* Ref.make(false),
     };
 
     yield* throttle(session).pipe(

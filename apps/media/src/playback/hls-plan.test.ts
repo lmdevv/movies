@@ -35,6 +35,13 @@ describe("HLS segment plans", () => {
     );
     expect(planGridSegments(0, 30, { quickStart: 29 }).starts.at(-1)).toBe(29);
     expect(planGridSegments(0, 1.2, { quickStart: 0 })).toStrictEqual({ starts: [0], end: 1.2 });
+
+    // A fractional start: quick and grid boundaries that are the same time stay one start.
+    const start = 1.2377141149712325;
+    const late = planGridSegments(start, 2000, { quickStart: start + 255 * 4 + 1 }).starts;
+
+    expect(late.filter((time) => Math.abs(time - (start + 256 * 4)) < 1e-9)).toHaveLength(1);
+    expect(new Set(late).size).toBe(late.length);
   });
 
   it("gives copies one keyframe per segment for eight seconds from the start keyframe", () => {

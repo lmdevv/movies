@@ -28,6 +28,7 @@ import {
 } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
+import { markUsed } from "../cache-pruner.ts";
 import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import { isInsideApprovedRoots } from "../playback/file-resolver.ts";
@@ -129,17 +130,11 @@ const make = Effect.gen(function* () {
       Effect.provideService(Path.Path, path),
     );
 
-  /** Whether `target` exists; touches it, so the cache pruner keeps images still in use. */
+  /** Whether `target` exists; marks it used, so the cache pruner keeps images still in use. */
   const cached = (target: string) =>
-    fs.exists(target).pipe(
-      Effect.tap((exists) =>
-        exists
-          ? Clock.currentTimeMillis.pipe(
-              Effect.flatMap((now) => fs.utimes(target, now / 1000, now / 1000)),
-              Effect.ignore,
-            )
-          : Effect.void,
-      ),
+    markUsed(target).pipe(
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.as(true),
       Effect.orElseSucceed(() => false),
     );
 
@@ -169,14 +164,16 @@ const make = Effect.gen(function* () {
         Number(response.headers["content-length"] ?? "0") > MAX_DOWNLOAD_BYTES
           ? Effect.fail(new ArtworkTooLarge())
           : response.stream.pipe(
+              // The fold's state is its own, so it appends in place rather than copying per chunk.
               Stream.runFoldEffect(
                 () => ({ chunks: new Array<Uint8Array>(), size: 0 }),
                 (read, chunk) =>
                   read.size + chunk.length > MAX_DOWNLOAD_BYTES
                     ? Effect.fail(new ArtworkTooLarge())
-                    : Effect.succeed({
-                        chunks: [...read.chunks, chunk],
-                        size: read.size + chunk.length,
+                    : Effect.sync(() => {
+                        read.chunks.push(chunk);
+
+                        return { chunks: read.chunks, size: read.size + chunk.length };
                       }),
               ),
               Effect.map((read) => Buffer.concat(read.chunks)),
