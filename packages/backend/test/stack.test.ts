@@ -1628,6 +1628,44 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       await run(fixture.owner, "apiKeys.revoke", { apiKeyId: created.apiKey.id });
     });
 
+    it("fills a manager's job list past many newer backup jobs", async () => {
+      const { jobId } = await run(fixture.owner, "metadata.refresh", {
+        titleId: fixture.titles.show,
+      });
+
+      // More backup jobs, all newer than the metadata job, than one batch read used to reach.
+      importDocuments(
+        "jobs",
+        Array.from({ length: 520 }, () =>
+          JSON.stringify({
+            kind: "backup",
+            status: "succeeded",
+            payload: { kind: "backup", trigger: "manual" },
+            progress: { done: 1, total: 1, message: null },
+            error: null,
+            requestedBy: null,
+            attempts: 1,
+            startedAt: Date.now(),
+            finishedAt: Date.now(),
+          }),
+        ),
+      );
+
+      const created = await run(fixture.owner, "apiKeys.create", {
+        name: `Pager ${id}`,
+        scopes: ["manage"],
+      });
+
+      const manager = await signIn(url, { provider: "apikey", params: { key: created.secret } });
+      const listed = await run(manager, "jobs.list", { limit: 5 });
+
+      expect(listed.map((job) => job.id)).toContain(jobId);
+      expect(listed.filter((job) => job.kind === "backup")).toEqual([]);
+
+      await run(fixture.owner, "jobs.cancel", { jobId });
+      await run(fixture.owner, "apiKeys.revoke", { apiKeyId: created.apiKey.id });
+    });
+
     it("imports collections only under a migration job's lease", async () => {
       const { jobId } = await run(fixture.owner, "metadata.refresh", {
         titleId: fixture.titles.allAges,

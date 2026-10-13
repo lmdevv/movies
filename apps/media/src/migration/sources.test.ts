@@ -65,6 +65,42 @@ const withInfo = (body: Schema.Json) => () =>
     jellyfinIdentity,
   );
 
+const decodeName = Schema.decodeUnknownSync(Schema.Struct({ Name: Schema.String }));
+
+const decodeUsers = Schema.decodeUnknownSync(
+  Schema.Array(Schema.Record(Schema.String, Schema.Json)),
+);
+
+/**
+ * Starts the recorded Jellyfin with each user's policy in `GET /Users` replaced by what `policy`
+ * returns for that user's name and recorded policy.
+ */
+const withPolicies =
+  (policy: (name: string, recorded: Readonly<Record<string, Schema.Json>>) => Schema.Json) =>
+  () => {
+    const recorded = jellyfinRecording.recordings["apikey|GET /Users"];
+
+    if (recorded === undefined) throw new Error("The recording has no GET /Users");
+
+    const body = decodeUsers(recorded.body).map((user) =>
+      Object.fromEntries(
+        Object.entries(user).map(([key, value]) => [
+          key,
+          key === "Policy" ? policy(decodeName(user).Name, decodeObject(value)) : value,
+        ]),
+      ),
+    );
+
+    return startRecordedServer(
+      { ...jellyfinRecording.recordings, "apikey|GET /Users": { status: 200, body } },
+      jellyfinIdentity,
+    );
+  };
+
+/** A Jellyfin folder ID as policies write it: the virtual folder's ID with dashes. */
+const dashed = (id: string): string =>
+  [id.slice(0, 8), id.slice(8, 12), id.slice(12, 16), id.slice(16, 20), id.slice(20)].join("-");
+
 /** Why the server refused the fixture API key. */
 const refusedKey = (server: RecordedServer) =>
   refusal("jellyfin", server.url, token(FIXTURE_API_KEY));
@@ -159,6 +195,59 @@ layer(FetchHttpClient.layer, { excludeTestServices: true })(
             ),
           );
         }),
+      ),
+    );
+
+    it.effect("shares a library with the users whose policies enable its folder", () =>
+      Effect.gen(function* () {
+        const libraries = yield* withServer(startJellyfinFixture, (server) =>
+          openSource("jellyfin", { url: server.url, credentials: token(FIXTURE_API_KEY) }).pipe(
+            Effect.map((session) => session.libraries),
+          ),
+        );
+
+        const movies = libraries.find((library) => library.name === "Movies")?.libraryId ?? "";
+
+        const restricted = withPolicies((name, recorded) =>
+          name === "bob"
+            ? { ...recorded, EnableAllFolders: false, EnabledFolders: [dashed(movies)] }
+            : recorded,
+        );
+
+        const session = yield* withServer(restricted, (server) =>
+          openSource("jellyfin", { url: server.url, credentials: token(FIXTURE_API_KEY) }),
+        );
+
+        const admin = session.users.find((user) => user.name === "admin")?.userId ?? "";
+
+        assert.deepStrictEqual(
+          session.libraries.map((library) => [library.name, library.access]),
+          [
+            ["Shows", { kind: "users", userIds: [admin] }],
+            ["Movies", { kind: "everyone" }],
+            ["Collections", { kind: "users", userIds: [admin] }],
+          ],
+        );
+        assert.notStrictEqual(admin, "");
+      }),
+    );
+
+    it.effect("says nothing about access when the server has no active users", () =>
+      withServer(
+        withPolicies((_name, recorded) => ({ ...recorded, IsDisabled: true })),
+        (server) =>
+          Effect.gen(function* () {
+            const session = yield* openSource("jellyfin", {
+              url: server.url,
+              credentials: token(FIXTURE_API_KEY),
+            });
+
+            assert.deepStrictEqual(session.users, []);
+            assert.deepStrictEqual(
+              session.libraries.map((library) => library.access),
+              [{ kind: "unknown" }, { kind: "unknown" }, { kind: "unknown" }],
+            );
+          }),
       ),
     );
 
