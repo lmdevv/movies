@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 import { assert, describe, layer } from "@effect/vitest";
-import { Duration, Effect, FileSystem, Result, Schema } from "effect";
+import { Duration, Effect, FileSystem, Result, Schedule, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import { type ClientCapabilities, NegotiateResponse } from "@movies/contracts/media-playback";
@@ -139,6 +139,16 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
           assert.strictEqual(negotiated.mode, "transcode-qsv");
           assert.strictEqual(negotiated.generation, 1);
           const playlist = new URL(local(server.baseUrl, negotiated.url));
+          const fs = yield* FileSystem.FileSystem;
+          const runList = join(server.transcodeDir, negotiated.streamId ?? "", "1", "ffmpeg.m3u8");
+
+          // Wait for the run to end, so the requests below wait on its failure rather than seek.
+          yield* fs.readFileString(runList).pipe(
+            Effect.filterOrFail((text) => text.includes("#EXT-X-ENDLIST")),
+            Effect.retry(Schedule.spaced("50 millis")),
+            Effect.timeout(Duration.seconds(20)),
+            Effect.orDie,
+          );
 
           // The plan starts 0, 1, 2, 4, 6, and 8 s; segment 5 lies past what the run wrote before it
           // died, and every request waits on that run.
@@ -170,7 +180,6 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
           assert.strictEqual(changes.length, 1);
           assert.deepInclude(changes[0], { from: "transcode-qsv", to: "transcode-software" });
 
-          const fs = yield* FileSystem.FileSystem;
           const folder = join(server.transcodeDir, negotiated.streamId ?? "");
 
           assert.deepStrictEqual(yield* fs.readDirectory(folder), ["2"]);
