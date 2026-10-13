@@ -34,6 +34,7 @@ import { PlayerCommandsContext } from "@/commands/playback";
 import { artworkUrl } from "@/lib/artwork";
 import { deviceName, loadDeviceId } from "@/lib/device-storage";
 import { toastFailure } from "@/lib/failure";
+import { copyText } from "@/lib/secure-context";
 import { episodeCode } from "@/lib/format";
 import { playerKeymap } from "@/lib/keymap";
 import { audioTrackLabel, subtitleTrackLabel } from "@/lib/media-facts";
@@ -373,9 +374,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
 
   // Rooms.
   const copyLink = useCallback((id: RoomId) => {
-    void navigator.clipboard
-      .writeText(roomLink(id))
-      .then(() => toast.success("Invite link copied"), toastFailure);
+    void copyText(roomLink(id)).then(() => toast.success("Invite link copied"), toastFailure);
   }, []);
 
   const openStartRoom = useCallback(() => {

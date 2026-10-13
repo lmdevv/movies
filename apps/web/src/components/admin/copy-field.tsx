@@ -3,6 +3,8 @@ import { CheckIcon, CopyIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { copyText } from "@/lib/secure-context";
+
 const COPIED_MS = 2000;
 
 /**
@@ -35,7 +37,7 @@ export function CopyField({
 
   const copy = async (): Promise<void> => {
     try {
-      await navigator.clipboard.writeText(value);
+      await copyText(value);
       setCopied(true);
     } catch {
       toast.error("Couldn’t copy. Select it and copy it yourself.");
