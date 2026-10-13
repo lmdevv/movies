@@ -112,13 +112,13 @@ describe("hardening", () => {
     );
   });
 
-  it("allows scripts from this origin only and connections to the configured Convex", () => {
+  it("allows scripts from this origin and the Cast SDK's, and connections to the configured Convex", () => {
     const policy = Hardening.contentSecurityPolicy({
       mediaBaseUrl: "http://nas:4300",
       convexPublicUrl: Option.some("https://convex.example/"),
     });
 
-    assert.include(policy, "script-src 'self';");
+    assert.include(policy, "script-src 'self' www.gstatic.com;");
     assert.include(
       policy,
       "connect-src 'self' http://nas:4300 https://convex.example wss://convex.example;",

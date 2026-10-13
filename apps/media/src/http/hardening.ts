@@ -33,6 +33,13 @@ const bodyRefusal = (headers: Readonly<Record<string, string | undefined>>) => {
     : refuse(413, "The request body is too large");
 };
 
+/**
+ * Where Google serves the Cast sender SDK (`apps/web/src/casting/cast-sdk.ts`). No scheme: the
+ * SDK loads its framework and platform scripts protocol-relative, so a page served over HTTP
+ * fetches them over HTTP, and an HTTPS page only over HTTPS.
+ */
+const CAST_SDK_ORIGIN = "www.gstatic.com";
+
 /** The WebSocket origin that pairs with an HTTP origin, such as `wss://host` for `https://host`. */
 const socketOrigin = (origin: URL): string =>
   `${origin.protocol === "https:" ? "wss:" : "ws:"}//${origin.host}`;
@@ -42,7 +49,8 @@ const YOUTUBE_EMBED_ORIGIN = "https://www.youtube-nocookie.com";
 
 /**
  * The content security policy for the web app. Scripts come only from this origin (the theme
- * script is a file, not inline). Styles allow inline `style` attributes and injected `<style>`
+ * script is a file, not inline) and from `www.gstatic.com`, where the player loads Google's Cast
+ * sender SDK in Chromium browsers. Styles allow inline `style` attributes and injected `<style>`
  * tags, which the UI kit's toasts and popovers use. The app talks to Convex over HTTP and
  * WebSockets and to this service, plays media from this service and from `blob:` URLs (MSE), and
  * shows TMDB posters while fixing a match. The only frames it embeds are YouTube trailers, from
@@ -65,7 +73,7 @@ export const contentSecurityPolicy = (
 
   return [
     "default-src 'self'",
-    "script-src 'self'",
+    `script-src 'self' ${CAST_SDK_ORIGIN}`,
     "style-src 'self' 'unsafe-inline'",
     `img-src 'self' data: blob: https://image.tmdb.org ${media}`,
     `media-src 'self' blob: ${media}`,

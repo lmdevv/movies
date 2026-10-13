@@ -19,6 +19,7 @@
     "./media-playback": "./src/media-playback.ts",
     "./artwork": "./src/artwork.ts",
     "./trickplay": "./src/trickplay.ts",
+    "./cast": "./src/cast.ts",
     "./models/*": "./src/models/*.ts"
   },
   "scripts": {

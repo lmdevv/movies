@@ -34,6 +34,7 @@ import {
 } from "./playback-policy";
 import type { AttachedStream, StreamFailure } from "./stream-attachment";
 import { attachStream } from "./stream-attachment";
+import { SwitchablePlayer } from "./switchable-player";
 
 type Runtime = ReturnType<typeof useMoviesRuntime>;
 
@@ -130,8 +131,13 @@ const isPlaying = PlaybackPhase.$is("Playing");
 
 /** Plays one request in one element. Create it, `start` it, and `dispose` it. */
 export class PlaybackController {
-  /** The element as the SDK sees it, for the progress reporter and the room engine. */
+  /** The element as the SDK sees it. */
   readonly player: MediaElementPlayer;
+  /**
+   * The player the session plays on, for the progress reporter and the room engine: the element,
+   * or a cast device the viewer switched to (`casting/`).
+   */
+  readonly output: SwitchablePlayer;
   readonly #runtime: Runtime;
   readonly #element: HTMLVideoElement;
   readonly #request: PlaybackRequest;
@@ -173,6 +179,7 @@ export class PlaybackController {
     this.#hlsJs = hlsJs;
     this.#request = request;
     this.player = new MediaElementPlayer(element);
+    this.output = new SwitchablePlayer(this.player);
     element.addEventListener("playing", this.#onPlaying);
     element.addEventListener("loadeddata", this.#onFirstFrame);
   }
@@ -601,7 +608,7 @@ export class PlaybackController {
     this.#reporting = scope;
     this.#reported = playback;
     void this.#runtime.runPromiseExit(
-      Scope.provide(scope)(Playback.reportProgress(playback, this.player)),
+      Scope.provide(scope)(Playback.reportProgress(playback, this.output)),
     );
   }
 

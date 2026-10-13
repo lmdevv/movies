@@ -1,0 +1,64 @@
+/**
+ * A `PlayerPort` that stands for whichever player is playing a session right now: the page's
+ * `<video>` element, or a cast device playing the same session. The progress reporter and the room
+ * engine subscribe once and follow the switch, so progress keeps reaching Convex and a room keeps
+ * following the device that actually plays.
+ */
+import type { PlayerEvent, PlayerPort } from "@movies/sdk/effect";
+
+/** A player whose target can change while others listen to it. */
+export class SwitchablePlayer implements PlayerPort {
+  #target: PlayerPort;
+  #unsubscribe: () => void;
+  readonly #listeners = new Set<(event: PlayerEvent) => void>();
+
+  /** Starts out as `target`. */
+  constructor(target: PlayerPort) {
+    this.#target = target;
+    this.#unsubscribe = target.subscribe(this.#forward);
+  }
+
+  /** The player commands go to and events come from. */
+  get target(): PlayerPort {
+    return this.#target;
+  }
+
+  /**
+   * Makes `target` the player from now on. Only its events reach listeners afterwards, so the
+   * previous player pausing or emptying itself does not read as the session pausing.
+   */
+  switchTo(target: PlayerPort): void {
+    if (target === this.#target) return;
+    this.#unsubscribe();
+    this.#target = target;
+    this.#unsubscribe = target.subscribe(this.#forward);
+  }
+
+  readonly #forward = (event: PlayerEvent): void => {
+    for (const listener of this.#listeners) listener(event);
+  };
+
+  readonly positionMs = (): number => this.#target.positionMs();
+
+  readonly isPaused = (): boolean => this.#target.isPaused();
+
+  readonly isBuffering = (): boolean => this.#target.isBuffering();
+
+  readonly playbackRate = (): number => this.#target.playbackRate();
+
+  readonly setPlaybackRate = (rate: number): void => this.#target.setPlaybackRate(rate);
+
+  readonly seek = (positionMs: number): void => this.#target.seek(positionMs);
+
+  readonly play = (): Promise<void> => this.#target.play();
+
+  readonly pause = (): void => this.#target.pause();
+
+  readonly subscribe = (listener: (event: PlayerEvent) => void): (() => void) => {
+    this.#listeners.add(listener);
+
+    return () => {
+      this.#listeners.delete(listener);
+    };
+  };
+}
