@@ -192,7 +192,7 @@ const prepare = Effect.fn("Cli.prepare")(
     const config = yield* loadConfig(env.configPath);
     const target = resolveTarget(config, env, stringFlag(tokens, "profile"));
     const format = yield* formatOf(tokens, path);
-    const invocation: Invocation = { path, tokens, env, config, target, format };
+    const invocation: Invocation = { path, tokens, env, target, format };
 
     return invocation;
   },

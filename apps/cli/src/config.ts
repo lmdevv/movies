@@ -164,6 +164,12 @@ export interface Target {
    * viewing profile, API key, and session belong to its own server and are never sent elsewhere.
    */
   readonly stored: Option.Option<StoredProfile>;
+  /**
+   * The stored profile of this name when it belongs to another server than `MOVIES_CONVEX_URL`.
+   * Commands never replace or clear it.
+   */
+  readonly shadowed: Option.Option<StoredProfile>;
+  /** The server, normalized: `https://host/` reads as `https://host`. */
   readonly convexUrl: Option.Option<string>;
   readonly mediaUrl: Option.Option<string>;
   readonly apiKey: Option.Option<Redacted.Redacted>;
@@ -187,20 +193,24 @@ export const resolveTarget = (
     () => config.defaultProfile,
   );
 
-  const stored = Option.filter(Option.fromNullishOr(config.profiles[name]), (profile) =>
+  const named = Option.fromNullishOr(config.profiles[name]);
+
+  const forThisServer = (profile: StoredProfile): boolean =>
     Option.match(env.convexUrl, {
       onNone: () => true,
       onSome: (url) => url === normalizeUrl(profile.convexUrl),
-    }),
-  );
+    });
+
+  const stored = Option.filter(named, forThisServer);
 
   const storedKey = Option.flatMap(stored, (profile) => Option.fromNullishOr(profile.apiKey));
 
   return {
     name,
     stored,
+    shadowed: Option.filter(named, (profile) => !forThisServer(profile)),
     convexUrl: Option.orElse(env.convexUrl, () =>
-      Option.map(stored, (profile) => profile.convexUrl),
+      Option.map(stored, (profile) => normalizeUrl(profile.convexUrl)),
     ),
     mediaUrl: Option.orElse(env.mediaUrl, () =>
       Option.flatMap(stored, (profile) => Option.fromNullishOr(profile.mediaUrl)),

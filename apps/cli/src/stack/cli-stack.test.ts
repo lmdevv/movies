@@ -12,7 +12,16 @@ import { Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { ExitCode } from "../cli-errors";
-import { buildCli, makeTempDir, removeDir, runMovies, startMovies } from "../testing/process";
+import { StoredConfig } from "../config";
+import {
+  buildCli,
+  makeTempDir,
+  readText,
+  removeDir,
+  runMovies,
+  startMovies,
+  writeText,
+} from "../testing/process";
 import { scanMovie, signUp } from "../testing/stack-seed";
 import { findStack } from "../testing/stack-env";
 
@@ -79,17 +88,26 @@ const WatchLine = parse(
 
 let owner: Readonly<Record<string, string>>;
 
-const loginOwner = async (env: Readonly<Record<string, string>>): Promise<void> => {
+/** Signs `env` in as the stack owner and returns the owner's email. */
+const loginOwner = async (env: Readonly<Record<string, string>>): Promise<string> => {
   const login = (email: string) =>
     runMovies(["login", "--server", url, "--email", email, "--password"], env, PASSWORD);
 
   // The backend suite races two sign-ups for the owner; either may have won.
-  if ((await login("owner-a@movies.test")).code === 0) return;
+  if ((await login("owner-a@movies.test")).code === 0) return "owner-a@movies.test";
 
-  if ((await login("owner-b@movies.test")).code === 0) return;
+  if ((await login("owner-b@movies.test")).code === 0) return "owner-b@movies.test";
 
   throw new Error("Could not sign in as the stack owner; use a fresh stack");
 };
+
+/** The config file of an install made by `install`. */
+const configPath = (env: Readonly<Record<string, string>>): string =>
+  join(env["XDG_CONFIG_HOME"] ?? "", "movies", "config.json");
+
+const decodeConfig = Schema.decodeSync(Schema.fromJsonString(StoredConfig));
+
+const encodeConfig = Schema.encodeSync(Schema.fromJsonString(StoredConfig));
 
 describe.skipIf(stack === undefined)("the movies CLI against a real stack", () => {
   beforeAll(async () => {
@@ -157,6 +175,49 @@ describe.skipIf(stack === undefined)("the movies CLI against a real stack", () =
     });
 
     expect(fromEnv.code).toBe(ExitCode.unauthenticated);
+  });
+
+  it("signs out the stored session on logout even while MOVIES_API_KEY is set", async () => {
+    const device = await install();
+
+    await loginOwner(device);
+    const saved = await readText(configPath(device));
+    const created = await runMovies(["keys", "create", `logout-${id}`, "--scopes", "read"], owner);
+    const withKey = { ...device, MOVIES_API_KEY: Secret(created.stdout).secret };
+
+    expect((await runMovies(["logout"], withKey)).code).toBe(ExitCode.ok);
+
+    // Put the old session back: the server must have ended it.
+    await writeText(configPath(device), saved);
+    expect((await runMovies(["whoami"], device)).code).toBe(ExitCode.unauthenticated);
+  });
+
+  it("logs in again to a profile saved with a trailing slash on its server", async () => {
+    const device = await install();
+    const email = await loginOwner(device);
+    const before = decodeConfig(await readText(configPath(device)));
+    const profile = before.profiles[before.defaultProfile];
+
+    expect(profile?.viewingProfileId).toBeDefined();
+
+    await writeText(
+      configPath(device),
+      encodeConfig({
+        defaultProfile: before.defaultProfile,
+        profiles: {
+          [before.defaultProfile]: { deviceId: "cli-slash", ...profile, convexUrl: `${url}/` },
+        },
+      }),
+    );
+
+    const again = await runMovies(["login", "--email", email, "--password"], device, PASSWORD);
+
+    expect(again.code, again.stderr).toBe(ExitCode.ok);
+
+    const after = decodeConfig(await readText(configPath(device))).profiles[before.defaultProfile];
+
+    expect(after?.deviceId).toBe(profile?.deviceId);
+    expect(after?.viewingProfileId).toBe(profile?.viewingProfileId);
   });
 
   it("lets an agent on environment variables alone choose its profile once", async () => {

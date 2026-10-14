@@ -64,6 +64,7 @@ describe("target resolution", () => {
 
     expect(Option.getOrNull(target.convexUrl)).toBe("https://other.example/convex");
     expect(target.stored).toStrictEqual(Option.none());
+    expect(target.shadowed).toStrictEqual(Option.fromNullishOr(config.profiles["home"]));
     expect(target.apiKey).toStrictEqual(Option.none());
     expect(target.sessionStorage).toBe("memory");
   });

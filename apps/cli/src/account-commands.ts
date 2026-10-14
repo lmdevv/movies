@@ -45,13 +45,10 @@ const keepOtherServerProfile = (
   server: Option.Option<string>,
 ): Effect.Effect<void, UsageError> => {
   const { target } = invocation;
-  const named = Option.fromNullishOr(invocation.config.profiles[target.name]);
 
   const other = Option.filter(
-    named,
-    (profile) =>
-      Option.isNone(target.stored) &&
-      !Option.exists(server, (url) => url === normalizeUrl(profile.convexUrl)),
+    target.shadowed,
+    (profile) => !Option.exists(server, (url) => url === normalizeUrl(profile.convexUrl)),
   );
 
   return Option.match(other, {
@@ -81,9 +78,9 @@ const login: ShortcutCommand = {
       const output = yield* Output;
       const { env, target, tokens } = invocation;
 
-      const server = Option.orElse(
-        Option.map(stringFlag(tokens, "server"), normalizeUrl),
-        () => target.convexUrl,
+      const server = Option.map(
+        Option.orElse(stringFlag(tokens, "server"), () => target.convexUrl),
+        normalizeUrl,
       );
 
       if (Option.isNone(server) || !isServerUrl(server.value)) {
@@ -106,7 +103,7 @@ const login: ShortcutCommand = {
 
       // The profile's own server keeps its device and viewing profile across logins.
       const previous = Option.filter(
-        Option.fromNullishOr(invocation.config.profiles[target.name]),
+        Option.orElse(target.stored, () => target.shadowed),
         (profile) => normalizeUrl(profile.convexUrl) === server.value,
       );
 
@@ -249,7 +246,13 @@ const logout: ShortcutCommand = {
 
       yield* keepOtherServerProfile(invocation, target.convexUrl);
 
-      if (Option.isSome(target.convexUrl) && target.sessionStorage === "profile") {
+      const storedSession = Option.flatMap(target.stored, (profile) =>
+        Option.fromNullishOr(profile.session),
+      );
+
+      // A session from an earlier login lives in the profile even while MOVIES_API_KEY is set; end
+      // it on the server before forgetting it.
+      if (Option.isSome(target.convexUrl) && Option.isSome(storedSession)) {
         const { auth } = yield* openSdk(
           target.convexUrl.value,
           target.mediaUrl,

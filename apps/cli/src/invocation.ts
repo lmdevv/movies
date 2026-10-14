@@ -14,7 +14,7 @@ import type { Scope } from "effect";
 
 import type { CliError } from "./cli-errors";
 import { ConfigFileError, UsageError } from "./cli-errors";
-import type { Environment, StoredConfig, Target } from "./config";
+import type { Environment, Target } from "./config";
 import { readStdin } from "./files";
 import type { ParsedTokens } from "./flags";
 import type { Output } from "./output";
@@ -29,7 +29,6 @@ export interface Invocation {
   readonly path: string;
   readonly tokens: ParsedTokens;
   readonly env: Environment;
-  readonly config: StoredConfig;
   readonly target: Target;
   readonly format: Format;
 }
