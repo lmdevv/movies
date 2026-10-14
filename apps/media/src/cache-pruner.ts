@@ -8,6 +8,7 @@
 import { Clock, Duration, Effect, FileSystem, Layer, Option, Path, Schedule } from "effect";
 
 import * as MediaConfig from "./media-config.ts";
+import { modifiedAtMs } from "./platform/file-info.ts";
 
 /** What one pass removed. */
 interface PruneSummary {
@@ -41,12 +42,7 @@ export const markUsed = Effect.fnUntraced(function* (file: string) {
   const now = yield* Clock.currentTimeMillis;
   const info = yield* fs.stat(file);
 
-  const modifiedAt = Option.match(info.mtime, {
-    onNone: () => 0,
-    onSome: (date) => date.getTime(),
-  });
-
-  if (now - modifiedAt >= Duration.toMillis(MARK_AFTER)) {
+  if (now - modifiedAtMs(info) >= Duration.toMillis(MARK_AFTER)) {
     yield* fs.utimes(file, now / 1000, now / 1000);
   }
 });
@@ -75,10 +71,7 @@ const listFiles = Effect.fnUntraced(function* (roots: ReadonlyArray<string>) {
                   ? Option.some<CacheFile>({
                       path: path.join(root, name),
                       size: Number(info.size),
-                      modifiedAt: Option.match(info.mtime, {
-                        onNone: () => 0,
-                        onSome: (date) => date.getTime(),
-                      }),
+                      modifiedAt: modifiedAtMs(info),
                     })
                   : Option.none(),
               ),

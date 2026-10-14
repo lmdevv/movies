@@ -327,8 +327,17 @@ test("the host's stall holds the guest until the host plays again", async () => 
   await expect(guest.getByText(`Waiting for ${OWNER.name}'s connection`)).toBeVisible({
     timeout: 15_000,
   });
-  await expect.poll(async () => (await videoState(guest)).paused).toBe(true);
-  expect((await videoState(guest)).currentTime).toBeGreaterThan(FILM_SECONDS * 0.7);
+  // The guest's stream moves too: its element reads paused at 0 until the new segments load.
+  await expect
+    .poll(
+      async () => {
+        const state = await videoState(guest);
+
+        return state.paused && state.currentTime > FILM_SECONDS * 0.7;
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(true);
   await capture(guest, "08-05-host-buffering");
 
   await release();

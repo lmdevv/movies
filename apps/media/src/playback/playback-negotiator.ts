@@ -89,7 +89,7 @@ const make = Effect.gen(function* () {
   ) {
     const grant = yield* verifier.verify(request.token);
 
-    const file = yield* resolveInsideRoots(grant.fileId).pipe(
+    const file = yield* resolveInsideRoots(grant.fileId, { sidecars: true }).pipe(
       Effect.provideService(FileResolver.Service, resolver),
       Effect.provideService(MediaConfig.Service, config),
       Effect.provideService(FileSystem.FileSystem, fs),
