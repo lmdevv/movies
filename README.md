@@ -33,9 +33,8 @@ account is the owner), and add `/media/library` (or a folder in it) as a library
 
 - The `movies` image (`ghcr.io/lmdevv/movies`, amd64 and arm64) holds the media service, the web
   app, the Convex CLI with the bundled functions, and ffmpeg. Compose runs `:latest`, the newest
-  release; pin `:X.Y` or `:X.Y.Z`, or follow `:main` for the edge. Until the first release is
-  tagged, set `MOVIES_IMAGE=ghcr.io/lmdevv/movies:main`. `docker compose build` builds it from
-  source instead.
+  release; pin `:X.Y` or `:X.Y.Z`, or follow `:main` for the edge. `docker compose build` builds
+  it from source instead.
 - Each start deploys the functions and configures the deployment; secrets are generated inside
   Convex, never written to `.env`.
 - The media service runs as `PUID:PGID`, which must be able to read the library. Libraries mount

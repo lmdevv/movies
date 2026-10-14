@@ -46,10 +46,8 @@ Open `MOVIES_PUBLIC_URL`, create the owner account (the first account is the own
 service's `volumes:` (`- /mnt/nas/shows:/media/shows:ro`) and add `/media/shows` as a library.
 
 - **Image.** `MOVIES_IMAGE` defaults to `ghcr.io/lmdevv/movies:latest`, the newest release. Best
-  is the release your checkout is at (`git checkout v0.1.2` with `:0.1.2`), or `main` with
+  is the release your checkout is at (`git checkout v0.1.0` with `:0.1.0`), or `main` with
   `:main` to follow development, since `compose.yaml` pins the Convex backend for its release.
-  Until the first release is tagged, only `:main` exists: set
-  `MOVIES_IMAGE=ghcr.io/lmdevv/movies:main`.
   `docker compose build` builds the image from your checkout instead. Images exist for amd64 and
   arm64; Quick Sync drivers are amd64 only.
 - **Settings.** Every name in `.env.example`, explained in the README's configuration table. The
