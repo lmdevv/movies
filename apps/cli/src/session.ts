@@ -18,9 +18,7 @@ import { layerProfileStorage } from "./config";
 /** What a signed-in command works with. */
 export interface Connection {
   readonly client: MoviesClient.Interface;
-  readonly auth: Auth.Interface;
   readonly target: Target;
-  readonly env: Environment;
   readonly convexUrl: string;
   /** This install's device on this server. */
   readonly deviceId: DeviceId;
@@ -133,9 +131,7 @@ export const connect = Effect.fn("Session.connect")(function* (
 
   const connection: Connection = {
     client,
-    auth,
     target,
-    env,
     convexUrl,
     deviceId: deviceIdFor(target),
     viewingProfileId: Option.flatMap(stored, (profile) =>

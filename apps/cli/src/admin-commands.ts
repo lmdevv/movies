@@ -9,6 +9,7 @@ import type { MigrationSourceFailure } from "@movies/contracts/models/migration"
 import { Effect, Option, Schema, Struct } from "effect";
 
 import { MigrationSourceError } from "./cli-errors";
+import { waitOptions } from "./flags";
 import type { Invocation, ShortcutCommand } from "./invocation";
 import {
   booleanFlag,
@@ -45,8 +46,6 @@ const jobsOutcome = (base: Schema.JsonObject, jobs: ReadonlyArray<Job>, queued: 
     jobs.length === 0 ? base : Struct.assign(base, { jobs: jobs.map((job) => encodeJob(job)) }),
     jobs.length === 0 ? queued : jobs.map(progressLine).join("\n"),
   );
-
-const waitOptions = { wait: { type: "boolean" }, timeout: { type: "string" } } as const;
 
 const scan: ShortcutCommand = {
   path: "scan",

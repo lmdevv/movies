@@ -20,6 +20,7 @@ export type FlagType = Data.TaggedEnum<{
   Json: {};
 }>;
 
+/** Constructors and matchers for `FlagType`. */
 export const FlagType = Data.taggedEnum<FlagType>();
 
 /** One flag derived from one field of a command's `args` struct. */
@@ -221,6 +222,12 @@ export const globalOptions: ParseArgsOptionsConfig = {
   profile: { type: "string" },
   format: { type: "string" },
   human: { type: "boolean" },
+};
+
+/** `--wait` and `--timeout <seconds>`, for commands that queue a background job. */
+export const waitOptions: ParseArgsOptionsConfig = {
+  wait: { type: "boolean" },
+  timeout: { type: "string" },
 };
 
 /** The option table for a command's derived flags plus the global flags and `--json`. */

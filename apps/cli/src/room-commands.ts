@@ -38,33 +38,28 @@ import { findTitle } from "./watch-commands";
 
 /**
  * Arguments to read a room: its ID and, for a room this account has not joined, the profile that
- * would join (`--profile-id`, else the viewing profile), which must be able to see its title.
+ * would join, which must be able to see its title.
  */
-const roomQuery = (invocation: Invocation, connection: Connection, roomId: RoomId) =>
-  Option.match(
-    Option.orElse(
-      Option.map(stringFlag(invocation.tokens, "profile-id"), (value) => ProfileId.make(value)),
-      () => connection.viewingProfileId,
-    ),
-    {
-      onNone: () => ({ roomId }),
-      onSome: (profileId) => ({ roomId, profileId }),
-    },
-  );
+const roomQuery = (roomId: RoomId, profileId: Option.Option<ProfileId>) =>
+  Option.match(profileId, {
+    onNone: () => ({ roomId }),
+    onSome: (id) => ({ roomId, profileId: id }),
+  });
 
-/** The room named on the command line, or the one this device is in. */
+/**
+ * The room named on the command line, read as `profileId` would join it, or the one this device
+ * is in.
+ */
 const resolveRoom = Effect.fn("Rooms.resolve")(function* (
   invocation: Invocation,
   connection: Connection,
+  profileId: Option.Option<ProfileId>,
 ) {
   const named = positionalText(invocation.tokens);
 
   if (Option.isSome(named)) {
     return yield* connection.withSession(
-      connection.client.query(
-        "rooms.get",
-        roomQuery(invocation, connection, RoomId.make(named.value)),
-      ),
+      connection.client.query("rooms.get", roomQuery(RoomId.make(named.value), profileId)),
     );
   }
 
@@ -100,32 +95,31 @@ const livePosition = (offset: number, clock: RoomClock): Effect.Effect<Milliseco
 type HostCommand = "rooms.play" | "rooms.pause" | "rooms.seek";
 
 /** Sends a host control at the room's current revision, retrying once after a stale revision. */
-const control = (
+const control = Effect.fn("Rooms.control")(function* (
   invocation: Invocation,
   name: HostCommand,
   position: (connection: Connection, room: Room) => Effect.Effect<Milliseconds>,
-) =>
-  Effect.gen(function* () {
-    const connection = yield* connect(invocation.env, invocation.target, "required");
+) {
+  const connection = yield* connect(invocation.env, invocation.target, "required");
 
-    const send = Effect.gen(function* () {
-      const room = yield* resolveRoom(invocation, connection);
-      const positionMs = yield* position(connection, room);
+  const send = Effect.gen(function* () {
+    const room = yield* resolveRoom(invocation, connection, connection.viewingProfileId);
+    const positionMs = yield* position(connection, room);
 
-      return yield* connection.withSession(
-        connection.client.mutate(name, {
-          roomId: room.id,
-          deviceId: connection.deviceId,
-          revision: room.clock.revision,
-          positionMs,
-        }),
-      );
-    });
-
-    const clock = yield* send.pipe(Effect.catchTag("StaleRevision", () => send));
-
-    return resultOutcome(commands[name], yield* encodeResult(name, commands[name], clock));
+    return yield* connection.withSession(
+      connection.client.mutate(name, {
+        roomId: room.id,
+        deviceId: connection.deviceId,
+        revision: room.clock.revision,
+        positionMs,
+      }),
+    );
   });
+
+  const clock = yield* send.pipe(Effect.catchTag("StaleRevision", () => send));
+
+  return resultOutcome(commands[name], yield* encodeResult(name, commands[name], clock));
+});
 
 /** A host control whose position comes from `--position` or the live position. */
 const hostControl = (
@@ -224,7 +218,7 @@ const leave: ShortcutCommand = {
   run: (invocation) =>
     Effect.gen(function* () {
       const connection = yield* connect(invocation.env, invocation.target, "required");
-      const room = yield* resolveRoom(invocation, connection);
+      const room = yield* resolveRoom(invocation, connection, connection.viewingProfileId);
 
       yield* connection.withSession(
         connection.client.mutate("rooms.leave", { roomId: room.id, deviceId: connection.deviceId }),
@@ -251,7 +245,13 @@ const status: ShortcutCommand = {
     Effect.gen(function* () {
       const output = yield* Output;
       const connection = yield* connect(invocation.env, invocation.target, "required");
-      const room = yield* resolveRoom(invocation, connection);
+
+      const profileId = Option.orElse(
+        Option.map(stringFlag(invocation.tokens, "profile-id"), (value) => ProfileId.make(value)),
+        () => connection.viewingProfileId,
+      );
+
+      const room = yield* resolveRoom(invocation, connection, profileId);
       const command = commands["rooms.get"];
       // Measured once, so following changes needs no `rooms.time` call per change.
       const offset = yield* serverClockOffset(connection);
@@ -271,18 +271,14 @@ const status: ShortcutCommand = {
         return textOutcome(shown.json, shown.human);
       }
 
-      yield* connection.client
-        .subscribe("rooms.get", roomQuery(invocation, connection, room.id))
-        .pipe(
-          // An ended room stays readable with the status `ended`; it never changes again.
-          Stream.takeUntil((current) => current.clock.status === "ended"),
-          Stream.mapEffect(snapshot),
-          Stream.runForEach((next) =>
-            output.out(
-              invocation.format === "json" ? JSON.stringify(next.json) : `${next.human}\n`,
-            ),
-          ),
-        );
+      yield* connection.client.subscribe("rooms.get", roomQuery(room.id, profileId)).pipe(
+        // An ended room stays readable with the status `ended`; it never changes again.
+        Stream.takeUntil((current) => current.clock.status === "ended"),
+        Stream.mapEffect(snapshot),
+        Stream.runForEach((next) =>
+          output.out(invocation.format === "json" ? JSON.stringify(next.json) : `${next.human}\n`),
+        ),
+      );
 
       // JSON mode stays one line per change; the last line shows the room ended.
       if (invocation.format === "table") yield* output.out("The room ended.");

@@ -3,8 +3,6 @@
  * result (JSON by default, tables with `--human`), and turns every failure into a stable exit code
  * and a `{ "error": { code, message } }` report on stderr.
  */
-import type { ParseArgsOptionsConfig } from "node:util";
-
 import { commands } from "@movies/contracts/commands";
 import type { CommandName } from "@movies/contracts/commands";
 import { JobId } from "@movies/contracts/ids";
@@ -31,7 +29,15 @@ import type { CliError } from "./cli-errors";
 import { ConfigFileError, ExitCode, exitCodeOf, reportOf, UsageError } from "./cli-errors";
 import { environment, loadConfig, resolveTarget } from "./config";
 import type { ParsedTokens, WireArgs } from "./flags";
-import { buildArgs, describeIssue, globalOptions, kebabCase, optionsFor, tokenize } from "./flags";
+import {
+  buildArgs,
+  describeIssue,
+  globalOptions,
+  kebabCase,
+  optionsFor,
+  tokenize,
+  waitOptions,
+} from "./flags";
 import type { Format, Invocation, ShortcutCommand } from "./invocation";
 import {
   booleanFlag,
@@ -180,8 +186,8 @@ const rawFormat = (argv: ReadonlyArray<string>): Format =>
     : "json";
 
 /** Everything a command needs before it runs. */
-const prepare = (path: string, tokens: ParsedTokens) =>
-  Effect.gen(function* () {
+const prepare = Effect.fn("Cli.prepare")(
+  function* (path: string, tokens: ParsedTokens) {
     const env = yield* environment;
     const config = yield* loadConfig(env.configPath);
     const target = resolveTarget(config, env, stringFlag(tokens, "profile"));
@@ -189,17 +195,17 @@ const prepare = (path: string, tokens: ParsedTokens) =>
     const invocation: Invocation = { path, tokens, env, config, target, format };
 
     return invocation;
-  }).pipe(
-    Effect.catchTag("ConfigError", (cause) =>
-      Effect.fail(
-        new ConfigFileError({
-          path: "environment",
-          message: "Could not read the environment",
-          cause,
-        }),
-      ),
+  },
+  Effect.catchTag("ConfigError", (cause) =>
+    Effect.fail(
+      new ConfigFileError({
+        path: "environment",
+        message: "Could not read the environment",
+        cause,
+      }),
     ),
-  );
+  ),
+);
 
 const print = (format: Format, outcome: Outcome): Effect.Effect<void, never, Output> =>
   Effect.flatMap(Output, (output) =>
@@ -212,59 +218,53 @@ const print = (format: Format, outcome: Outcome): Effect.Effect<void, never, Out
 
 const decodeJobId = Schema.decodeUnknownOption(Schema.Struct({ jobId: JobId }));
 
-const waitOptions: ParseArgsOptionsConfig = {
-  wait: { type: "boolean" },
-  timeout: { type: "string" },
-};
-
 /** Validates wire arguments against the command, runs it, and encodes the result. */
-const runNamed = (
+const runNamed = Effect.fn("Cli.runNamed")(function* (
   invocation: Invocation,
   name: CommandName,
   entry: RegistryEntry,
   wire: WireArgs,
-) =>
-  Effect.gen(function* () {
-    const command = commands[name];
+) {
+  const command = commands[name];
 
-    const args = yield* Schema.decodeEffect(command.args)(wire, { errors: "all" }).pipe(
-      Effect.mapError(
-        (error) =>
-          new UsageError({
-            message: describeIssue(entry.flags, error.issue),
-            command: invocation.path,
-          }),
-      ),
-    );
+  const args = yield* Schema.decodeEffect(command.args)(wire, { errors: "all" }).pipe(
+    Effect.mapError(
+      (error) =>
+        new UsageError({
+          message: describeIssue(entry.flags, error.issue),
+          command: invocation.path,
+        }),
+    ),
+  );
 
-    const connection = yield* connect(
-      invocation.env,
-      invocation.target,
-      command.scope === "public" ? "optional" : "required",
-    );
+  const connection = yield* connect(
+    invocation.env,
+    invocation.target,
+    command.scope === "public" ? "optional" : "required",
+  );
 
-    const result = yield* connection.withSession(connection.client.run(name, args));
-    const json = yield* encodeResult(name, command, result);
-    const jobId = decodeJobId(json);
+  const result = yield* connection.withSession(connection.client.run(name, args));
+  const json = yield* encodeResult(name, command, result);
+  const jobId = decodeJobId(json);
 
-    if (!booleanFlag(invocation.tokens, "wait") || Option.isNone(jobId)) {
-      return resultOutcome(command, json);
-    }
+  if (!booleanFlag(invocation.tokens, "wait") || Option.isNone(jobId)) {
+    return resultOutcome(command, json);
+  }
 
-    const job = yield* waitForJob(connection.client, jobId.value.jobId, {
-      progress: true,
-      timeout: yield* timeoutFlag(invocation),
-    });
-
-    const jobJson = yield* encodeResult("jobs.get", commands["jobs.get"], job);
-
-    return textOutcome(
-      { result: json, job: jobJson },
-      [renderResult(command.result, json), renderResult(commands["jobs.get"].result, jobJson)].join(
-        "\n",
-      ),
-    );
+  const job = yield* waitForJob(connection.client, jobId.value.jobId, {
+    progress: true,
+    timeout: yield* timeoutFlag(invocation),
   });
+
+  const jobJson = yield* encodeResult("jobs.get", commands["jobs.get"], job);
+
+  return textOutcome(
+    { result: json, job: jobJson },
+    [renderResult(command.result, json), renderResult(commands["jobs.get"].result, jobJson)].join(
+      "\n",
+    ),
+  );
+});
 
 const runRegistry = Effect.fn("Cli.runRegistry")(function* (
   entry: RegistryEntry,
@@ -324,8 +324,8 @@ const runShortcut = Effect.fn("Cli.runShortcut")(function* (
 
 const runCall = Effect.fn("Cli.runCall")(function* (rest: ReadonlyArray<string>) {
   const output = yield* Output;
-  const [name, ...after] = splitLeadingGlobals(rest).words;
-  const globals = splitLeadingGlobals(rest).globals;
+  const { globals, words } = splitLeadingGlobals(rest);
+  const [name, ...after] = words;
 
   if (name === undefined || name.startsWith("-")) {
     return yield* output.out(
