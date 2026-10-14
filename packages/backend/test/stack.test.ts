@@ -3186,6 +3186,62 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
   });
 
   describe("metadata overrides", () => {
+    it("keeps a hand-picked match through a later refresh", async () => {
+      const name = `Hand Matched ${TOKEN}`;
+
+      const item = scanned(
+        `/stack-${id}/open/hand-matched.mp4`,
+        {
+          kind: "movie",
+          name,
+          ageRating: 0,
+        },
+        null,
+      );
+
+      await service(fixture.mediaService, "mediaService.upsertScanned", {
+        libraryId: fixture.openLibrary,
+        items: [item],
+      });
+
+      const titleId = (await titleNamed(fixture.owner, fixture.ownerProfile, name)).id;
+
+      // Each job writes what a provider would return, as the media service's metadata job does.
+      const runMetadataJob = async (jobId: JobId) => {
+        const workerId = `metadata-${id}`;
+
+        await service(fixture.mediaService, "mediaService.claimJob", {
+          jobId,
+          workerId,
+          leaseMs: 60_000,
+        });
+        await service(fixture.mediaService, "mediaService.applyMetadata", {
+          jobId,
+          workerId,
+          titleId,
+          title: { ...item.title, matchStatus: "matched" },
+          episodes: [],
+        });
+        await service(fixture.mediaService, "mediaService.completeJob", { jobId, workerId });
+      };
+
+      const matchStatus = async () =>
+        (await run(fixture.owner, "titles.get", { profileId: fixture.ownerProfile, titleId }))
+          .matchStatus;
+
+      const fixed = await run(fixture.owner, "metadata.fixMatch", {
+        titleId,
+        provider: "tmdb",
+        providerId: `603${id}`,
+      });
+
+      await runMetadataJob(fixed.jobId);
+      expect(await matchStatus()).toBe("manual");
+
+      await runMetadataJob((await run(fixture.owner, "metadata.refresh", { titleId })).jobId);
+      expect(await matchStatus()).toBe("manual");
+    });
+
     it("sorts title lists by a sort name an admin set", async () => {
       const moviesByName = async () =>
         (

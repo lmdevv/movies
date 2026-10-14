@@ -474,7 +474,11 @@ export const applyMetadata = mutation({
     await ctx.db.patch(titleId, {
       ...fields,
       kind: current.kind,
-      matchStatus: doc.payload.match === null ? fields.matchStatus : "manual",
+      // A hand-picked match stays one through later refreshes, so scans keep leaving it alone.
+      matchStatus:
+        doc.payload.match !== null || current.matchStatus === "manual"
+          ? "manual"
+          : fields.matchStatus,
       updatedAt: Date.now(),
     });
 
