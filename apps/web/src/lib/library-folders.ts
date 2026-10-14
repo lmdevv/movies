@@ -4,11 +4,17 @@
  * server still decides; its refusals (such as a folder another library uses) show the same way.
  */
 
-/** The folder as the server stores it: trimmed, without trailing slashes. */
+/**
+ * The folder as the server stores it (`normalizeRoot` in the backend): trimmed, repeated slashes
+ * collapsed, no trailing slash except for `/` itself, repeated until stable.
+ */
 export const normalizeFolder = (path: string): string => {
-  const trimmed = path.trim().replace(/\/+$/u, "");
+  const next = path
+    .trim()
+    .replace(/\/{2,}/gu, "/")
+    .replace(/(?<=.)\/$/u, "");
 
-  return trimmed === "" && path.trim() !== "" ? "/" : trimmed;
+  return next === path ? next : normalizeFolder(next);
 };
 
 /** Why a typed folder cannot be saved, or null when it looks valid. */

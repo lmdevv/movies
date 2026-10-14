@@ -8,11 +8,16 @@ import type { ReadCtx } from "./viewer";
  * A folder trimmed, with repeated and trailing slashes removed (`/` stays `/`). A blank folder
  * stays blank, so `checkAbsolute` refuses it rather than taking it for `/`.
  */
-export const normalizeRoot = (root: string): string =>
-  root
+export const normalizeRoot = (root: string): string => {
+  const next = root
     .trim()
     .replace(/\/{2,}/gu, "/")
     .replace(/(?<=.)\/$/u, "");
+
+  // Dropping a slash can expose more whitespace or another slash (`"a /"`), so repeat until the
+  // folder is stable: normalizing a normalized folder must not change it.
+  return next === root ? next : normalizeRoot(next);
+};
 
 /** Whether `path` is `root` or lies inside it; both normalized. */
 export const isInside = (path: string, root: string): boolean =>

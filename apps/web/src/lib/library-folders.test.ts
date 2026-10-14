@@ -8,6 +8,10 @@ describe("library folders", () => {
     expect(normalizeFolder("  /mnt/nas/movies/ ")).toBe("/mnt/nas/movies");
     expect(normalizeFolder("///")).toBe("/");
     expect(normalizeFolder("")).toBe("");
+    expect(normalizeFolder("//srv//media//")).toBe("/srv/media");
+    // Dropping the slash exposes more whitespace; normalizing again must not change the result.
+    expect(normalizeFolder("! /")).toBe("!");
+    expect(normalizeFolder("/srv/a / /")).toBe("/srv/a");
   });
 
   it("accepts absolute paths and explains everything else", () => {
