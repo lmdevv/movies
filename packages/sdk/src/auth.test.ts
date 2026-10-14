@@ -35,11 +35,13 @@ interface MemoryStore {
   /** The session the store holds now, as plain tokens. */
   readonly saved: () => Option.Option<{ readonly token: string; readonly refreshToken: string }>;
   readonly failWrites: (failing: boolean) => void;
+  readonly failClears: (failing: boolean) => void;
 }
 
 const memoryStore = (initial: Option.Option<{ token: string; refreshToken: string }>) => {
   const items = new Map<string, string>();
   let failing = false;
+  let failingClears = false;
 
   if (Option.isSome(initial)) {
     items.set(
@@ -59,6 +61,7 @@ const memoryStore = (initial: Option.Option<{ token: string; refreshToken: strin
         items.set(key, value);
       },
       removeItem: (key) => {
+        if (failingClears) throw new Error("The disk is read-only");
         items.delete(key);
       },
     },
@@ -72,6 +75,9 @@ const memoryStore = (initial: Option.Option<{ token: string; refreshToken: strin
       ),
     failWrites: (next) => {
       failing = next;
+    },
+    failClears: (next) => {
+      failingClears = next;
     },
   };
 
@@ -349,6 +355,94 @@ describe("Auth", () => {
         expect(
           (yield* fake.requestsTo("deviceAuth:status")).map((request) => request.authorization),
         ).toStrictEqual([`Bearer ${RENEWED}`]);
+      }),
+    ));
+
+  it("signs out locally at once while the server is slow to renew the token", () =>
+    withAuth(signedInWith(EXPIRING), ({ fake, memory, auth }) =>
+      Effect.gen(function* () {
+        const gate = yield* gateRefresh(fake, tokens(RENEWED, ROTATED));
+
+        yield* fake.reply("auth:signOut", Reply.Success({ value: null }));
+        const signingOut = yield* Effect.forkChild(auth.signOut);
+
+        yield* Deferred.await(gate.arrived);
+
+        expect(yield* auth.currentStatus).toBe("signedOut");
+        expect(memory.saved()).toStrictEqual(Option.none());
+
+        // The server sign-out gives up on a hung server instead of waiting forever.
+        yield* TestClock.adjust(60_000);
+        yield* Fiber.join(signingOut);
+      }),
+    ));
+
+  it("keeps a sign-in that lands while the server is ending the previous session", () =>
+    withAuth(signedInWith(FRESH), ({ fake, memory, auth }) =>
+      Effect.gen(function* () {
+        const arrived = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const sam = jwtExpiringAt(START + 3_600_000, "sam");
+
+        yield* fake.reply("auth:signIn", tokens(sam, "sam-refresh"));
+        yield* fake.handle("auth:signOut", () =>
+          Effect.gen(function* () {
+            yield* Deferred.succeed(arrived, undefined);
+            yield* Deferred.await(release);
+
+            return Reply.Success({ value: null });
+          }),
+        );
+        const signingOut = yield* Effect.forkChild(auth.signOut);
+
+        yield* Deferred.await(arrived);
+        yield* auth.signIn(Auth.Credentials.ApiKey({ key: Redacted.make("sam-key") }));
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(signingOut);
+
+        expect(yield* auth.currentStatus).toBe("signedIn");
+        expect(reveal(yield* auth.accessToken(false))).toBe(sam);
+        expect(memory.saved()).toStrictEqual(
+          Option.some({ token: sam, refreshToken: "sam-refresh" }),
+        );
+      }),
+    ));
+
+  it("shares a refresh that got no answer with the callers waiting behind it", () =>
+    withAuth(signedInWith(EXPIRING), ({ fake, auth }) =>
+      Effect.gen(function* () {
+        const gate = yield* gateRefresh(fake, tokens(RENEWED, ROTATED));
+
+        const callers = yield* Effect.forkChild(
+          Effect.all([auth.accessToken(false), auth.accessToken(false), auth.accessToken(false)], {
+            concurrency: "unbounded",
+          }),
+        );
+
+        yield* Deferred.await(gate.arrived);
+        yield* TestClock.adjust(30_001);
+        yield* TestClock.withLive(Effect.sleep(50));
+
+        expect(yield* refreshRequests(fake)).toStrictEqual(["refresh-1"]);
+        expect((yield* Fiber.join(callers)).map(reveal)).toStrictEqual([
+          EXPIRING,
+          EXPIRING,
+          EXPIRING,
+        ]);
+      }),
+    ));
+
+  it("drops a refused session from memory even when clearing storage fails", () =>
+    withAuth(signedInWith(EXPIRING), ({ fake, memory, auth }) =>
+      Effect.gen(function* () {
+        yield* fake.reply("auth:signIn", Reply.Success({ value: { tokens: null } }));
+        memory.failClears(true);
+
+        yield* Effect.exit(auth.accessToken(false));
+
+        expect(yield* auth.currentStatus).toBe("signedOut");
+        expect(yield* auth.accessToken(false)).toStrictEqual(Option.none());
+        expect(yield* refreshRequests(fake)).toStrictEqual(["refresh-1"]);
       }),
     ));
 });

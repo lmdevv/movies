@@ -201,6 +201,12 @@ const kept = () => Effect.succeed(RefreshOutcome.Kept());
 const REFRESH_TIMEOUT = Duration.seconds(30);
 
 /**
+ * How long sign-out tries to end the session on the server, renewing its token first if needed.
+ * The local session is already gone by then, so giving up only leaves the server session to expire.
+ */
+const SERVER_SIGN_OUT_TIMEOUT = Duration.seconds(10);
+
+/**
  * Builds the auth service: reads the stored session, then gives the Convex connection a token
  * source. Requires the connection and a token store.
  */
@@ -213,6 +219,14 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
   const session = yield* Ref.make(Option.none<StoredSession>());
   // One refresh request at a time, so concurrent callers share it.
   const refreshing = yield* Semaphore.make(1);
+
+  // How many refresh requests have finished, and for which session. A caller that sees one finish
+  // for its session while it waited for `refreshing` takes that outcome instead of asking again.
+  const lastAttempt = yield* Ref.make<{
+    readonly finished: number;
+    readonly session: Option.Option<StoredSession>;
+  }>({ finished: 0, session: Option.none() });
+
   // Session changes (sign-in, sign-out, a refresh's result) apply one at a time. Holders never wait
   // on the network, so signing out is not held up by a refresh in flight.
   const committing = yield* Semaphore.make(1);
@@ -290,10 +304,13 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
     yield* SubscriptionRef.set(status, Option.isSome(next) ? "signedIn" : "signedOut");
   });
 
-  /** Forgets the session in storage and memory. Callers hold `committing`. */
+  /**
+   * Forgets the session in memory, then in storage. Memory goes first so a storage failure cannot
+   * keep a dead session in use. Callers hold `committing`.
+   */
   const forget = Effect.fn("Auth.forget")(function* () {
-    yield* storage.clear;
     yield* adopt(Option.none());
+    yield* storage.clear;
   });
 
   /** Asks the server to renew `seen`. Failures become the outcome they call for. */
@@ -349,15 +366,31 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
     });
   }, committing.withPermits(1));
 
-  /** Renews `seen`, unless another caller replaced it while this one waited for the permit. */
-  const refresh = Effect.fn("Auth.refresh")(function* (seen: StoredSession) {
+  /**
+   * Renews `seen`, unless another caller replaced it while this one waited for the permit.
+   * `generation` is the finished-attempt count the caller saw before waiting. An attempt for `seen`
+   * that finished since, with `seen` still standing, kept the token (the server was unreachable or
+   * slow); asking again would only wait as long, so this caller keeps the token too.
+   */
+  const refresh = Effect.fn("Auth.refresh")(function* (seen: StoredSession, generation: number) {
     const current = yield* Ref.get(session);
 
     if (Option.isNone(current) || current.value !== seen) {
       return Option.map(current, (held) => held.token);
     }
 
+    const last = yield* Ref.get(lastAttempt);
+
+    if (last.finished !== generation && Option.exists(last.session, (tried) => tried === seen)) {
+      return Option.some(seen.token);
+    }
+
     const outcome = yield* requestRefresh(seen);
+
+    yield* Ref.update(lastAttempt, (previous) => ({
+      finished: previous.finished + 1,
+      session: Option.some(seen),
+    }));
 
     return yield* commitRefresh(seen, outcome);
   }, refreshing.withPermits(1));
@@ -369,13 +402,14 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
       const current = yield* Ref.get(session);
 
       if (Option.isNone(current)) return Option.none();
+      const { finished: generation } = yield* Ref.get(lastAttempt);
       const now = yield* Clock.currentTimeMillis;
 
       if (!forceRefresh && !isExpiring(Redacted.value(current.value.token), now)) {
         return Option.some(current.value.token);
       }
 
-      return yield* refresh(current.value);
+      return yield* refresh(current.value, generation);
     });
   }
 
@@ -393,15 +427,39 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
     );
   });
 
+  /**
+   * Ends `ended` on the server, best effort. The server ignores an expired token, so one about to
+   * expire is renewed first with the session's own refresh token; nothing here touches the local
+   * session, which is already gone.
+   */
+  const endOnServer = (ended: StoredSession): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
+
+      const token = isExpiring(Redacted.value(ended.token), now)
+        ? Option.map(
+            yield* requestTokens({ refreshToken: Redacted.value(ended.refreshToken) }),
+            (renewed) => renewed.token,
+          )
+        : Option.some(ended.token);
+
+      if (Option.isSome(token)) yield* callGateway(SIGN_OUT, {}, token);
+    }).pipe(Effect.timeoutOption(SERVER_SIGN_OUT_TIMEOUT), Effect.ignore);
+
   const signOut = Effect.fn("Auth.signOut")(function* () {
-    // The stored token may have expired, and the server ignores an expired one: renew it first.
-    const token = yield* accessToken(false).pipe(orTokenInMemory);
+    // Forget locally first, so signing out never waits on the server.
+    const { ended, cleared } = yield* committing.withPermits(1)(
+      Effect.gen(function* () {
+        const current = yield* Ref.get(session);
+        const exit = yield* Effect.exit(forget());
 
-    if (Option.isSome(token)) {
-      yield* callGateway(SIGN_OUT, {}, token).pipe(Effect.ignore);
-    }
+        return { ended: current, cleared: exit };
+      }),
+    );
 
-    yield* committing.withPermits(1)(forget());
+    if (Option.isSome(ended)) yield* endOnServer(ended.value);
+
+    return yield* cleared;
   });
 
   const stored = yield* storage.load;
