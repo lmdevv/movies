@@ -230,17 +230,27 @@ const COMPANION_EXTENSIONS = new Set([
 interface Companion {
   readonly lowerName: string;
   readonly line: string;
-}
-
-/** A folder's companions and the lowercased stems of the main videos beside them. */
-interface FolderCompanions {
-  readonly companions: ReadonlyArray<Companion>;
-  readonly stems: ReadonlyArray<string>;
+  /** Named after no main video in its folder, like `movie.nfo` or `poster.jpg`. */
+  readonly shared: boolean;
 }
 
 /** Whether `lowerName` is named after the video `stem`: `<stem>.nfo`, `<stem>-poster.jpg`, ... */
 const namedAfter = (lowerName: string, stem: string): boolean =>
   lowerName.startsWith(`${stem}.`) || lowerName.startsWith(`${stem}-`);
+
+/**
+ * Whether `lowerName` is named after any of `stems`, by looking up each prefix that ends before
+ * a `.` or `-`: linear in the name, where testing every stem would be linear in the folder.
+ */
+const namedAfterAny = (lowerName: string, stems: ReadonlySet<string>): boolean => {
+  for (let end = 0; end < lowerName.length; end += 1) {
+    const char = lowerName[end];
+
+    if ((char === "." || char === "-") && stems.has(lowerName.slice(0, end))) return true;
+  }
+
+  return false;
+};
 
 /** A short, path-free label for a file system failure. */
 const platformReason = (
@@ -475,6 +485,17 @@ const make = Effect.gen(function* () {
           Effect.gen(function* () {
             const names = listing(folder).names;
 
+            // Classified once per folder: a folder of a thousand films has thousands of companions.
+            const stems = new Set(
+              names.filter(isMainVideo(folder)).map((name) => stemOf(name).toLowerCase()),
+            );
+
+            const companion = (name: string, line: string): Companion => {
+              const lowerName = name.toLowerCase();
+
+              return { lowerName, line, shared: !namedAfterAny(lowerName, stems) };
+            };
+
             const companions = yield* Effect.forEach(
               names.filter(
                 (name) =>
@@ -483,42 +504,28 @@ const make = Effect.gen(function* () {
               ),
               (name) =>
                 fs.stat(absolute(join(folder, name))).pipe(
-                  Effect.map((info): Companion => {
-                    const modified = modifiedAtMs(info);
-
-                    return {
-                      lowerName: name.toLowerCase(),
-                      line: `${name}\u0000${String(info.size)}\u0000${String(modified)}`,
-                    };
-                  }),
-                  Effect.orElseSucceed((): Companion => ({
-                    lowerName: name.toLowerCase(),
-                    line: `${name}\u0000unreadable`,
-                  })),
+                  Effect.map((info) =>
+                    companion(
+                      name,
+                      `${name}\u0000${String(info.size)}\u0000${String(modifiedAtMs(info))}`,
+                    ),
+                  ),
+                  Effect.orElseSucceed(() => companion(name, `${name}\u0000unreadable`)),
                 ),
               { concurrency: STAT_CONCURRENCY },
             );
-
-            const stems = names
-              .filter(isMainVideo(folder))
-              .map((name) => stemOf(name).toLowerCase());
 
             // The hidden `.actors` folder is not walked; its time changes when photos come or go.
             const actors = yield* fs.stat(absolute(join(folder, ".actors"))).pipe(
               Effect.map((info): ReadonlyArray<Companion> =>
                 info.type === "Directory"
-                  ? [
-                      {
-                        lowerName: ".actors",
-                        line: `.actors/\u0000${String(modifiedAtMs(info))}`,
-                      },
-                    ]
+                  ? [companion(".actors", `.actors/\u0000${String(modifiedAtMs(info))}`)]
                   : [],
               ),
               Effect.orElseSucceed((): ReadonlyArray<Companion> => []),
             );
 
-            return { companions: [...companions, ...actors], stems } satisfies FolderCompanions;
+            return [...companions, ...actors];
           }),
       });
 
@@ -534,21 +541,16 @@ const make = Effect.gen(function* () {
       ) {
         const folder = parentOf(relativePath);
         const stem = stemOf(relativePath).toLowerCase();
-        const own = yield* Cache.get(folderCompanions, folder);
 
-        const lines = own.companions
-          .filter(
-            (companion) =>
-              namedAfter(companion.lowerName, stem) ||
-              !own.stems.some((other) => namedAfter(companion.lowerName, other)),
-          )
+        const lines = (yield* Cache.get(folderCompanions, folder))
+          .filter((companion) => companion.shared || namedAfter(companion.lowerName, stem))
           .map((companion) => companion.line);
 
         const inSeasonFolder =
           folder.includes("/") && SEASON_FOLDER.test(folder.split("/").at(-1) ?? "");
 
         const show = inSeasonFolder
-          ? (yield* Cache.get(folderCompanions, parentOf(folder))).companions.map(
+          ? (yield* Cache.get(folderCompanions, parentOf(folder))).map(
               (companion) => companion.line,
             )
           : [];
