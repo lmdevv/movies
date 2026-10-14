@@ -3076,6 +3076,22 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         positionMs: ms(0),
       });
 
+      // A room the spare profile started, whose host device has since rejoined as another profile.
+      const switchedHost = device("spare-switched-host");
+
+      const switched = await run(single, "rooms.create", {
+        profileId: spare.id,
+        deviceId: switchedHost,
+        titleId: fixture.titles.allAges,
+        positionMs: ms(0),
+      });
+
+      await run(single, "rooms.join", {
+        roomId: switched.id,
+        profileId: only,
+        deviceId: switchedHost,
+      });
+
       await run(single, "profiles.remove", { profileId: spare.id });
       expect((await run(single, "profiles.list", {})).map((profile) => profile.id)).toStrictEqual([
         only,
@@ -3091,6 +3107,7 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         }),
       ).toStrictEqual({ applied: false, watched: false });
       expect(rowOf("rooms", hostDevice).status).toBe("ended");
+      expect(rowOf("rooms", switchedHost).status).toBe("ended");
       expect(await run(single, "rooms.current", { deviceId: hostDevice })).toBeNull();
     });
   });

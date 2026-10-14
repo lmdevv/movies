@@ -17,7 +17,7 @@ import {
   visibleLibraryIds,
 } from "./lib/access";
 import { checkDeviceId, checkMilliseconds } from "./lib/bounds";
-import { endRoom } from "./lib/endings";
+import { endRoom, leaveRoom } from "./lib/endings";
 import { fail } from "./lib/errors";
 import { resolvePlayable } from "./lib/playable";
 import { createdAt, presentEpisode, presentRoomClock, presentTitleCard } from "./lib/present";
@@ -186,14 +186,7 @@ const leaveOtherRooms = async (
     .collect();
 
   await Promise.all(
-    memberships.map(async (member) => {
-      if (member.roomId === keep) return;
-      const previous = member.role === "host" ? await ctx.db.get(member.roomId) : null;
-
-      if (previous !== null && previous.status !== "ended") await endRoom(ctx, previous, now);
-
-      await ctx.db.delete(member._id);
-    }),
+    memberships.flatMap((member) => (member.roomId === keep ? [] : [leaveRoom(ctx, member, now)])),
   );
 };
 
@@ -370,7 +363,8 @@ export const leave = mutation({
   returns: ok,
   handler: async (ctx, { roomId, deviceId }) => {
     const viewer = await authorize(ctx, "play");
-    const found = await loadRoom(ctx, roomId);
+    // A missing room fails with not_found, as for every room command.
+    await loadRoom(ctx, roomId);
 
     const member = await ctx.db
       .query("roomMembers")
@@ -378,9 +372,7 @@ export const leave = mutation({
       .unique();
 
     if (member?.userId !== viewer.userId) return { ok: true as const };
-    await ctx.db.delete(member._id);
-
-    if (member.role === "host" && found.status !== "ended") await endRoom(ctx, found, Date.now());
+    await leaveRoom(ctx, member, Date.now());
 
     return { ok: true as const };
   },

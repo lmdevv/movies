@@ -50,9 +50,23 @@ export const endTitlePlayback = async (
   ]);
 };
 
+/** Takes a member out of its room; a host leaving ends the room. */
+export const leaveRoom = async (
+  ctx: MutationCtx,
+  member: Doc<"roomMembers">,
+  now: number,
+): Promise<void> => {
+  const room = member.role === "host" ? await ctx.db.get(member.roomId) : null;
+
+  if (room !== null && room.status !== "ended") await endRoom(ctx, room, now);
+
+  await ctx.db.delete(member._id);
+};
+
 /**
  * Ends what a profile that is going away is doing: its active playback sessions, so a device still
- * playing records no progress for it, and its room memberships, ending the rooms it hosts.
+ * playing records no progress for it, and its room memberships, ending the rooms it hosts, even
+ * where the host's device has since joined with another profile.
  */
 export const endProfilePlayback = async (
   ctx: MutationCtx,
@@ -69,17 +83,21 @@ export const endProfilePlayback = async (
     .withIndex("by_user_device", (q) => q.eq("userId", profile.userId))
     .collect();
 
-  const own = memberships.filter((member) => member.profileId === profile._id);
+  const hosted = await Promise.all(
+    memberships.map(
+      async (member) =>
+        member.role === "host" && (await ctx.db.get(member.roomId))?.hostProfileId === profile._id,
+    ),
+  );
 
   await Promise.all([
     ...sessions.flatMap((session) =>
       session.profileId === profile._id ? [endPlaybackSession(ctx, session, now)] : [],
     ),
-    ...own.map(async (member) => {
-      const room = member.role === "host" ? await ctx.db.get(member.roomId) : null;
-
-      if (room !== null && room.status !== "ended") await endRoom(ctx, room, now);
-      await ctx.db.delete(member._id);
-    }),
+    ...memberships.flatMap((member, index) =>
+      member.profileId === profile._id || hosted[index] === true
+        ? [leaveRoom(ctx, member, now)]
+        : [],
+    ),
   ]);
 };

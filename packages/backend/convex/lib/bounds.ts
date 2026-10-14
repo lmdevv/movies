@@ -100,6 +100,12 @@ export const checkBatch = <Item>(items: ReadonlyArray<Item>): ReadonlyArray<Item
     ? fail("invalid_args", `Send at most ${BATCH_LIMIT} items per call`)
     : items;
 
-/** How many results to return: `fallback` unless asked, then a whole number from 1 to `max`. */
+/**
+ * How many results to return: `fallback` unless asked (or asked for NaN, which no count is), then
+ * a whole number from 1 to `max`.
+ */
 export const resultLimit = (limit: number | undefined, fallback: number, max: number): number =>
-  Math.min(Math.max(1, Math.floor(limit ?? fallback)), max);
+  Math.min(
+    Math.max(1, Math.floor(limit === undefined || Number.isNaN(limit) ? fallback : limit)),
+    max,
+  );

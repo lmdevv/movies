@@ -251,7 +251,6 @@ const upsertTitle = async (
           .unique();
 
   const now = Date.now();
-  const metadata = titleMetadata(scanned);
 
   if (existing !== null) {
     if (existing.matchStatus === "manual") return existing;
@@ -268,6 +267,8 @@ const upsertTitle = async (
 
     return updated;
   }
+
+  const metadata = titleMetadata(scanned);
 
   const titleId = await ctx.db.insert("titles", {
     libraryId,

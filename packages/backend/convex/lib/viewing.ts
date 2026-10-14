@@ -461,10 +461,10 @@ export interface VisibleBudget {
 }
 
 /**
- * The first titles of a query the profile may see, reading the query one item at a time: an
- * unfiltered profile reads no more than it returns, and a heavily filtered one stops after
- * `scanLimit` items, so it cannot make one query read the whole table. `titleOf` finds an item's
- * title, or null when it is gone.
+ * The first titles of a query the profile may see. It reads the query in batches of as many items
+ * as are still wanted, finding their titles in parallel: a profile that sees everything reads no
+ * more than it returns, and a heavily filtered one stops after `scanLimit` items, so it cannot make
+ * one query read the whole table. `titleOf` finds an item's title, or null when it is gone.
  */
 export const firstVisible = async <Item>(
   audience: Audience,
@@ -474,20 +474,38 @@ export const firstVisible = async <Item>(
 ): Promise<Array<Doc<"titles">>> => {
   const iterator = items[Symbol.asyncIterator]();
 
+  /** Up to `count` more items, and whether the query ended; an ended query may not be read. */
+  const next = async (
+    count: number,
+    batch: Array<Item> = [],
+  ): Promise<{ readonly batch: Array<Item>; readonly ended: boolean }> => {
+    if (batch.length >= count) return { batch, ended: false };
+    const step = await iterator.next();
+
+    return step.done === true ? { batch, ended: true } : next(count, [...batch, step.value]);
+  };
+
   const take = async (
     found: Array<Doc<"titles">>,
     budget: number,
   ): Promise<Array<Doc<"titles">>> => {
     if (found.length >= limit || budget <= 0) return found;
-    const step = await iterator.next();
+    const { batch, ended } = await next(Math.min(limit - found.length, budget));
+    const titles = await Promise.all(batch.map(titleOf));
 
-    if (step.done === true) return found;
-    const title = await titleOf(step.value);
+    const visible = titles.flatMap((title) =>
+      title !== null && canSee(audience, title) ? [title] : [],
+    );
 
-    return take(title !== null && canSee(audience, title) ? [...found, title] : found, budget - 1);
+    return ended ? [...found, ...visible] : take([...found, ...visible], budget - batch.length);
   };
 
-  return take([], scanLimit);
+  try {
+    return await take([], scanLimit);
+  } finally {
+    // Stopping early leaves the query open; closing it frees it now rather than at the end.
+    await iterator.return?.();
+  }
 };
 
 /** `titleOf` for a query of titles themselves. */
