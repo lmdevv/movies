@@ -3,7 +3,7 @@
  * `DOLBY VISION`, `HEVC`, `EAC3 5.1`, `CC`, and `English EAC3 5.1, Spanish · English CC`. The
  * facts themselves are named by the SDK's `MediaLabels`.
  */
-import type { SubtitleTrack } from "@movies/contracts/media-playback";
+import { BITMAP_SUBTITLE_FORMATS, type SubtitleTrack } from "@movies/contracts/media-playback";
 import type { AudioStream, MediaFile } from "@movies/contracts/models/catalog";
 import { MediaLabels } from "@movies/sdk/effect";
 
@@ -34,30 +34,59 @@ export const audioTrackLabel = (
   return [name, channelLabel(track.channels)].filter((part) => part !== null).join(" ");
 };
 
-/** Image subtitle formats by ffmpeg codec name, as players usually name them. */
-const BITMAP_FORMATS = new Map([
-  ["hdmv_pgs_subtitle", "PGS"],
-  ["dvd_subtitle", "VobSub"],
-  ["dvb_subtitle", "DVB"],
-]);
+/** The format of a picture subtitle, such as `PGS`; null for text. */
+const pictureFormat = (kind: string, codec: string): string | null =>
+  kind === "bitmap" || kind === "image" ? (BITMAP_SUBTITLE_FORMATS.get(codec) ?? "image") : null;
 
 /**
- * A subtitle track as the chooser lists it: `English`, `English CC`, `English (Forced)`, or, for an
- * image track that is drawn into the picture, `English (PGS)`, so it never reads like the text
- * track in the same language.
+ * A subtitle track as the chooser lists it: `English`, `English CC`, `English (Forced)`, and, for a
+ * picture track that is drawn into the video, its format: `English (PGS)`, `English (Forced,
+ * VobSub)`. `position` is the track's place in the whole list, for tracks with no name.
  */
 export const subtitleTrackLabel = (
-  track: Pick<SubtitleTrack, "language" | "title" | "hearingImpaired" | "forced"> &
-    Partial<Pick<SubtitleTrack, "kind" | "codec">>,
+  track: Pick<
+    SubtitleTrack,
+    "language" | "title" | "hearingImpaired" | "forced" | "kind" | "codec"
+  >,
   position: number,
 ): string => {
   const name = languageName(track.language ?? null) ?? track.title ?? `Subtitles ${position + 1}`;
+  const base = track.hearingImpaired ? `${name} CC` : name;
 
-  const base = track.hearingImpaired ? `${name} CC` : track.forced ? `${name} (Forced)` : name;
+  const flags = [track.forced ? "Forced" : null, pictureFormat(track.kind, track.codec)].filter(
+    (flag) => flag !== null,
+  );
 
-  if (track.kind !== "bitmap") return base;
+  return flags.length === 0 ? base : `${base} (${flags.join(", ")})`;
+};
 
-  return `${base} (${BITMAP_FORMATS.get(track.codec ?? "") ?? "image"})`;
+/** Whether `label` appears more than once in `labels`. */
+const repeated = (labels: ReadonlyArray<string>, label: string): boolean =>
+  labels.filter((each) => each === label).length > 1;
+
+/**
+ * Labels for a file's whole subtitle list, by position, so every surface names a track the same
+ * way. Two tracks that would read the same get their titles (`English (PGS) · Commentary`), and
+ * then their positions.
+ */
+export const subtitleTrackLabels = (
+  tracks: ReadonlyArray<
+    Pick<SubtitleTrack, "language" | "title" | "hearingImpaired" | "forced" | "kind" | "codec">
+  >,
+): ReadonlyArray<string> => {
+  const plain = tracks.map(subtitleTrackLabel);
+
+  const titled = plain.map((label, index) => {
+    const title = tracks[index]?.title;
+
+    return repeated(plain, label) && title !== undefined && !label.includes(title)
+      ? `${label} · ${title}`
+      : label;
+  });
+
+  return titled.map((label, index) =>
+    repeated(titled, label) ? `${label} · ${String(index + 1)}` : label,
+  );
 };
 
 /** The badges Paper draws after a title's facts, in order: resolution, HDR, codec, audio, CC. */
@@ -94,7 +123,12 @@ export const trackSummary = (file: MediaFile): string | null => {
   );
 
   const subtitles = [
-    ...file.probe.subtitles.map((track) => languageName(track.language) ?? track.title),
+    ...file.probe.subtitles.map((track) => {
+      const name = languageName(track.language) ?? track.title;
+      const format = pictureFormat(track.kind, track.codec);
+
+      return name === null || format === null ? name : `${name} (${format})`;
+    }),
     ...file.externalSubtitles.map((track) => languageName(track.language)),
   ].filter((name): name is string => name !== null && name !== "");
 

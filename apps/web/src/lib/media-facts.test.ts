@@ -1,30 +1,51 @@
 import { describe, expect, it } from "vitest";
 
-import { subtitleTrackLabel } from "./media-facts";
+import { subtitleTrackLabel, subtitleTrackLabels } from "./media-facts";
 
-const track = {
+const english = {
   language: "eng",
   hearingImpaired: false,
   forced: false,
+  kind: "text",
+  codec: "subrip",
 } as const;
+
+const pgs = { ...english, kind: "bitmap", codec: "hdmv_pgs_subtitle" } as const;
 
 describe("subtitleTrackLabel", () => {
   it("names text tracks by language, with CC and Forced", () => {
-    expect(subtitleTrackLabel(track, 0)).toBe("English");
-    expect(subtitleTrackLabel({ ...track, hearingImpaired: true }, 0)).toBe("English CC");
-    expect(subtitleTrackLabel({ ...track, forced: true }, 0)).toBe("English (Forced)");
+    expect(subtitleTrackLabel(english, 0)).toBe("English");
+    expect(subtitleTrackLabel({ ...english, hearingImpaired: true }, 0)).toBe("English CC");
+    expect(subtitleTrackLabel({ ...english, forced: true }, 0)).toBe("English (Forced)");
   });
 
-  it("marks image tracks with their format so they never read like the text track", () => {
-    expect(subtitleTrackLabel({ ...track, kind: "text", codec: "subrip" }, 0)).toBe("English");
-    expect(subtitleTrackLabel({ ...track, kind: "bitmap", codec: "hdmv_pgs_subtitle" }, 1)).toBe(
+  it("marks picture tracks with their format, in one group with Forced", () => {
+    expect(subtitleTrackLabel(pgs, 1)).toBe("English (PGS)");
+    expect(subtitleTrackLabel({ ...pgs, codec: "dvd_subtitle" }, 1)).toBe("English (VobSub)");
+    expect(subtitleTrackLabel({ ...pgs, forced: true }, 1)).toBe("English (Forced, PGS)");
+    expect(subtitleTrackLabel({ ...pgs, hearingImpaired: true, forced: true }, 1)).toBe(
+      "English CC (Forced, PGS)",
+    );
+  });
+});
+
+describe("subtitleTrackLabels", () => {
+  it("tells apart tracks that would read the same, by title and then by position", () => {
+    expect(
+      subtitleTrackLabels([
+        english,
+        pgs,
+        { ...pgs, title: "Commentary" },
+        { ...english, language: undefined },
+        { ...english, language: undefined },
+      ]),
+    ).toStrictEqual([
+      "English",
       "English (PGS)",
-    );
-    expect(subtitleTrackLabel({ ...track, kind: "bitmap", codec: "dvd_subtitle" }, 1)).toBe(
-      "English (VobSub)",
-    );
-    expect(subtitleTrackLabel({ ...track, kind: "bitmap", codec: "xsub" }, 1)).toBe(
-      "English (image)",
-    );
+      "English (PGS) · Commentary",
+      "Subtitles 4",
+      "Subtitles 5",
+    ]);
+    expect(subtitleTrackLabels([english, english])).toStrictEqual(["English · 1", "English · 2"]);
   });
 });

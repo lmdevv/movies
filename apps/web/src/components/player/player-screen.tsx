@@ -50,7 +50,7 @@ import { toastFailure } from "@/lib/failure";
 import { copyText } from "@/lib/secure-context";
 import { episodeCode } from "@/lib/format";
 import { playerKeymap } from "@/lib/keymap";
-import { audioTrackLabel, subtitleTrackLabel } from "@/lib/media-facts";
+import { audioTrackLabel, subtitleTrackLabels } from "@/lib/media-facts";
 import { useLatest } from "@/lib/use-latest";
 import { volumeIsSettable } from "@/playback/browser-support";
 import { PlaybackPhase, StartChoice } from "@/playback/playback-controller";
@@ -450,15 +450,19 @@ export function PlayerScreen({
     [started],
   );
 
+  const subtitleLabels = useMemo(() => subtitleTrackLabels(stream?.subtitles ?? []), [stream]);
+
   const subtitleOptions = useMemo(
     (): ReadonlyArray<TrackOption> => [
       { id: OFF, label: "Off" },
       // Text tracks play as `<track>` elements; picture tracks are burned into the video.
-      ...(stream?.subtitles ?? [])
-        .filter((track) => track.url !== undefined || track.kind === "bitmap")
-        .map((track, index) => ({ id: track.id, label: subtitleTrackLabel(track, index) })),
+      ...(stream?.subtitles ?? []).flatMap((track, index) =>
+        track.url !== undefined || track.kind === "bitmap"
+          ? [{ id: track.id, label: subtitleLabels[index] ?? track.id }]
+          : [],
+      ),
     ],
-    [stream],
+    [stream, subtitleLabels],
   );
 
   const subtitleId = snapshot?.subtitleId ?? OFF;
@@ -1133,7 +1137,7 @@ export function PlayerScreen({
                 id={track.id}
                 kind={track.hearingImpaired ? "captions" : "subtitles"}
                 src={track.url}
-                label={subtitleTrackLabel(track, index)}
+                label={subtitleLabels[index] ?? track.id}
                 {...(track.language === undefined ? {} : { srcLang: track.language })}
               />,
             ],

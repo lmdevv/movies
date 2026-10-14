@@ -7,7 +7,7 @@
  */
 import type { NegotiateResponse } from "@movies/contracts/media-playback";
 
-import { subtitleTrackLabel } from "@/lib/media-facts";
+import { subtitleTrackLabels } from "@/lib/media-facts";
 
 /** IPv4-mapped IPv6 loopback (`::ffff:127.0.0.1`) and unspecified (`::ffff:0.0.0.0`) addresses. */
 const MAPPED_LOCAL = /^\[::ffff:(?:7f[\da-f]{2}:[\da-f]{1,4}|0:0)\]$/;
@@ -87,6 +87,8 @@ export const castLoadPlan = (
   subtitleId: string | null,
   positionSeconds: number,
 ): CastLoadPlan => {
+  const labels = subtitleTrackLabels(stream.subtitles);
+
   const tracks = stream.subtitles.flatMap((track, index) =>
     track.url === undefined
       ? []
@@ -95,7 +97,7 @@ export const castLoadPlan = (
             trackId: index + 1,
             subtitleId: track.id,
             url: track.url,
-            name: subtitleTrackLabel(track, index),
+            name: labels[index] ?? track.id,
             language: track.language ?? "und",
           },
         ],
