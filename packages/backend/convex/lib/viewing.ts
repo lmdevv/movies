@@ -461,10 +461,10 @@ export interface VisibleBudget {
 }
 
 /**
- * The first titles of a query the profile may see. It reads the query in batches of `limit` items,
- * finding their titles in parallel: a profile that sees everything reads no more than it returns,
- * and a heavily filtered one stops after `scanLimit` items, so it cannot make one query read the
- * whole table. `titleOf` finds an item's title, or null when it is gone.
+ * The first titles of a query the profile may see. It reads the query in batches, finding their
+ * titles in parallel: a profile that sees everything reads no more than it returns, and a heavily
+ * filtered one stops after `scanLimit` items, so it cannot make one query read the whole table.
+ * `titleOf` finds an item's title, or null when it is gone.
  */
 export const firstVisible = async <Item>(
   audience: Audience,
@@ -473,37 +473,36 @@ export const firstVisible = async <Item>(
   { limit, scanLimit }: VisibleBudget,
 ): Promise<Array<Doc<"titles">>> => {
   const iterator = items[Symbol.asyncIterator]();
+  const found: Array<Doc<"titles">> = [];
 
-  /** Up to `count` more items, and whether the query ended; an ended query may not be read. */
-  const next = async (
-    count: number,
-    batch: Array<Item> = [],
-  ): Promise<{ readonly batch: Array<Item>; readonly ended: boolean }> => {
-    if (batch.length >= count) return { batch, ended: false };
+  /** Reads up to `count` more items into `batch`; true when the query ended and may not be read. */
+  const fill = async (batch: Array<Item>, count: number): Promise<boolean> => {
+    if (batch.length >= count) return false;
     const step = await iterator.next();
 
-    return step.done === true ? { batch, ended: true } : next(count, [...batch, step.value]);
+    if (step.done === true) return true;
+    batch.push(step.value);
+
+    return fill(batch, count);
   };
 
-  const take = async (
-    found: Array<Doc<"titles">>,
-    budget: number,
-  ): Promise<Array<Doc<"titles">>> => {
+  // The first batch is one row's worth, which a profile that sees everything fills; later ones
+  // are larger, as `titles.list` reads them, since a profile that needed another is filtered.
+  const take = async (budget: number, size: number): Promise<Array<Doc<"titles">>> => {
     if (found.length >= limit || budget <= 0) return found;
-    // A full row's worth each time: a profile that sees everything fills it in one batch, and a
-    // filtered one does not crawl through ever smaller batches.
-    const { batch, ended } = await next(Math.min(limit, budget));
+    const batch: Array<Item> = [];
+    const ended = await fill(batch, Math.min(size, budget));
     const titles = await Promise.all(batch.map(titleOf));
 
-    const visible = titles.flatMap((title) =>
-      title !== null && canSee(audience, title) ? [title] : [],
-    );
+    for (const title of titles) {
+      if (title !== null && canSee(audience, title) && found.length < limit) found.push(title);
+    }
 
-    return ended ? [...found, ...visible] : take([...found, ...visible], budget - batch.length);
+    return ended ? found : take(budget - batch.length, Math.max(limit * 2, 50));
   };
 
   try {
-    return await take([], scanLimit);
+    return await take(scanLimit, limit);
   } finally {
     // Stopping early leaves the query open; closing it frees it now rather than at the end.
     await iterator.return?.();
