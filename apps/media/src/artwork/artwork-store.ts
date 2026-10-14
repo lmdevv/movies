@@ -32,7 +32,7 @@ import { markUsed } from "../cache-pruner.ts";
 import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import { modifiedAtMs } from "../platform/file-info.ts";
-import { isInsideApprovedRoots } from "../playback/file-resolver.ts";
+import { realPathInsideApprovedRoots } from "../playback/file-resolver.ts";
 import * as ArtworkKeys from "./artwork-keys.ts";
 import { ArtworkSource } from "./artwork-keys.ts";
 
@@ -197,9 +197,14 @@ const make = Effect.gen(function* () {
   /** The original image file and a fingerprint that changes when its content does. */
   const original = Effect.fn("ArtworkStore.original")(function* (source: ArtworkSource) {
     return yield* ArtworkSource.$match(source, {
-      Local: ({ path: file }) =>
+      Local: ({ path: candidate }) =>
         Effect.gen(function* () {
-          if (!(yield* provide(isInsideApprovedRoots(file)))) return yield* new ArtworkNotFound();
+          // The canonical path from here on, so a link swapped after the check cannot redirect.
+          const inside = yield* provide(realPathInsideApprovedRoots(candidate));
+
+          if (Option.isNone(inside)) return yield* new ArtworkNotFound();
+
+          const file = inside.value;
 
           const info = yield* fs.stat(file).pipe(Effect.mapError(() => new ArtworkNotFound()));
 

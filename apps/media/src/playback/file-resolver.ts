@@ -5,7 +5,7 @@
  * after following symbolic links, so a bad record cannot expose other files.
  */
 import { type FileResolverUnavailable, MediaFileNotFound } from "@movies/contracts/media-playback";
-import { Context, Effect, FileSystem, Option, Path, Schema } from "effect";
+import { Context, Effect, FileSystem, Option, Path, Schema, Struct } from "effect";
 
 import type { MediaFileId } from "@movies/contracts/ids";
 import { SidecarFormat } from "../library/sidecar-subtitles.ts";
@@ -63,8 +63,11 @@ const approvedRoots = Effect.fnUntraced(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
-  const roots = (yield* Effect.forEach(config.libraryRoots, (root) =>
-    fs.realPath(root).pipe(Effect.option),
+  // Concurrently: on a network share each `realPath` is a round trip.
+  const roots = (yield* Effect.forEach(
+    config.libraryRoots,
+    (root) => fs.realPath(root).pipe(Effect.option),
+    { concurrency: "unbounded" },
   )).flatMap((root) => (Option.isSome(root) ? [root.value] : []));
 
   const realPathInside = (candidate: string) =>
@@ -79,29 +82,35 @@ const approvedRoots = Effect.fnUntraced(function* () {
 });
 
 /**
- * Whether `candidate`, after following symbolic links, lies inside an approved library root
- * (`LIBRARY_ROOTS`). A path that does not exist is not inside.
+ * The canonical path of `candidate` when, after following symbolic links, it lies inside an
+ * approved library root (`LIBRARY_ROOTS`); none for a path outside them or one that does not
+ * exist. Open the returned path, not `candidate`, so a link swapped after the check cannot
+ * redirect the read.
  */
-export const isInsideApprovedRoots = Effect.fn("FileResolver.isInsideApprovedRoots")(function* (
-  candidate: string,
-) {
-  const roots = yield* approvedRoots();
+export const realPathInsideApprovedRoots = Effect.fn("FileResolver.realPathInsideApprovedRoots")(
+  function* (candidate: string) {
+    const roots = yield* approvedRoots();
 
-  return Option.isSome(yield* roots.realPathInside(candidate));
-});
+    return yield* roots.realPathInside(candidate);
+  },
+);
 
 /**
  * Resolves `fileId` and checks that the media file and its sidecars, after following symbolic
- * links, lie inside an approved library root. A file outside the roots is reported as not found
- * and logged; its path is never returned to the client.
+ * links, lie inside an approved library root. The result carries their canonical paths; sidecars
+ * outside the roots are dropped. A file outside the roots is reported as not found and logged;
+ * its path is never returned to the client.
  */
 export const resolveInsideRoots = Effect.fn("FileResolver.resolveInsideRoots")(function* (
   fileId: MediaFileId,
 ) {
   const resolver = yield* Service;
-  const file = yield* resolver.resolve(fileId);
+
   // Resolved once for the file and all its sidecars: this runs on every byte-range request.
-  const roots = yield* approvedRoots();
+  const [file, roots] = yield* Effect.all([resolver.resolve(fileId), approvedRoots()], {
+    concurrency: "unbounded",
+  });
+
   const real = yield* roots.realPathInside(file.path);
 
   if (Option.isNone(real)) {
@@ -110,8 +119,15 @@ export const resolveInsideRoots = Effect.fn("FileResolver.resolveInsideRoots")(f
     return yield* new MediaFileNotFound({ fileId });
   }
 
-  const subtitles = yield* Effect.filter(file.subtitles, (subtitle) =>
-    Effect.map(roots.realPathInside(subtitle.path), Option.isSome),
+  const checked = yield* Effect.forEach(
+    file.subtitles,
+    (subtitle) =>
+      Effect.map(roots.realPathInside(subtitle.path), (inside) => ({ subtitle, inside })),
+    { concurrency: "unbounded" },
+  );
+
+  const subtitles = checked.flatMap(({ subtitle, inside }): ReadonlyArray<ResolvedSidecar> =>
+    Option.isSome(inside) ? [Struct.evolve(subtitle, { path: () => inside.value })] : [],
   );
 
   return { ...file, path: real.value, subtitles } satisfies ResolvedMediaFile;

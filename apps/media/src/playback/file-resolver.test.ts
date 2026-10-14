@@ -23,7 +23,8 @@ const sidecar = (path: string) =>
 /**
  * A library folder approved beside a root that does not exist (an unmounted share), a folder
  * outside both, and a catalog whose records point into them:
- * - `film`: a film with a subtitle, a subtitle linking outside, and a subtitle that is gone;
+ * - `film`: a film with a subtitle, a subtitle linking to it, a subtitle linking outside, and a
+ *   subtitle that is gone;
  * - `linked`: a film linking outside the library;
  * - `outside`: a film stored outside the library.
  */
@@ -44,6 +45,7 @@ const testLayer = Layer.unwrap(
     yield* fs.writeFileString(inLibrary("Film (2000).en.srt"), "1\n");
     yield* fs.writeFileString(secret, "1\n");
     yield* fs.writeFileString(elsewhere, "");
+    yield* fs.symlink(inLibrary("Film (2000).en.srt"), inLibrary("Film (2000).es.srt"));
     yield* fs.symlink(secret, inLibrary("Film (2000).fr.srt"));
     yield* fs.symlink(elsewhere, inLibrary("Linked (2000).mkv"));
 
@@ -54,6 +56,7 @@ const testLayer = Layer.unwrap(
           path: inLibrary("Film (2000).mkv"),
           subtitles: [
             inLibrary("Film (2000).en.srt"),
+            inLibrary("Film (2000).es.srt"),
             inLibrary("Film (2000).fr.srt"),
             inLibrary("Film (2000).de.srt"),
           ],
@@ -99,9 +102,22 @@ describe("resolveInsideRoots", () => {
         assert.strictEqual(resolved.path, yield* fs.realPath(resolved.path));
         assert.deepStrictEqual(
           resolved.subtitles.map((track) => path.basename(track.path)),
-          ["Film (2000).en.srt"],
+          ["Film (2000).en.srt", "Film (2000).en.srt"],
         );
       }),
+    );
+
+    it.effect(
+      "hands out sidecars by their real paths, so a link swapped later cannot redirect",
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const resolved = yield* FileResolver.resolveInsideRoots(MediaFileId.make("film"));
+
+          for (const track of resolved.subtitles) {
+            assert.strictEqual(track.path, yield* fs.realPath(track.path));
+          }
+        }),
     );
 
     it.effect("refuses a file whose real path is outside the roots", () =>
