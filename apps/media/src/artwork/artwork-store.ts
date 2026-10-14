@@ -220,7 +220,10 @@ const make = Effect.gen(function* () {
     const target = path.join(directory, `w${String(width)}`, `${hash(fingerprint)}.jpg`);
 
     if (yield* cached(target)) return target;
-    yield* fs.makeDirectory(path.dirname(target), { recursive: true }).pipe(Effect.orDie);
+
+    yield* fs
+      .makeDirectory(path.dirname(target), { recursive: true })
+      .pipe(Effect.mapError((cause) => new ArtworkUnavailable({ cause })));
     const temporary = `${target}.${(yield* Clock.currentTimeNanos).toString(36)}.part.jpg`;
 
     yield* resizes.withPermits(1)(
