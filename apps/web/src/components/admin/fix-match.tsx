@@ -6,7 +6,7 @@ import type {
 } from "@movies/contracts/models/catalog";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
-import { buttonVariants } from "@movies/ui/components/button-variants";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Input } from "@movies/ui/components/input";
 import { RadioGroup, RadioItem } from "@movies/ui/components/radio-group";

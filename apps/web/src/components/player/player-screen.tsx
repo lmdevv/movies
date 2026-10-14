@@ -196,10 +196,8 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   const [info, setInfo] = useState(false);
   const [panel, setPanel] = useState(true);
 
-  // Watching the credits holds for the episode it was chosen on (or the film), not the next one.
-  const [creditsDismissedFor, setCreditsDismissedFor] = useState<{
-    readonly episodeId: string | null;
-  } | null>(null);
+  // The route keys the player by title and episode, so a dismissal ends with its episode.
+  const [creditsDismissed, setCreditsDismissed] = useState(false);
 
   const [countdown, setCountdown] = useState<number | null>(null);
   const [brightness, setBrightness] = useState(1);
@@ -225,19 +223,22 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
     roomRef.current = roomRecord;
   });
 
-  // A new room state builds a new request but does not restart playback: `usePlayback` reads the
-  // request only when `playbackKey` changes.
+  // What the room plays; the request follows these, not every clock or member update.
+  const roomTitleId = roomRecord?.title.id ?? null;
+  const roomEpisodeId = roomRecord?.episode?.id ?? null;
+  const inRoomRecord = roomRecord !== null;
+
+  // `usePlayback` reads the request only when `playbackKey` changes, so a rebuilt request never
+  // restarts playback by itself.
   const request = useMemo((): PlaybackRequest | null => {
     if (!roomReady) return null;
-
-    const room = roomRecord;
 
     return {
       profileId: profile.id,
       deviceId,
       deviceName: deviceName(),
-      titleId: room?.title.id ?? titleId,
-      episodeId: room === null ? (episodeId ?? null) : (room.episode?.id ?? null),
+      titleId: roomTitleId ?? titleId,
+      episodeId: inRoomRecord ? roomEpisodeId : (episodeId ?? null),
       roomId: openedRoom,
       start:
         openedRoom === null
@@ -254,7 +255,18 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       // Read once per session; later changes go through `selectQuality`.
       quality: loadQualityChoice(),
     };
-  }, [roomReady, roomRecord, profile.id, deviceId, titleId, episodeId, openedRoom, start]);
+  }, [
+    roomReady,
+    roomTitleId,
+    roomEpisodeId,
+    inRoomRecord,
+    profile.id,
+    deviceId,
+    titleId,
+    episodeId,
+    openedRoom,
+    start,
+  ]);
 
   const playbackKey = [
     request === null ? "waiting" : "ready",
@@ -276,7 +288,6 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   const stream = snapshot?.stream ?? null;
   const started = snapshot?.started ?? null;
   const episode = started?.episode ?? roomRecord?.episode ?? null;
-  const creditsDismissed = creditsDismissedFor?.episodeId === (episode?.id ?? null);
   const titleName = detail?.name ?? roomRecord?.title.name ?? "";
   const artworkKey = episode?.still ?? detail?.artwork.poster ?? null;
 
@@ -1248,7 +1259,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
               next={nextEpisode}
               countdownMs={countdown ?? AUTOPLAY_COUNTDOWN.totalMs}
               onPlayNext={playNext}
-              onWatchCredits={() => setCreditsDismissedFor({ episodeId: episode?.id ?? null })}
+              onWatchCredits={() => setCreditsDismissed(true)}
             />
           ) : null}
         </div>

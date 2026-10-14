@@ -1,7 +1,7 @@
 import type { MigrationRun } from "@movies/contracts/models/migration";
 import { useCommand } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
-import { buttonVariants } from "@movies/ui/components/button-variants";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { ProgressBar } from "@movies/ui/components/progress-bar";
 import { Link } from "@tanstack/react-router";
 

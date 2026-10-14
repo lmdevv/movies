@@ -12,26 +12,27 @@ import type {
 } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { Avatar } from "@movies/ui/components/avatar";
-import { buttonVariants } from "@movies/ui/components/button-variants";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { MediaRow } from "@movies/ui/components/media-row";
 import { cn } from "@movies/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import { ArrowUpRightIcon, ClapperboardIcon, StarIcon } from "lucide-react";
-import { Fragment, Suspense, lazy, useState } from "react";
+import { Fragment, useState } from "react";
 
 import { artworkUrl } from "@/lib/artwork";
+import { toastFailure } from "@/lib/failure";
 import type { ExternalLink } from "@/lib/metadata";
 import { creditLines, creditRole, scoresOf, trailerEmbedUrl } from "@/lib/metadata";
 
 import { TitleLandscapeCard, TitlePosterCard } from "./title-cards";
+import type { TrailerDialog as TrailerDialogComponent } from "./trailer-dialog";
 
 const loadTrailerDialog = () => import("./trailer-dialog");
 
+// Warming up only; a failure here shows when the button is pressed.
 const preloadTrailerDialog = (): void => {
-  void loadTrailerDialog();
+  void loadTrailerDialog().catch(() => undefined);
 };
-
-const TrailerDialog = lazy(async () => ({ default: (await loadTrailerDialog()).TrailerDialog }));
 
 /** People the cast row shows: the billed cast, then the crew who made the title. */
 const CAST_ROW_LIMIT = 24;
@@ -232,12 +233,30 @@ export function TrailerButton({
   readonly phone: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  // The dialog loads on the first open (or as the pointer or focus reaches the button) and then
-  // stays mounted, so closing still animates.
-  const [opened, setOpened] = useState(false);
+  // The dialog loads on the first press (or as the pointer or focus reaches the button) and then
+  // stays mounted, so closing still animates. A failed load, such as after a redeploy, is a toast.
+  const [dialog, setDialog] = useState<typeof TrailerDialogComponent | null>(null);
   const src = trailerEmbedUrl(trailer.key);
 
   if (src === undefined) return null;
+
+  const show = async (): Promise<void> => {
+    if (dialog === null) {
+      try {
+        const loaded = await loadTrailerDialog();
+
+        setDialog(() => loaded.TrailerDialog);
+      } catch (cause) {
+        toastFailure(cause);
+
+        return;
+      }
+    }
+
+    setOpen(true);
+  };
+
+  const Dialog = dialog;
 
   return (
     <>
@@ -245,10 +264,7 @@ export function TrailerButton({
         type="button"
         onPointerEnter={preloadTrailerDialog}
         onFocus={preloadTrailerDialog}
-        onClick={() => {
-          setOpened(true);
-          setOpen(true);
-        }}
+        onClick={() => void show()}
         className={
           phone
             ? "flex w-26 cursor-pointer flex-col items-center gap-1.5 text-caption/caption text-text-muted"
@@ -262,17 +278,15 @@ export function TrailerButton({
         />
         Trailer
       </button>
-      {opened ? (
-        <Suspense fallback={null}>
-          <TrailerDialog
-            open={open}
-            onOpenChange={setOpen}
-            title={trailer.name ?? `${name} trailer`}
-            frameTitle={`${name} trailer`}
-            src={src}
-          />
-        </Suspense>
-      ) : null}
+      {Dialog === null ? null : (
+        <Dialog
+          open={open}
+          onOpenChange={setOpen}
+          title={trailer.name ?? `${name} trailer`}
+          frameTitle={`${name} trailer`}
+          src={src}
+        />
+      )}
     </>
   );
 }

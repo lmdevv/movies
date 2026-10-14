@@ -74,6 +74,7 @@ export function Episodes({
   const picker = (
     <SeasonPicker
       seasons={show.seasons}
+      season={season}
       seasonNumber={seasonNumber}
       phone={phone}
       onChange={setSeasonNumber}
@@ -139,17 +140,17 @@ export function Episodes({
 /** The season menu: a large heading on phones, a bordered button with the episode count wider. */
 function SeasonPicker({
   seasons,
+  season,
   seasonNumber,
   phone,
   onChange,
 }: {
   readonly seasons: TitleDetail["seasons"];
+  readonly season: TitleDetail["seasons"][number] | undefined;
   readonly seasonNumber: number;
   readonly phone: boolean;
   readonly onChange: (seasonNumber: number) => void;
 }) {
-  const season = seasons.find((candidate) => candidate.seasonNumber === seasonNumber);
-
   const options = seasons.map((candidate) => ({
     value: String(candidate.seasonNumber),
     label: candidate.name,

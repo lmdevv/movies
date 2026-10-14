@@ -7,7 +7,7 @@ import type { TitleCard, TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { Badge } from "@movies/ui/components/badge";
 import { Button } from "@movies/ui/components/button";
-import { buttonVariants } from "@movies/ui/components/button-variants";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { Hero, HeroCard } from "@movies/ui/components/hero";
 import { PlayGlyph } from "@movies/ui/components/icons";
 import { cn } from "@movies/ui/lib/utils";

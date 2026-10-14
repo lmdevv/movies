@@ -3,7 +3,7 @@
  * scan still running (07 Scanning), or a library with nothing this profile can see.
  */
 import type { TitleCard } from "@movies/contracts/models/catalog";
-import { buttonVariants } from "@movies/ui/components/button-variants";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { cn } from "@movies/ui/lib/utils";
 import { Link } from "@tanstack/react-router";

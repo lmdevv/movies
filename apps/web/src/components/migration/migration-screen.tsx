@@ -13,10 +13,9 @@ import { isActive } from "@/lib/scan-progress";
 
 import { Connect } from "./connect";
 import type { Preview } from "./connect";
-import { EMPTY_FORM } from "./migration-model";
 import type { SourceForm } from "./migration-model";
 import { Done, Importing } from "./import-progress";
-import { SOURCE_NAMES } from "./migration-model";
+import { EMPTY_FORM, SOURCE_NAMES } from "./migration-model";
 import { Review } from "./review";
 
 /** Where the admin is before an import starts. */

@@ -2,7 +2,7 @@ import type { DeviceCodeLookup } from "@movies/contracts/models/account";
 import { DeviceScope } from "@movies/contracts/scopes";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
-import { buttonVariants } from "@movies/ui/components/button-variants";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { CodeInput } from "@movies/ui/components/code-input";
 import { Spinner } from "@movies/ui/components/spinner";
 import { Wordmark } from "@movies/ui/components/wordmark";

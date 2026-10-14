@@ -2,7 +2,7 @@ import { PersonId } from "@movies/contracts/ids";
 import type { PersonDetail } from "@movies/contracts/models/people";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
-import { buttonVariants } from "@movies/ui/components/button-variants";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { monogramOf } from "@movies/ui/lib/monogram";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Link, createFileRoute } from "@tanstack/react-router";

@@ -5,7 +5,7 @@
  */
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Button } from "@movies/ui/components/button";
-import { buttonVariants } from "@movies/ui/components/button-variants";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { PlayGlyph } from "@movies/ui/components/icons";
 import { ProgressRing } from "@movies/ui/components/progress-ring";
 import { Wordmark } from "@movies/ui/components/wordmark";

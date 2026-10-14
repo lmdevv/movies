@@ -1,5 +1,5 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
-import { buttonVariants } from "@movies/ui/components/button-variants";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { cn } from "@movies/ui/lib/utils";
 import type { VariantProps } from "class-variance-authority";
 

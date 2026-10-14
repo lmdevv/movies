@@ -8,7 +8,7 @@ import type {
 import type { Job } from "@movies/contracts/models/jobs";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
-import { buttonVariants } from "@movies/ui/components/button-variants";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Chip } from "@movies/ui/components/chip";
 import {

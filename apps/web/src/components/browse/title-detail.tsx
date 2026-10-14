@@ -9,7 +9,7 @@ import type { MediaFile, ShowStatus, TitleDetail } from "@movies/contracts/model
 import { useCommand } from "@movies/sdk/react";
 import { Badge } from "@movies/ui/components/badge";
 import { Button } from "@movies/ui/components/button";
-import { buttonVariants } from "@movies/ui/components/button-variants";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { PlayGlyph } from "@movies/ui/components/icons";
 import { formatTimecode } from "@movies/ui/lib/timecode";
 import { cn } from "@movies/ui/lib/utils";
