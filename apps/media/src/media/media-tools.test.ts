@@ -81,5 +81,14 @@ describe("media tools", () => {
         assert.isFalse(yield* running(marker));
       }),
     );
+
+    tools.effect("lets background work run past the probe timeout", () =>
+      Effect.gen(function* () {
+        const service = yield* MediaTools.Service;
+
+        // Scrub thumbnails of a whole film take minutes; only an explicit timeout bounds them.
+        assert.isTrue(Exit.isSuccess(yield* service.ffmpegInBackground(["1.5"]).pipe(Effect.exit)));
+      }),
+    );
   });
 });

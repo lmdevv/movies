@@ -42,6 +42,7 @@ const filmFolder = Effect.gen(function* () {
       startSeconds: 0,
       audio: [],
       subtitles: [],
+      chapters: [],
     },
     subtitles: names.map(sidecar),
   });
