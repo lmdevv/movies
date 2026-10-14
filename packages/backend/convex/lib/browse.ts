@@ -6,6 +6,8 @@
  * own `titleGenres` rows, which carry the title's sort fields, so a rare genre reads only its own
  * titles.
  */
+import type { IndexRange } from "convex/server";
+
 import type { Doc, Id } from "../_generated/dataModel";
 import type { Audience } from "./access";
 import { canSee } from "./access";
@@ -164,6 +166,44 @@ const planOf = <Value>(spec: SortSpec<Value>): SortPlan => ({
   cursorAfter: (row) => cursorOf(row, spec.text(row)),
 });
 
+/** A title or genre-row field a page sorts by. */
+type SortField = "sortKey" | "addedAt" | "year";
+
+/** An index range fixed on its scope fields, whose next field is `Field`, then creation time. */
+interface SortRange<Field extends SortField, Value> extends IndexRange {
+  eq(field: Field, value: Value): TieRange;
+  gt(field: Field, value: Value): IndexRange;
+  lt(field: Field, value: Value): IndexRange;
+}
+
+/** A range fixed on the sort value too, whose next field is creation time. */
+interface TieRange extends IndexRange {
+  gt(field: "_creationTime", value: number): IndexRange;
+  lt(field: "_creationTime", value: number): IndexRange;
+}
+
+/**
+ * Narrows a range fixed on its scope fields to the rows from a bound on, in `order`: every row
+ * from the start, the rows tied with the cursor's value created after it, or the rows past it.
+ */
+const fromBound =
+  <Field extends SortField, Value>(field: Field, order: "asc" | "desc") =>
+  (q: SortRange<Field, Value>, bound: Bound<Value>): IndexRange => {
+    if (bound.kind === "start") return q;
+
+    if (bound.kind === "past") {
+      return order === "asc" ? q.gt(field, bound.value) : q.lt(field, bound.value);
+    }
+
+    const tied = q.eq(field, bound.value);
+
+    return order === "asc"
+      ? tied.gt("_creationTime", bound.time)
+      : tied.lt("_creationTime", bound.time);
+  };
+
+const nameFrom = fromBound<"sortKey", string>("sortKey", "asc");
+
 const byName = planOf<string>({
   order: "asc",
   parse: (text) => text,
@@ -172,75 +212,37 @@ const byName = planOf<string>({
     const titles = titlesOf(ctx);
 
     if (libraryId !== undefined) {
-      return titles.withIndex("by_library_sort", (q) => {
-        const scoped = q.eq("libraryId", libraryId);
-
-        if (bound.kind === "start") return scoped;
-
-        if (bound.kind === "past") return scoped.gt("sortKey", bound.value);
-
-        return scoped.eq("sortKey", bound.value).gt("_creationTime", bound.time);
-      });
+      return titles.withIndex("by_library_sort", (q) =>
+        nameFrom(q.eq("libraryId", libraryId), bound),
+      );
     }
 
     if (kind !== undefined) {
-      return titles.withIndex("by_kind_sort", (q) => {
-        const scoped = q.eq("kind", kind);
-
-        if (bound.kind === "start") return scoped;
-
-        if (bound.kind === "past") return scoped.gt("sortKey", bound.value);
-
-        return scoped.eq("sortKey", bound.value).gt("_creationTime", bound.time);
-      });
+      return titles.withIndex("by_kind_sort", (q) => nameFrom(q.eq("kind", kind), bound));
     }
 
-    return titles.withIndex("by_sort", (q) => {
-      if (bound.kind === "start") return q;
-
-      if (bound.kind === "past") return q.gt("sortKey", bound.value);
-
-      return q.eq("sortKey", bound.value).gt("_creationTime", bound.time);
-    });
+    return titles.withIndex("by_sort", (q) => nameFrom(q, bound));
   },
   genreRange: (ctx, { kind, libraryId, genre }, bound) => {
     const rows = genreRowsOf(ctx);
 
     if (libraryId !== undefined) {
-      return rows.withIndex("by_library_genre_sort", (q) => {
-        const scoped = q.eq("libraryId", libraryId).eq("genre", genre);
-
-        if (bound.kind === "start") return scoped;
-
-        if (bound.kind === "past") return scoped.gt("sortKey", bound.value);
-
-        return scoped.eq("sortKey", bound.value).gt("_creationTime", bound.time);
-      });
+      return rows.withIndex("by_library_genre_sort", (q) =>
+        nameFrom(q.eq("libraryId", libraryId).eq("genre", genre), bound),
+      );
     }
 
     if (kind !== undefined) {
-      return rows.withIndex("by_kind_genre_sort", (q) => {
-        const scoped = q.eq("kind", kind).eq("genre", genre);
-
-        if (bound.kind === "start") return scoped;
-
-        if (bound.kind === "past") return scoped.gt("sortKey", bound.value);
-
-        return scoped.eq("sortKey", bound.value).gt("_creationTime", bound.time);
-      });
+      return rows.withIndex("by_kind_genre_sort", (q) =>
+        nameFrom(q.eq("kind", kind).eq("genre", genre), bound),
+      );
     }
 
-    return rows.withIndex("by_genre_sort", (q) => {
-      const scoped = q.eq("genre", genre);
-
-      if (bound.kind === "start") return scoped;
-
-      if (bound.kind === "past") return scoped.gt("sortKey", bound.value);
-
-      return scoped.eq("sortKey", bound.value).gt("_creationTime", bound.time);
-    });
+    return rows.withIndex("by_genre_sort", (q) => nameFrom(q.eq("genre", genre), bound));
   },
 });
+
+const addedFrom = fromBound<"addedAt", number>("addedAt", "desc");
 
 const byAdded = planOf<number>({
   order: "desc",
@@ -250,75 +252,37 @@ const byAdded = planOf<number>({
     const titles = titlesOf(ctx);
 
     if (libraryId !== undefined) {
-      return titles.withIndex("by_library_added", (q) => {
-        const scoped = q.eq("libraryId", libraryId);
-
-        if (bound.kind === "start") return scoped;
-
-        if (bound.kind === "past") return scoped.lt("addedAt", bound.value);
-
-        return scoped.eq("addedAt", bound.value).lt("_creationTime", bound.time);
-      });
+      return titles.withIndex("by_library_added", (q) =>
+        addedFrom(q.eq("libraryId", libraryId), bound),
+      );
     }
 
     if (kind !== undefined) {
-      return titles.withIndex("by_kind_added", (q) => {
-        const scoped = q.eq("kind", kind);
-
-        if (bound.kind === "start") return scoped;
-
-        if (bound.kind === "past") return scoped.lt("addedAt", bound.value);
-
-        return scoped.eq("addedAt", bound.value).lt("_creationTime", bound.time);
-      });
+      return titles.withIndex("by_kind_added", (q) => addedFrom(q.eq("kind", kind), bound));
     }
 
-    return titles.withIndex("by_added", (q) => {
-      if (bound.kind === "start") return q;
-
-      if (bound.kind === "past") return q.lt("addedAt", bound.value);
-
-      return q.eq("addedAt", bound.value).lt("_creationTime", bound.time);
-    });
+    return titles.withIndex("by_added", (q) => addedFrom(q, bound));
   },
   genreRange: (ctx, { kind, libraryId, genre }, bound) => {
     const rows = genreRowsOf(ctx);
 
     if (libraryId !== undefined) {
-      return rows.withIndex("by_library_genre_added", (q) => {
-        const scoped = q.eq("libraryId", libraryId).eq("genre", genre);
-
-        if (bound.kind === "start") return scoped;
-
-        if (bound.kind === "past") return scoped.lt("addedAt", bound.value);
-
-        return scoped.eq("addedAt", bound.value).lt("_creationTime", bound.time);
-      });
+      return rows.withIndex("by_library_genre_added", (q) =>
+        addedFrom(q.eq("libraryId", libraryId).eq("genre", genre), bound),
+      );
     }
 
     if (kind !== undefined) {
-      return rows.withIndex("by_kind_genre_added", (q) => {
-        const scoped = q.eq("kind", kind).eq("genre", genre);
-
-        if (bound.kind === "start") return scoped;
-
-        if (bound.kind === "past") return scoped.lt("addedAt", bound.value);
-
-        return scoped.eq("addedAt", bound.value).lt("_creationTime", bound.time);
-      });
+      return rows.withIndex("by_kind_genre_added", (q) =>
+        addedFrom(q.eq("kind", kind).eq("genre", genre), bound),
+      );
     }
 
-    return rows.withIndex("by_genre_added", (q) => {
-      const scoped = q.eq("genre", genre);
-
-      if (bound.kind === "start") return scoped;
-
-      if (bound.kind === "past") return scoped.lt("addedAt", bound.value);
-
-      return scoped.eq("addedAt", bound.value).lt("_creationTime", bound.time);
-    });
+    return rows.withIndex("by_genre_added", (q) => addedFrom(q.eq("genre", genre), bound));
   },
 });
+
+const yearFrom = fromBound<"year", number | null>("year", "desc");
 
 // Titles without a year sort below every year, so they come last; an empty value is no year.
 const byYear = planOf<number | null>({
@@ -329,73 +293,33 @@ const byYear = planOf<number | null>({
     const titles = titlesOf(ctx);
 
     if (libraryId !== undefined) {
-      return titles.withIndex("by_library_year", (q) => {
-        const scoped = q.eq("libraryId", libraryId);
-
-        if (bound.kind === "start") return scoped;
-
-        if (bound.kind === "past") return scoped.lt("year", bound.value);
-
-        return scoped.eq("year", bound.value).lt("_creationTime", bound.time);
-      });
+      return titles.withIndex("by_library_year", (q) =>
+        yearFrom(q.eq("libraryId", libraryId), bound),
+      );
     }
 
     if (kind !== undefined) {
-      return titles.withIndex("by_kind_year", (q) => {
-        const scoped = q.eq("kind", kind);
-
-        if (bound.kind === "start") return scoped;
-
-        if (bound.kind === "past") return scoped.lt("year", bound.value);
-
-        return scoped.eq("year", bound.value).lt("_creationTime", bound.time);
-      });
+      return titles.withIndex("by_kind_year", (q) => yearFrom(q.eq("kind", kind), bound));
     }
 
-    return titles.withIndex("by_year", (q) => {
-      if (bound.kind === "start") return q;
-
-      if (bound.kind === "past") return q.lt("year", bound.value);
-
-      return q.eq("year", bound.value).lt("_creationTime", bound.time);
-    });
+    return titles.withIndex("by_year", (q) => yearFrom(q, bound));
   },
   genreRange: (ctx, { kind, libraryId, genre }, bound) => {
     const rows = genreRowsOf(ctx);
 
     if (libraryId !== undefined) {
-      return rows.withIndex("by_library_genre_year", (q) => {
-        const scoped = q.eq("libraryId", libraryId).eq("genre", genre);
-
-        if (bound.kind === "start") return scoped;
-
-        if (bound.kind === "past") return scoped.lt("year", bound.value);
-
-        return scoped.eq("year", bound.value).lt("_creationTime", bound.time);
-      });
+      return rows.withIndex("by_library_genre_year", (q) =>
+        yearFrom(q.eq("libraryId", libraryId).eq("genre", genre), bound),
+      );
     }
 
     if (kind !== undefined) {
-      return rows.withIndex("by_kind_genre_year", (q) => {
-        const scoped = q.eq("kind", kind).eq("genre", genre);
-
-        if (bound.kind === "start") return scoped;
-
-        if (bound.kind === "past") return scoped.lt("year", bound.value);
-
-        return scoped.eq("year", bound.value).lt("_creationTime", bound.time);
-      });
+      return rows.withIndex("by_kind_genre_year", (q) =>
+        yearFrom(q.eq("kind", kind).eq("genre", genre), bound),
+      );
     }
 
-    return rows.withIndex("by_genre_year", (q) => {
-      const scoped = q.eq("genre", genre);
-
-      if (bound.kind === "start") return scoped;
-
-      if (bound.kind === "past") return scoped.lt("year", bound.value);
-
-      return scoped.eq("year", bound.value).lt("_creationTime", bound.time);
-    });
+    return rows.withIndex("by_genre_year", (q) => yearFrom(q.eq("genre", genre), bound));
   },
 });
 
