@@ -84,7 +84,7 @@ export const requirePositional = (
 
 /**
  * Parses a media position: seconds (`90`, `12.5`) or `h:mm:ss` / `m:ss`. Returns none when the
- * text is neither.
+ * text is neither, or names a position too large to be a finite number of milliseconds.
  */
 export const parsePosition = (text: string): Option.Option<Milliseconds> => {
   const parts = text.trim().split(":");
@@ -92,7 +92,7 @@ export const parsePosition = (text: string): Option.Option<Milliseconds> => {
   if (parts.length > 3 || parts.some((part) => !/^\d+(\.\d+)?$/u.test(part))) return Option.none();
   const seconds = parts.reduce((total, part) => total * 60 + Number(part), 0);
 
-  return Option.some(Milliseconds.make(Math.round(seconds * 1000)));
+  return Milliseconds.makeOption(Math.round(seconds * 1000));
 };
 
 /** A `--position`-style flag as milliseconds, or a usage error. */
