@@ -2,7 +2,11 @@
  * The streams a page negotiates, read from the media service's answers as the player
  * receives them.
  */
-import { MEDIA_ROUTES, NegotiateResponse } from "@movies/contracts/media-playback";
+import {
+  MEDIA_ROUTES,
+  NegotiateResponse,
+  TranscodeCapacityReached,
+} from "@movies/contracts/media-playback";
 import type { PlaybackMode } from "@movies/contracts/models/playback";
 import type { Page } from "@playwright/test";
 import { Option, Schema } from "effect";
@@ -40,4 +44,32 @@ export const recordStreams = (page: Page): ReadonlyArray<NegotiatedStream> => {
   });
 
   return streams;
+};
+
+const capacityReached = Schema.encodeSync(
+  Schema.fromJsonString(Schema.toCodecJson(TranscodeCapacityReached)),
+)(new TranscodeCapacityReached({ limit: 1 }));
+
+/**
+ * Answers the page's negotiations that ask for a quality cap as a media service with every
+ * transcode slot taken would, until the route is removed; the first such answer waits
+ * `delayFirstMs`, so a later choice can overtake it.
+ */
+export const refuseQualityCaps = async (page: Page, delayFirstMs = 0): Promise<void> => {
+  let delay = delayFirstMs;
+
+  await page.route(`**${MEDIA_ROUTES.negotiate}`, async (route) => {
+    if (!(route.request().postData() ?? "").includes('"quality"')) return route.continue();
+
+    const wait = delay;
+
+    delay = 0;
+
+    if (wait > 0) await page.waitForTimeout(wait);
+
+    // The page may have given up on a held request when a later choice started another.
+    return route
+      .fulfill({ status: 503, contentType: "application/json", body: capacityReached })
+      .catch(() => undefined);
+  });
 };

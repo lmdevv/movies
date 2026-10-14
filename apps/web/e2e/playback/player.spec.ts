@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { EpisodeId, TitleId } from "@movies/contracts/ids";
+import { MEDIA_ROUTES } from "@movies/contracts/media-playback";
 import type { PlaybackMode } from "@movies/contracts/models/playback";
 import { devices, expect, test } from "@playwright/test";
 import type { BrowserContext, Page } from "@playwright/test";
@@ -37,7 +38,7 @@ import {
   videoState,
   writeText,
 } from "./playback-stack";
-import { recordStreams } from "./negotiated-streams";
+import { recordStreams, refuseQualityCaps } from "./negotiated-streams";
 import type { NegotiatedStream } from "./negotiated-streams";
 
 const stack = await ownedStack();
@@ -433,6 +434,51 @@ test("a picture subtitle burns into a transcode and back out; a lower quality tr
   before = streams.length;
   await choose("Auto");
   await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe("remux");
+});
+
+test("a quality the media service cannot encode now gives way to the stream that plays", async () => {
+  const panel = page.getByRole("dialog", { name: TRACKS });
+
+  const openPanel = async () => {
+    if (await panel.isVisible()) return;
+    await revealControls(page);
+    await page.getByRole("button", { name: TRACKS }).click();
+  };
+
+  // Every transcode slot is taken, and the first refusal comes late, after the second choice.
+  await refuseQualityCaps(page, 1_000);
+  await playFromStart(MOVIES.pictures, "remux");
+  await openPanel();
+  await panel.getByRole("radio", { name: "720p" }).click();
+  await openPanel();
+  await panel.getByRole("radio", { name: "480p" }).click();
+
+  // Neither choice can play; the menu returns to the quality of the stream still playing, not to
+  // the 720p that never loaded.
+  await expect
+    .poll(async () => {
+      await openPanel();
+
+      return panel.getByRole("radio", { name: "Auto" }).isChecked();
+    })
+    .toBe(true);
+  await expectPlayingPast(page, 1);
+
+  // A remembered 480p the service cannot encode now plays the source instead of stopping.
+  await page.unroute(`**${MEDIA_ROUTES.negotiate}`);
+  await openPanel();
+  await panel.getByRole("radio", { name: "480p" }).click();
+  await expect.poll(() => streams.at(-1)?.height).toBe(480);
+  await refuseQualityCaps(page);
+
+  const before = streams.length;
+
+  await page.reload();
+  await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe("remux");
+  await expectPlayingPast(page, 0.5);
+  await openPanel();
+  await expect(panel.getByRole("radio", { name: "Auto" })).toBeChecked();
+  await page.unroute(`**${MEDIA_ROUTES.negotiate}`);
 });
 
 test("an MPEG-TS file remuxes to HLS", async () => {
