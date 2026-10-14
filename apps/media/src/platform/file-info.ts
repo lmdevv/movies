@@ -1,5 +1,5 @@
 /** Reading Effect `FileSystem` stat results the way every cache key and validator here does. */
-import { type FileSystem, Option } from "effect";
+import { type FileSystem, Option, type PlatformError, Predicate } from "effect";
 
 /**
  * A file's modification time in milliseconds since the epoch, or 0 when the platform reports
@@ -7,3 +7,7 @@ import { type FileSystem, Option } from "effect";
  */
 export const modifiedAtMs = (info: FileSystem.File.Info): number =>
   Option.match(info.mtime, { onNone: () => 0, onSome: (date) => date.getTime() });
+
+/** Whether `error` is a file system failure for a path that does not exist: a miss, not a fault. */
+export const isNotFound = (error: PlatformError.PlatformError): boolean =>
+  Predicate.isTagged(error.reason, "NotFound");

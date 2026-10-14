@@ -22,6 +22,7 @@ import {
 
 import { markUsed } from "./cache-pruner.ts";
 import * as MediaConfig from "./media-config.ts";
+import { isNotFound } from "./platform/file-info.ts";
 
 /** Cached text by namespace and key. */
 export interface Interface {
@@ -62,7 +63,7 @@ const make = Effect.fn("DiskCache.make")(function* (directory: string) {
     const entry = yield* fs.readFileString(file).pipe(
       Effect.flatMap(decodeEntry),
       Effect.tapError((error) =>
-        Predicate.isTagged(error, "PlatformError") && Predicate.isTagged(error.reason, "NotFound")
+        Predicate.isTagged(error, "PlatformError") && isNotFound(error)
           ? Effect.void
           : Effect.logDebug("DiskCache.unreadable", error),
       ),
