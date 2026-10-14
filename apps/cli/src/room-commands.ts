@@ -7,7 +7,8 @@
 import { targetPosition } from "@movies/contracts/clock";
 import { commands } from "@movies/contracts/commands";
 import { NotFound } from "@movies/contracts/errors";
-import { EpisodeId, ProfileId, RoomId } from "@movies/contracts/ids";
+import type { ProfileId } from "@movies/contracts/ids";
+import { EpisodeId, RoomId } from "@movies/contracts/ids";
 import type { Room, RoomClock } from "@movies/contracts/models/rooms";
 import type { Milliseconds } from "@movies/contracts/units";
 import {
@@ -29,6 +30,7 @@ import {
   textOutcome,
   usage,
   viewingProfile,
+  viewingProfileIfAny,
 } from "./invocation";
 import { Output } from "./output";
 import { formatDuration } from "./render";
@@ -246,10 +248,7 @@ const status: ShortcutCommand = {
       const output = yield* Output;
       const connection = yield* connect(invocation.env, invocation.target, "required");
 
-      const profileId = Option.orElse(
-        Option.map(stringFlag(invocation.tokens, "profile-id"), (value) => ProfileId.make(value)),
-        () => connection.viewingProfileId,
-      );
+      const profileId = viewingProfileIfAny(invocation, connection.viewingProfileId);
 
       const room = yield* resolveRoom(invocation, connection, profileId);
       const command = commands["rooms.get"];

@@ -164,19 +164,22 @@ export const timeoutFlag = (invocation: Invocation): Effect.Effect<Duration.Dura
     },
   });
 
-/** The viewing profile: `--profile-id`, else the stored default. */
+/** The viewing profile, if any: `--profile-id`, else the stored default. */
+export const viewingProfileIfAny = (
+  invocation: Invocation,
+  stored: Option.Option<ProfileId>,
+): Option.Option<ProfileId> =>
+  Option.orElse(
+    Option.map(stringFlag(invocation.tokens, "profile-id"), (value) => ProfileIdSchema.make(value)),
+    () => stored,
+  );
+
+/** The viewing profile: `--profile-id`, else the stored default, else a usage error. */
 export const viewingProfile = (
   invocation: Invocation,
   stored: Option.Option<ProfileId>,
 ): Effect.Effect<ProfileId, UsageError> =>
-  Effect.fromOption(
-    Option.orElse(
-      Option.map(stringFlag(invocation.tokens, "profile-id"), (value) =>
-        ProfileIdSchema.make(value),
-      ),
-      () => stored,
-    ),
-  ).pipe(
+  Effect.fromOption(viewingProfileIfAny(invocation, stored)).pipe(
     Effect.mapError(() =>
       usage(
         invocation,

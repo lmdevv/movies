@@ -103,6 +103,22 @@ export const findTitle = Effect.fn("Watch.findTitle")(function* (
   return Option.isSome(byId) ? byId.value : yield* searchTitle(connection, profileId, query);
 });
 
+/** Like `findTitle`, but always the title's detail: an ID lookup reads it once, a name match too. */
+const findTitleDetail = Effect.fn("Watch.findTitleDetail")(function* (
+  connection: Connection,
+  profileId: ProfileId,
+  query: string,
+) {
+  const byId = yield* titleById(connection, profileId, query);
+
+  if (Option.isSome(byId)) return byId.value;
+  const title = yield* searchTitle(connection, profileId, query);
+
+  return yield* connection.withSession(
+    connection.client.query("titles.get", { profileId, titleId: title.id }),
+  );
+});
+
 /** What mpv, VLC, and similar desktop players can play: everything, so direct play wins. */
 const DESKTOP_PLAYER: ClientCapabilities = {
   containers: ["mp4", "mov", "mkv", "webm", "avi", "ts", "other"],
@@ -308,18 +324,7 @@ const progress: ShortcutCommand = {
         return resultOutcome(command, yield* encodeResult("history.list", command, history));
       }
 
-      // An ID lookup already read the detail; a name match reads it once.
-      const byId = yield* titleById(connection, profileId, query.value);
-
-      const detail = Option.isSome(byId)
-        ? byId.value
-        : yield* searchTitle(connection, profileId, query.value).pipe(
-            Effect.flatMap((title) =>
-              connection.withSession(
-                connection.client.query("titles.get", { profileId, titleId: title.id }),
-              ),
-            ),
-          );
+      const detail = yield* findTitleDetail(connection, profileId, query.value);
 
       const json = {
         titleId: detail.id,
