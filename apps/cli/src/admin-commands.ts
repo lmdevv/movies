@@ -22,7 +22,7 @@ import {
   timeoutFlag,
   usage,
 } from "./invocation";
-import { progressLine, waitForJob } from "./jobs";
+import { progressLine, waitForJobs } from "./jobs";
 import type { Connection } from "./session";
 import { connect } from "./session";
 
@@ -37,9 +37,7 @@ const followJobs = Effect.fn("Admin.followJobs")(function* (
   if (!booleanFlag(invocation.tokens, "wait")) return [];
   const timeout = yield* timeoutFlag(invocation);
 
-  return yield* Effect.forEach(jobIds, (jobId) =>
-    waitForJob(connection.client, jobId, { progress: true, timeout }),
-  );
+  return yield* waitForJobs(connection.client, jobIds, { progress: true, timeout });
 });
 
 const jobsOutcome = (base: Schema.JsonObject, jobs: ReadonlyArray<Job>, queued: string) =>

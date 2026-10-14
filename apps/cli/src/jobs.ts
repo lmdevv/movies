@@ -85,3 +85,18 @@ export const waitForJob = Effect.fn("Jobs.wait")(function* (
 
   return job;
 });
+
+/**
+ * Follows several jobs until each succeeds; `options.timeout` bounds the whole wait. Fails with the
+ * first job that fails, is cancelled, or is still running when the time is up.
+ */
+export const waitForJobs = Effect.fn("Jobs.waitAll")(function* (
+  client: MoviesClient.Interface,
+  jobIds: ReadonlyArray<JobId>,
+  options: WaitOptions,
+) {
+  // Concurrently, so every job's timeout starts now and together they bound the whole wait.
+  return yield* Effect.forEach(jobIds, (jobId) => waitForJob(client, jobId, options), {
+    concurrency: "unbounded",
+  });
+});

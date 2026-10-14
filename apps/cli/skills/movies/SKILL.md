@@ -54,8 +54,10 @@ selects another stored server. `movies logout` signs out and forgets the key and
 - Results print as JSON on stdout. Errors print on stderr as `{"error":{"code","message"}}`.
   `--human` (or `--format table`) prints tables and sentences instead.
 - Commands that queue a job (scans, metadata refreshes, backups, migrations) return a `jobId` at
-  once. Add `--wait` to follow it until it ends; progress goes to stderr and the output becomes
-  `{ "result", "job" }`. `--timeout <seconds>` (default 3600) bounds the wait.
+  once. Add `--wait` to follow it until it ends; progress goes to stderr. A registry command's
+  output then becomes `{ "result", "job" }`; the `scan`, `import`, and `backup` shortcuts keep
+  their `{ "jobIds" }` or `{ "jobId" }` output and add `"jobs"`, the finished jobs.
+  `--timeout <seconds>` (default 3600) bounds the whole wait, even when a scan queued several jobs.
 - `movies commands` lists every command with its flags and its arguments as JSON Schema;
   `movies <command> --help` shows one.
 - Scopes limit what a session may do: `read`, `play`, `account`, `manage` (libraries, scans,
