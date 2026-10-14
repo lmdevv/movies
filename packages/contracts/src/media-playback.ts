@@ -83,6 +83,18 @@ export const ClientCapabilities = Schema.Struct({
 export interface ClientCapabilities extends Schema.Schema.Type<typeof ClientCapabilities> {}
 
 /** One subtitle track a client can choose. */
+/**
+ * Subtitle codecs that are pictures rather than text, by ffmpeg codec name, with the names
+ * players usually give them. The media service marks these `bitmap` (they are burned in); the web
+ * app shows the name next to the language.
+ */
+export const BITMAP_SUBTITLE_FORMATS = new Map([
+  ["hdmv_pgs_subtitle", "PGS"],
+  ["dvd_subtitle", "VobSub"],
+  ["dvb_subtitle", "DVB"],
+  ["xsub", "XSUB"],
+]);
+
 export const SubtitleTrack = Schema.Struct({
   /** Stable ID within the file: `e<stream index>` for embedded tracks, `x` and a hash of the file name for sidecar files. */
   id: Schema.String,

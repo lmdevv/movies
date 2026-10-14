@@ -4,7 +4,7 @@
  */
 import { extname } from "node:path";
 
-import { Container, DynamicRange } from "@movies/contracts/media-playback";
+import { BITMAP_SUBTITLE_FORMATS, Container, DynamicRange } from "@movies/contracts/media-playback";
 import { Effect, Schema } from "effect";
 
 import * as MediaTools from "./media-tools.ts";
@@ -162,13 +162,6 @@ const FfprobeOutput = Schema.Struct({
 
 const decodeFfprobeOutput = Schema.decodeUnknownEffect(Schema.fromJsonString(FfprobeOutput));
 
-const BITMAP_SUBTITLES: ReadonlySet<string> = new Set([
-  "hdmv_pgs_subtitle",
-  "dvd_subtitle",
-  "dvb_subtitle",
-  "xsub",
-]);
-
 const finiteOr = (text: string | undefined, fallback: number): number => {
   const value = text === undefined ? Number.NaN : Number(text);
 
@@ -266,7 +259,7 @@ const toSubtitle = (stream: FfprobeStream): EmbeddedSubtitle => {
   return {
     index: stream.index,
     codec,
-    kind: BITMAP_SUBTITLES.has(codec) ? "bitmap" : "text",
+    kind: BITMAP_SUBTITLE_FORMATS.has(codec) ? "bitmap" : "text",
     language: nonBlank(stream.tags?.language),
     title: nonBlank(stream.tags?.title),
     default: flag(stream.disposition?.default),
