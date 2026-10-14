@@ -69,6 +69,10 @@ type Mutable<Value> = { -readonly [Key in keyof Value]: Value[Key] };
 /** The `titles.list` arguments of one page of the grid. */
 type ListArgs = Mutable<CommandArgs<"titles.list">>;
 
+/** Whether a genre, decade, or score hides some titles. */
+const isNarrowed = (filters: GridFilters): boolean =>
+  filters.genre !== null || filters.decade !== ANY || filters.score !== ANY;
+
 /** One page's arguments: the profile, kind, filters, and where the page starts. */
 const listArgs = (
   profileId: ProfileId,
@@ -76,13 +80,11 @@ const listArgs = (
   filters: GridFilters,
   cursor: string | null,
 ): ListArgs => {
-  const narrowed = filters.genre !== null || filters.decade !== ANY || filters.score !== ANY;
-
   const args: ListArgs = {
     profileId,
     sort: filters.sort,
     cursor,
-    limit: narrowed ? FILTERED_PAGE_SIZE : PAGE_SIZE,
+    limit: isNarrowed(filters) ? FILTERED_PAGE_SIZE : PAGE_SIZE,
   };
 
   if (kind !== undefined) args.kind = kind;
@@ -107,6 +109,12 @@ type LoadedPage = {
   readonly items: ReadonlyArray<TitleCard>;
   readonly nextCursor: string | null;
 };
+
+/** The earliest failed page's cause, which speaks for the grid; none while every page is fine. */
+const firstFailure = (
+  failures: ReadonlyMap<number, unknown>,
+): { readonly cause: unknown } | undefined =>
+  failures.size === 0 ? undefined : { cause: failures.get(Math.min(...failures.keys())) };
 
 /** Subscribes to one page and reports it; the grid draws every page's titles together. */
 function PageSubscription({
@@ -328,9 +336,7 @@ export function TitleGridPage({
     setAttempt((current) => current + 1);
   };
 
-  // The earliest failed page speaks for the grid.
-  const firstFailed = failures.size === 0 ? undefined : Math.min(...failures.keys());
-
+  const failure = firstFailure(failures);
   const loaded = pages.flatMap((page) => page?.items ?? []);
   const last = pages[cursors.length - 1];
   const complete = last !== undefined && last.nextCursor === null;
@@ -346,8 +352,6 @@ export function TitleGridPage({
     }
   });
 
-  const firstLoaded = pages[0] !== undefined;
-  const narrowed = filters.genre !== null || filters.decade !== ANY || filters.score !== ANY;
   const noun = kind === "show" ? ["show", "shows"] : ["title", "titles"];
 
   return (
@@ -398,40 +402,81 @@ export function TitleGridPage({
           onChange={(genre) => changeFilters({ genre })}
         />
       ) : null}
-      {firstFailed !== undefined ? (
-        <CalmState
-          className="py-24"
-          title={`${heading} didn't load`}
-          description={describeFailure(failures.get(firstFailed))}
-          actions={<Button onClick={retryFailed}>Try again</Button>}
-        />
-      ) : !firstLoaded ? (
-        <PosterGridSkeleton />
-      ) : loaded.length === 0 && complete ? (
-        <CalmState
-          className="py-24"
-          title={narrowed ? `No ${noun[1] ?? ""} match` : `No ${heading.toLowerCase()} yet`}
-        />
-      ) : (
-        <>
-          <PosterGrid>
-            {loaded.map((title) => (
-              <TitlePosterCard
-                key={title.id}
-                title={title}
-                subtitle={titleFacts(title) || undefined}
-                badge={newBadge(title, now)}
-                className="w-full"
-              />
-            ))}
-          </PosterGrid>
-          {complete ? null : (
-            <div ref={sentinel} aria-hidden className="pt-8">
-              <PosterGridSkeleton count={7} />
-            </div>
-          )}
-        </>
-      )}
+      <GridResults
+        heading={heading}
+        failure={failure}
+        onRetry={retryFailed}
+        firstLoaded={pages[0] !== undefined}
+        loaded={loaded}
+        complete={complete}
+        emptyTitle={
+          isNarrowed(filters) ? `No ${noun[1] ?? ""} match` : `No ${heading.toLowerCase()} yet`
+        }
+        now={now}
+        sentinel={sentinel}
+      />
     </div>
+  );
+}
+
+/**
+ * The grid below the heading: the failure, a skeleton until the first page lands, the empty
+ * state, or the posters with a loading row at the end that asks for more as it comes into view.
+ */
+function GridResults({
+  heading,
+  failure,
+  onRetry,
+  firstLoaded,
+  loaded,
+  complete,
+  emptyTitle,
+  now,
+  sentinel,
+}: {
+  readonly heading: string;
+  readonly failure: { readonly cause: unknown } | undefined;
+  readonly onRetry: () => void;
+  readonly firstLoaded: boolean;
+  readonly loaded: ReadonlyArray<TitleCard>;
+  readonly complete: boolean;
+  readonly emptyTitle: string;
+  readonly now: number;
+  readonly sentinel: (element: HTMLElement | null) => (() => void) | undefined;
+}) {
+  if (failure !== undefined) {
+    return (
+      <CalmState
+        className="py-24"
+        title={`${heading} didn't load`}
+        description={describeFailure(failure.cause)}
+        actions={<Button onClick={onRetry}>Try again</Button>}
+      />
+    );
+  }
+
+  if (!firstLoaded) return <PosterGridSkeleton />;
+
+  if (loaded.length === 0 && complete) return <CalmState className="py-24" title={emptyTitle} />;
+
+  return (
+    <>
+      <PosterGrid>
+        {loaded.map((title) => (
+          <TitlePosterCard
+            key={title.id}
+            title={title}
+            subtitle={titleFacts(title) || undefined}
+            badge={newBadge(title, now)}
+            className="w-full"
+          />
+        ))}
+      </PosterGrid>
+      {complete ? null : (
+        <div ref={sentinel} aria-hidden className="pt-8">
+          <PosterGridSkeleton count={7} />
+        </div>
+      )}
+    </>
   );
 }

@@ -172,37 +172,13 @@ function UserRow({
       </Cell>
       <Cell className="flex w-19 justify-end">
         {changeable ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              aria-label={`Change ${user.name}`}
-              className="flex size-8 cursor-pointer items-center justify-center rounded-control text-text-muted transition-colors hover:bg-text/8 hover:text-text"
-            >
-              <EllipsisIcon className="size-4" strokeWidth={2.5} aria-hidden />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem className={itemClass} onClick={() => void roleChange.run()}>
-                {nextRole === "admin" ? "Make admin" : "Make member"}
-              </DropdownMenuItem>
-              {user.role === "member" ? (
-                <DropdownMenuItem className={itemClass} onClick={() => setDialog("access")}>
-                  Library access…
-                </DropdownMenuItem>
-              ) : null}
-              {user.disabled ? (
-                <DropdownMenuItem className={itemClass} onClick={() => void reenable.run()}>
-                  Enable account
-                </DropdownMenuItem>
-              ) : (
-                <DropdownMenuItem
-                  variant="destructive"
-                  className={cn(itemClass, "text-danger focus:bg-danger/10")}
-                  onClick={() => setDialog("disable")}
-                >
-                  Disable account…
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <UserMenu
+            user={user}
+            nextRole={nextRole}
+            onRoleChange={() => void roleChange.run()}
+            onEnable={() => void reenable.run()}
+            onDialog={setDialog}
+          />
         ) : null}
       </Cell>
       {dialog === "access" ? (
@@ -210,6 +186,55 @@ function UserRow({
       ) : null}
       {dialog === "disable" ? <DisableDialog onClose={() => setDialog(null)} user={user} /> : null}
     </TableRow>
+  );
+}
+
+/** A person's row menu: switch role, library access for members, and disable or enable. */
+function UserMenu({
+  user,
+  nextRole,
+  onRoleChange,
+  onEnable,
+  onDialog,
+}: {
+  readonly user: User;
+  readonly nextRole: AssignableRole;
+  readonly onRoleChange: () => void;
+  readonly onEnable: () => void;
+  readonly onDialog: (dialog: "access" | "disable") => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={`Change ${user.name}`}
+        className="flex size-8 cursor-pointer items-center justify-center rounded-control text-text-muted transition-colors hover:bg-text/8 hover:text-text"
+      >
+        <EllipsisIcon className="size-4" strokeWidth={2.5} aria-hidden />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem className={itemClass} onClick={onRoleChange}>
+          {nextRole === "admin" ? "Make admin" : "Make member"}
+        </DropdownMenuItem>
+        {user.role === "member" ? (
+          <DropdownMenuItem className={itemClass} onClick={() => onDialog("access")}>
+            Library access…
+          </DropdownMenuItem>
+        ) : null}
+        {user.disabled ? (
+          <DropdownMenuItem className={itemClass} onClick={onEnable}>
+            Enable account
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem
+            variant="destructive"
+            className={cn(itemClass, "text-danger focus:bg-danger/10")}
+            onClick={() => onDialog("disable")}
+          >
+            Disable account…
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

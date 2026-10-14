@@ -32,6 +32,28 @@ const KIDS_RATINGS: ReadonlyArray<{ readonly label: string; readonly age: AgeRat
   { label: "PG-13", age: age(13) },
 ];
 
+/** The first avatar no other profile uses, leaving the kids one to kids profiles. */
+const firstFreeAvatar = (takenAvatars: ReadonlyArray<string>): string =>
+  AVATAR_KEYS.find((key) => key !== "kids" && !takenAvatars.includes(key)) ?? "red";
+
+/** What the form starts with. */
+interface StartingValues {
+  readonly name: string;
+  readonly avatar: string;
+  readonly kids: boolean;
+  readonly maxAge: AgeRating;
+  readonly hasPin: boolean;
+}
+
+/** The profile's own settings, or a new profile's defaults. */
+const startingValues = (profile: Profile | undefined, freeAvatar: string): StartingValues => ({
+  name: profile?.name ?? "",
+  avatar: profile?.avatar ?? freeAvatar,
+  kids: profile?.kids ?? false,
+  maxAge: profile?.maxAgeRating ?? KIDS_DEFAULT_MAX_AGE,
+  hasPin: profile?.hasPin ?? false,
+});
+
 /**
  * The profile editor. Without `profile` it creates one; with it, it edits that profile and offers
  * deletion when the account has another profile to keep.
@@ -52,23 +74,21 @@ export function ProfileForm({
   const setPin = useCommand("profiles.setPin");
   const removeProfile = useCommand("profiles.remove");
   const { profileId: chosen, choose } = useProfileChoice();
-  const [name, setName] = useState(profile?.name ?? "");
-
-  const freeAvatar =
-    AVATAR_KEYS.find((key) => key !== "kids" && !takenAvatars.includes(key)) ?? "red";
-
-  const [avatar, setAvatar] = useState(profile?.avatar ?? freeAvatar);
+  const freeAvatar = firstFreeAvatar(takenAvatars);
+  const start = startingValues(profile, freeAvatar);
+  const [name, setName] = useState(start.name);
+  const [avatar, setAvatar] = useState(start.avatar);
   // A new profile's avatar follows the kids switch until someone picks one.
   const avatarPicked = useRef(profile !== undefined);
-  const [kids, setKids] = useState(profile?.kids ?? false);
-  const [maxAge, setMaxAge] = useState<AgeRating>(profile?.maxAgeRating ?? KIDS_DEFAULT_MAX_AGE);
-  const [pinOn, setPinOn] = useState(profile?.hasPin ?? false);
+  const [kids, setKids] = useState(start.kids);
+  const [maxAge, setMaxAge] = useState<AgeRating>(start.maxAge);
+  const [pinOn, setPinOn] = useState(start.hasPin);
   const [pin, setPinValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const nameId = useId();
-  const pinChanged = pinOn !== (profile?.hasPin ?? false) || (pinOn && pin !== "");
+  const pinChanged = pinOn !== start.hasPin || (pinOn && pin !== "");
   const displayName = name.trim() === "" ? "New profile" : name.trim();
 
   const back = (): void => {
@@ -172,34 +192,7 @@ export function ProfileForm({
               aria-label="Kids profile"
             />
           </SettingRow>
-          {kids ? (
-            <div role="radiogroup" aria-label="Max rating" className="flex items-center gap-2">
-              <span className="w-24 shrink-0 text-label/caption font-medium text-text-muted">
-                Max rating
-              </span>
-              {KIDS_RATINGS.map((rating) => {
-                const selected = rating.age === maxAge;
-
-                return (
-                  <button
-                    key={rating.label}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    onClick={() => setMaxAge(rating.age)}
-                    className={cn(
-                      "flex h-8 cursor-pointer items-center rounded-pill px-3.5 font-mono text-caption/caption transition-colors",
-                      selected
-                        ? "bg-text font-semibold text-bg"
-                        : "bg-text/8 text-text hover:bg-text/12",
-                    )}
-                  >
-                    {rating.label}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
+          {kids ? <MaxRatingChoice value={maxAge} onChange={setMaxAge} /> : null}
         </div>
         <div className="flex flex-col gap-4">
           <SettingRow label="Profile PIN">
@@ -225,22 +218,12 @@ export function ProfileForm({
       </div>
       {error === null ? null : <FieldError className="-mt-6">{error}</FieldError>}
       {confirmingDelete && profile !== undefined ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="grow text-body/body text-text">
-            Delete {profile.name} with its history and list?
-          </p>
-          <Button type="button" variant="ghost" onClick={() => setConfirmingDelete(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={pending}
-            onClick={() => void remove()}
-          >
-            Delete profile
-          </Button>
-        </div>
+        <ConfirmDelete
+          name={profile.name}
+          pending={pending}
+          onCancel={() => setConfirmingDelete(false)}
+          onDelete={() => void remove()}
+        />
       ) : (
         <div className="flex items-center gap-3">
           <Button
@@ -267,6 +250,67 @@ export function ProfileForm({
         </div>
       )}
     </form>
+  );
+}
+
+/** A kids profile's maximum rating, one pill per rating. */
+function MaxRatingChoice({
+  value,
+  onChange,
+}: {
+  readonly value: AgeRating;
+  readonly onChange: (age: AgeRating) => void;
+}) {
+  return (
+    <div role="radiogroup" aria-label="Max rating" className="flex items-center gap-2">
+      <span className="w-24 shrink-0 text-label/caption font-medium text-text-muted">
+        Max rating
+      </span>
+      {KIDS_RATINGS.map((rating) => {
+        const selected = rating.age === value;
+
+        return (
+          <button
+            key={rating.label}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onChange(rating.age)}
+            className={cn(
+              "flex h-8 cursor-pointer items-center rounded-pill px-3.5 font-mono text-caption/caption transition-colors",
+              selected ? "bg-text font-semibold text-bg" : "bg-text/8 text-text hover:bg-text/12",
+            )}
+          >
+            {rating.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Asks once more before deleting the profile. */
+function ConfirmDelete({
+  name,
+  pending,
+  onCancel,
+  onDelete,
+}: {
+  readonly name: string;
+  readonly pending: boolean;
+  readonly onCancel: () => void;
+  readonly onDelete: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <p className="grow text-body/body text-text">Delete {name} with its history and list?</p>
+      <Button type="button" variant="ghost" onClick={onCancel}>
+        Cancel
+      </Button>
+      <Button type="button" variant="destructive" disabled={pending} onClick={onDelete}>
+        Delete profile
+      </Button>
+    </div>
   );
 }
 

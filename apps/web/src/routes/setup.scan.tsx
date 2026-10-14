@@ -103,18 +103,6 @@ function ScanView({
     }
   };
 
-  const status = stopped
-    ? job.finishedAt === null
-      ? "stopped"
-      : `stopped ${clock.format(job.finishedAt)}`
-    : job.status === "succeeded"
-      ? "done"
-      : job.status === "pending"
-        ? "waiting for the media service"
-        : progress.minutesLeft === null
-          ? null
-          : `~${progress.minutesLeft} min left`;
-
   return (
     <AuthPage width="dialog">
       <div className="flex flex-col gap-3">
@@ -125,74 +113,21 @@ function ScanView({
         )}
       </div>
       <div className="flex flex-col gap-8">
-        <div className="flex flex-col gap-3">
-          <div className="flex items-end justify-between">
-            <p
-              aria-live="polite"
-              className={cn(
-                "text-display/display font-heavy tracking-display tabular-nums",
-                stopped ? "text-text-muted" : "text-text",
-              )}
-            >
-              {percent}%
-            </p>
-            {status === null ? null : (
-              <p className="pb-1.5 font-mono text-label/label text-text">{status}</p>
-            )}
-          </div>
-          <div
-            role="progressbar"
-            aria-label="Scan progress"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={percent}
-            className="flex h-1 overflow-hidden rounded-pill bg-hairline"
-          >
-            <div
-              className={cn("h-1 rounded-pill", stopped ? "bg-text-muted" : "bg-accent")}
-              style={{ width: `${percent}%` }}
-            />
-          </div>
-        </div>
+        <ScanMeter
+          percent={percent}
+          status={scanStatus(job, stopped, progress.minutesLeft)}
+          stopped={stopped}
+        />
         <dl className="flex">
           <Stat label="Files found" value={progress.total ?? progress.done} />
           <Stat label="Scanned" value={progress.done} />
           <Stat label="Titles" value={titleCount} />
           {stopped ? <Stat label="Error" value={1} /> : <span className="grow basis-0" />}
         </dl>
-        {stopped ? (
-          <div role="alert" className="flex items-start gap-2.5 rounded-control bg-accent/10 p-3.5">
-            <CircleAlertIcon
-              className="size-4 shrink-0 text-accent"
-              strokeWidth={1.75}
-              aria-hidden
-            />
-            <div className="flex grow basis-0 flex-col gap-1">
-              <p className="text-label/label font-semibold text-text">
-                {job.status === "cancelled" ? "The scan was cancelled" : "The scan hit an error"}
-              </p>
-              {job.error === null ? null : (
-                <p className="text-label/label break-words text-text-muted">{job.error}</p>
-              )}
-            </div>
-          </div>
-        ) : (
-          <JustMatched libraryId={libraryId} />
-        )}
+        {stopped ? <ScanFailure job={job} /> : <JustMatched libraryId={libraryId} />}
       </div>
       {stopped ? (
-        <div className="flex flex-col gap-4">
-          <Button size="lg" className="w-full" disabled={retrying} onClick={() => void retry()}>
-            <RotateCwIcon strokeWidth={2} aria-hidden />
-            Retry scan
-          </Button>
-          <Link
-            to="/"
-            className="self-center text-label/caption font-medium text-text-muted underline decoration-1 underline-offset-2 hover:text-text"
-          >
-            Continue with {formatCount(titleCount)} {titleCount === 1 ? "title" : "titles"} for now
-          </Link>
-        </div>
+        <StoppedActions retrying={retrying} onRetry={() => void retry()} titleCount={titleCount} />
       ) : (
         <Link to="/" className={cn(buttonVariants({ size: "lg" }), "w-full")}>
           Continue to [movies]
@@ -200,6 +135,104 @@ function ScanView({
         </Link>
       )}
     </AuthPage>
+  );
+}
+
+/** The line beside the percentage: when it stopped, done, waiting, or the time left if known. */
+const scanStatus = (job: Job, stopped: boolean, minutesLeft: number | null): string | null => {
+  if (stopped)
+    return job.finishedAt === null ? "stopped" : `stopped ${clock.format(job.finishedAt)}`;
+
+  if (job.status === "succeeded") return "done";
+
+  if (job.status === "pending") return "waiting for the media service";
+
+  return minutesLeft === null ? null : `~${minutesLeft} min left`;
+};
+
+/** The large percentage with its status line, over the progress bar. */
+function ScanMeter({
+  percent,
+  status,
+  stopped,
+}: {
+  readonly percent: number;
+  readonly status: string | null;
+  readonly stopped: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-end justify-between">
+        <p
+          aria-live="polite"
+          className={cn(
+            "text-display/display font-heavy tracking-display tabular-nums",
+            stopped ? "text-text-muted" : "text-text",
+          )}
+        >
+          {percent}%
+        </p>
+        {status === null ? null : (
+          <p className="pb-1.5 font-mono text-label/label text-text">{status}</p>
+        )}
+      </div>
+      <div
+        role="progressbar"
+        aria-label="Scan progress"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        className="flex h-1 overflow-hidden rounded-pill bg-hairline"
+      >
+        <div
+          className={cn("h-1 rounded-pill", stopped ? "bg-text-muted" : "bg-accent")}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Why the scan stopped: cancelled, or the error it hit. */
+function ScanFailure({ job }: { readonly job: Job }) {
+  return (
+    <div role="alert" className="flex items-start gap-2.5 rounded-control bg-accent/10 p-3.5">
+      <CircleAlertIcon className="size-4 shrink-0 text-accent" strokeWidth={1.75} aria-hidden />
+      <div className="flex grow basis-0 flex-col gap-1">
+        <p className="text-label/label font-semibold text-text">
+          {job.status === "cancelled" ? "The scan was cancelled" : "The scan hit an error"}
+        </p>
+        {job.error === null ? null : (
+          <p className="text-label/label break-words text-text-muted">{job.error}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** After a stopped scan: retry it, or go on with the titles found so far. */
+function StoppedActions({
+  retrying,
+  onRetry,
+  titleCount,
+}: {
+  readonly retrying: boolean;
+  readonly onRetry: () => void;
+  readonly titleCount: number;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <Button size="lg" className="w-full" disabled={retrying} onClick={onRetry}>
+        <RotateCwIcon strokeWidth={2} aria-hidden />
+        Retry scan
+      </Button>
+      <Link
+        to="/"
+        className="self-center text-label/caption font-medium text-text-muted underline decoration-1 underline-offset-2 hover:text-text"
+      >
+        Continue with {formatCount(titleCount)} {titleCount === 1 ? "title" : "titles"} for now
+      </Link>
+    </div>
   );
 }
 

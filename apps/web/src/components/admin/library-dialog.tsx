@@ -16,7 +16,7 @@ import { Switch } from "@movies/ui/components/switch";
 import { useNavigate } from "@tanstack/react-router";
 import { PlusIcon, XIcon } from "lucide-react";
 import { useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { Dispatch, FormEvent, ReactNode, SetStateAction } from "react";
 
 import { useAction } from "./action";
 import { KIND_LABELS } from "./format";
@@ -82,6 +82,24 @@ export function LibraryDialog({
   );
 }
 
+/** What the form starts with. */
+interface StartingValues {
+  readonly name: string;
+  readonly kind: LibraryKind;
+  readonly access: LibraryAccess;
+  readonly roots: ReadonlyArray<string>;
+  readonly trickplay: boolean;
+}
+
+/** The library's own settings, or a new library's defaults with one empty folder. */
+const startingValues = (library: LibraryDetail | undefined): StartingValues => ({
+  name: library?.name ?? "",
+  kind: library?.kind ?? "movies",
+  access: library?.access ?? "everyone",
+  roots: library?.roots ?? [""],
+  trickplay: library?.trickplay ?? true,
+});
+
 function LibraryForm({
   library,
   onDone,
@@ -91,11 +109,12 @@ function LibraryForm({
 }) {
   const create = useCommand("libraries.create");
   const update = useCommand("libraries.update");
-  const [name, setName] = useState(library?.name ?? "");
-  const [kind, setKind] = useState<LibraryKind>(library?.kind ?? "movies");
-  const [access, setAccess] = useState<LibraryAccess>(library?.access ?? "everyone");
-  const [roots, setRoots] = useState<ReadonlyArray<string>>(library?.roots ?? [""]);
-  const [trickplay, setTrickplay] = useState(library?.trickplay ?? true);
+  const start = startingValues(library);
+  const [name, setName] = useState(start.name);
+  const [kind, setKind] = useState<LibraryKind>(start.kind);
+  const [access, setAccess] = useState<LibraryAccess>(start.access);
+  const [roots, setRoots] = useState<ReadonlyArray<string>>(start.roots);
+  const [trickplay, setTrickplay] = useState(start.trickplay);
   const [removing, setRemoving] = useState(false);
   const folders = roots.map((root) => root.trim()).filter((root) => root.length > 0);
   const relative = folders.some((root) => !root.startsWith("/"));
@@ -131,9 +150,6 @@ function LibraryForm({
     if ((await save.run()) !== undefined) onDone();
   };
 
-  const setRoot = (index: number, value: string): void =>
-    setRoots((current) => current.map((root, at) => (at === index ? value : root)));
-
   return (
     <DialogContent title={library === undefined ? "Add library" : "Library settings"}>
       <form onSubmit={(event) => void submit(event)}>
@@ -155,48 +171,7 @@ function LibraryForm({
               onChange={setKind}
             />
           ) : null}
-          <fieldset className="flex flex-col gap-1.5">
-            <legend className="pb-1.5 font-sans text-label/caption font-medium text-text-muted">
-              Folders
-            </legend>
-            {roots.map((root, index) => (
-              <div key={index} className="flex items-center gap-2">
-                <Input
-                  aria-label={`Folder ${index + 1}`}
-                  value={root}
-                  onChange={(event) => setRoot(index, event.target.value)}
-                  placeholder="/mnt/nas/movies"
-                  className="font-mono text-label/label"
-                  aria-invalid={
-                    (root.trim().length > 0 && !root.trim().startsWith("/")) || undefined
-                  }
-                />
-                {roots.length > 1 ? (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`Remove folder ${index + 1}`}
-                    onClick={() => setRoots((current) => current.filter((_, at) => at !== index))}
-                  >
-                    <XIcon strokeWidth={1.75} aria-hidden />
-                  </Button>
-                ) : null}
-              </div>
-            ))}
-            {relative ? (
-              <FieldError>Folders are absolute paths, starting with /.</FieldError>
-            ) : null}
-            {roots.length < 20 ? (
-              <button
-                type="button"
-                onClick={() => setRoots((current) => [...current, ""])}
-                className="flex h-9 w-fit cursor-pointer items-center gap-2 font-sans text-label/label font-medium text-text-muted hover:text-text"
-              >
-                <PlusIcon className="size-3.5" strokeWidth={2} aria-hidden />
-                Add a folder
-              </button>
-            ) : null}
-          </fieldset>
+          <FolderFields roots={roots} relative={relative} onRootsChange={setRoots} />
           <ChoiceRow
             label="Who sees it"
             values={LibraryAccess.literals}
@@ -209,27 +184,95 @@ function LibraryForm({
           )}
           {save.error === undefined ? null : <FieldError>{save.error}</FieldError>}
         </DialogBody>
-        <DialogFooter className={library === undefined ? undefined : "justify-between"}>
-          {library === undefined ? null : (
-            <Button variant="destructive" size="dialog" onClick={() => setRemoving(true)}>
-              Remove library
-            </Button>
-          )}
-          <span className="flex items-center gap-2">
-            <DialogClose render={<Button variant="ghost" size="dialog" />}>Cancel</DialogClose>
-            <Button
-              type="submit"
-              size="dialog"
-              disabled={
-                save.pending || name.trim().length === 0 || folders.length === 0 || relative
-              }
-            >
-              {library === undefined ? "Add library" : "Save"}
-            </Button>
-          </span>
-        </DialogFooter>
+        <LibraryFormFooter
+          adding={library === undefined}
+          disabled={save.pending || name.trim().length === 0 || folders.length === 0 || relative}
+          onRemove={() => setRemoving(true)}
+        />
       </form>
     </DialogContent>
+  );
+}
+
+/** Cancel and the submit button; editing also offers Remove library on the left. */
+function LibraryFormFooter({
+  adding,
+  disabled,
+  onRemove,
+}: {
+  readonly adding: boolean;
+  readonly disabled: boolean;
+  readonly onRemove: () => void;
+}) {
+  return (
+    <DialogFooter className={adding ? undefined : "justify-between"}>
+      {adding ? null : (
+        <Button variant="destructive" size="dialog" onClick={onRemove}>
+          Remove library
+        </Button>
+      )}
+      <span className="flex items-center gap-2">
+        <DialogClose render={<Button variant="ghost" size="dialog" />}>Cancel</DialogClose>
+        <Button type="submit" size="dialog" disabled={disabled}>
+          {adding ? "Add library" : "Save"}
+        </Button>
+      </span>
+    </DialogFooter>
+  );
+}
+
+/** The library's folders, one field each, up to 20; every folder is an absolute path. */
+function FolderFields({
+  roots,
+  relative,
+  onRootsChange,
+}: {
+  readonly roots: ReadonlyArray<string>;
+  readonly relative: boolean;
+  readonly onRootsChange: Dispatch<SetStateAction<ReadonlyArray<string>>>;
+}) {
+  const setRoot = (index: number, value: string): void =>
+    onRootsChange((current) => current.map((root, at) => (at === index ? value : root)));
+
+  return (
+    <fieldset className="flex flex-col gap-1.5">
+      <legend className="pb-1.5 font-sans text-label/caption font-medium text-text-muted">
+        Folders
+      </legend>
+      {roots.map((root, index) => (
+        <div key={index} className="flex items-center gap-2">
+          <Input
+            aria-label={`Folder ${index + 1}`}
+            value={root}
+            onChange={(event) => setRoot(index, event.target.value)}
+            placeholder="/mnt/nas/movies"
+            className="font-mono text-label/label"
+            aria-invalid={(root.trim().length > 0 && !root.trim().startsWith("/")) || undefined}
+          />
+          {roots.length > 1 ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={`Remove folder ${index + 1}`}
+              onClick={() => onRootsChange((current) => current.filter((_, at) => at !== index))}
+            >
+              <XIcon strokeWidth={1.75} aria-hidden />
+            </Button>
+          ) : null}
+        </div>
+      ))}
+      {relative ? <FieldError>Folders are absolute paths, starting with /.</FieldError> : null}
+      {roots.length < 20 ? (
+        <button
+          type="button"
+          onClick={() => onRootsChange((current) => [...current, ""])}
+          className="flex h-9 w-fit cursor-pointer items-center gap-2 font-sans text-label/label font-medium text-text-muted hover:text-text"
+        >
+          <PlusIcon className="size-3.5" strokeWidth={2} aria-hidden />
+          Add a folder
+        </button>
+      ) : null}
+    </fieldset>
   );
 }
 

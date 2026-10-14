@@ -128,6 +128,54 @@ const parseYear = (text: string): number | null => {
   return text.trim() !== "" && Number.isInteger(year) && year >= 1870 && year <= 2200 ? year : null;
 };
 
+/** What applying the hand edit changes: a new TMDB match, a new name, a new year. */
+interface MatchPlan {
+  readonly tmdbId: string;
+  readonly rematch: boolean;
+  readonly name: string;
+  readonly year: number | null;
+  readonly rename: boolean;
+  readonly redate: boolean;
+  readonly yearInvalid: boolean;
+}
+
+/**
+ * Compares the hand edit with what a save produces anyway, the current title or the candidate a
+ * new TMDB ID matches, so only real changes become overrides.
+ */
+const planFor = ({
+  currentTmdbId,
+  current,
+  hand,
+  candidates,
+}: {
+  readonly currentTmdbId: string | null;
+  readonly current: HandEdit;
+  readonly hand: HandEdit;
+  readonly candidates: ReadonlyArray<MetadataCandidate>;
+}): MatchPlan => {
+  const tmdbId = hand.tmdbId.trim();
+  const rematch = tmdbId !== "" && tmdbId !== (currentTmdbId ?? "");
+  const base = candidates.find((each) => each.providerId === tmdbId);
+
+  const expected = rematch
+    ? editFor({ name: base?.name ?? hand.name, year: base?.year ?? null, tmdbId })
+    : current;
+
+  const name = hand.name.trim();
+  const year = parseYear(hand.year);
+
+  return {
+    tmdbId,
+    rematch,
+    name,
+    year,
+    rename: name !== "" && name !== expected.name,
+    redate: year !== null && hand.year.trim() !== expected.year,
+    yearInvalid: hand.year.trim() !== "" && year === null,
+  };
+};
+
 function MatchEditor({
   libraryId,
   libraryName,
@@ -200,19 +248,12 @@ function MatchEditor({
     }
   };
 
-  const tmdbId = hand.tmdbId.trim();
-  const rematch = tmdbId !== "" && tmdbId !== (title.externalIds.tmdb ?? "");
-  const base = candidates.find((each) => each.providerId === tmdbId);
-
-  const expected = rematch
-    ? editFor({ name: base?.name ?? hand.name, year: base?.year ?? null, tmdbId })
-    : current;
-
-  const name = hand.name.trim();
-  const year = parseYear(hand.year);
-  const rename = name !== "" && name !== expected.name;
-  const redate = year !== null && hand.year.trim() !== expected.year;
-  const yearInvalid = hand.year.trim() !== "" && year === null;
+  const { tmdbId, rematch, name, year, rename, redate, yearInvalid } = planFor({
+    currentTmdbId: title.externalIds.tmdb,
+    current,
+    hand,
+    candidates,
+  });
 
   const back = { to: "/admin/libraries/$libraryId", params: { libraryId } } as const;
 
@@ -266,22 +307,7 @@ function MatchEditor({
         }
       />
       <div className="flex flex-col items-start gap-10 md:flex-row">
-        <section aria-label="Matched to now" className="flex w-65 shrink-0 flex-col gap-3.5">
-          <Eyebrow>Matched to now</Eyebrow>
-          <Poster
-            src={artworkUrl(title.poster, "poster")}
-            alt={title.name}
-            className="h-60 w-40 rounded-poster"
-          />
-          <div className="flex flex-col gap-1">
-            <span className="font-sans text-body/body font-semibold text-text">
-              {title.matchStatus === "unmatched" ? "No match" : titleWithYear(title)}
-            </span>
-          </div>
-          <span className="font-mono text-caption/caption text-text-muted">
-            File runs {formatRuntime(file.durationMs)} · {qualityLabel(file.video)}
-          </span>
-        </section>
+        <CurrentMatch file={file} />
         <div className="flex min-w-0 flex-1 flex-col gap-4">
           <div className="flex flex-col gap-2">
             <Eyebrow>Search TMDB</Eyebrow>
@@ -320,6 +346,30 @@ function MatchEditor({
         </div>
       </div>
     </>
+  );
+}
+
+/** The title as matched now, with the file's runtime and quality. */
+function CurrentMatch({ file }: { readonly file: LibraryFile }) {
+  const { title } = file;
+
+  return (
+    <section aria-label="Matched to now" className="flex w-65 shrink-0 flex-col gap-3.5">
+      <Eyebrow>Matched to now</Eyebrow>
+      <Poster
+        src={artworkUrl(title.poster, "poster")}
+        alt={title.name}
+        className="h-60 w-40 rounded-poster"
+      />
+      <div className="flex flex-col gap-1">
+        <span className="font-sans text-body/body font-semibold text-text">
+          {title.matchStatus === "unmatched" ? "No match" : titleWithYear(title)}
+        </span>
+      </div>
+      <span className="font-mono text-caption/caption text-text-muted">
+        File runs {formatRuntime(file.durationMs)} · {qualityLabel(file.video)}
+      </span>
+    </section>
   );
 }
 

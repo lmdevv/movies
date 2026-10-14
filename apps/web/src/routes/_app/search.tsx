@@ -33,6 +33,19 @@ const SUGGESTION_THRESHOLD = 0.3;
 
 type KindFilter = "all" | TitleKind;
 
+const KIND_CHIPS: ReadonlyArray<{ readonly kind: KindFilter; readonly label: string }> = [
+  { kind: "all", label: "All" },
+  { kind: "movie", label: "Movies" },
+  { kind: "show", label: "Shows" },
+];
+
+/** The count beside the field: none while a search runs, `No results`, or `12 results`. */
+const resultCount = (empty: boolean, loading: boolean, count: number): string => {
+  if (empty) return "No results";
+
+  return loading ? "" : plural(count, "result", "results");
+};
+
 /** The full search page (06 Search): a large field, kind chips with counts, and result cards. */
 function SearchPage() {
   const { q } = Route.useSearch();
@@ -70,12 +83,6 @@ function SearchPage() {
   const settled = search.query !== "" && !search.loading;
   const empty = settled && search.results.length === 0;
 
-  const chips: ReadonlyArray<{ readonly kind: KindFilter; readonly label: string }> = [
-    { kind: "all", label: "All" },
-    { kind: "movie", label: "Movies" },
-    { kind: "show", label: "Shows" },
-  ];
-
   return (
     <div className="mx-auto box-content flex max-w-content flex-col gap-4 px-4 pt-[max(env(safe-area-inset-top),var(--spacing-4))] md:gap-7 md:px-16 md:pt-7">
       <h1 className="px-1 pt-1.5 text-large-title/10 font-heavy tracking-display text-text md:sr-only">
@@ -105,11 +112,7 @@ function SearchPage() {
           />
           {search.query === "" ? null : (
             <span className="shrink-0 text-label/label text-text-muted max-md:hidden">
-              {empty
-                ? "No results"
-                : search.loading
-                  ? ""
-                  : plural(search.results.length, "result", "results")}
+              {resultCount(empty, search.loading, search.results.length)}
             </span>
           )}
           {text === "" ? null : (
@@ -135,19 +138,7 @@ function SearchPage() {
         </button>
       </div>
       {search.query === "" || empty ? null : (
-        <div className="flex gap-2">
-          {chips.map((chip) => (
-            <Chip
-              key={chip.kind}
-              selected={kind === chip.kind}
-              onClick={() => setKind(chip.kind)}
-              className="max-md:text-small/4.5"
-            >
-              {chip.label}
-              <span className="max-md:hidden">&nbsp;{formatCount(counts[chip.kind])}</span>
-            </Chip>
-          ))}
-        </div>
+        <KindChips kind={kind} counts={counts} onChange={setKind} />
       )}
       {empty ? (
         <NoResults profileId={profile.id} query={search.query} onSearch={setText} />
@@ -165,6 +156,33 @@ function SearchPage() {
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+/** All, Movies, and Shows, each with how many results it holds. */
+function KindChips({
+  kind,
+  counts,
+  onChange,
+}: {
+  readonly kind: KindFilter;
+  readonly counts: Readonly<Record<KindFilter, number>>;
+  readonly onChange: (kind: KindFilter) => void;
+}) {
+  return (
+    <div className="flex gap-2">
+      {KIND_CHIPS.map((chip) => (
+        <Chip
+          key={chip.kind}
+          selected={kind === chip.kind}
+          onClick={() => onChange(chip.kind)}
+          className="max-md:text-small/4.5"
+        >
+          {chip.label}
+          <span className="max-md:hidden">&nbsp;{formatCount(counts[chip.kind])}</span>
+        </Chip>
+      ))}
     </div>
   );
 }
