@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 
 import { NodeHttpServer, NodeServices } from "@effect/platform-node";
 import { assert, describe, layer } from "@effect/vitest";
-import { Context, Effect, FileSystem, Layer, Option, Predicate, Stream } from "effect";
+import { Context, Effect, FileSystem, Layer, Option, Path, Predicate, Stream } from "effect";
 import {
   FetchHttpClient,
   HttpClient,
@@ -13,6 +13,7 @@ import {
   HttpServerResponse,
 } from "effect/http";
 
+import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import { testConfigLayer } from "../testing/test-config.ts";
 import * as ArtworkKeys from "./artwork-keys.ts";
@@ -73,12 +74,13 @@ const storeLayer = Layer.unwrap(
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const dataDir = yield* fs.makeTempDirectoryScoped({ prefix: "movies-artwork-" });
+    const library = yield* fs.makeTempDirectoryScoped({ prefix: "movies-artwork-library-" });
 
     return ArtworkStore.layer.pipe(
       Layer.provideMerge(ArtworkKeys.layer),
       Layer.provide(MediaTools.layer),
       Layer.provide(redirectedClient),
-      Layer.provideMerge(testConfigLayer({ DATA_DIR: dataDir })),
+      Layer.provideMerge(testConfigLayer({ DATA_DIR: dataDir, LIBRARY_ROOTS: library })),
     );
   }).pipe(Effect.orDie),
 ).pipe(Layer.provideMerge(imageHost), Layer.provideMerge(NodeServices.layer));
@@ -110,6 +112,61 @@ describe("artwork store", () => {
         assert.isTrue(Predicate.isTagged(error, "ArtworkUnavailable"));
         assert.include(String(error.cause), "ArtworkTooLarge");
       }),
+    );
+
+    it.effect("reports a resize it cannot store as unavailable", () =>
+      Effect.gen(function* () {
+        const store = yield* ArtworkStore.Service;
+        const keys = yield* ArtworkKeys.Service;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const config = yield* MediaConfig.Service;
+
+        // A file where the folder of resized copies belongs, as a full or broken data folder would.
+        yield* fs.makeDirectory(path.join(config.dataDir, "artwork"), { recursive: true });
+        yield* fs.writeFileString(path.join(config.dataDir, "artwork", "w185"), "");
+
+        const key = yield* keys.seal(
+          ArtworkKeys.ArtworkSource.Remote({ url: "https://image.tmdb.org/t/p/w500/blocked.jpg" }),
+        );
+
+        const error = yield* store.image(key, Option.some(185)).pipe(Effect.flip);
+
+        assert.isTrue(Predicate.isTagged(error, "ArtworkUnavailable"));
+        // The folder failure itself, not the download or ffmpeg failures that report the same.
+        assert.include(String(error.cause), "AlreadyExists");
+        assert.include(String(error.cause), "makeDirectory");
+      }),
+    );
+
+    it.effect(
+      "serves library artwork from its real path, so a link swapped later cannot redirect",
+      () =>
+        Effect.gen(function* () {
+          const store = yield* ArtworkStore.Service;
+          const keys = yield* ArtworkKeys.Service;
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const config = yield* MediaConfig.Service;
+          const library = config.libraryRoots[0] ?? "";
+
+          yield* fs.writeFile(path.join(library, "poster-original.jpg"), SMALL);
+          yield* fs.symlink(
+            path.join(library, "poster-original.jpg"),
+            path.join(library, "poster.jpg"),
+          );
+
+          const key = yield* keys.seal(
+            ArtworkKeys.ArtworkSource.Local({ path: path.join(library, "poster.jpg") }),
+          );
+
+          const image = yield* store.image(key, Option.none());
+
+          assert.strictEqual(
+            image.path,
+            yield* fs.realPath(path.join(library, "poster-original.jpg")),
+          );
+        }),
     );
   });
 });

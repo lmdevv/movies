@@ -33,6 +33,7 @@ import * as MediaConfig from "../media-config.ts";
 import { probeFile } from "../media/media-probe.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import * as MetadataResolver from "../metadata/title-metadata.ts";
+import { modifiedAtMs } from "../platform/file-info.ts";
 import { type EntryKind, errorCode, listEntries } from "../platform/node-directories.ts";
 import {
   ACTORS_FOLDER,
@@ -225,21 +226,33 @@ const COMPANION_EXTENSIONS = new Set([
   "ssa",
 ]);
 
-/** One companion in a folder, by lowercased name, with its name, size, and time. */
-interface Companion {
-  readonly lowerName: string;
-  readonly line: string;
-}
-
-/** A folder's companions and the lowercased stems of the main videos beside them. */
+/**
+ * A folder's companions as digest lines: those named after no main video in the folder
+ * (`movie.nfo`, `poster.jpg`), the rest by every name they could be named after, and all of them
+ * for an episode's show folder.
+ */
 interface FolderCompanions {
-  readonly companions: ReadonlyArray<Companion>;
-  readonly stems: ReadonlyArray<string>;
+  readonly shared: ReadonlyArray<string>;
+  readonly byStem: ReadonlyMap<string, ReadonlyArray<string>>;
+  readonly all: ReadonlyArray<string>;
 }
 
-/** Whether `lowerName` is named after the video `stem`: `<stem>.nfo`, `<stem>-poster.jpg`, ... */
-const namedAfter = (lowerName: string, stem: string): boolean =>
-  lowerName.startsWith(`${stem}.`) || lowerName.startsWith(`${stem}-`);
+/**
+ * Every stem `lowerName` is named after: each prefix that ends before a `.` or `-`, so
+ * `alpha-beta.en.srt` gives `alpha`, `alpha-beta`, and `alpha-beta.en`. A video `<stem>` owns the
+ * companions named `<stem>.nfo`, `<stem>-poster.jpg`, and so on.
+ */
+const stemsOf = (lowerName: string): ReadonlyArray<string> => {
+  const stems: Array<string> = [];
+
+  for (let end = 0; end < lowerName.length; end += 1) {
+    const char = lowerName[end];
+
+    if (char === "." || char === "-") stems.push(lowerName.slice(0, end));
+  }
+
+  return stems;
+};
 
 /** A short, path-free label for a file system failure. */
 const platformReason = (
@@ -267,19 +280,15 @@ const isMainVideo =
  * Whether a folder holds a single movie: one main video, or several whose file names name the same
  * movie, such as its editions or parts. Generic names like `movie.nfo` and `poster.jpg` then belong to it.
  */
-const holdsOneMovie = (folder: string, names: ReadonlyArray<string>): boolean => {
+const holdsOneMovie = (mainVideos: ReadonlyArray<string>): boolean => {
   const movies = new Set(
-    names.flatMap((name) => {
-      if (!isMainVideo(folder)(name)) return [];
-
+    mainVideos.map((name) => {
       // The file name alone: a year-bearing folder would otherwise lend every file its title.
       const parsed = parseMediaPath(name);
 
-      return [
-        MediaName.guards.Movie(parsed)
-          ? `${parsed.title.toLowerCase()}|${parsed.year ?? ""}`
-          : `other|${name}`,
-      ];
+      return MediaName.guards.Movie(parsed)
+        ? `${parsed.title.toLowerCase()}|${parsed.year ?? ""}`
+        : `other|${name}`;
     }),
   );
 
@@ -467,6 +476,21 @@ const make = Effect.gen(function* () {
       const absolute = (relativePath: string): string =>
         path.join(root, ...relativePath.split("/"));
 
+      // A folder's main videos, parsed once per scan: a flat folder can hold thousands.
+      const mainVideosByFolder = new Map<string, ReadonlyArray<string>>();
+
+      const mainVideos = (folder: string): ReadonlyArray<string> => {
+        const known = mainVideosByFolder.get(folder);
+
+        if (known !== undefined) return known;
+
+        const found = listing(folder).names.filter(isMainVideo(folder));
+
+        mainVideosByFolder.set(folder, found);
+
+        return found;
+      };
+
       // The NFO, artwork, and subtitle files in a folder, with their sizes and times.
       const folderCompanions = yield* Cache.make({
         capacity: 10_000,
@@ -482,50 +506,56 @@ const make = Effect.gen(function* () {
               ),
               (name) =>
                 fs.stat(absolute(join(folder, name))).pipe(
-                  Effect.map((info): Companion => {
-                    const modified = Option.match(info.mtime, {
-                      onNone: () => 0,
-                      onSome: (date) => date.getTime(),
-                    });
-
-                    return {
-                      lowerName: name.toLowerCase(),
-                      line: `${name}\u0000${String(info.size)}\u0000${String(modified)}`,
-                    };
-                  }),
-                  Effect.orElseSucceed((): Companion => ({
-                    lowerName: name.toLowerCase(),
-                    line: `${name}\u0000unreadable`,
+                  Effect.map((info) => ({
+                    name,
+                    line: `${name}\u0000${String(info.size)}\u0000${String(modifiedAtMs(info))}`,
                   })),
+                  Effect.orElseSucceed(() => ({ name, line: `${name}\u0000unreadable` })),
                 ),
               { concurrency: STAT_CONCURRENCY },
             );
 
-            const stems = names
-              .filter(isMainVideo(folder))
-              .map((name) => stemOf(name).toLowerCase());
-
             // The hidden `.actors` folder is not walked; its time changes when photos come or go.
             const actors = yield* fs.stat(absolute(join(folder, ".actors"))).pipe(
-              Effect.map((info): ReadonlyArray<Companion> =>
+              Effect.map((info) =>
                 info.type === "Directory"
-                  ? [
-                      {
-                        lowerName: ".actors",
-                        line: `.actors/\u0000${String(
-                          Option.match(info.mtime, {
-                            onNone: () => 0,
-                            onSome: (date) => date.getTime(),
-                          }),
-                        )}`,
-                      },
-                    ]
+                  ? [{ name: ".actors", line: `.actors/\u0000${String(modifiedAtMs(info))}` }]
                   : [],
               ),
-              Effect.orElseSucceed((): ReadonlyArray<Companion> => []),
+              Effect.orElseSucceed(() => []),
             );
 
-            return { companions: [...companions, ...actors], stems } satisfies FolderCompanions;
+            // Classified once per folder, so a file's digest reads only its own companions.
+            const videoStems = new Set(
+              mainVideos(folder).map((name) => stemOf(name).toLowerCase()),
+            );
+
+            const shared: Array<string> = [];
+            const byStem = new Map<string, Array<string>>();
+
+            const entries = [...companions, ...actors];
+
+            for (const { name, line } of entries) {
+              const stems = stemsOf(name.toLowerCase());
+
+              if (!stems.some((stem) => videoStems.has(stem))) {
+                shared.push(line);
+                continue;
+              }
+
+              for (const stem of stems) {
+                const owned = byStem.get(stem);
+
+                if (owned === undefined) byStem.set(stem, [line]);
+                else owned.push(line);
+              }
+            }
+
+            return {
+              shared,
+              byStem,
+              all: entries.map(({ line }) => line),
+            } satisfies FolderCompanions;
           }),
       });
 
@@ -541,23 +571,15 @@ const make = Effect.gen(function* () {
       ) {
         const folder = parentOf(relativePath);
         const stem = stemOf(relativePath).toLowerCase();
-        const own = yield* Cache.get(folderCompanions, folder);
 
-        const lines = own.companions
-          .filter(
-            (companion) =>
-              namedAfter(companion.lowerName, stem) ||
-              !own.stems.some((other) => namedAfter(companion.lowerName, other)),
-          )
-          .map((companion) => companion.line);
+        const own = yield* Cache.get(folderCompanions, folder);
+        const lines = [...own.shared, ...(own.byStem.get(stem) ?? [])];
 
         const inSeasonFolder =
           folder.includes("/") && SEASON_FOLDER.test(folder.split("/").at(-1) ?? "");
 
         const show = inSeasonFolder
-          ? (yield* Cache.get(folderCompanions, parentOf(folder))).companions.map(
-              (companion) => companion.line,
-            )
+          ? (yield* Cache.get(folderCompanions, parentOf(folder))).all
           : [];
 
         return createHash("sha256")
@@ -652,14 +674,28 @@ const make = Effect.gen(function* () {
           }),
       });
 
+      // Whether a folder is one movie's own, decided once per folder per scan.
+      const ownFolders = new Map<string, boolean>();
+
+      const isOwnFolder = (folder: string): boolean => {
+        const known = ownFolders.get(folder);
+
+        if (known !== undefined) return known;
+
+        const own = folder !== "" && holdsOneMovie(mainVideos(folder));
+
+        ownFolders.set(folder, own);
+
+        return own;
+      };
+
       const describeMovie = Effect.fn("LibraryScanner.describeMovie")(function* (
         relativePath: string,
         name: MovieName,
       ) {
         const folder = parentOf(relativePath);
         const stem = stemOf(relativePath);
-
-        const ownFolder = folder !== "" && holdsOneMovie(folder, listing(folder).names);
+        const ownFolder = isOwnFolder(folder);
 
         const local = yield* readNfo(
           folder,
@@ -748,10 +784,7 @@ const make = Effect.gen(function* () {
           Effect.map(([info, digest]): StatResult => ({
             relativePath,
             sizeBytes: Number(info.size),
-            modifiedAtMs: Option.match(info.mtime, {
-              onNone: () => 0,
-              onSome: (date) => date.getTime(),
-            }),
+            modifiedAtMs: modifiedAtMs(info),
             sidecarDigest: digest,
           })),
           Effect.asSome,

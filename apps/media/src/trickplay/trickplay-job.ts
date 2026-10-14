@@ -13,12 +13,13 @@
  */
 import { type TrickplayVersion, trickplayVersion } from "@movies/contracts/trickplay";
 import { Bytes, EpochMillis } from "@movies/contracts/units";
-import { Clock, Effect, FileSystem, Match, Option } from "effect";
+import { Clock, Effect, FileSystem, Match } from "effect";
 import type { Duration, Path } from "effect";
 
 import * as MediaBackend from "../convex/media-backend.ts";
 import { JobFailed, type JobHandler } from "../jobs/job-worker.ts";
 import * as MediaConfig from "../media-config.ts";
+import { modifiedAtMs } from "../platform/file-info.ts";
 import type * as MediaTools from "../media/media-tools.ts";
 import type * as FileResolver from "../playback/file-resolver.ts";
 import { type ResolvedMediaFile, resolveInsideRoots } from "../playback/file-resolver.ts";
@@ -54,13 +55,9 @@ const onDisk = Effect.fn("TrickplayJob.onDisk")(function* (path: string) {
     );
 
   const sizeBytes = Number(info.size);
+  const modifiedAt = modifiedAtMs(info);
 
-  const modifiedAtMs = Option.match(info.mtime, {
-    onNone: () => 0,
-    onSome: (date) => date.getTime(),
-  });
-
-  return { sizeBytes, modifiedAtMs, version: trickplayVersion(sizeBytes, modifiedAtMs) };
+  return { sizeBytes, modifiedAt, version: trickplayVersion(sizeBytes, modifiedAt) };
 });
 
 /**
@@ -126,7 +123,7 @@ export const handlers: Effect.Effect<
 
       const { fileId } = job.payload;
 
-      const file = yield* resolveInsideRoots(fileId).pipe(
+      const file = yield* resolveInsideRoots(fileId, { sidecars: false }).pipe(
         Effect.catchTags({
           MediaFileNotFound: () =>
             Effect.fail(
@@ -139,7 +136,7 @@ export const handlers: Effect.Effect<
 
       // The resolver caches a file's size and time for playback; a file replaced moments ago must
       // be versioned by what ffmpeg is about to read.
-      const { sizeBytes, modifiedAtMs, version } = yield* onDisk(file.path);
+      const { sizeBytes, modifiedAt, version } = yield* onDisk(file.path);
 
       yield* reportProgress({ done: 0, total: 1, message: "Making thumbnails" });
 
@@ -155,7 +152,7 @@ export const handlers: Effect.Effect<
           workerId,
           fileId,
           sizeBytes: Bytes.make(sizeBytes),
-          mtimeMs: EpochMillis.make(Math.trunc(modifiedAtMs)),
+          mtimeMs: EpochMillis.make(Math.trunc(modifiedAt)),
           manifest,
         })
         .pipe(Effect.mapError((error) => new JobFailed({ message: error.message, retry: true })));

@@ -9,6 +9,7 @@
 import { Effect, FileSystem, Option, Path } from "effect";
 
 import { listEntries } from "../platform/node-directories.ts";
+import { modifiedAtMs } from "../platform/file-info.ts";
 
 /** One folder as last seen. */
 interface FolderState {
@@ -39,9 +40,6 @@ const NETWORK_FILE_SYSTEMS: ReadonlySet<number> = new Set([
 /** Whether a file system with this `statfs` type should be polled rather than watched. */
 export const isNetworkFileSystem = (type: number): boolean => NETWORK_FILE_SYSTEMS.has(type);
 
-const modifiedAt = (info: FileSystem.File.Info): number =>
-  Option.match(info.mtime, { onNone: () => 0, onSome: (date) => date.getTime() });
-
 /**
  * Takes a snapshot of `root`, reusing `previous` for every folder whose modification time did not
  * change. Returns the snapshot and whether anything differs from `previous`. A folder that cannot
@@ -61,7 +59,7 @@ export const snapshot = Effect.fn("LibraryPoller.snapshot")(function* (
     const info = yield* fs.stat(folder).pipe(Effect.option);
 
     if (Option.isNone(info) || info.value.type !== "Directory") continue;
-    const time = modifiedAt(info.value);
+    const time = modifiedAtMs(info.value);
     const known = previous.get(folder);
 
     const state: FolderState =

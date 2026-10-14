@@ -36,6 +36,7 @@ import {
 
 import * as MediaBackend from "../convex/media-backend.ts";
 import * as MediaConfig from "../media-config.ts";
+import { modifiedAtMs } from "../platform/file-info.ts";
 import * as Archives from "./backup-archives.ts";
 import * as ConvexCli from "./convex-cli.ts";
 
@@ -156,13 +157,7 @@ const make = Effect.gen(function* () {
           .pipe(
             Effect.map((info) =>
               info.type === "File"
-                ? Option.some(
-                    Archives.describeArchive(
-                      name,
-                      Number(info.size),
-                      Option.match(info.mtime, { onNone: () => 0, onSome: (at) => at.getTime() }),
-                    ),
-                  )
+                ? Option.some(Archives.describeArchive(name, Number(info.size), modifiedAtMs(info)))
                 : Option.none(),
             ),
           ),

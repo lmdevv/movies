@@ -8,9 +8,10 @@
 import type { MediaFileId } from "@movies/contracts/ids";
 import { FileResolverUnavailable, MediaFileNotFound } from "@movies/contracts/media-playback";
 import type { CallError } from "@movies/sdk/effect";
-import { Cache, Duration, Effect, Exit, FileSystem, Layer, Match, Option, Predicate } from "effect";
+import { Cache, Duration, Effect, Exit, FileSystem, Layer, Match, Option } from "effect";
 
 import * as FileResolver from "../playback/file-resolver.ts";
+import { isNotFound, modifiedAtMs } from "../platform/file-info.ts";
 import { relativeTo, toResolvedMediaFile } from "./catalog-records.ts";
 import * as MediaBackend from "./media-backend.ts";
 
@@ -52,24 +53,20 @@ const make = Effect.gen(function* () {
     // error names the absolute path, so it goes to the log and the caller only learns why.
     const info = yield* fs.stat(resolved.path).pipe(
       Effect.tapError((error) =>
-        Predicate.isTagged(error.reason, "NotFound")
+        isNotFound(error)
           ? Effect.void
           : Effect.logWarning("ConvexFileResolver.file_unreadable", error).pipe(
               Effect.annotateLogs({ fileId }),
             ),
       ),
       Effect.mapError((error) =>
-        Predicate.isTagged(error.reason, "NotFound")
+        isNotFound(error)
           ? new MediaFileNotFound({ fileId })
           : new FileResolverUnavailable({ cause: "The file could not be read" }),
       ),
     );
 
-    return toResolvedMediaFile(
-      resolved,
-      Number(info.size),
-      Option.match(info.mtime, { onNone: () => 0, onSome: (date) => date.getTime() }),
-    );
+    return toResolvedMediaFile(resolved, Number(info.size), modifiedAtMs(info));
   });
 
   const cache = yield* Cache.makeWith(lookup, {

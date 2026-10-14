@@ -273,6 +273,40 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
       }),
     );
 
+    it.effect("rescans only the films a companion in a shared folder belongs to", () =>
+      Effect.gen(function* () {
+        const { library, copy } = yield* FixtureWorkspace.Service;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const target = yield* copy;
+        const scanner = yield* LibraryScanner.Service;
+        const libraryId = LibraryId.make("shared-folder");
+        const folder = path.join(target.movies, "Shared");
+        const source = path.join(target.movies, library.messyMovie);
+        const request = { libraryId, root: target.movies, mode: "incremental" } as const;
+
+        // `Alpha-Beta` begins with another film's name, so its subtitle is named after both.
+        yield* fs.makeDirectory(folder);
+
+        for (const film of ["Alpha (2001)", "Alpha (2001)-Beta (2002)", "Gamma (2003)"]) {
+          yield* fs.copyFile(source, path.join(folder, `${film}.mkv`));
+        }
+
+        yield* scanner.scan(request);
+
+        const rescanned = Effect.fn(function* (companion: string) {
+          yield* fs.writeFileString(path.join(folder, companion), "1\n");
+          const summary = yield* scanner.scan(request);
+
+          return summary.processed;
+        });
+
+        assert.strictEqual(yield* rescanned("Gamma (2003).en.srt"), 1);
+        assert.strictEqual(yield* rescanned("Alpha (2001)-Beta (2002).en.srt"), 2);
+        assert.strictEqual(yield* rescanned("folder.jpg"), 3);
+      }),
+    );
+
     it.effect("treats a folder of one movie's editions as that movie's own folder", () =>
       Effect.gen(function* () {
         const { library, copy } = yield* FixtureWorkspace.Service;
