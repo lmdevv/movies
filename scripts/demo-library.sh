@@ -391,10 +391,14 @@ image_subtitle() {
 EOF
   local status=0
   spumux -s0 "$cache/spumux.xml" <"$dvd" >"$dvd.subs.mpg" 2>"$cache/spumux.log" || status=1
-  # The first cue starts late, so probe the whole stream to find the subtitle track.
+  # The first cue starts late, so probe the whole stream to find the subtitle track. Copied out
+  # alone, the track would be shifted to start at zero; keep its timestamps, less the DVD
+  # stream's own start.
   if ((status == 0)); then
-    ff "$out" -analyzeduration 400M -probesize 200M -i "$dvd.subs.mpg" -map 0:s:0 -c:s copy ||
-      status=1
+    local start
+    start="$(ffprobe -v error -show_entries format=start_time -of csv=p=0 "$dvd.subs.mpg")"
+    ff "$out" -analyzeduration 400M -probesize 200M -copyts -i "$dvd.subs.mpg" -map 0:s:0 \
+      -c:s copy -avoid_negative_ts disabled -output_ts_offset "-${start:-0}" || status=1
   fi
   rm -f "$dvd" "$dvd.subs.mpg"
   return "$status"
