@@ -2,7 +2,7 @@
 import type { JobId } from "@movies/contracts/ids";
 import type { Job } from "@movies/contracts/models/jobs";
 import type { MoviesClient } from "@movies/sdk/effect";
-import { Duration, Effect, Option, Ref, Stream } from "effect";
+import { Clock, Duration, Effect, Option, Ref, Stream } from "effect";
 
 import { JobError } from "./cli-errors";
 import { Output } from "./output";
@@ -10,14 +10,17 @@ import { Output } from "./output";
 const isFinished = (job: Job): boolean =>
   job.status === "succeeded" || job.status === "failed" || job.status === "cancelled";
 
-/** `scan: running 120/500 (reading tags)` */
+/** `scan <job-id>: running 120/500 (reading tags)`; the ID tells jobs followed together apart. */
 export const progressLine = (job: Job): string => {
   const { done, total, message } = job.progress;
   const count = total === null ? String(done) : `${String(done)}/${String(total)}`;
   const note = job.error ?? message;
 
-  return `${job.kind}: ${job.status} ${count}${note === null ? "" : ` (${note})`}`;
+  return `${job.kind} ${job.id}: ${job.status} ${count}${note === null ? "" : ` (${note})`}`;
 };
+
+/** Most jobs `waitForJobs` polls at once; each poller is a `jobs.get` request a second. */
+const MAX_POLLERS = 4;
 
 /** How `--wait` behaves. */
 export interface WaitOptions {
@@ -27,15 +30,17 @@ export interface WaitOptions {
 }
 
 /**
- * Watches `jobs.get` until the job succeeds, fails, or is cancelled, printing progress to stderr
- * whenever it changes. Fails unless the job succeeded.
+ * Watches `jobs.get` until the job succeeds, fails, or is cancelled, or the clock passes
+ * `deadlineMs`, printing progress to stderr whenever it changes. Fails unless the job succeeded.
  */
-export const waitForJob = Effect.fn("Jobs.wait")(function* (
+const followJob = Effect.fn("Jobs.follow")(function* (
   client: MoviesClient.Interface,
   jobId: JobId,
   options: WaitOptions,
+  deadlineMs: number,
 ) {
   const output = yield* Output;
+  const remaining = Duration.millis(Math.max(0, deadlineMs - (yield* Clock.currentTimeMillis)));
   const lastLine = yield* Ref.make("");
 
   const report = (job: Job): Effect.Effect<void> =>
@@ -53,7 +58,7 @@ export const waitForJob = Effect.fn("Jobs.wait")(function* (
       Stream.tap(report),
       Stream.filter(isFinished),
       Stream.runHead,
-      Effect.timeoutOption(options.timeout),
+      Effect.timeoutOption(remaining),
       Effect.map(Option.flatten),
     );
 
@@ -87,16 +92,32 @@ export const waitForJob = Effect.fn("Jobs.wait")(function* (
 });
 
 /**
- * Follows several jobs until each succeeds; `options.timeout` bounds the whole wait. Fails with the
- * first job that fails, is cancelled, or is still running when the time is up.
+ * Watches `jobs.get` until the job succeeds, fails, or is cancelled, printing progress to stderr
+ * whenever it changes. Fails unless the job succeeded within `options.timeout`.
+ */
+export const waitForJob = Effect.fn("Jobs.wait")(function* (
+  client: MoviesClient.Interface,
+  jobId: JobId,
+  options: WaitOptions,
+) {
+  const now = yield* Clock.currentTimeMillis;
+
+  return yield* followJob(client, jobId, options, now + Duration.toMillis(options.timeout));
+});
+
+/**
+ * Follows several jobs until each succeeds, at most four at a time; `options.timeout` bounds the
+ * whole wait, including jobs that wait for a free poller. Fails with the first job that fails, is
+ * cancelled, or is still running when the time is up.
  */
 export const waitForJobs = Effect.fn("Jobs.waitAll")(function* (
   client: MoviesClient.Interface,
   jobIds: ReadonlyArray<JobId>,
   options: WaitOptions,
 ) {
-  // Concurrently, so every job's timeout starts now and together they bound the whole wait.
-  return yield* Effect.forEach(jobIds, (jobId) => waitForJob(client, jobId, options), {
-    concurrency: "unbounded",
+  const deadlineMs = (yield* Clock.currentTimeMillis) + Duration.toMillis(options.timeout);
+
+  return yield* Effect.forEach(jobIds, (jobId) => followJob(client, jobId, options, deadlineMs), {
+    concurrency: MAX_POLLERS,
   });
 });
