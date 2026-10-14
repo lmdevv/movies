@@ -3,7 +3,10 @@
  * check shapes and any client can call a public function directly. `test/registry.test.ts` checks
  * each limit against the contract schema it mirrors.
  */
+import type { Infer } from "convex/values";
+
 import { fail } from "./errors";
+import type { metadataOverrides } from "./validators";
 
 /** Longest display name (profiles, libraries, API keys, device clients); `DisplayName`. */
 export const DISPLAY_NAME_MAX = 80;
@@ -36,7 +39,11 @@ export const BACKUP_SYNC_LIMIT = 1000;
  */
 export const COLLECTION_BATCH_LIMIT = 10;
 
+/** Most members, across all collections, one `importCollections` call may carry. */
 export const COLLECTION_MEMBER_BATCH_LIMIT = 2000;
+
+/** Highest age rating; `AgeRating` runs from 0 to 21. */
+const AGE_RATING_MAX = 21;
 
 /** Trims `value` and requires 1 to `max` characters; `what` names the field in plural. */
 const checkText = (value: string, what: string, max: number): string => {
@@ -68,3 +75,79 @@ export const checkMilliseconds = (value: number, what: string): number =>
   Number.isFinite(value) && value >= 0
     ? value
     : fail("invalid_args", `${what} are zero or more milliseconds`);
+
+/** An age rating, a whole number of years from 0 to 21, or null for none; `AgeRating`. */
+export const checkAgeRating = (age: number | null): number | null =>
+  age !== null && (!Number.isInteger(age) || age < 0 || age > AGE_RATING_MAX)
+    ? fail("invalid_args", `Age ratings run from 0 to ${AGE_RATING_MAX}`)
+    : age;
+
+type MetadataOverrides = Infer<typeof metadataOverrides>;
+
+/** Why each override field would break its contract bound, checked in field order. */
+const OVERRIDE_BOUNDS: ReadonlyArray<{
+  readonly field: keyof MetadataOverrides;
+  readonly broken: (overrides: MetadataOverrides) => boolean;
+  readonly message: string;
+}> = [
+  {
+    field: "name",
+    broken: ({ name }) => name !== undefined && name.trim() === "",
+    message: "Names are not blank",
+  },
+  {
+    field: "sortName",
+    broken: ({ sortName }) => sortName !== undefined && sortName.trim() === "",
+    message: "Sort names are not blank",
+  },
+  {
+    field: "year",
+    broken: ({ year }) => year !== undefined && !Number.isInteger(year),
+    message: "Years are whole numbers",
+  },
+  {
+    field: "ageRating",
+    broken: ({ ageRating }) =>
+      ageRating !== undefined &&
+      (!Number.isInteger(ageRating) || ageRating < 0 || ageRating > AGE_RATING_MAX),
+    message: `Age ratings run from 0 to ${AGE_RATING_MAX}`,
+  },
+];
+
+/**
+ * Overrides an admin sets: no blank name or sort name, a whole-number year, and an age rating in
+ * range. Anything else fails with `invalid_args`.
+ */
+export const checkOverrides = (overrides: MetadataOverrides): MetadataOverrides => {
+  const broken = OVERRIDE_BOUNDS.find((bound) => bound.broken(overrides));
+
+  return broken === undefined ? overrides : fail("invalid_args", broken.message);
+};
+
+/**
+ * Overrides a migration imports, without the fields that break a bound, so one source title's bad
+ * value drops that value instead of failing the whole batch.
+ */
+export const withoutBrokenOverrides = (overrides: MetadataOverrides): MetadataOverrides => {
+  const kept = { ...overrides };
+
+  for (const bound of OVERRIDE_BOUNDS) if (bound.broken(overrides)) delete kept[bound.field];
+
+  return kept;
+};
+
+/** At most `BATCH_LIMIT` items, as one scan or import write may carry. */
+export const checkBatch = <Item>(items: ReadonlyArray<Item>): ReadonlyArray<Item> =>
+  items.length > BATCH_LIMIT
+    ? fail("invalid_args", `Send at most ${BATCH_LIMIT} items per call`)
+    : items;
+
+/**
+ * How many results to return: `fallback` unless asked (or asked for NaN, which no count is), then
+ * a whole number from 1 to `max`.
+ */
+export const resultLimit = (limit: number | undefined, fallback: number, max: number): number =>
+  Math.min(
+    Math.max(1, Math.floor(limit === undefined || Number.isNaN(limit) ? fallback : limit)),
+    max,
+  );

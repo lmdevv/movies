@@ -23,6 +23,7 @@ const CERTIFICATION_AGES: ReadonlyMap<string, number> = new Map([
   ["G", 0],
   ["PG", 7],
   ["PG-13", 13],
+  ["PG13", 13],
   ["R", 17],
   ["NC-17", 18],
   // United States: TV parental guidelines.
@@ -39,14 +40,22 @@ const CERTIFICATION_AGES: ReadonlyMap<string, number> = new Map([
   ["R18", 18],
 ]);
 
-const LEADING_AGE = /^(?:FSK|PEGI|TV|BBFC|IMDA|MA|M)?[\s-]*(\d{1,2})\+?$/u;
+const LEADING_AGE = /^(?:FSK|PEGI|TV|BBFC|IMDA|MA|M)?[\s-]*(\d{1,2})$/u;
+
+/**
+ * What NFO writers and other servers put before or after a rating: Kodi's `Rated ` prefix, a
+ * country code with a colon or slash (`US:PG-13`, `gb/15`), and a trailing `+` (`R18+`, `16+`).
+ */
+const DECORATION = /^(?:RATED\s+)?(?:[A-Z]{2}\s*[:/]\s*)?(?<rating>.*?)\+?$/u;
 
 /**
  * The minimum age for a certification string, or `undefined` when it is unrated or unknown.
- * Recognizes US film and TV ratings, BBFC ratings, and plain ages such as `12`, `16+`, or `FSK 16`.
+ * Recognizes US film and TV ratings, BBFC ratings, and plain ages such as `12`, `16+`, or `FSK 16`,
+ * with or without a `Rated ` or country prefix (`Rated PG-13`, `US:PG-13`, `gb/15`).
  */
 export const ageRatingFromCertification = (certification: string): AgeRating | undefined => {
-  const normalized = certification.trim().toUpperCase();
+  const upper = certification.trim().toUpperCase();
+  const normalized = DECORATION.exec(upper)?.groups?.["rating"] ?? upper;
   const known = CERTIFICATION_AGES.get(normalized);
 
   if (known !== undefined) return makeAgeRating(known);
@@ -59,9 +68,3 @@ export const ageRatingFromCertification = (certification: string): AgeRating | u
 
   return age <= 21 ? makeAgeRating(age) : undefined;
 };
-
-/** Whether a profile with `maxAge` (none means unrestricted) may see a title rated `age`. */
-export const isAllowedForAge = (
-  age: AgeRating | undefined,
-  maxAge: AgeRating | undefined,
-): boolean => maxAge === undefined || (age !== undefined && age <= maxAge);

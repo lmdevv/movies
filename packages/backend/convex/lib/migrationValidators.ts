@@ -4,6 +4,7 @@
  * checks they describe the same wire values.
  */
 import { v } from "convex/values";
+import type { Infer } from "convex/values";
 
 import {
   externalIds,
@@ -17,7 +18,7 @@ import {
 } from "./validators";
 
 /** Mirrors `MigrationPhase`. */
-export const migrationPhase = v.union(
+const migrationPhase = v.union(
   v.literal("libraries"),
   v.literal("scanning"),
   v.literal("watchState"),
@@ -46,11 +47,24 @@ export const migrationImported = v.object({
   unmatched: v.number(),
 });
 
+/** A migration's counts before it has imported anything. */
+export const NOTHING_IMPORTED: Infer<typeof migrationImported> = {
+  librariesAdded: 0,
+  watched: 0,
+  inProgress: 0,
+  playCounts: 0,
+  favorites: 0,
+  collections: 0,
+  overrides: 0,
+  keptLocal: 0,
+  unmatched: 0,
+};
+
 /** Mirrors `PathMapping`. */
-export const pathMapping = v.object({ from: v.string(), to: v.string() });
+const pathMapping = v.object({ from: v.string(), to: v.string() });
 
 /** Mirrors `SealedCredentials`. */
-export const sealedCredentials = v.object({
+const sealedCredentials = v.object({
   version: v.literal(1),
   nonce: v.string(),
   ciphertext: v.string(),
@@ -64,7 +78,7 @@ const plannedUser = v.object({
 });
 
 /** Mirrors `PlannedLibraryAccess`. */
-export const plannedLibraryAccess = v.union(
+const plannedLibraryAccess = v.union(
   v.object({ kind: v.literal("everyone") }),
   v.object({ kind: v.literal("users"), sourceUserIds: v.array(v.string()) }),
 );

@@ -7,6 +7,12 @@ import { Schema } from "effect";
 import { BackupId, JobId, LibraryId, MediaFileId, PersonId, TitleId, UserId } from "../ids";
 import { Bytes, EpochMillis } from "../units";
 
+/** What started a backup: the nightly schedule or an admin. */
+export const BackupTrigger = Schema.Literals(["nightly", "manual"]);
+
+/** What started a backup. */
+export type BackupTrigger = typeof BackupTrigger.Type;
+
 /** What a job does. */
 export const JobKind = Schema.Literals([
   "scan",
@@ -63,7 +69,7 @@ export const JobPayload = Schema.Union([
   }),
   Schema.Struct({
     kind: Schema.Literal("backup"),
-    trigger: Schema.Literals(["nightly", "manual"]),
+    trigger: BackupTrigger,
   }),
   Schema.Struct({
     kind: Schema.Literal("migration"),
@@ -108,12 +114,15 @@ export interface Job extends Schema.Schema.Type<typeof Job> {}
 /** The result of a command that queued a job. */
 export const QueuedJob = Schema.Struct({ jobId: JobId });
 
+/** A job a command queued. */
+export interface QueuedJob extends Schema.Schema.Type<typeof QueuedJob> {}
+
 /** A backup archive in the media host's backup folder. */
 export const Backup = Schema.Struct({
   id: BackupId,
   fileName: Schema.String,
   sizeBytes: Bytes,
-  trigger: Schema.Literals(["nightly", "manual"]),
+  trigger: BackupTrigger,
   createdAt: EpochMillis,
 });
 
@@ -127,7 +136,7 @@ export const BACKUP_SYNC_LIMIT = 1000;
 export const BackupArchive = Schema.Struct({
   fileName: Schema.String,
   sizeBytes: Bytes,
-  trigger: Schema.Literals(["nightly", "manual"]),
+  trigger: BackupTrigger,
   takenAt: EpochMillis,
 });
 

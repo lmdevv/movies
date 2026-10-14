@@ -93,7 +93,7 @@ export interface CreatedInvite extends Schema.Schema.Type<typeof CreatedInvite> 
 export const InviteLookup = Schema.Union([
   Schema.Struct({ state: Schema.Literal("invalid") }),
   Schema.Struct({
-    state: Schema.Literals(["open", "used", "expired"]),
+    state: InviteState.pick(["open", "used", "expired"]),
     email: Schema.NullOr(Schema.String),
     inviterName: Schema.String,
     expiresAt: EpochMillis,

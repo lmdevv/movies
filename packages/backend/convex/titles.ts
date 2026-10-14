@@ -8,6 +8,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
+import { resultLimit } from "./lib/bounds";
 import { listTitles } from "./lib/browse";
 import type { Audience } from "./lib/access";
 import { canSee, loadAudience, loadVisibleTitle } from "./lib/access";
@@ -33,7 +34,7 @@ import {
   titleKind,
   titleSort,
 } from "./lib/validators";
-import { continueWatching, upNextEpisode, visibleTitles } from "./lib/viewing";
+import { continueWatching, firstVisible, itself, upNextEpisode } from "./lib/viewing";
 import { authorize } from "./lib/viewer";
 
 /** Titles read per row of the home screen before filtering. */
@@ -65,6 +66,10 @@ const CREW_ORDER = ["creator", "director", "writer", "producer", "composer"] as 
 
 const NO_RATINGS = { tmdb: null, imdb: null, rottenTomatoes: null, metacritic: null };
 
+/**
+ * The home screen for a profile: a featured title, continue watching, My List, and the newest
+ * movies and shows, up to 20 per row of what the profile may see.
+ */
 export const home = query({
   args: { profileId: v.id("profiles") },
   returns: homeResult,
@@ -72,26 +77,30 @@ export const home = query({
     const viewer = await authorize(ctx, "read");
     const audience = await loadAudience(ctx, viewer, profileId);
 
-    const recent = async (kind: Doc<"titles">["kind"]) =>
-      visibleTitles(
+    const row = { limit: ROW_LIMIT, scanLimit: ROW_SCAN };
+
+    const recent = (kind: Doc<"titles">["kind"]) =>
+      firstVisible(
         audience,
-        await ctx.db
+        ctx.db
           .query("titles")
           .withIndex("by_kind_added", (q) => q.eq("kind", kind))
-          .order("desc")
-          .take(ROW_SCAN),
-        ROW_LIMIT,
+          .order("desc"),
+        itself,
+        row,
       );
 
-    const [movies, shows] = await Promise.all([recent("movie"), recent("show")]);
+    const listed = firstVisible(
+      audience,
+      ctx.db
+        .query("myList")
+        .withIndex("by_profile_added", (q) => q.eq("profileId", profileId))
+        .order("desc"),
+      (entry) => ctx.db.get(entry.titleId),
+      row,
+    );
 
-    const listed = await ctx.db
-      .query("myList")
-      .withIndex("by_profile_added", (q) => q.eq("profileId", profileId))
-      .order("desc")
-      .take(ROW_SCAN);
-
-    const listedTitles = await Promise.all(listed.map((entry) => ctx.db.get(entry.titleId)));
+    const [movies, shows, myList] = await Promise.all([recent("movie"), recent("show"), listed]);
 
     const featured = [...movies, ...shows]
       .filter((title) => title.artwork.backdrop !== null && title.presentFileCount > 0)
@@ -100,16 +109,18 @@ export const home = query({
     return {
       featured: featured === undefined ? null : presentTitleCard(featured),
       continueWatching: await continueWatching(ctx, audience),
-      myList: listedTitles
-        .flatMap((title) => (title !== null && canSee(audience, title) ? [title] : []))
-        .slice(0, ROW_LIMIT)
-        .map(presentTitleCard),
+      myList: myList.map(presentTitleCard),
       recentlyAddedMovies: movies.map(presentTitleCard),
       recentlyAddedShows: shows.map(presentTitleCard),
     };
   },
 });
 
+/**
+ * One page of the titles the profile may see, by name unless `sort` says otherwise, narrowed by
+ * kind, library, genre, years, studio, and rating. A page can come back short while `nextCursor`
+ * continues it.
+ */
 export const list = query({
   args: {
     profileId: v.id("profiles"),
@@ -127,7 +138,7 @@ export const list = query({
   handler: async (ctx, { profileId, cursor, limit, kind, libraryId, sort, ...filter }) => {
     const viewer = await authorize(ctx, "read");
     const audience = await loadAudience(ctx, viewer, profileId);
-    const numItems = Math.min(Math.max(1, Math.floor(limit ?? DEFAULT_PAGE)), MAX_PAGE);
+    const numItems = resultLimit(limit, DEFAULT_PAGE, MAX_PAGE);
 
     const result = await listTitles(
       ctx,
@@ -142,25 +153,38 @@ export const list = query({
   },
 });
 
+/**
+ * Titles matching `query` that the profile may see, best match first. Among the first 200 hits
+ * only, so hidden titles can leave fewer results than the limit; a blank query returns none.
+ */
 export const search = query({
   args: { profileId: v.id("profiles"), query: v.string(), limit: v.optional(v.number()) },
   returns: v.array(titleCard),
   handler: async (ctx, { profileId, query: text, limit }) => {
     const viewer = await authorize(ctx, "read");
     const audience = await loadAudience(ctx, viewer, profileId);
-    const wanted = Math.min(Math.max(1, Math.floor(limit ?? 20)), 50);
+    const wanted = resultLimit(limit, 20, 50);
 
     if (text.trim().length === 0) return [];
 
-    const matches = await ctx.db
-      .query("titles")
-      .withSearchIndex("search_text", (q) => q.search("searchText", text.trim()))
-      .take(ROW_SCAN);
+    const matches = await firstVisible(
+      audience,
+      ctx.db
+        .query("titles")
+        .withSearchIndex("search_text", (q) => q.search("searchText", text.trim())),
+      itself,
+      { limit: wanted, scanLimit: ROW_SCAN },
+    );
 
-    return visibleTitles(audience, matches, wanted).map(presentTitleCard);
+    return matches.map(presentTitleCard);
   },
 });
 
+/**
+ * A title page for a profile: details with overrides applied, cast and crew, seasons, a movie's
+ * files and progress, a show's next episode, and whether it is on My List. A title the profile may
+ * not see fails with `not_found`.
+ */
 export const get = query({
   args: { profileId: v.id("profiles"), titleId: v.id("titles") },
   returns: titleDetail,
@@ -249,6 +273,7 @@ export const get = query({
   },
 });
 
+/** One season's episodes in order, each with the profile's progress and up to 12 credits. */
 export const episodes = query({
   args: { profileId: v.id("profiles"), titleId: v.id("titles"), seasonNumber: v.number() },
   returns: v.array(seasonEpisode),
@@ -338,7 +363,7 @@ export const similar = query({
     const viewer = await authorize(ctx, "read");
     const audience = await loadAudience(ctx, viewer, profileId);
     const title = await loadVisibleTitle(ctx, audience, titleId);
-    const wanted = Math.min(Math.max(1, Math.floor(limit ?? ROW_LIMIT)), 50);
+    const wanted = resultLimit(limit, ROW_LIMIT, 50);
 
     const recommended = await Promise.all(
       (title.recommendations ?? []).map(async (tmdb) => {

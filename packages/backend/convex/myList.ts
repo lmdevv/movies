@@ -9,6 +9,10 @@ import { authorize } from "./lib/viewer";
 /** Most titles a profile's list shows. */
 const LIST_LIMIT = 500;
 
+/**
+ * A profile's list, most recently added first, up to 500 titles. Titles the profile may no longer
+ * see are left out.
+ */
 export const list = query({
   args: { profileId: v.id("profiles") },
   returns: v.array(titleCard),
@@ -30,6 +34,10 @@ export const list = query({
   },
 });
 
+/**
+ * Adds a title the profile may see to its list. Requires `play` scope; adding it again changes
+ * nothing.
+ */
 export const add = mutation({
   args: { profileId: v.id("profiles"), titleId: v.id("titles") },
   returns: ok,
@@ -49,6 +57,9 @@ export const add = mutation({
   },
 });
 
+/**
+ * Takes a title off the profile's list. Requires `play` scope; removing one not on it is harmless.
+ */
 export const remove = mutation({
   args: { profileId: v.id("profiles"), titleId: v.id("titles") },
   returns: ok,

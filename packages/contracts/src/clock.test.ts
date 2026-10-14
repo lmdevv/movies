@@ -1,15 +1,7 @@
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import {
-  classifyDrift,
-  DRIFT_THRESHOLDS,
-  DriftCorrection,
-  estimateClockOffset,
-  isNewerRevision,
-  targetPosition,
-  toServerTime,
-} from "./clock";
+import { estimateClockOffset, isNewerRevision, targetPosition, toServerTime } from "./clock";
 import type { RoomClock } from "./models/rooms";
 import { EpochMillis, Milliseconds } from "./units";
 
@@ -60,28 +52,6 @@ describe("targetPosition", () => {
   });
 });
 
-describe("classifyDrift", () => {
-  it("leaves small drift alone", () => {
-    expect(classifyDrift(ms(10_050), ms(10_000), 1)).toStrictEqual(DriftCorrection.InSync());
-  });
-
-  it("speeds up a player that is behind and slows one that is ahead", () => {
-    expect(classifyDrift(ms(9_500), ms(10_000), 1)).toStrictEqual(
-      DriftCorrection.Nudge({ rate: 1 + DRIFT_THRESHOLDS.nudgeRate }),
-    );
-
-    expect(classifyDrift(ms(10_500), ms(10_000), 1)).toStrictEqual(
-      DriftCorrection.Nudge({ rate: 1 - DRIFT_THRESHOLDS.nudgeRate }),
-    );
-  });
-
-  it("seeks when far off", () => {
-    expect(classifyDrift(ms(2_000), ms(10_000), 1)).toStrictEqual(
-      DriftCorrection.Seek({ positionMs: ms(10_000) }),
-    );
-  });
-});
-
 describe("isNewerRevision", () => {
   it("accepts the first clock and only higher revisions after it", () => {
     expect(isNewerRevision({ revision: 0 }, undefined)).toBe(true);
@@ -122,5 +92,17 @@ describe("estimateClockOffset", () => {
 
     expect(estimate).toStrictEqual({ offsetMs: 10_000, roundTripMs: 100 });
     expect(toServerTime(2_000, { offsetMs: 10_000.5, roundTripMs: 100 })).toBe(12_001);
+  });
+
+  it("ignores a sample whose client clock stepped back during the round trip", () => {
+    const estimate = estimateClockOffset([
+      { sentAt: 5_000, serverTime: at(15_050), receivedAt: 3_000 },
+      { sentAt: 1_000, serverTime: at(11_050), receivedAt: 1_100 },
+    ]);
+
+    expect(estimate).toStrictEqual({ offsetMs: 10_000, roundTripMs: 100 });
+    expect(
+      estimateClockOffset([{ sentAt: 5_000, serverTime: at(15_050), receivedAt: 3_000 }]),
+    ).toBeUndefined();
   });
 });

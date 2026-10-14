@@ -107,6 +107,7 @@ export const assertCanSignIn = internalQuery({
   },
 });
 
+/** Every account except the media service's. Requires `admin` scope. */
 export const list = query({
   args: {},
   returns: v.array(user),
@@ -130,6 +131,11 @@ const loadManagedUser = async (ctx: MutationCtx, userId: Id<"users">, self: Id<"
   return target;
 };
 
+/**
+ * Makes an account an admin or a member. Requires `admin` scope; the owner's account and the
+ * caller's own fail with `forbidden`. A demotion strips `manage` and `admin` from the account's
+ * keys and devices at once.
+ */
 export const setRole = mutation({
   args: { userId: v.id("users"), role: assignableRole },
   returns: ok,
@@ -142,6 +148,10 @@ export const setRole = mutation({
   },
 });
 
+/**
+ * Disables an account and signs out every session it has, ending their playback. Requires `admin`
+ * scope; the owner's account and the caller's own fail with `forbidden`.
+ */
 export const disable = mutation({
   args: { userId: v.id("users") },
   returns: ok,
@@ -161,6 +171,7 @@ export const disable = mutation({
   },
 });
 
+/** Lets a disabled account sign in again. Requires `admin` scope; its old sessions stay ended. */
 export const enable = mutation({
   args: { userId: v.id("users") },
   returns: ok,
@@ -173,6 +184,10 @@ export const enable = mutation({
   },
 });
 
+/**
+ * Replaces the restricted libraries an account is granted with exactly `libraryIds`. Requires
+ * `admin` scope. Playback already running keeps going until its token is renewed.
+ */
 export const setLibraryAccess = mutation({
   args: { userId: v.id("users"), libraryIds: v.array(v.id("libraries")) },
   returns: ok,

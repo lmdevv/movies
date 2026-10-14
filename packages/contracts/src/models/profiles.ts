@@ -37,6 +37,9 @@ export const CreateProfileArgs = Schema.Struct({
   maxAgeRating: Schema.optionalKey(Schema.NullOr(AgeRating)),
 });
 
+/** What creating a profile takes. */
+export interface CreateProfileArgs extends Schema.Schema.Type<typeof CreateProfileArgs> {}
+
 /** Outcome of entering a PIN. Wrong PINs are counted; five in a row lock the profile for five minutes. */
 export const UnlockResult = Schema.Union([
   Schema.Struct({ status: Schema.Literal("unlocked") }),

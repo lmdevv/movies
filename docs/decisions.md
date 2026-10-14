@@ -265,7 +265,7 @@ choices made while implementing them. Update it in the same PR that changes a de
   Visibility applies on read.
 - `titles.list` with a genre pages through `titleGenres`, one row per title and genre carrying
   the title's library, kind, and sort fields (Convex cannot index array members), kept in step
-  with every title write and backfilled by `maintenance:backfillTitleGenres`, which `configure.ts`
+  with every title write and backfilled by `maintenance:backfillTitleIndexes`, which `configure.ts`
   starts on each deploy. It uses the same index-position cursors and batch reads as every other
   page, through the genre's own indexes by library, by kind, or across all; it spends half the read
   budget, as each entry reads a row and its title. Years, studio, and minimum score are checked

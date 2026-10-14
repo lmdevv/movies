@@ -2,7 +2,8 @@ import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import { mutation } from "./_generated/server";
-import { searchTextOf } from "./lib/catalog";
+import { checkOverrides } from "./lib/bounds";
+import { writeOverrides } from "./lib/catalog";
 import { fail } from "./lib/errors";
 import { enqueueJob } from "./lib/jobs";
 import { metadataField, metadataOverrides, ok, queuedJob } from "./lib/validators";
@@ -32,6 +33,10 @@ export const fixMatch = mutation({
   },
 });
 
+/**
+ * Queues a metadata job that fetches a title's details again from its current match. Requires
+ * `manage` scope. A refresh fills credits nobody wrote yet but keeps the ones a scan wrote.
+ */
 export const refresh = mutation({
   args: { titleId: v.id("titles") },
   returns: queuedJob,
@@ -62,22 +67,11 @@ export const edit = mutation({
 
     if (title === null) return fail("not_found", "No such title");
 
-    if (
-      set.ageRating !== undefined &&
-      (!Number.isInteger(set.ageRating) || set.ageRating < 0 || set.ageRating > 21)
-    ) {
-      return fail("invalid_args", "Age ratings run from 0 to 21");
-    }
-
-    const merged: Overrides = { ...title.overrides, ...set };
+    const merged: Overrides = { ...title.overrides, ...checkOverrides(set) };
 
     for (const field of clear ?? []) delete merged[field];
 
-    await ctx.db.patch(titleId, {
-      overrides: merged,
-      searchText: searchTextOf({ ...title, overrides: merged }),
-      updatedAt: Date.now(),
-    });
+    await writeOverrides(ctx, title, merged);
 
     return { ok: true as const };
   },

@@ -8,22 +8,22 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { BACKUP_SYNC_LIMIT, BATCH_LIMIT } from "./lib/bounds";
+import { BACKUP_SYNC_LIMIT, checkBatch, resultLimit } from "./lib/bounds";
 import {
   inSequence,
-  keepKnown,
   markFileMissing,
-  searchTextOf,
-  titleMetadata,
+  rescannedTitle,
   upsertEpisode,
   upsertScannedItem,
 } from "./lib/catalog";
 import { fail } from "./lib/errors";
+import { failAttempt, LAPSED_LEASE_ERROR } from "./lib/jobOutcomes";
 import { MAX_JOB_ATTEMPTS, requireLease, requireLeaseOf } from "./lib/jobs";
 import { syncTitleGenres } from "./lib/genres";
 import { CREDIT_LIMIT, creditsOf, personKeyOf, replaceCredits } from "./lib/people";
 import { presentJob } from "./lib/present";
-import { currentManifest, settleTrickplay } from "./lib/trickplay";
+import { isInLibrary } from "./lib/roots";
+import { currentManifest } from "./lib/trickplay";
 import {
   backupArchive,
   claimedJob,
@@ -57,11 +57,6 @@ import { authorize } from "./lib/viewer";
 const MIN_LEASE_MS = 5_000;
 
 const MAX_LEASE_MS = 600_000;
-
-const checkBatch = <Item>(items: ReadonlyArray<Item>): ReadonlyArray<Item> =>
-  items.length > BATCH_LIMIT
-    ? fail("invalid_args", `Send at most ${BATCH_LIMIT} items per call`)
-    : items;
 
 const checkLease = (leaseMs: number): number =>
   Number.isInteger(leaseMs) && leaseMs >= MIN_LEASE_MS && leaseMs <= MAX_LEASE_MS
@@ -124,6 +119,11 @@ export const pendingJobs = query({
   },
 });
 
+/**
+ * Claims a pending job for `workerId` with a lease of 5 seconds to 10 minutes, or takes over a
+ * running job whose lease expired. Returns null when the job is gone or someone else holds it, and
+ * fails a lapsed job that used its last attempt; a scan comes with its library's folders.
+ */
 export const claimJob = mutation({
   args: { ...leaseArgs, leaseMs: v.number() },
   returns: v.union(v.null(), claimedJob),
@@ -132,11 +132,18 @@ export const claimJob = mutation({
     const doc = await ctx.db.get(jobId);
     const now = Date.now();
 
-    const claimable =
-      doc !== null &&
-      (doc.status === "pending" || (doc.status === "running" && (doc.leaseExpiresAt ?? 0) <= now));
+    if (doc === null) return null;
+    const lapsed = doc.status === "running" && (doc.leaseExpiresAt ?? 0) <= now;
 
-    if (!claimable) return null;
+    if (doc.status !== "pending" && !lapsed) return null;
+
+    // A lapsed job that used its last attempt fails, as the lease sweep would fail it.
+    if (lapsed && doc.attempts >= MAX_JOB_ATTEMPTS) {
+      await failAttempt(ctx, doc, { error: LAPSED_LEASE_ERROR, retry: true });
+
+      return null;
+    }
+
     const leaseExpiresAt = now + checkLease(leaseMs);
 
     await ctx.db.patch(jobId, {
@@ -160,6 +167,10 @@ export const claimJob = mutation({
   },
 });
 
+/**
+ * Extends the worker's lease and records progress. Reports `cancelled` once an admin cancelled the
+ * job, so the worker stops; fails with `conflict` when the worker lost the lease.
+ */
 export const renewLease = mutation({
   args: { ...leaseArgs, leaseMs: v.number(), progress: v.optional(jobProgress) },
   returns: v.object({ leaseExpiresAt: v.number(), cancelled: v.boolean() }),
@@ -183,6 +194,10 @@ export const renewLease = mutation({
   },
 });
 
+/**
+ * Marks a held job succeeded and releases its lease; a finished scan stamps the library's last scan
+ * time. Fails with `conflict` when the worker lost the lease.
+ */
 export const completeJob = mutation({
   args: { ...leaseArgs, message: v.optional(v.string()) },
   returns: ok,
@@ -207,28 +222,22 @@ export const completeJob = mutation({
   },
 });
 
+/**
+ * Ends the held job's attempt with an error. It returns to the queue when `retry` is set and
+ * attempts remain, and otherwise fails for good.
+ */
 export const failJob = mutation({
   args: { ...leaseArgs, error: v.string(), retry: v.boolean() },
   returns: ok,
   handler: async (ctx, { jobId, workerId, error, retry }) => {
     await authorize(ctx, "media-service");
-    const doc = await requireLease(ctx, jobId, workerId);
-    const again = retry && doc.attempts < MAX_JOB_ATTEMPTS;
-
-    await ctx.db.patch(jobId, {
-      status: again ? "pending" : "failed",
-      error,
-      leaseOwner: undefined,
-      leaseExpiresAt: undefined,
-      finishedAt: again ? null : Date.now(),
-    });
-
-    if (!again) await settleTrickplay(ctx, doc, "failed");
+    await failAttempt(ctx, await requireLease(ctx, jobId, workerId), { error, retry });
 
     return { ok: true as const };
   },
 });
 
+/** Every library with its folders and kind, whatever its access. */
 export const libraries = query({
   args: {},
   returns: v.array(mediaLibrary),
@@ -240,6 +249,10 @@ export const libraries = query({
   },
 });
 
+/**
+ * What the catalog knows of a library's files by path (size, modified time, sidecars, missing), up
+ * to 100 per page, so a scan can skip unchanged files.
+ */
 export const fileIndex = query({
   args: { libraryId: v.id("libraries"), ...pageArgs },
   returns: page(indexedFile),
@@ -250,7 +263,7 @@ export const fileIndex = query({
       .query("mediaFiles")
       .withIndex("by_library_path", (q) => q.eq("libraryId", libraryId))
       .paginate({
-        numItems: Math.min(Math.max(1, Math.floor(limit ?? 100)), 100),
+        numItems: resultLimit(limit, 100, 100),
         cursor: cursor ?? null,
       });
 
@@ -267,6 +280,10 @@ export const fileIndex = query({
   },
 });
 
+/**
+ * Writes up to 100 scanned files with their titles and episodes, queuing scrub thumbnails for new
+ * or changed files. A path outside the library's folders fails the whole batch with `invalid_args`.
+ */
 export const upsertScanned = mutation({
   args: { libraryId: v.id("libraries"), items: v.array(scannedItem) },
   returns: v.array(upsertedFile),
@@ -274,13 +291,7 @@ export const upsertScanned = mutation({
     await authorize(ctx, "media-service");
     const library = await requireLibrary(ctx, libraryId);
 
-    const inside = (path: string) =>
-      !path.split("/").some((segment) => segment === ".." || segment === ".") &&
-      library.roots.some(
-        (root) => path === root || path.startsWith(root === "/" ? root : `${root}/`),
-      );
-
-    const outside = checkBatch(items).find((item) => !inside(item.file.path));
+    const outside = checkBatch(items).find((item) => !isInLibrary(item.file.path, library));
 
     if (outside !== undefined) {
       return fail("invalid_args", `${outside.file.path} is outside the library's folders`);
@@ -290,6 +301,10 @@ export const upsertScanned = mutation({
   },
 });
 
+/**
+ * Marks up to 100 of a library's files missing by path; titles, episodes, and history stay. Returns
+ * how many were newly marked, so repeating a path is harmless.
+ */
 export const markMissing = mutation({
   args: { libraryId: v.id("libraries"), paths: v.array(v.string()) },
   returns: v.object({ marked: v.number() }),
@@ -305,6 +320,10 @@ export const markMissing = mutation({
   },
 });
 
+/**
+ * A file's path, library folders, probe, and subtitles, for streaming it. Fails with `not_found`
+ * once the file or its library is removed.
+ */
 export const resolveFile = query({
   args: { fileId: v.id("mediaFiles") },
   returns: resolvedFile,
@@ -329,6 +348,7 @@ export const resolveFile = query({
   },
 });
 
+/** Whether a playback session is still active, the file it plays, and when it ended. */
 export const sessionStatus = query({
   args: { sessionId: v.id("playbackSessions") },
   returns: sessionStatusResult,
@@ -353,7 +373,7 @@ export const endedSessions = query({
   returns: v.array(endedSession),
   handler: async (ctx, { after, limit }) => {
     await authorize(ctx, "media-service");
-    const wanted = Math.min(Math.max(1, Math.floor(limit ?? 100)), 200);
+    const wanted = resultLimit(limit, 100, 200);
 
     const ended = await ctx.db
       .query("playbackSessions")
@@ -378,6 +398,7 @@ export const endedSessions = query({
   },
 });
 
+/** Records how the media service is delivering a session: direct play, remux, or transcode. */
 export const recordPlaybackMode = mutation({
   args: { sessionId: v.id("playbackSessions"), mode: playbackMode },
   returns: ok,
@@ -392,6 +413,10 @@ export const recordPlaybackMode = mutation({
   },
 });
 
+/**
+ * What a metadata job needs to look a title up: its name and year with overrides applied, external
+ * IDs, artwork, and episode numbers.
+ */
 export const metadataTarget = query({
   args: { titleId: v.id("titles") },
   returns: metadataTargetResult,
@@ -444,14 +469,17 @@ export const applyMetadata = mutation({
     const current = await ctx.db.get(titleId);
 
     if (current === null) return fail("not_found", "No such title");
-    const merged = keepKnown(title, current);
-    const metadata = { ...titleMetadata(merged), kind: current.kind };
+    const fields = rescannedTitle(title, current);
 
     await ctx.db.patch(titleId, {
-      ...metadata,
-      matchStatus: doc.payload.match === null ? merged.matchStatus : "manual",
+      ...fields,
+      kind: current.kind,
+      // A hand-picked match stays one through later refreshes, so scans keep leaving it alone.
+      matchStatus:
+        doc.payload.match !== null || current.matchStatus === "manual"
+          ? "manual"
+          : fields.matchStatus,
       updatedAt: Date.now(),
-      searchText: searchTextOf({ ...metadata, overrides: current.overrides }),
     });
 
     const updated = await ctx.db.get(titleId);
@@ -485,6 +513,19 @@ const mayWriteMetadata = async (
 
 const optionalLease = v.optional(v.object(leaseArgs));
 
+/** A credited person as `applyCredits` reports them, with whether a person job should run. */
+const creditedPerson = (person: Doc<"people">) => ({
+  personId: person._id,
+  tmdbId: person.externalIds.tmdb,
+  needsDetails: person.detailsFetchedAt === null && person.externalIds.tmdb !== null,
+});
+
+/**
+ * Replaces the cast and crew of a title or one episode, unless `hash` matches what is stored or an
+ * admin matched the title by hand outside a metadata job. A refresh without a new match keeps
+ * credits a scan wrote. Returns the people credited and whether each still needs a person job for
+ * their details.
+ */
 export const applyCredits = mutation({
   args: {
     titleId: v.id("titles"),
@@ -535,18 +576,7 @@ export const applyCredits = mutation({
 
         return {
           written: false,
-          people: people.flatMap((person) =>
-            person === null
-              ? []
-              : [
-                  {
-                    personId: person._id,
-                    tmdbId: person.externalIds.tmdb,
-                    needsDetails:
-                      person.detailsFetchedAt === null && person.externalIds.tmdb !== null,
-                  },
-                ],
-          ),
+          people: people.flatMap((person) => (person === null ? [] : [creditedPerson(person)])),
         };
       }
     }
@@ -558,11 +588,7 @@ export const applyCredits = mutation({
 
     return {
       written: true,
-      people: people.map((person) => ({
-        personId: person._id,
-        tmdbId: person.externalIds.tmdb,
-        needsDetails: person.detailsFetchedAt === null && person.externalIds.tmdb !== null,
-      })),
+      people: people.map(creditedPerson),
     };
   },
 });
@@ -669,6 +695,7 @@ export const applyCollection = mutation({
   },
 });
 
+/** A person's name and external IDs, for a person job to look up their details. */
 export const personTarget = query({
   args: { personId: v.id("people") },
   returns: personTargetResult,
@@ -737,6 +764,9 @@ export const applyPerson = mutation({
   },
 });
 
+/**
+ * Records the archive a backup job wrote. The job still needs `completeJob`; each call adds a row.
+ */
 export const recordBackup = mutation({
   args: { ...leaseArgs, fileName: v.string(), sizeBytes: v.number() },
   returns: v.object({ backupId: v.id("backups") }),

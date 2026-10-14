@@ -6,6 +6,7 @@ import { createdAt } from "./lib/present";
 import { backup, queuedJob } from "./lib/validators";
 import { authorize } from "./lib/viewer";
 
+/** The 200 most recent backups the media service recorded, newest first. Requires `admin` scope. */
 export const list = query({
   args: {},
   returns: v.array(backup),

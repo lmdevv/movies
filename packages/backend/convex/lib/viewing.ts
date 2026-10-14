@@ -13,7 +13,7 @@ import type { continueWatchingItem } from "./validators";
 import type { ReadCtx } from "./viewer";
 
 /** Progress at or beyond this share of the duration marks an item watched. */
-export const WATCHED_FRACTION = 0.9;
+const WATCHED_FRACTION = 0.9;
 
 /** Whether a position counts as finished. Unknown durations never finish by position. */
 export const reachedEnd = (positionMs: number, durationMs: number): boolean =>
@@ -119,7 +119,7 @@ export const nextEpisodeAfter = async (
 };
 
 /** A show's first regular episode (season 1 or later), or its first special when it has none. */
-export const firstEpisode = async (
+const firstEpisode = async (
   ctx: ReadCtx,
   titleId: Id<"titles">,
 ): Promise<Doc<"episodes"> | null> => {
@@ -236,7 +236,7 @@ const scanUnwatched = async (
 };
 
 /** The first episode after `episode` the profile has not watched, or null when none remains. */
-export const nextUnwatchedAfter = async (
+const nextUnwatchedAfter = async (
   ctx: ReadCtx,
   profileId: Id<"profiles">,
   episode: Doc<"episodes">,
@@ -390,9 +390,9 @@ const nextItemOf = async (
 
 /**
  * Continue watching for a profile, most recent first: movies and episodes in progress, and for
- * shows whose latest episode is finished, the next one. Each title appears once. Rows resolve
- * with point reads in parallel; next-episode lookups then run in order until the row is full and
- * share one read budget.
+ * shows whose latest episode is finished, the next one. Each title appears once. Each title yields
+ * at most one item, so rows resolve a batch at a time, as many as the row still needs, with point
+ * reads in parallel; next-episode lookups then run in order and share one read budget.
  */
 export const continueWatching = async (
   ctx: ReadCtx,
@@ -406,50 +406,108 @@ export const continueWatching = async (
 
   const seen = new Set<Id<"titles">>();
 
-  const candidates = await Promise.all(
-    rows
-      .filter((row) => {
-        if (seen.has(row.titleId)) return false;
-        seen.add(row.titleId);
+  const latestPerTitle = rows.filter((row) => {
+    if (seen.has(row.titleId)) return false;
+    seen.add(row.titleId);
 
-        return true;
-      })
-      .map((row) => candidateOf(ctx, audience, row)),
-  );
+    return true;
+  });
+
+  interface Collected {
+    readonly items: ReadonlyArray<ContinueItem>;
+    readonly budget: number;
+  }
 
   const collect = async (
+    candidates: ReadonlyArray<Candidate>,
     index: number,
-    items: ReadonlyArray<ContinueItem>,
-    budget: number,
-  ): Promise<Array<ContinueItem>> => {
+    collected: Collected,
+  ): Promise<Collected> => {
     const candidate = candidates[index];
+    const { items, budget } = collected;
 
-    if (candidate === undefined || items.length >= CONTINUE_LIMIT) return [...items];
+    if (candidate === undefined || items.length >= CONTINUE_LIMIT) return collected;
 
-    if (candidate.kind === "skip") return collect(index + 1, items, budget);
+    if (candidate.kind === "skip") return collect(candidates, index + 1, collected);
 
-    if (candidate.kind === "item") return collect(index + 1, [...items, candidate.item], budget);
+    if (candidate.kind === "item") {
+      return collect(candidates, index + 1, { items: [...items, candidate.item], budget });
+    }
 
-    const { item, reads } = await nextItemOf(
-      ctx,
-      audience,
-      candidate.title,
-      candidate.episode,
-      budget,
-    );
+    const next = await nextItemOf(ctx, audience, candidate.title, candidate.episode, budget);
 
-    return collect(index + 1, item === null ? items : [...items, item], budget - reads);
+    return collect(candidates, index + 1, {
+      items: next.item === null ? items : [...items, next.item],
+      budget: budget - next.reads,
+    });
   };
 
-  return collect(0, [], NEXT_EPISODE_BUDGET);
+  const fromBatch = async (start: number, collected: Collected): Promise<Array<ContinueItem>> => {
+    const batch = latestPerTitle.slice(start, start + CONTINUE_LIMIT - collected.items.length);
+
+    if (batch.length === 0) return [...collected.items];
+    const candidates = await Promise.all(batch.map((row) => candidateOf(ctx, audience, row)));
+
+    return fromBatch(start + batch.length, await collect(candidates, 0, collected));
+  };
+
+  return fromBatch(0, { items: [], budget: NEXT_EPISODE_BUDGET });
 };
 
+/** How many titles to return, and how many items of the query to read at most to find them. */
+export interface VisibleBudget {
+  readonly limit: number;
+  readonly scanLimit: number;
+}
+
 /**
- * Titles from an index scan the profile may see, up to `limit`, reading at most `scanLimit`
- * documents so a heavily filtered profile cannot make one query read the whole table.
+ * The first titles of a query the profile may see. It reads the query in batches, finding their
+ * titles in parallel: a profile that sees everything reads no more than it returns, and a heavily
+ * filtered one stops after `scanLimit` items, so it cannot make one query read the whole table.
+ * `titleOf` finds an item's title, or null when it is gone.
  */
-export const visibleTitles = (
+export const firstVisible = async <Item>(
   audience: Audience,
-  titles: ReadonlyArray<Doc<"titles">>,
-  limit: number,
-): Array<Doc<"titles">> => titles.filter((title) => canSee(audience, title)).slice(0, limit);
+  items: AsyncIterable<Item>,
+  titleOf: (item: Item) => Promise<Doc<"titles"> | null>,
+  { limit, scanLimit }: VisibleBudget,
+): Promise<Array<Doc<"titles">>> => {
+  const iterator = items[Symbol.asyncIterator]();
+  const found: Array<Doc<"titles">> = [];
+
+  /** Reads up to `count` more items into `batch`; true when the query ended and may not be read. */
+  const fill = async (batch: Array<Item>, count: number): Promise<boolean> => {
+    if (batch.length >= count) return false;
+    const step = await iterator.next();
+
+    if (step.done === true) return true;
+    batch.push(step.value);
+
+    return fill(batch, count);
+  };
+
+  // The first batch is one row's worth, which a profile that sees everything fills; later ones
+  // are larger, as `titles.list` reads them, since a profile that needed another is filtered.
+  const take = async (budget: number, size: number): Promise<Array<Doc<"titles">>> => {
+    if (found.length >= limit || budget <= 0) return found;
+    const batch: Array<Item> = [];
+    const ended = await fill(batch, Math.min(size, budget));
+    const titles = await Promise.all(batch.map(titleOf));
+
+    for (const title of titles) {
+      if (title !== null && canSee(audience, title) && found.length < limit) found.push(title);
+    }
+
+    return ended ? found : take(budget - batch.length, Math.max(limit * 2, 50));
+  };
+
+  try {
+    return await take(scanLimit, limit);
+  } finally {
+    // Stopping early leaves the query open; closing it frees it now rather than at the end.
+    await iterator.return?.();
+  }
+};
+
+/** `titleOf` for a query of titles themselves. */
+export const itself = (title: Doc<"titles">): Promise<Doc<"titles">> => Promise.resolve(title);

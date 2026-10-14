@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import { resultLimit } from "./lib/bounds";
 import { fail } from "./lib/errors";
 import { settleTrickplay } from "./lib/trickplay";
 import { presentJob } from "./lib/present";
@@ -34,6 +35,11 @@ const loadJob = async (ctx: QueryCtx, viewer: Viewer, jobId: Id<"jobs">): Promis
   return doc;
 };
 
+/**
+ * Jobs newest first, filtered by kind and status. Requires `manage` scope; backup and migration
+ * jobs also need `admin` and are left out without it. Without both filters at most 2000 jobs are
+ * read, so a page can come back short.
+ */
 export const list = query({
   args: {
     kind: v.optional(jobKind),
@@ -48,7 +54,7 @@ export const list = query({
       return fail("forbidden", `This session lacks the admin scope ${kind} jobs need`);
     }
 
-    const count = Math.min(Math.max(1, Math.floor(limit ?? 50)), 100);
+    const count = resultLimit(limit, 50, 100);
     const jobs = ctx.db.query("jobs");
 
     if (kind !== undefined && status !== undefined) {
@@ -100,6 +106,10 @@ export const list = query({
   },
 });
 
+/**
+ * One job with its progress and error. Requires `manage` scope, plus `admin` for backup and
+ * migration jobs.
+ */
 export const get = query({
   args: { jobId: v.id("jobs") },
   returns: job,

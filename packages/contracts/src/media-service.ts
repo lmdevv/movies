@@ -1,8 +1,9 @@
 /**
  * The Convex functions the media service calls after signing in with `MEDIA_SERVICE_API_KEY`
  * through the `apikey` provider. Each requires the `media-service` scope, which no user session can
- * hold, and user sessions cannot call them. Convex never calls the media service; it subscribes to
- * `pendingJobs`, `libraries`, and `endedSessions` and writes back through these mutations.
+ * hold, and user sessions cannot call them. Convex never calls the media service: the media service
+ * subscribes to `pendingJobs`, `libraries`, and `endedSessions` and writes back through these
+ * mutations.
  */
 import { Schema } from "effect";
 
@@ -33,7 +34,7 @@ import {
   OptionalLease,
   PersonTarget,
   ResolvedFile,
-  SCAN_BATCH_LIMIT,
+  ScanBatch,
   ScannedCollection,
   ScannedCredit,
   ScannedEpisode,
@@ -44,9 +45,6 @@ import {
   UpsertedFile,
 } from "./models/scan";
 import { Bytes, EpochMillis } from "./units";
-
-const Batch = <Item extends Schema.Top>(item: Item) =>
-  Schema.Array(item).check(Schema.isMaxLength(SCAN_BATCH_LIMIT));
 
 /** Media service functions by name. */
 export const mediaServiceFunctions = {
@@ -114,7 +112,7 @@ export const mediaServiceFunctions = {
     summary: "Insert or update up to 100 scanned files with their titles and episodes",
     group: "media-service",
     scope: "media-service",
-    args: Schema.Struct({ libraryId: LibraryId, items: Batch(ScannedItem) }),
+    args: Schema.Struct({ libraryId: LibraryId, items: ScanBatch(ScannedItem) }),
     result: Schema.Array(UpsertedFile),
     function: "mediaService:upsertScanned",
   }),
@@ -122,7 +120,7 @@ export const mediaServiceFunctions = {
     summary: "Mark up to 100 paths missing; watch history that points at them stays",
     group: "media-service",
     scope: "media-service",
-    args: Schema.Struct({ libraryId: LibraryId, paths: Batch(Schema.String) }),
+    args: Schema.Struct({ libraryId: LibraryId, paths: ScanBatch(Schema.String) }),
     result: Schema.Struct({ marked: Schema.Int }),
     function: "mediaService:markMissing",
   }),
@@ -178,7 +176,7 @@ export const mediaServiceFunctions = {
       ...LeaseArgs,
       titleId: TitleId,
       title: ScannedTitle,
-      episodes: Batch(ScannedEpisode),
+      episodes: ScanBatch(ScannedEpisode),
     }),
     result: Ok,
     function: "mediaService:applyMetadata",
@@ -292,7 +290,7 @@ export const mediaServiceFunctions = {
     summary: "Which stored thumbnail version each file still uses; null for files without one",
     group: "media-service",
     scope: "media-service",
-    args: Schema.Struct({ fileIds: Batch(Schema.String) }),
+    args: Schema.Struct({ fileIds: ScanBatch(Schema.String) }),
     result: Schema.Array(
       Schema.Struct({ fileId: Schema.String, version: Schema.NullOr(TrickplayVersion) }),
     ),

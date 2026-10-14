@@ -12,7 +12,7 @@ export const Role = Schema.Literals(["owner", "admin", "member", "service"]);
 export type Role = typeof Role.Type;
 
 /** Roles an admin can assign through invites and role changes. */
-export const AssignableRole = Schema.Literals(["admin", "member"]);
+export const AssignableRole = Role.pick(["admin", "member"]);
 
 /** A role an admin can assign. */
 export type AssignableRole = typeof AssignableRole.Type;
@@ -40,13 +40,13 @@ export const Scope = Schema.Literals([
 export type Scope = typeof Scope.Type;
 
 /** Scopes an API key may carry. Keys never manage credentials and never act as the media service. */
-export const ApiKeyScope = Schema.Literals(["read", "play", "manage", "admin"]);
+export const ApiKeyScope = Scope.pick(["read", "play", "manage", "admin"]);
 
 /** A scope an API key may carry. */
 export type ApiKeyScope = typeof ApiKeyScope.Type;
 
 /** Scopes a device sign-in may receive. `media-service` is never grantable. */
-export const DeviceScope = Schema.Literals(["read", "play", "account", "manage", "admin"]);
+export const DeviceScope = Scope.pick(["read", "play", "account", "manage", "admin"]);
 
 /** A scope a device sign-in may receive. */
 export type DeviceScope = typeof DeviceScope.Type;
@@ -69,16 +69,3 @@ const ROLE_SCOPES = {
 
 /** Every scope a role allows. A password session holds exactly these, except for `service`, which has none. */
 export const roleScopes = (role: Role): ReadonlyArray<Scope> => ROLE_SCOPES[role];
-
-/**
- * The scopes a restricted session holds now: those granted when it was created that the account's
- * role still allows. Demoting an admin strips `manage` and `admin` from their existing keys at once.
- */
-export const effectiveScopes = (
-  granted: ReadonlyArray<Scope>,
-  role: Role,
-): ReadonlyArray<Scope> => {
-  const allowed = new Set(roleScopes(role));
-
-  return granted.filter((scope) => allowed.has(scope));
-};
