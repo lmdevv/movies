@@ -6,7 +6,7 @@ import type { ProfileId } from "@movies/contracts/ids";
 import { type ClientCapabilities, PlaybackApiError } from "@movies/contracts/media-playback";
 import type { MediaVersion, TitleCard, TitleDetail } from "@movies/contracts/models/catalog";
 import { MoviesClient, Playback, Versions } from "@movies/sdk/effect";
-import { Effect, Option, Result, Schema } from "effect";
+import { Effect, Option, Predicate, Result, Schema } from "effect";
 
 import { LaunchError, PlaybackRefused } from "./cli-errors";
 import { runAttached } from "./files";
@@ -218,9 +218,11 @@ const play: ShortcutCommand = {
     Effect.gen(function* () {
       const query = yield* requirePositional(invocation, "a title name or ID");
       const from = yield* positionFlag(invocation, "from");
+      const rawVersion = invocation.tokens.values["version"];
       const versionChoice = stringFlag(invocation.tokens, "version");
 
-      if (Option.isSome(versionChoice) && versionChoice.value.trim() === "") {
+      // `stringFlag` reads a blank value as no flag, which would quietly play the default version.
+      if (Predicate.isString(rawVersion) && Option.isNone(versionChoice)) {
         return yield* usage(
           invocation,
           "--version expects a version name or its number, such as 2",

@@ -11,8 +11,8 @@
 import { targetPosition } from "@movies/contracts/clock";
 import { DRIFT_THRESHOLDS } from "@movies/contracts/clock";
 import type { EpisodeId, MediaFileId, RoomId, TitleId } from "@movies/contracts/ids";
+import type { NegotiateResponse } from "@movies/contracts/media-playback";
 import type { MediaVersion } from "@movies/contracts/models/catalog";
-import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { EpochMillis, Milliseconds } from "@movies/contracts/units";
 import { Playback, Versions } from "@movies/sdk/effect";
 import { useCommand, useCommandQuery, useMoviesRuntime, useRoomSync } from "@movies/sdk/react";
@@ -521,10 +521,10 @@ export function PlayerScreen({
 
   const versionId = started?.file.id ?? "";
 
-  // The version picked last and the session playing when it was picked, until a session starts.
+  // The version picked last and the stream playing when it was picked, until another stream loads.
   const versionPick = useRef<{
     readonly id: MediaFileId;
-    readonly before: StartedPlayback | null;
+    readonly before: NegotiateResponse | null;
   } | null>(null);
 
   const selectVersion = useCallback(
@@ -532,17 +532,17 @@ export function PlayerScreen({
       const chosen = versions.find((candidate) => candidate.id === id);
 
       if (chosen === undefined || controller?.selectVersion(chosen.id) !== true) return;
-      versionPick.current = { id: chosen.id, before: started };
+      versionPick.current = { id: chosen.id, before: stream };
     },
-    [versions, controller, started],
+    [versions, controller, stream],
   );
 
-  // Once a session starts after a pick, the URL names its version, so reloading keeps it; a version
-  // that could not start gave way to the one before, and says so.
+  // Once a stream loads after a pick, the URL names its version, so reloading keeps it; a version
+  // that could not start or stream gave way to the one before, and says so.
   useEffect(() => {
     const pick = versionPick.current;
 
-    if (pick === null || started === null || started === pick.before) return;
+    if (pick === null || started === null || stream === null || stream === pick.before) return;
     versionPick.current = null;
 
     if (started.file.id !== pick.id) {
@@ -557,7 +557,7 @@ export function PlayerScreen({
       search: (previous) => ({ ...previous, version: pick.id }),
       replace: true,
     });
-  }, [started, navigate, titleId]);
+  }, [started, stream, navigate, titleId]);
 
   // Remember a quality once a stream negotiated with it has loaded, never a choice still being
   // negotiated or one the service refused.

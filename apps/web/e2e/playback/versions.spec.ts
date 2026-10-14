@@ -17,7 +17,7 @@ import { NO_STACK, ownedStack, signInOwner, useSession } from "../admin/session"
 import type { Client } from "../admin/session";
 import { buildMediaService, startMediaService } from "../stack/media-service";
 import type { MediaService } from "../stack/media-service";
-import { recordStreams } from "./negotiated-streams";
+import { recordStreams, refuseNextNegotiation } from "./negotiated-streams";
 import type { NegotiatedStream } from "./negotiated-streams";
 import {
   adultProfile,
@@ -264,6 +264,26 @@ test("the player switches versions in place, keeping the position and the pause"
     .click();
   await expect.poll(sessionFile).toBe(fileOf("Remastered"));
   await expectPlayingPast(page, playingAt);
+});
+
+test("a version the service cannot stream gives way to the one that played", async () => {
+  await expectPlayingPast(page, 1);
+
+  const position = (await videoState(page)).currentTime;
+  const url = page.url();
+
+  await refuseNextNegotiation(page);
+  await revealControls(page);
+  await page.getByRole("button", { name: TRACKS }).click();
+  await versionGroup(page)
+    .getByRole("radio", { name: /^Standard/u })
+    .click();
+
+  await expect(page.getByText("This version couldn't play")).toBeVisible();
+  await expect.poll(sessionFile).toBe(fileOf("Remastered"));
+  await expectPlayingPast(page, position);
+  expect(page.url()).toBe(url);
+  await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 
 test("the profile's last version comes back on the title page and in a plain play", async () => {

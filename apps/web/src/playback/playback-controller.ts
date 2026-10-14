@@ -402,6 +402,16 @@ export class PlaybackController {
         return this.#negotiate(started, positionMs, play);
       }
 
+      // A version switched to that this browser cannot get a stream of gives way to the one before.
+      const switching = this.#switching;
+
+      if (switching !== null) {
+        this.#switching = null;
+        this.#fileId = switching.from;
+
+        return this.#restart(switching.positionMs, switching.play);
+      }
+
       return this.#follow(afterPlaybackFailure(negotiated.failure), positionMs);
     }
 
