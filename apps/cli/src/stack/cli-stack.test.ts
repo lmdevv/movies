@@ -64,6 +64,12 @@ const RoomCreated = parse(Schema.Struct({ id: Schema.String }));
 
 const Clock = parse(Schema.Struct({ status: Schema.String, positionAtAnchorMs: Schema.Finite }));
 
+const Titles = parse(Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })));
+
+const Progress = parse(
+  Schema.Struct({ titleId: Schema.String, name: Schema.String, progress: Schema.Null }),
+);
+
 const SetupStatus = parse(Schema.Struct({ hasOwner: Schema.Boolean }));
 
 /** One line of `rooms status --watch` in JSON mode. */
@@ -210,7 +216,17 @@ describe.skipIf(stack === undefined)("the movies CLI against a real stack", () =
       join(folder, "movie.mp4"),
       name,
     );
-    expect((await runMovies(["search", name], owner)).stdout).toContain(name);
+    const [found] = Titles((await runMovies(["search", name], owner)).stdout);
+
+    expect(found?.name).toBe(name);
+
+    const progress = await Promise.all(
+      [name, found?.id ?? ""].map((query) => runMovies(["progress", query], owner)),
+    );
+
+    for (const run of progress) {
+      expect(Progress(run.stdout)).toStrictEqual({ titleId: found?.id, name, progress: null });
+    }
 
     const email = `cli-guest-${id}@movies.test`;
 
