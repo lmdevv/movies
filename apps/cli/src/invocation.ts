@@ -89,10 +89,12 @@ export const requirePositional = (
   );
 
 /**
- * A secret from the environment variable `variable` or, when stdin is piped, from stdin. A blank
- * variable counts as unset. `what` names the secret in messages, such as `password`.
+ * A secret from the environment variable `variable` or, when stdin is piped, from stdin. `what`
+ * names the secret in messages, such as `password`.
  *
- * @returns The secret, or a usage error when stdin is a terminal or the piped secret is empty.
+ * @returns The secret, or a usage error when the variable is set but blank, stdin is a terminal,
+ * or the piped secret is empty. A blank variable never falls through to stdin: an inherited pipe
+ * that never closes would wait forever.
  */
 export const readSecret = Effect.fn("Cli.readSecret")(function* (
   invocation: Invocation,
@@ -100,9 +102,18 @@ export const readSecret = Effect.fn("Cli.readSecret")(function* (
   what: string,
 ) {
   const fromEnv = yield* Config.option(Config.Redacted(variable)).pipe(
-    Effect.map(Option.filter((secret) => Redacted.value(secret).trim().length > 0)),
     Effect.orElseSucceed(() => Option.none<Redacted.Redacted>()),
   );
+
+  // Effect's environment provider reads an empty variable as unset; process.env tells them apart.
+  const blank = Option.match(fromEnv, {
+    onSome: (secret) => Redacted.value(secret).trim().length === 0,
+    onNone: () => process.env[variable] === "",
+  });
+
+  if (blank) {
+    return yield* usage(invocation, `${variable} is set but empty; unset it or set the ${what}`);
+  }
 
   if (Option.isSome(fromEnv)) return fromEnv.value;
 
