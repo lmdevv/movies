@@ -9,6 +9,7 @@ import { Auth, DeviceLogin, MoviesClient } from "@movies/sdk/effect";
 import { Effect, Option, Redacted, Schema, Struct } from "effect";
 import { renderUnicodeCompact } from "uqr";
 
+import type { UsageError } from "./cli-errors";
 import { LoginRefused } from "./cli-errors";
 import type { StoredProfile } from "./config";
 import {
@@ -19,7 +20,7 @@ import {
   setDefaultProfile,
   updateProfile,
 } from "./config";
-import type { ShortcutCommand } from "./invocation";
+import type { Invocation, ShortcutCommand } from "./invocation";
 import {
   booleanFlag,
   encodeResult,
@@ -34,6 +35,36 @@ import { Output } from "./output";
 import { connect, openSdk, storageFailure } from "./session";
 
 const isServerUrl = Schema.is(ServerUrl);
+
+/**
+ * Fails when the stored profile of this name belongs to another server than `server` while
+ * `MOVIES_CONVEX_URL` overrides it: login, logout, and `profiles use` never replace or clear it.
+ */
+const keepOtherServerProfile = (
+  invocation: Invocation,
+  server: Option.Option<string>,
+): Effect.Effect<void, UsageError> => {
+  const { target } = invocation;
+  const named = Option.fromNullishOr(invocation.config.profiles[target.name]);
+
+  const other = Option.filter(
+    named,
+    (profile) =>
+      Option.isNone(target.stored) &&
+      !Option.exists(server, (url) => url === normalizeUrl(profile.convexUrl)),
+  );
+
+  return Option.match(other, {
+    onNone: () => Effect.void,
+    onSome: (profile) =>
+      Effect.fail(
+        usage(
+          invocation,
+          `The stored profile "${target.name}" is for ${profile.convexUrl}; pass --profile <new-name> to use ${Option.getOrElse(server, () => "another server")}`,
+        ),
+      ),
+  });
+};
 
 const login: ShortcutCommand = {
   path: "login",
@@ -71,9 +102,12 @@ const login: ShortcutCommand = {
         target.apiKeyFromEnvironment ? target.apiKey : Option.none(),
       );
 
+      yield* keepOtherServerProfile(invocation, server);
+
+      // The profile's own server keeps its device and viewing profile across logins.
       const previous = Option.filter(
-        target.stored,
-        (profile) => profile.convexUrl === server.value,
+        Option.fromNullishOr(invocation.config.profiles[target.name]),
+        (profile) => normalizeUrl(profile.convexUrl) === server.value,
       );
 
       const base: StoredProfile = {
@@ -213,6 +247,8 @@ const logout: ShortcutCommand = {
       const output = yield* Output;
       const { env, target } = invocation;
 
+      yield* keepOtherServerProfile(invocation, target.convexUrl);
+
       if (Option.isSome(target.convexUrl) && target.sessionStorage === "profile") {
         const { auth } = yield* openSdk(
           target.convexUrl.value,
@@ -228,12 +264,9 @@ const logout: ShortcutCommand = {
         );
       }
 
-      // A stored profile for another server than MOVIES_CONVEX_URL keeps its own credentials.
-      if (Option.isSome(target.stored)) {
-        yield* updateProfile(env.configPath, target.name, (profile) =>
-          Option.map(profile, ({ apiKey: _apiKey, session: _session, ...rest }) => rest),
-        );
-      }
+      yield* updateProfile(env.configPath, target.name, (profile) =>
+        Option.map(profile, ({ apiKey: _apiKey, session: _session, ...rest }) => rest),
+      );
 
       if (target.apiKeyFromEnvironment) {
         yield* output.err("MOVIES_API_KEY is still set in the environment and keeps working.");
@@ -280,15 +313,8 @@ const profilesUse: ShortcutCommand = {
     Effect.gen(function* () {
       const wanted = yield* requirePositional(invocation, "a profile ID or name");
       const { target } = invocation;
-      const other = Option.fromNullishOr(invocation.config.profiles[target.name]);
 
-      // The stored profile is for another server than MOVIES_CONVEX_URL; never overwrite it.
-      if (Option.isNone(target.stored) && Option.isSome(other)) {
-        return yield* usage(
-          invocation,
-          `The stored profile "${target.name}" is for ${other.value.convexUrl}; pass --profile <new-name> to keep this choice for ${Option.getOrElse(target.convexUrl, () => "this server")}`,
-        );
-      }
+      yield* keepOtherServerProfile(invocation, target.convexUrl);
 
       const connection = yield* connect(invocation.env, target, "required");
       const profiles = yield* connection.withSession(connection.client.query("profiles.list", {}));
