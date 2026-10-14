@@ -2,7 +2,7 @@
 
 Node + Effect HttpApi media service. It scans approved library folders, probes files with
 ffprobe, merges local NFO/artwork with TMDB metadata, negotiates playback, serves direct files
-with byte ranges, produces fMP4 HLS (remux, audio-only transcode, Intel QSV transcode with HDR
+with byte ranges, produces fMP4 HLS (remux, audio-only transcode, Intel QSV or VA-API transcode with HDR
 tone mapping, or software transcode capped at 1080p), converts text subtitles to WebVTT, and
 hosts the built web app.
 
@@ -31,7 +31,7 @@ playback events are logged. `CONVEX_URL` without the key refuses to start.
 | `GET /media/hls/:streamId/:generation/index.m3u8?token=` | VOD playlist of one generation                                      |
 | `GET /media/hls/:streamId/:generation/init.mp4?token=`   | fMP4 init segment                                                   |
 | `GET /media/hls/:streamId/:generation/:index.m4s?token=` | fMP4 media segment                                                  |
-| `GET /media/subtitles/:fileId/:track.vtt?token=`         | WebVTT (`e<stream>` embedded, `x<n>` sidecar)                       |
+| `GET /media/subtitles/:fileId/:track.vtt?token=`         | WebVTT (`e<stream>` embedded, `x<file-name hash>` sidecar)          |
 | `GET /artwork/:key?w=`                                   | Artwork by sealed key, original or resized (185–1280), no token     |
 | `POST /api/metadata/candidates`                          | `metadata.searchCandidates` command (bearer Convex token, `manage`) |
 | `POST /api/migration/connect`                            | `migration.connect` command (bearer Convex token, `admin`)          |
@@ -52,11 +52,19 @@ Required: `MEDIA_BASE_URL`, `DATA_DIR`, `TRANSCODE_DIR`, `PLAYBACK_TOKEN_SECRET`
 approves nothing, so every scan is refused), `PORT` (4300), `HOST` (all interfaces),
 `BACKUP_DIR` (`/data/backups`), `TMDB_API_KEY` (v3 key or v4 read token), `OMDB_API_KEY`
 (IMDb, Rotten Tomatoes, and Metacritic scores; without it titles keep TMDB's), `WEB_DIST_DIR`,
-`MAX_CONCURRENT_TRANSCODES` (3), `HARDWARE_ACCELERATION` (`auto`, `qsv`, `none`),
-`QSV_DEVICE` (`/dev/dri/renderD128`), `STREAM_IDLE_SECONDS` (60), `STREAM_BUFFER_AHEAD_SECONDS` (120: ffmpeg pauses this far ahead of the player), `MIN_FREE_TRANSCODE_MB`
-(2048), `LIBRARY_RECONCILE_MINUTES` (360), `TRICKPLAY` (`on` or `off`: scrub thumbnail jobs),
-`TRICKPLAY_INTERVAL_SECONDS` (10, from 1 to 600), `TRICKPLAY_CONCURRENCY` (1: files given
-thumbnails at once, besides other jobs), `FFMPEG_PATH`, `FFPROBE_PATH`,
+`MAX_CONCURRENT_TRANSCODES` (3), `MAX_CONCURRENT_REMUXES` (10: HLS streams that copy the video),
+`HARDWARE_ACCELERATION` (`auto` tries Quick Sync, then VA-API, then software; `qsv`, `vaapi`,
+`none`), `QSV_DEVICE` and `VAAPI_DEVICE` (`/dev/dri/renderD128`), `STREAM_IDLE_SECONDS` (60),
+`STREAM_BUFFER_AHEAD_SECONDS` (120: ffmpeg pauses this far ahead of the player),
+`MIN_FREE_TRANSCODE_MB` (2048), `LIBRARY_RECONCILE_MINUTES` (360), `LIBRARY_WATCH` (`auto`: file
+events on local disks, polling on NFS, SMB/CIFS, 9p and FUSE mounts; `events`; `poll`),
+`LIBRARY_POLL_SECONDS` (60), `PROBE_TIMEOUT_SECONDS` (60: ffprobe probes, artwork resizes, and
+other short tool runs), `FILE_SCAN_TIMEOUT_SECONDS` (900: keyframe scans and embedded subtitle
+extraction, which read a whole file), `CACHE_MAX_MB` (2048: provider responses, keyframe indexes,
+subtitles, and artwork under `DATA_DIR`, pruned hourly, least recently used first), `TRICKPLAY`
+(`on` or `off`: scrub thumbnail jobs), `TRICKPLAY_INTERVAL_SECONDS` (10, from 1 to 600),
+`TRICKPLAY_CONCURRENCY` (1: files given thumbnails at once, besides other jobs), `FFMPEG_PATH`,
+`FFPROBE_PATH`,
 `OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVEX_URL`, `CONVEX_PUBLIC_URL` (the Convex URL browsers use; it
 narrows the web app's content security policy), `MEDIA_SERVICE_API_KEY`,
 `CONVEX_SELF_HOSTED_ADMIN_KEY` and `CONVEX_BACKEND_DIR` (backups), `BACKUP_RETENTION_DAYS` (14). The dev stack sets

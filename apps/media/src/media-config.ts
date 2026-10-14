@@ -5,7 +5,13 @@ import { DEFAULT_TRICKPLAY_INTERVAL_SECONDS } from "@movies/contracts/trickplay"
 import { Config, Context, Duration, Effect, Layer, Option, type Redacted, Schema } from "effect";
 
 /** How the service may use the GPU for video transcoding. */
-type HardwareAccelerationMode = "auto" | "qsv" | "none";
+type HardwareAccelerationMode = "auto" | "qsv" | "vaapi" | "none";
+
+/**
+ * How libraries notice changes: file system events, polling, or `auto` (events on local disks,
+ * polling on network file systems, which send no events).
+ */
+type LibraryWatchMode = "auto" | "events" | "poll";
 
 /** Scrub thumbnail generation. */
 interface TrickplaySettings {
@@ -56,9 +62,13 @@ export interface Interface {
   readonly webDistDir: Option.Option<string>;
   /** Upper bound on simultaneous video transcodes (hardware and software). */
   readonly maxConcurrentTranscodes: number;
+  /** Upper bound on simultaneous HLS streams that copy the video (remux and audio-only). */
+  readonly maxConcurrentRemuxes: number;
   readonly hardwareAcceleration: HardwareAccelerationMode;
   /** DRM render node used for Intel Quick Sync. */
   readonly qsvDevice: string;
+  /** DRM render node used for VA-API. */
+  readonly vaapiDevice: string;
   /** A stream session with no requests for this long is closed and its segments deleted. */
   readonly streamIdleTimeout: Duration.Duration;
   /**
@@ -71,6 +81,18 @@ export interface Interface {
   /** Interval of the authoritative library reconciliation that backs up file watching. */
   readonly reconcileInterval: Duration.Duration;
   readonly trickplay: TrickplaySettings;
+  readonly libraryWatch: LibraryWatchMode;
+  /** How often polled library folders are checked for changes. */
+  readonly libraryPollInterval: Duration.Duration;
+  /** Longest an ffprobe probe of one file may run. */
+  readonly probeTimeout: Duration.Duration;
+  /**
+   * Longest a tool run that reads a whole file may take: a keyframe scan, or extracting an
+   * embedded subtitle track. Every other ffprobe and ffmpeg run to completion gets `probeTimeout`.
+   */
+  readonly fileScanTimeout: Duration.Duration;
+  /** Size the caches under `DATA_DIR` (provider responses, indexes, subtitles, artwork) are pruned to. */
+  readonly cacheMaxBytes: number;
   readonly ffmpegPath: string;
   readonly ffprobePath: string;
 }
@@ -130,12 +152,20 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
       "MAX_CONCURRENT_TRANSCODES",
     ).pipe(Config.withDefault(3));
 
+    const maxConcurrentRemuxes = yield* Config.schema(PositiveInt, "MAX_CONCURRENT_REMUXES").pipe(
+      Config.withDefault(10),
+    );
+
     const hardwareAcceleration = yield* Config.Literals(
-      ["auto", "qsv", "none"],
+      ["auto", "qsv", "vaapi", "none"],
       "HARDWARE_ACCELERATION",
     ).pipe(Config.withDefault("auto"));
 
     const qsvDevice = yield* Config.NonEmptyString("QSV_DEVICE").pipe(
+      Config.withDefault("/dev/dri/renderD128"),
+    );
+
+    const vaapiDevice = yield* Config.NonEmptyString("VAAPI_DEVICE").pipe(
       Config.withDefault("/dev/dri/renderD128"),
     );
 
@@ -169,6 +199,27 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
       Config.withDefault(1),
     );
 
+    const libraryWatch = yield* Config.Literals(["auto", "events", "poll"], "LIBRARY_WATCH").pipe(
+      Config.withDefault("auto"),
+    );
+
+    const libraryPollSeconds = yield* Config.schema(PositiveInt, "LIBRARY_POLL_SECONDS").pipe(
+      Config.withDefault(60),
+    );
+
+    const probeTimeoutSeconds = yield* Config.schema(PositiveInt, "PROBE_TIMEOUT_SECONDS").pipe(
+      Config.withDefault(60),
+    );
+
+    const fileScanTimeoutSeconds = yield* Config.schema(
+      PositiveInt,
+      "FILE_SCAN_TIMEOUT_SECONDS",
+    ).pipe(Config.withDefault(900));
+
+    const cacheMaxMb = yield* Config.schema(PositiveInt, "CACHE_MAX_MB").pipe(
+      Config.withDefault(2048),
+    );
+
     const ffmpegPath = yield* Config.NonEmptyString("FFMPEG_PATH").pipe(
       Config.withDefault("ffmpeg"),
     );
@@ -197,8 +248,10 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
       mediaServiceApiKey,
       webDistDir: Option.map(webDistDir, absolute),
       maxConcurrentTranscodes,
+      maxConcurrentRemuxes,
       hardwareAcceleration,
       qsvDevice,
+      vaapiDevice,
       streamIdleTimeout: Duration.seconds(streamIdleSeconds),
       streamBufferAhead: Duration.seconds(streamBufferAheadSeconds),
       minFreeTranscodeBytes: minFreeTranscodeMb * MEBIBYTE,
@@ -208,6 +261,11 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
         interval: Duration.seconds(trickplayIntervalSeconds),
         concurrency: trickplayConcurrency,
       },
+      libraryWatch,
+      libraryPollInterval: Duration.seconds(libraryPollSeconds),
+      probeTimeout: Duration.seconds(probeTimeoutSeconds),
+      fileScanTimeout: Duration.seconds(fileScanTimeoutSeconds),
+      cacheMaxBytes: cacheMaxMb * MEBIBYTE,
       ffmpegPath,
       ffprobePath,
     });

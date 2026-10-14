@@ -119,8 +119,15 @@ A review of `packages/backend` found these after the table above; each has a sta
   readable by anyone who can reach the port.
 - **Six-hour playback tokens** are verified offline; while the media service is disconnected from
   Convex it cannot learn of revocations (documented in the architecture).
-- **No rate limiting in the media service.** Tokens are 256-bit HMACs, so guessing is not the risk;
-  the body cap, per-account device limit, transcode limit, and throttling bound the cost of abuse.
+- **Rate limiting in the media service covers only the routes without a token.** `/artwork/*`
+  (600 requests at once, then 100 per second) and `/api/health` (60, then 10 per second) have a
+  token bucket per client address and answer `429` with `Retry-After` beyond it. Behind a reverse
+  proxy every client shares the proxy's address, and forwarded headers are not trusted, so the
+  budget is shared there. Token routes are not limited: tokens are 256-bit HMACs, so guessing is
+  not the risk, and the body cap, per-account device limit, transcode and remux limits
+  (`MAX_CONCURRENT_TRANSCODES`, `MAX_CONCURRENT_REMUXES`), at most two subtitle conversions and two
+  artwork resizes at once, a 20 MB cap and 30-second limit on artwork downloads, and throttling
+  bound the cost of abuse.
 - **Lockouts can be triggered by others:** ten wrong passwords lock that account's password sign-in
   for a while, and five wrong PINs lock a profile for five minutes (about 60 guesses an hour
   against a four-digit PIN, enough for parental controls, not for secrets).
@@ -140,8 +147,9 @@ A review of `packages/backend` found these after the table above; each has a sta
   so an install served over plain HTTP loads it over HTTP, open to anyone on the path to Google.
   Serve [movies] over HTTPS (Tailscale Serve, a reverse proxy) to keep it on HTTPS; browsers other
   than Chromium never load it.
-- **Artwork downloads** from `image.tmdb.org` have no size cap, interrupted downloads can leave
-  `.part` files, and first-time subtitle conversions and keyframe scans are not de-duplicated.
+- **First-time subtitle conversions are not de-duplicated:** two requests for the same track
+  before it is cached convert it twice (at most two conversions run at once). Keyframe scans are
+  shared by everyone waiting on the same file.
 - **Check-then-open races in the library.** Paths are checked by their real path and then opened
   by name (ffmpeg opens files itself), so someone who can write to a library folder can swap a
   folder for a link between the two. Libraries are mounted read-only to the service, and whoever

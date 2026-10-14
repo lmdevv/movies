@@ -2,12 +2,14 @@
  * Best-effort disk cache under `DATA_DIR/cache`, one folder per namespace (provider responses,
  * keyframe indexes, converted subtitles). Entries hold text and the time it was stored; callers
  * parse what they read, as with any other external input. Read and write failures are logged
- * and treated as misses.
+ * and treated as misses. A hit touches its file; `cache-pruner.ts` keeps the folder within
+ * `CACHE_MAX_MB` by removing the least recently used entries.
  */
 import { createHash } from "node:crypto";
 
 import { Clock, Context, Duration, Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 
+import { markUsed } from "./cache-pruner.ts";
 import * as MediaConfig from "./media-config.ts";
 
 /** Cached text by namespace and key. */
@@ -56,9 +58,17 @@ const make = Effect.fn("DiskCache.make")(function* (directory: string) {
 
     const now = yield* Clock.currentTimeMillis;
 
-    return Option.filter(entry, (value) => now - value.fetchedAt < Duration.toMillis(maxAge)).pipe(
-      Option.map((value) => value.body),
+    const fresh = Option.filter(
+      entry,
+      (value) => now - value.fetchedAt < Duration.toMillis(maxAge),
     );
+
+    // The pruner removes the least recently used entries first, by modification time.
+    if (Option.isSome(fresh)) {
+      yield* markUsed(file).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.ignore);
+    }
+
+    return Option.map(fresh, (value) => value.body);
   });
 
   const write = Effect.fn("DiskCache.write")(function* (

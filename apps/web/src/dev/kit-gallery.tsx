@@ -324,6 +324,18 @@ export function KitGallery() {
   const [muted, setMuted] = useState(false);
   const [audio, setAudio] = useState("en-51");
   const [subtitle, setSubtitle] = useState("en-cc");
+
+  const trackChoices = [
+    { id: "audio", label: "Audio", options: AUDIO, value: audio, onValueChange: setAudio },
+    {
+      id: "subtitles",
+      label: "Subtitles",
+      options: SUBTITLES,
+      value: subtitle,
+      onValueChange: setSubtitle,
+    },
+  ];
+
   const [chip, setChip] = useState("all");
   const [code, setCode] = useState("HD5R5GTL");
   const [pin, setPin] = useState("4821");
@@ -537,24 +549,13 @@ export function KitGallery() {
                         <TracksGlyph />
                       </PlayerButton>
                     }
-                    audio={AUDIO}
-                    subtitles={SUBTITLES}
-                    audioId={audio}
-                    subtitleId={subtitle}
-                    onAudioChange={setAudio}
-                    onSubtitleChange={setSubtitle}
+                    label="Audio and subtitles"
+                    choices={trackChoices}
                   />
                 }
               />
             </div>
-            <TrackPanel
-              audio={AUDIO}
-              subtitles={SUBTITLES}
-              audioId={audio}
-              subtitleId={subtitle}
-              onAudioChange={setAudio}
-              onSubtitleChange={setSubtitle}
-            />
+            <TrackPanel choices={trackChoices} />
           </div>
         </Section>
 

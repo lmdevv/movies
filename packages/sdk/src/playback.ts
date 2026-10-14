@@ -19,6 +19,7 @@ import {
   type ClientCapabilities,
   MEDIA_ROUTES,
   NegotiateRequest,
+  type PlaybackQuality,
   NegotiateResponse,
   SeekRequest,
   SeekResponse,
@@ -57,7 +58,25 @@ export interface PlaybackRequest {
   readonly startAtMs: Option.Option<Milliseconds>;
   /** ffmpeg stream index of the audio track to play; the file's default track when none. */
   readonly audioStreamIndex: Option.Option<number>;
+  /** The most to receive, such as 720p; the best the device plays when none. */
+  readonly quality: Option.Option<PlaybackQuality>;
 }
+
+/**
+ * What a viewer chose about the stream besides its position and audio: a quality cap, and a
+ * picture subtitle (PGS, VobSub) to burn into the video, by its subtitle track ID. Choosing one
+ * the stream does not have yet means negotiating again.
+ */
+export interface StreamChoices {
+  readonly quality: Option.Option<PlaybackQuality>;
+  readonly burnInSubtitle: Option.Option<string>;
+}
+
+/** No cap and no burned-in subtitle. */
+export const defaultStreamChoices: StreamChoices = {
+  quality: Option.none(),
+  burnInSubtitle: Option.none(),
+};
 
 /** A playing session on this device. */
 export interface Playback {
@@ -74,13 +93,14 @@ const encodeJson = <A, I>(schema: Schema.Codec<A, I>, value: A): Effect.Effect<S
 
 /**
  * Asks the media service for a stream of a started session's file at `startAtMs`, with the audio
- * track `audioStreamIndex` (an ffmpeg stream index) or the file's default track.
+ * track `audioStreamIndex` (an ffmpeg stream index) or the file's default track, within `choices`.
  */
 export const negotiate = Effect.fn("Playback.negotiate")(function* (
   started: StartedPlayback,
   capabilities: ClientCapabilities,
   startAtMs: Milliseconds,
   audioStreamIndex: Option.Option<number>,
+  choices: StreamChoices = defaultStreamChoices,
 ) {
   return yield* requestPlayback(
     {
@@ -95,6 +115,14 @@ export const negotiate = Effect.fn("Playback.negotiate")(function* (
           ...Option.match(audioStreamIndex, {
             onNone: () => ({}),
             onSome: (index) => ({ audioStreamIndex: index }),
+          }),
+          ...Option.match(choices.quality, {
+            onNone: () => ({}),
+            onSome: (quality) => ({ quality }),
+          }),
+          ...Option.match(choices.burnInSubtitle, {
+            onNone: () => ({}),
+            onSome: (burnInSubtitle) => ({ burnInSubtitle }),
           }),
         }),
       ),
@@ -208,13 +236,15 @@ const TOKEN_RENEW_MARGIN_MS = 5 * 60 * 1000;
  * Negotiates again at `positionMs`, for example after `StreamNotFound`, before the token expires,
  * or to switch the audio track: renews the playback token first when it expires within five
  * minutes, then returns the playback with the new token and stream. Media URLs carry the token,
- * so load the new `stream.url`. `audioStreamIndex` picks the audio track as in `negotiate`.
+ * so load the new `stream.url`. `audioStreamIndex` and `choices` pick the audio track, a quality
+ * cap, and a burned-in subtitle as in `negotiate`.
  */
 export const renegotiate = Effect.fn("Playback.renegotiate")(function* (
   playback: Playback,
   capabilities: ClientCapabilities,
   positionMs: Milliseconds,
   audioStreamIndex: Option.Option<number>,
+  choices: StreamChoices = defaultStreamChoices,
 ) {
   const client = yield* MoviesClient;
   const now = yield* Clock.currentTimeMillis;
@@ -241,7 +271,7 @@ export const renegotiate = Effect.fn("Playback.renegotiate")(function* (
     }),
   });
 
-  const stream = yield* negotiate(started, capabilities, positionMs, audioStreamIndex);
+  const stream = yield* negotiate(started, capabilities, positionMs, audioStreamIndex, choices);
   const next: Playback = { started, stream };
 
   return next;
@@ -271,7 +301,18 @@ export const start = Effect.fn("Playback.start")(function* (request: PlaybackReq
   });
 
   const startAt = Option.getOrElse(request.startAtMs, () => started.resumePositionMs);
-  const stream = yield* negotiate(started, request.capabilities, startAt, request.audioStreamIndex);
+
+  const stream = yield* negotiate(
+    started,
+    request.capabilities,
+    startAt,
+    request.audioStreamIndex,
+    {
+      quality: request.quality,
+      burnInSubtitle: Option.none(),
+    },
+  );
+
   const playback: Playback = { started, stream };
 
   return playback;

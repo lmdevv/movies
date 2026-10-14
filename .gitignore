@@ -72,3 +72,6 @@ playwright-report
 
 # before-and-after skill captures
 /captures/
+
+# Vitest reports written by --reporter json without an output file
+.vitest/

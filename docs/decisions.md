@@ -112,7 +112,14 @@ choices made while implementing them. Update it in the same PR that changes a de
   down or refuses the key; a session that ends signs in again, and a call refused as
   `unauthenticated` is retried once after that.
 - Scans: a `full` scan job re-reads every file; a `quick` one skips files whose size and
-  modification time did not change; watchers and the periodic reconciliation are quick. Convex
+  modification time did not change; watchers and the periodic reconciliation are quick. Local
+  disks are watched with file events; network file systems (NFS, SMB/CIFS, 9p, FUSE, found with
+  `statfs`) send none for changes made elsewhere, so `LIBRARY_WATCH=auto` polls them every
+  `LIBRARY_POLL_SECONDS`, one `stat` per folder, reading a folder again only when its modification
+  time moved. A file rewritten in place (no rename) leaves its folder's time alone, so such an
+  edit waits for the reconciliation; a scan that fails keeps the change pending for the next
+  poll. A watcher whose folder fails, ends, or is replaced restarts with backoff (one second
+  up to five minutes) and rescans once it is back. Convex
   stores absolute paths. A title's match key is its kind plus a provider ID (`movie:tmdb:603`),
   else its normalized name and year (`show:local:fixture show (2021)`). Extras (trailers,
   featurettes) belong to no title and are not stored. A multi-episode file is stored under its
@@ -155,12 +162,40 @@ choices made while implementing them. Update it in the same PR that changes a de
   `FileResolverUnavailable`, `SegmentNotReady`, transport) → retry later, `UnsupportedPlayback`
   → tell the viewer.
 - Playback modes are one vocabulary everywhere: `direct`, `remux`, `audio-transcode`,
-  `transcode-qsv`, `transcode-software`.
+  `transcode-qsv`, `transcode-vaapi`, `transcode-software`.
+- GPU encoders: `HARDWARE_ACCELERATION=auto` test-encodes with Quick Sync, then VA-API, and uses
+  the first that works; `qsv` and `vaapi` trust the setting. A GPU run that fails marks that
+  encoder unavailable for the process and the session continues in software. HDR is tone-mapped
+  to SDR on the GPU (`vpp_qsv`, `tonemap_vaapi`) or in software with `zscale` and `tonemap` when
+  the ffmpeg build has them; without either, HDR that the client cannot display is refused.
 - A stream's ffmpeg pauses (`SIGSTOP`) once its output runs `STREAM_BUFFER_AHEAD_SECONDS` (120)
   past the furthest segment the player asked for, and continues (`SIGCONT`) when the player is
   within half of that. A remux copies at disk speed, and without the pause every play wrote most of
   its file into `TRANSCODE_DIR` within minutes. Segments behind the player stay until the stream
   closes, so a stream watched to the end still holds about the file's size.
+- Starting fast: the eight seconds from where a session starts are cut into short segments (1, 1,
+  2, 2, and 2 seconds on a transcode's 4-second grid; one keyframe each for a copy), and the plan
+  returns to its normal length after them; the plan is fixed for the session. Negotiation answers
+  as soon as ffmpeg is started, so the player loads hls.js, the playlist, and the init segment while
+  the first segment is encoded; only a hardware encode waits for its first segment, since a failure
+  there falls back to software and changes the mode the answer names.
+- Keyframes for copies come from the container's own index (Matroska Cues, MP4 sample tables) in
+  a few reads, else from an ffprobe packet scan of the whole file, cached on disk. Negotiation
+  waits at most two seconds for a scan; past that it encodes when the client can take an encode,
+  and the scan finishes in the background for the next negotiation.
+- Picture subtitles (PGS, VobSub) are listed in negotiation without a URL. A client shows one by
+  negotiating again with `burnInSubtitle`, which always transcodes: the picture is scaled and
+  tone-mapped as usual (on the GPU when one encodes), then the subtitle, its canvas scaled to the
+  output size (DVD subtitles carry none and are read on a 720x576 canvas), is drawn on the SDR
+  frame on the CPU; a GPU's frames are downloaded for that and uploaded again to encode. After a
+  seek the subtitle comes from a second reading of the file from 30 seconds earlier, so a line
+  already on screen is drawn. Choosing a text subtitle or none negotiates again without it, back to
+  the cheaper mode.
+- A client may send a quality cap (`maxHeight`, `maxBitrate` in bits per second). A source above
+  it is encoded down to the cap; one within it plays as before, and so does one the host cannot
+  encode (HDR without tone mapping), rather than not at all. The web player offers Auto (no
+  cap, as before), Original (no cap; stays so if Auto ever adapts to the connection), 1080p,
+  720p, and 480p (10, 4, and 2 Mb/s), remembered per browser; the CLI takes `--max-height`.
 
 ## Artwork
 

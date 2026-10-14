@@ -100,6 +100,8 @@ const fixtureServer = Layer.unwrap(
         });
       }
 
+      // A TMDB that accepted the connection and never answers.
+      if (url.pathname.endsWith("/stalled")) yield* Effect.sleep(Duration.seconds(30));
       const body = FIXTURES.get(url.pathname);
 
       return body === undefined
@@ -128,6 +130,7 @@ const tmdbOptions = (baseUrl: string, apiKey: string): Tmdb.TmdbOptions => ({
   apiBaseUrl: baseUrl,
   imageBaseUrl: "https://images.example/t/p",
   cacheMaxAge: Duration.days(1),
+  requestTimeout: Duration.millis(500),
 });
 
 /** The plugin under test, pointed at the fixture server, with its cache in a temporary folder. */
@@ -390,6 +393,16 @@ describe("TMDB plugin", () => {
 
           assert.strictEqual(providerId, "10378");
           assert.isFalse(yield* Ref.get(server.throttleNext));
+        }),
+      );
+
+      it.effect("gives up on a request that never answers", () =>
+        Effect.gen(function* () {
+          const plugin = yield* MetadataPlugin.Service;
+          const error = yield* plugin.titleDetails("movie", "stalled").pipe(Effect.flip);
+
+          assert.instanceOf(error, MetadataPlugin.MetadataRequestFailed);
+          assert.include(error.message, "timed out");
         }),
       );
 

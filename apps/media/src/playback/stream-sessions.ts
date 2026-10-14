@@ -14,6 +14,7 @@
 import {
   type ClientCapabilities,
   InsufficientTranscodeSpace,
+  type PlaybackQuality,
   type KeyframeIndexFailed,
   SegmentNotFound,
   SegmentNotReady,
@@ -37,6 +38,7 @@ import {
   Layer,
   Option,
   Path,
+  Predicate,
   Ref,
   Schedule,
   Scope,
@@ -66,6 +68,11 @@ interface StartRequest {
   readonly client: ClientCapabilities;
   readonly audioIndex: number | undefined;
   readonly startSeconds: number;
+  /** The viewer's quality cap and burned-in subtitle, which a fallback to software keeps. */
+  readonly quality: PlaybackQuality | undefined;
+  readonly burnSubtitle: number | undefined;
+  /** The file's keyframes, when negotiation already has them; copies index the file otherwise. */
+  readonly keyframes: ReadonlyArray<number> | undefined;
 }
 
 /** A started stream. `mode` reflects any fallback that happened while starting. */
@@ -99,8 +106,9 @@ type StreamRequestError =
   | TranscodeFailed
   | UnsupportedPlayback;
 
-/** Failures of starting a stream. */
+/** Failures of starting a stream. `StreamNotFound`: a newer negotiation replaced it meanwhile. */
 export type StartError =
+  | StreamNotFound
   | TranscodeCapacityReached
   | InsufficientTranscodeSpace
   | UnsupportedPlayback
@@ -159,7 +167,7 @@ const THROTTLE_INTERVAL = Duration.seconds(1);
 /** Tolerance when comparing fragment start times with planned boundaries. */
 const TIME_EPSILON = 0.005;
 
-const POLL_INTERVAL = Duration.millis(100);
+const POLL_INTERVAL = Duration.millis(50);
 
 const SEGMENT_WAIT = Duration.seconds(30);
 
@@ -190,6 +198,8 @@ interface Session {
   readonly file: ResolvedMediaFile;
   readonly client: ClientCapabilities;
   readonly audioIndex: number | undefined;
+  readonly quality: PlaybackQuality | undefined;
+  readonly burnSubtitle: number | undefined;
   readonly plan: SegmentPlan;
   readonly scope: Scope.Closeable;
   readonly mode: Ref.Ref<Exclude<PlaybackMode, "direct">>;
@@ -200,6 +210,8 @@ interface Session {
   readonly lastActivity: Ref.Ref<number>;
   /** The furthest segment the player asked for, which the encoder may run ahead of. */
   readonly requested: Ref.Ref<number>;
+  /** Whether any segment of any generation has been answered. */
+  readonly served: Ref.Ref<boolean>;
 }
 
 /** The produced range of a generation, in planned segment indexes. */
@@ -210,6 +222,17 @@ interface Produced {
 }
 
 const isEncode = VideoPlan.$is("Encode");
+
+/** The GPU encoder each GPU mode runs on; only these modes can fall back to software. */
+const HARDWARE_MODES: Partial<Record<PlaybackMode, HardwareAcceleration.HardwareEncoder>> = {
+  "transcode-qsv": "qsv",
+  "transcode-vaapi": "vaapi",
+};
+
+const hardwareOf = (mode: PlaybackMode): HardwareAcceleration.HardwareEncoder | undefined =>
+  HARDWARE_MODES[mode];
+
+const isClosed = (scope: Scope.Scope): boolean => Predicate.isTagged(scope.state, "Closed");
 
 /** Builds the session manager. */
 const make = Effect.gen(function* () {
@@ -223,6 +246,7 @@ const make = Effect.gen(function* () {
   const reporter = yield* PlaybackReporter.Service;
   const sessions = yield* Ref.make<ReadonlyMap<StreamId, Session>>(new Map());
   const transcodes = yield* Ref.make(0);
+  const copies = yield* Ref.make(0);
   const registry = yield* Semaphore.make(1);
 
   // Leftovers of a previous process are never served again.
@@ -337,9 +361,20 @@ const make = Effect.gen(function* () {
   ) {
     const directory = path.join(config.transcodeDir, session.streamId, String(number));
     const scope = yield* Scope.fork(session.scope, "sequential");
+    const closed = new StreamNotFound({ streamId: session.streamId });
 
+    // A closed session hands out a closed scope, whose finalizers would run before the folder exists.
+    if (isClosed(scope)) return yield* closed;
     yield* Scope.addFinalizer(scope, fs.remove(directory, { recursive: true }).pipe(Effect.ignore));
     yield* fs.makeDirectory(directory, { recursive: true }).pipe(Effect.orDie);
+
+    // The session may have closed while the folder was made; its finalizers already ran.
+    if (isClosed(scope)) {
+      yield* fs.remove(directory, { recursive: true }).pipe(Effect.ignore);
+
+      return yield* closed;
+    }
+
     const video = session.file.probe.video;
     const from = session.plan.starts[startSegment] ?? session.plan.end;
     const videoPlan = yield* Ref.get(session.video);
@@ -360,8 +395,12 @@ const make = Effect.gen(function* () {
           session.file.probe.audio.find((track) => track.index === index)?.codec ?? "",
       }),
       segmentStarts: session.plan.starts.slice(startSegment),
+      subtitleCodec:
+        session.file.probe.subtitles.find((track) => track.index === session.burnSubtitle)?.codec ??
+        "",
       outputDirectory: directory,
       qsvDevice: hardware.qsvDevice,
+      vaapiDevice: hardware.vaapiDevice,
     });
 
     const exit = yield* Deferred.make<void, MediaTools.MediaToolFailed>();
@@ -401,18 +440,24 @@ const make = Effect.gen(function* () {
   });
 
   /**
-   * After a QSV failure, switches the session to software when the ladder allows it, reports the
-   * mode change, and returns the new mode; otherwise fails with the ladder's reason.
+   * After a GPU encoder failed, switches the session to software when the ladder allows it,
+   * reports the mode change, and returns the new mode; otherwise fails with the ladder's reason.
    */
   const fallBackToSoftware = Effect.fn("StreamSessions.fallBackToSoftware")(function* (
     session: Session,
+    encoder: HardwareAcceleration.HardwareEncoder,
     detail: string,
   ) {
-    yield* hardware.markQsvUnavailable(detail);
+    yield* hardware.markUnavailable(encoder, detail);
 
+    // The session already encodes on a grid plan; it keeps encoding, now in software.
     const plan = decidePlayback(session.file.probe, session.client, {
       audioIndex: session.audioIndex,
-      hardwareTranscoding: false,
+      hardware: undefined,
+      softwareToneMapping: yield* hardware.softwareToneMapping,
+      quality: session.quality,
+      burnSubtitle: session.burnSubtitle,
+      copyVideo: false,
     });
 
     if (!PlaybackPlan.$is("Hls")(plan)) {
@@ -442,7 +487,9 @@ const make = Effect.gen(function* () {
 
   /**
    * Handles an ffmpeg run that exited before producing segment `index`: a QSV run falls back to
-   * software and restarts there (`StreamGenerationGone`); any other mode fails the stream.
+   * software and restarts there (`StreamGenerationGone`); any other mode fails the stream. Runs
+   * under the session lock and only restarts the generation that failed, so requests waiting on
+   * the same run, or a seek racing the failure, never start two runs with one number.
    */
   const encoderFailed = Effect.fn("StreamSessions.encoderFailed")(function* (
     session: Session,
@@ -450,19 +497,34 @@ const make = Effect.gen(function* () {
     index: number,
     detail: string,
   ) {
-    const mode = yield* Ref.get(session.mode);
+    const restarted = yield* session.lock.withPermits(1)(
+      Effect.gen(function* () {
+        const current = yield* Ref.get(session.generation);
 
-    yield* Effect.annotateCurrentSpan({ streamId: session.streamId, mode, segmentIndex: index });
-    yield* Effect.logWarning("StreamSessions.encoder_failed", detail).pipe(
-      Effect.annotateLogs({ streamId: session.streamId, mode, generation: generation.number }),
+        // Another request already handled this failure, or a seek replaced the run.
+        if (current.number !== generation.number) return current;
+        const mode = yield* Ref.get(session.mode);
+
+        yield* Effect.annotateCurrentSpan({
+          streamId: session.streamId,
+          mode,
+          segmentIndex: index,
+        });
+        yield* Effect.logWarning("StreamSessions.encoder_failed", detail).pipe(
+          Effect.annotateLogs({ streamId: session.streamId, mode, generation: generation.number }),
+        );
+
+        const encoder = hardwareOf(mode);
+
+        if (encoder === undefined) {
+          return yield* new TranscodeFailed({ streamId: session.streamId, mode, detail });
+        }
+
+        yield* fallBackToSoftware(session, encoder, detail);
+
+        return yield* startGeneration(session, generation.number + 1, index);
+      }),
     );
-
-    if (mode !== "transcode-qsv") {
-      return yield* new TranscodeFailed({ streamId: session.streamId, mode, detail });
-    }
-
-    yield* fallBackToSoftware(session, detail);
-    const restarted = yield* startGeneration(session, generation.number + 1, index);
 
     return yield* new StreamGenerationGone({
       streamId: session.streamId,
@@ -484,6 +546,8 @@ const make = Effect.gen(function* () {
     const deadline = (yield* Clock.currentTimeMillis) + Duration.toMillis(maxWait);
 
     for (;;) {
+      // Stopped, replaced, or idle meanwhile: its encoder is gone and nothing will arrive.
+      if (isClosed(session.scope)) return yield* new StreamNotFound({ streamId: session.streamId });
       const current = yield* Ref.get(session.generation);
 
       // A seek replaced this generation while the request waited; its output is gone.
@@ -513,7 +577,16 @@ const make = Effect.gen(function* () {
             onFailure: (cause) => String(cause),
           }).slice(-300);
 
-          return yield* encoderFailed(session, generation, index, detail);
+          // A stream whose encoder failed before it ever served a segment cannot start: close it
+          // now, freeing its slot and reporting it failed, rather than holding it until it idles
+          // out. One that played before keeps going; a seek may still work elsewhere in the file.
+          const neverServed = !(yield* Ref.get(session.served));
+
+          return yield* encoderFailed(session, generation, index, detail).pipe(
+            Effect.tapErrorTag("TranscodeFailed", () =>
+              neverServed ? closeSession(session, "failed") : Effect.void,
+            ),
+          );
         }
       }
 
@@ -527,6 +600,8 @@ const make = Effect.gen(function* () {
             : fragments
                 .filter((fragment) => fragment.start <= (session.plan.starts[index] ?? 0))
                 .slice(-1);
+
+        yield* Ref.set(session.served, true);
 
         return {
           paths: covering.map((fragment) => fragment.path),
@@ -621,8 +696,9 @@ const make = Effect.gen(function* () {
   });
 
   /**
-   * Starts the first generation at `segmentIndex` and waits for that segment, so the client can
-   * start at once; a QSV failure falls back to software here. Returns the generation serving it.
+   * Starts the first generation at `segmentIndex` and waits for that segment, so a hardware
+   * encoder that fails falls back to software before the client sees the stream. Returns the
+   * generation serving it.
    */
   const firstSegment = Effect.fn("StreamSessions.firstSegment")(function* (
     session: Session,
@@ -638,7 +714,6 @@ const make = Effect.gen(function* () {
           StreamGenerationGone: () => Effect.succeed(false),
           SegmentNotReady: () => Effect.succeed(true),
         }),
-        Effect.tapError(() => closeSession(session, "failed")),
       );
 
       if (ready) break;
@@ -650,22 +725,75 @@ const make = Effect.gen(function* () {
     return generation;
   });
 
+  /**
+   * Takes a slot for `transcoding` (a video encode) or a copy stream, released when `scope` closes.
+   * Taking the slot and registering its release cannot be interrupted apart. `replacing` slots
+   * belong to streams this one replaces as it starts, such as the same viewer's stream before a
+   * quality or subtitle change; they count as free, so a full server still lets a viewer switch.
+   */
+  const acquireSlot = (scope: Scope.Scope, transcoding: boolean, replacing: number) => {
+    const slots = transcoding ? transcodes : copies;
+    const limit = transcoding ? config.maxConcurrentTranscodes : config.maxConcurrentRemuxes;
+
+    return Ref.modify(slots, (running) =>
+      running - replacing < limit ? ([true, running + 1] as const) : ([false, running] as const),
+    ).pipe(
+      Effect.tap((acquired) =>
+        acquired
+          ? Scope.addFinalizer(
+              scope,
+              Ref.update(slots, (running) => running - 1),
+            )
+          : Effect.void,
+      ),
+      Effect.uninterruptible,
+      Effect.flatMap((acquired) =>
+        acquired ? Effect.void : Effect.fail(new TranscodeCapacityReached({ limit })),
+      ),
+    );
+  };
+
   const start = Effect.fn("StreamSessions.start")(function* (request: StartRequest) {
+    const scope = yield* Scope.make("sequential");
+    const registered = yield* Ref.make(Option.none<Session>());
+
+    return yield* startIn(scope, registered, request).pipe(
+      // A failed start, or a caller that went away before the first segment, leaves nothing behind.
+      Effect.onExit((exit) =>
+        Exit.isSuccess(exit)
+          ? Effect.void
+          : Ref.get(registered).pipe(
+              Effect.flatMap(
+                Option.match({
+                  onNone: () => Scope.close(scope, Exit.void),
+                  onSome: (session) =>
+                    closeSession(session, Exit.hasInterrupts(exit) ? "abandoned" : "failed"),
+                }),
+              ),
+            ),
+      ),
+    );
+  });
+
+  const startIn = Effect.fnUntraced(function* (
+    scope: Scope.Closeable,
+    registered: Ref.Ref<Option.Option<Session>>,
+    request: StartRequest,
+  ) {
     const { grant, file, plan } = request;
+
     const transcoding = isEncode(plan.video);
 
-    if (transcoding) {
-      const acquired = yield* Ref.modify(transcodes, (running) =>
-        running < config.maxConcurrentTranscodes
-          ? ([true, running + 1] as const)
-          : ([false, running] as const),
-      );
+    // This device's current stream is replaced below; one of the same kind frees its slot then.
+    const replacing = yield* Effect.filter(
+      [...(yield* Ref.get(sessions)).values()].filter(
+        (existing) => existing.sessionId === grant.sessionId,
+      ),
+      (existing) =>
+        Ref.get(existing.video).pipe(Effect.map((video) => isEncode(video) === transcoding)),
+    );
 
-      if (!acquired)
-        return yield* new TranscodeCapacityReached({ limit: config.maxConcurrentTranscodes });
-    }
-
-    const release = transcoding ? Ref.update(transcodes, (running) => running - 1) : Effect.void;
+    yield* acquireSlot(scope, transcoding, replacing.length);
 
     const available = yield* Effect.tryPromise(() => freeBytes(config.transcodeDir)).pipe(
       Effect.tapError((error) =>
@@ -677,26 +805,25 @@ const make = Effect.gen(function* () {
     );
 
     if (available < config.minFreeTranscodeBytes) {
-      yield* release;
-
       return yield* new InsufficientTranscodeSpace({
         freeBytes: available,
         requiredBytes: config.minFreeTranscodeBytes,
       });
     }
 
+    const quickStart = file.probe.startSeconds + request.startSeconds;
+
     const segmentPlan = isEncode(plan.video)
-      ? planGridSegments(file.probe.startSeconds, file.probe.durationSeconds)
+      ? planGridSegments(file.probe.startSeconds, file.probe.durationSeconds, { quickStart })
       : planKeyframeSegments(
-          yield* keyframes.keyframes(file).pipe(Effect.tapError(() => release)),
+          request.keyframes ?? (yield* keyframes.keyframes(file)),
           file.probe.startSeconds,
           file.probe.durationSeconds,
+          { quickStart },
         );
 
     const streamId = yield* newStreamId;
-    const scope = yield* Scope.make("sequential");
 
-    yield* Scope.addFinalizer(scope, release);
     yield* Scope.addFinalizer(
       scope,
       fs.remove(path.join(config.transcodeDir, streamId), { recursive: true }).pipe(Effect.ignore),
@@ -720,6 +847,8 @@ const make = Effect.gen(function* () {
       file,
       client: request.client,
       audioIndex: request.audioIndex,
+      quality: request.quality,
+      burnSubtitle: request.burnSubtitle,
       plan: segmentPlan,
       scope,
       mode: yield* Ref.make(plan.mode),
@@ -729,6 +858,7 @@ const make = Effect.gen(function* () {
       lock: yield* Semaphore.make(1),
       lastActivity: yield* Ref.make(yield* Clock.currentTimeMillis),
       requested: yield* Ref.make(0),
+      served: yield* Ref.make(false),
     };
 
     yield* throttle(session).pipe(
@@ -749,7 +879,7 @@ const make = Effect.gen(function* () {
         next.set(streamId, session);
 
         return [previous, next] as const;
-      }),
+      }).pipe(Effect.tap(() => Ref.set(registered, Option.some(session)))),
     );
 
     for (const previous of replaced) {
@@ -765,8 +895,14 @@ const make = Effect.gen(function* () {
       );
     }
 
-    const segmentIndex = segmentAt(segmentPlan, file.probe.startSeconds + request.startSeconds);
-    const generation = yield* firstSegment(session, segmentIndex);
+    const segmentIndex = segmentAt(segmentPlan, quickStart);
+
+    // Only a hardware encoder can fail over, and its answer may name another mode; any other
+    // stream answers at once, and the player's first requests overlap the encoder's first segment.
+    const generation =
+      hardwareOf(plan.mode) !== undefined
+        ? yield* firstSegment(session, segmentIndex)
+        : yield* startGeneration(session, 1, segmentIndex);
 
     const mode = yield* Ref.get(session.mode);
 

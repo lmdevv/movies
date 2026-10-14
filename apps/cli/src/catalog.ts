@@ -104,9 +104,9 @@ export const shortcuts: ReadonlyArray<Shortcut> = [
   },
   {
     path: "play",
-    synopsis: "play <title> [--episode-id <id>] [--from <seconds>] [--open]",
+    synopsis: "play <title> [--episode-id <id>] [--from <seconds>] [--max-height <lines>] [--open]",
     summary:
-      "Start playback of a title ID or the best name match (a show resumes its next episode) and print the stream URL for mpv or VLC; --open launches mpv",
+      "Start playback of a title ID or the best name match (a show resumes its next episode) and print the stream URL for mpv or VLC; --max-height caps the picture, such as 720 on a slow link (a taller source is transcoded down); --open launches mpv",
     section: "Watching",
   },
   {

@@ -16,6 +16,7 @@ import { apiLayer } from "./api-handlers.ts";
 import * as ArtworkRoutes from "./artwork-routes.ts";
 import * as Hardening from "./hardening.ts";
 import * as MediaRoutes from "./media-routes.ts";
+import * as RateLimit from "./rate-limit.ts";
 import * as WebApp from "./web-app.ts";
 
 /** Every route the service answers. */
@@ -26,6 +27,7 @@ export const routesLayer = Layer.mergeAll(
   ArtworkRoutes.layer,
   WebApp.layer,
   Hardening.layer,
+  RateLimit.layer,
   HttpRouter.cors({
     allowedOrigins: ["*"],
     allowedHeaders: ["authorization", "content-type", "range"],

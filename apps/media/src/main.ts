@@ -21,6 +21,7 @@ import * as BackupRoutes from "./backups/backup-routes.ts";
 import * as Backups from "./backups/backups.ts";
 import * as ConvexCli from "./backups/convex-cli.ts";
 import * as BackendHealth from "./backend-health.ts";
+import * as CachePruner from "./cache-pruner.ts";
 import * as ConvexFileResolver from "./convex/convex-file-resolver.ts";
 import * as ConvexLibrarySink from "./convex/convex-library-sink.ts";
 import * as ConvexPlaybackReporter from "./convex/convex-playback-reporter.ts";
@@ -86,6 +87,7 @@ const convexMode = (options: MediaBackend.Options) =>
     EndedSessionWatcher.layer,
     TrickplaySweep.layer,
     Backups.layerSyncOnStart,
+    CachePruner.layer,
   ).pipe(
     Layer.provide(Backups.layer.pipe(Layer.provide(ConvexCli.layer))),
     Layer.provide(LibraryMonitor.layer()),
@@ -115,6 +117,7 @@ const standaloneMode = (roots: ReadonlyArray<string>) =>
         roots: [root],
       })),
     ),
+    CachePruner.layer,
   ).pipe(
     Layer.provide(LibraryMonitor.layer()),
     Layer.provide(servicesLayer),

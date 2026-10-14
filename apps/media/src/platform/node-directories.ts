@@ -1,8 +1,8 @@
 /**
  * Node file system primitives Effect's `FileSystem` service does not expose: directory entries
- * with their types (so a scan can spot symbolic links without a system call per entry) and free
- * space on a volume. This Effect-free leaf may reject; its Effect callers translate rejections
- * into typed errors.
+ * with their types (so a scan can spot symbolic links without a system call per entry), free
+ * space on a volume, and the kind of file system a folder lives on. This Effect-free leaf may
+ * reject; its Effect callers translate rejections into typed errors.
  */
 import { readdir, statfs } from "node:fs/promises";
 
@@ -37,6 +37,9 @@ export const freeBytes = async (path: string): Promise<number> => {
 
   return info.bavail * info.bsize;
 };
+
+/** The `statfs` magic number of the file system holding `path`, such as `0x6969` for NFS. */
+export const fileSystemType = async (path: string): Promise<number> => (await statfs(path)).type;
 
 /** The Node error code of a rejection, such as `ENOENT` or `EACCES`. */
 export const errorCode = (cause: unknown): string =>

@@ -615,6 +615,7 @@ export const playbackMode = v.union(
   v.literal("remux"),
   v.literal("audio-transcode"),
   v.literal("transcode-qsv"),
+  v.literal("transcode-vaapi"),
   v.literal("transcode-software"),
 );
 

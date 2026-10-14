@@ -47,7 +47,7 @@ const hevcHdr = video("hevc", {
   dynamicRange: "hdr10",
 });
 
-const options = { audioIndex: undefined, hardwareTranscoding: false };
+const options = { audioIndex: undefined, hardware: undefined, softwareToneMapping: false };
 
 /** The rung a cast device lands on: `direct`, an HLS mode, or why nothing fits. */
 const rung = (file: MediaProbe, modelName: string | undefined): string => {

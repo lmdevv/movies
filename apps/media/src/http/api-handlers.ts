@@ -58,9 +58,7 @@ const systemHandlers = HttpApiBuilder.group(
         return {
           status: "ok" as const,
           activeStreams: yield* sessions.activeCount,
-          hardwareAcceleration: (yield* hardware.qsvAvailable)
-            ? ("qsv" as const)
-            : ("none" as const),
+          hardwareAcceleration: (yield* hardware.encoder) ?? ("none" as const),
           backend: yield* backend.status,
         };
       }),

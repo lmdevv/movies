@@ -1,6 +1,6 @@
 /**
- * Player commands in the menu: play or pause, skip, subtitles and audio as nested lists, stream
- * info, full screen, and the next episode. They exist only while the player is open; the player
+ * Player commands in the menu: play or pause, skip, subtitles, audio, and quality as nested lists,
+ * stream info, full screen, and the next episode. They exist only while the player is open; the player
  * provides what they act on through `PlayerCommandsContext`.
  */
 import type { CommandItem, CommandPage } from "@movies/ui/lib/command-menu";
@@ -9,6 +9,7 @@ import {
   AudioLinesIcon,
   CaptionsIcon,
   FastForwardIcon,
+  GaugeIcon,
   InfoIcon,
   MaximizeIcon,
   PauseIcon,
@@ -45,6 +46,9 @@ export interface PlayerCommands {
   readonly audio: ReadonlyArray<TrackOption>;
   readonly audioId: string;
   readonly selectAudio: (id: string) => void;
+  readonly quality: ReadonlyArray<TrackOption>;
+  readonly qualityId: string;
+  readonly selectQuality: (id: string) => void;
   /** Plays the next episode now; null for movies and the last episode. */
   readonly nextEpisode: (() => void) | null;
   /** Starts a room for this title; null while in one. */
@@ -158,6 +162,20 @@ export const usePlaybackCommands = (): CommandContribution => {
         keywords: ["language", "track", "dub"],
         leading: { kind: "icon", icon: AudioLinesIcon },
         page: trackPage("audio", "Audio", player.audio, player.audioId, player.selectAudio),
+      },
+      {
+        kind: "submenu",
+        id: "player:quality",
+        title: "Quality",
+        keywords: ["resolution", "bitrate", "1080p", "720p", "480p"],
+        leading: { kind: "icon", icon: GaugeIcon },
+        page: trackPage(
+          "quality",
+          "Quality",
+          player.quality,
+          player.qualityId,
+          player.selectQuality,
+        ),
       },
       {
         kind: "action",

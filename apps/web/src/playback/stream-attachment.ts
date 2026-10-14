@@ -110,15 +110,21 @@ const failureOf = (data: ErrorData, mediaError: boolean): StreamFailure | null =
   return status === undefined || status === 0 ? { kind: "network" } : { kind: "http", status };
 };
 
+/**
+ * Loads hls.js ahead of the stream that needs it. The player calls this while it negotiates, so
+ * the script downloads alongside the request instead of after it; the module loads once.
+ */
+// The light build leaves out subtitles, DRM, and alternate audio renditions, which these streams
+// never use: subtitles load as WebVTT `<track>` elements and audio is muxed.
+export const preloadHlsJs = () => import("hls.js/light");
+
 const attachHlsJs = async (
   element: HTMLVideoElement,
   url: string,
   seconds: number,
   onFailure: (failure: StreamFailure) => void,
 ): Promise<AttachedStream> => {
-  // The light build leaves out subtitles, DRM, and alternate audio renditions, which these streams
-  // never use: subtitles load as WebVTT `<track>` elements and audio is muxed.
-  const { default: Hls } = await import("hls.js/light");
+  const { default: Hls } = await preloadHlsJs();
   let mediaRecoveries = 0;
   /** Where loading starts once the current playlist is parsed. */
   let startFrom = seconds;
@@ -127,6 +133,11 @@ const attachHlsJs = async (
     // Loading starts by hand once each playlist is parsed: a new generation's playlist starts
     // later in the film, and hls.js would otherwise start it from the first configured position.
     autoStartLoad: false,
+    // Fetch the first segment while the init segment and the media source are still being set
+    // up; the media service starts encoding it before the playlist is even requested.
+    startFragPrefetch: true,
+    // One rendition: there is nothing to choose between, so no bandwidth test delays the start.
+    testBandwidth: false,
     // A transcode produces segments a little faster than real time; half a minute is plenty.
     maxBufferLength: 30,
     backBufferLength: 30,
