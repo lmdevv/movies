@@ -134,6 +134,8 @@ export const ScannedFile = Schema.Struct({
   probe: Probe,
   externalSubtitles: Schema.Array(ExternalSubtitle),
   versionName: Schema.NullOr(Schema.String),
+  /** A digest of the file's companions (NFO, artwork, subtitles), to notice their edits. */
+  sidecarDigest: Schema.optionalKey(Schema.String),
 });
 
 /** A scanned file. */
@@ -173,6 +175,8 @@ export const IndexedFile = Schema.Struct({
   sizeBytes: Bytes,
   mtimeMs: EpochMillis,
   missing: Schema.Boolean,
+  /** The companions' digest the file was last scanned with; null before one was recorded. */
+  sidecarDigest: Schema.NullOr(Schema.String),
 });
 
 /** Everything the media service needs to serve a file named in a playback token. */

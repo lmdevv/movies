@@ -222,6 +222,57 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
       }),
     );
 
+    it.effect("rescans a file whose NFO, artwork, or subtitles changed", () =>
+      Effect.gen(function* () {
+        const { library, copy } = yield* FixtureWorkspace.Service;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const target = yield* copy;
+        const scanner = yield* LibraryScanner.Service;
+        const libraryId = LibraryId.make("sidecars");
+        const request = { libraryId, root: target.movies, mode: "incremental" } as const;
+        const folder = path.join(target.movies, path.dirname(library.directMovie));
+
+        yield* scanner.scan(request);
+
+        const nfo = path.join(folder, "movie.nfo");
+        const text = yield* fs.readFileString(nfo);
+
+        yield* fs.writeFileString(nfo, text.replace("A rabbit &amp; a test pattern.", "Edited."));
+
+        const edited = yield* scanner.scan(request);
+
+        assert.deepStrictEqual([edited.processed, edited.unchanged], [1, 3]);
+        assert.strictEqual(
+          (yield* scanned(libraryId)).get(library.directMovie)?.record.title?.plot,
+          "Edited.",
+        );
+
+        const again = yield* scanner.scan(request);
+
+        assert.deepStrictEqual([again.processed, again.unchanged], [0, 4]);
+
+        yield* fs.writeFileString(
+          path.join(folder, `${path.basename(library.directMovie, ".mp4")}.de.srt`),
+          "1\n00:00:01,000 --> 00:00:02,000\nHallo\n",
+        );
+
+        const subtitled = yield* scanner.scan(request);
+
+        assert.deepStrictEqual([subtitled.processed, subtitled.unchanged], [1, 3]);
+
+        yield* fs.makeDirectory(path.join(folder, ".actors"));
+        yield* fs.copyFile(
+          path.join(folder, "poster.jpg"),
+          path.join(folder, ".actors/Big_Buck.jpg"),
+        );
+
+        const portrayed = yield* scanner.scan(request);
+
+        assert.deepStrictEqual([portrayed.processed, portrayed.unchanged], [1, 3]);
+      }),
+    );
+
     it.effect("treats a folder of one movie's editions as that movie's own folder", () =>
       Effect.gen(function* () {
         const { library, copy } = yield* FixtureWorkspace.Service;
@@ -268,6 +319,20 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
             path: `${folder}/poster.jpg`,
           });
         }
+
+        // A subtitle named after one edition rescans that edition only.
+        yield* fs.writeFileString(
+          path.join(target.movies, folder, `${folder} {edition-Theatrical}.en.srt`),
+          "1\n00:00:01,000 --> 00:00:02,000\nHello\n",
+        );
+
+        const subtitled = yield* scanner.scan({
+          libraryId,
+          root: target.movies,
+          mode: "incremental",
+        });
+
+        assert.strictEqual(subtitled.processed, 1);
 
         // Different films in a year-bearing folder don't share its generic metadata.
         const anthology = "Anthology (2020)";

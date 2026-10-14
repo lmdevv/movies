@@ -57,7 +57,12 @@ const start = async (): Promise<{
 
 const source = await start();
 
+// The Docker source holds no handle open, so without this the process would exit right away and
+// never close its scope, leaving the container running after the caller stops it.
+const alive = setInterval(() => undefined, 60_000);
+
 const stop = async (): Promise<void> => {
+  clearInterval(alive);
   await source.close();
   await Effect.runPromise(Scope.close(scope, Exit.void));
   process.exit(0);

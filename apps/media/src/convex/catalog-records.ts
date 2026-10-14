@@ -446,6 +446,7 @@ export const toScannedItem = Effect.fnUntraced(function* (
       probe: toCatalogProbe(file.probe),
       externalSubtitles: file.subtitles.map(toExternalSubtitle),
       versionName: MediaName.guards.Movie(file.name) ? (file.name.edition ?? null) : null,
+      sidecarDigest: file.sidecarDigest,
     },
     title: yield* toScannedTitle(folder, file.title, seal),
     episode:
