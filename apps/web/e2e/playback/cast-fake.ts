@@ -96,15 +96,25 @@ const SDK = String.raw`
   };
 
   // A receiver fetches the playlist and a segment of an HLS stream, or a range of a direct file.
-  const fetchMedia = async (url, hls) => {
+  // Like a real receiver, an HLS load fetches the playlist, then the segment that covers the time
+  // it loads at (segments before a stream's start belong to a generation it never ran).
+  const fetchMedia = async (url, hls, atSeconds) => {
     if (!hls) {
       await record(url, { headers: { range: "bytes=0-1023" } });
       return;
     }
     const playlist = await record(url);
     if (playlist.status !== 200) return;
-    const text = await playlist.text();
-    const segment = text.split("\n").find((line) => line.length > 0 && !line.startsWith("#"));
+    const lines = (await playlist.text()).split("\n");
+    let end = 0;
+    let segment;
+    for (const line of lines) {
+      if (line.startsWith("#EXTINF:")) end += Number.parseFloat(line.slice("#EXTINF:".length));
+      else if (line.length > 0 && !line.startsWith("#")) {
+        segment = line;
+        if (end > atSeconds) break;
+      }
+    }
     if (segment !== undefined) await record(new URL(segment, url).href);
   };
 
@@ -141,7 +151,11 @@ const SDK = String.raw`
         autoplay: request.autoplay,
       });
       fake.idleReason = null;
-      fake.current = { url: info.contentId, hls: info.contentType === "application/x-mpegurl" };
+      fake.current = {
+        url: info.contentId,
+        hls: info.contentType === "application/x-mpegurl",
+        at: request.currentTime,
+      };
       // The receiver reports its new state a moment later, as the SDK relays it.
       setTimeout(() => {
         change("isMediaLoaded", true);
@@ -150,7 +164,7 @@ const SDK = String.raw`
         change("playerState", "PLAYING");
         change("isPaused", !request.autoplay);
       }, 50);
-      return fetchMedia(fake.current.url, fake.current.hls).then(() => undefined);
+      return fetchMedia(fake.current.url, fake.current.hls, fake.current.at).then(() => undefined);
     },
   };
 
@@ -316,7 +330,10 @@ const SDK = String.raw`
       change("playerState", "IDLE");
     },
     /** Fetches what the receiver plays again, as it does while playing on. */
-    refetch: () => (fake.current === null ? Promise.resolve() : fetchMedia(fake.current.url, fake.current.hls)),
+    refetch: () =>
+      fake.current === null
+        ? Promise.resolve()
+        : fetchMedia(fake.current.url, fake.current.hls, fake.current.at),
     disconnect: () => {
       fake.session = null;
       // The mirror's time resets before it reports the disconnect: the order that loses most.

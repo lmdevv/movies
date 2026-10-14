@@ -53,6 +53,13 @@ const sizeLabel = (width: number, height: number): string => {
 
 const megabits = (bitsPerSecond: number): string => (bitsPerSecond / 1_000_000).toFixed(1);
 
+/** How each transcode mode's encoder reads in the stream details. */
+const ENCODER_LABELS = {
+  "transcode-qsv": "Intel QSV",
+  "transcode-vaapi": "VA-API",
+  "transcode-software": "Software",
+} as const;
+
 const CONTAINER_LABELS = new Map([
   ["mkv", "MKV"],
   ["mp4", "MP4"],
@@ -114,13 +121,15 @@ const streamInfoRows = (
           ? [sourceVideo ?? outputVideo]
           : [sourceVideo, `→ ${outputVideo}`],
     },
-    ...(stream.mode === "transcode-qsv" || stream.mode === "transcode-software"
+    ...(stream.mode === "transcode-qsv" ||
+    stream.mode === "transcode-vaapi" ||
+    stream.mode === "transcode-software"
       ? [
           {
             label: "Encoder",
             lines: [
               [
-                stream.mode === "transcode-qsv" ? "Intel QSV" : "Software",
+                ENCODER_LABELS[stream.mode],
                 ...(source !== undefined &&
                 source.hdr !== "none" &&
                 stream.video.dynamicRange === "sdr"

@@ -7,7 +7,9 @@
  * generation reloads its playlist, a lost stream or an expired token renegotiates, a path the
  * browser cannot decode is dropped and the next one tried, and a missing file stops with its own
  * state. Tokens are renewed by renegotiating five minutes before they expire, so a six-hour token
- * never ends a long film. Audio tracks switch by renegotiating with the chosen track.
+ * never ends a long film. Audio tracks switch by renegotiating with the chosen track, and so do the
+ * quality cap and picture subtitles (PGS, VobSub), which the media service burns into the video;
+ * text subtitles are `<track>` elements and switch without a new stream.
  *
  * Every SDK call runs on the app's SDK runtime and comes back as a value; nothing here throws.
  */
@@ -17,9 +19,11 @@ import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { Milliseconds } from "@movies/contracts/units";
 import type { CallError } from "@movies/sdk/effect";
 import { MoviesClient, Playback } from "@movies/sdk/effect";
-import { Data, Effect, Exit, Option, Result, Scope } from "effect";
+import { Data, Effect, Exit, Option, Predicate, Result, Scope } from "effect";
 
 import { withoutFailedPath } from "./capabilities";
+import type { QualityChoice } from "./quality";
+import { qualityCap } from "./quality";
 import { ELEMENT_SEEKER, MediaElementPlayer, isBuffered } from "./media-element-player";
 import type { StreamSeeker } from "./media-element-player";
 import {
@@ -32,7 +36,7 @@ import {
   offersResume,
 } from "./playback-policy";
 import type { AttachedStream, StreamFailure } from "./stream-attachment";
-import { attachStream } from "./stream-attachment";
+import { attachStream, preloadHlsJs } from "./stream-attachment";
 import { RENEW_BEFORE_MS, inGeneration, runSdk } from "./sdk-calls";
 import type { Runtime } from "./sdk-calls";
 import { SwitchablePlayer } from "./switchable-player";
@@ -60,6 +64,8 @@ export interface PlaybackRequest {
   /** Play a watch room's file as one of its members. */
   readonly roomId: RoomId | null;
   readonly start: StartChoice;
+  /** The quality this browser plays at, as the viewer last chose it. */
+  readonly quality: QualityChoice;
 }
 
 /** Where playback stands. */
@@ -87,8 +93,17 @@ export interface PlaybackSnapshot {
   readonly stream: NegotiateResponse | null;
   /** The audio track playing, as an ffmpeg stream index. */
   readonly audioStreamIndex: number | null;
-  /** The subtitle track shown, or null for none. */
+  /**
+   * The subtitle track shown, or null for none. A picture subtitle shows once a stream that burns
+   * it in has loaded; the stream's `burnedInSubtitle` says which one is in the video.
+   */
   readonly subtitleId: string | null;
+  readonly quality: QualityChoice;
+  /**
+   * The quality the loaded stream was negotiated with, once one has loaded; it trails `quality`
+   * while a change negotiates, and never takes a choice the service refused.
+   */
+  readonly loadedQuality: QualityChoice | null;
   /** The browser refused to start playback until the viewer interacts with the page. */
   readonly needsGesture: boolean;
 }
@@ -112,6 +127,26 @@ const sleep = (ms: number): Promise<void> =>
 
 const isPlaying = PlaybackPhase.$is("Playing");
 
+/**
+ * Answers meaning the service cannot give a stream with the quality cap or picture subtitle asked
+ * for now. A choice the viewer just made is undone and the current stream plays on; one carried
+ * into another negotiation (a remembered quality, a recovery) is dropped for playback without it.
+ */
+const UNHONOURED = [
+  "UnsupportedPlayback",
+  "TranscodeCapacityReached",
+  "InsufficientTranscodeSpace",
+] as const;
+
+const isUnhonoured = (failure: { readonly _tag: string }): boolean =>
+  UNHONOURED.some((tag) => Predicate.isTagged(failure, tag));
+
+/** The choices a stream was negotiated with. */
+interface StreamChoice {
+  readonly quality: QualityChoice;
+  readonly burnIn: string | null;
+}
+
 /** Plays one request in one element. Create it, `start` it, and `dispose` it. */
 export class PlaybackController {
   /** The element as the SDK sees it. */
@@ -126,12 +161,27 @@ export class PlaybackController {
   readonly #request: PlaybackRequest;
   readonly #hlsJs: boolean;
   #capabilities: ClientCapabilities;
+  /** The picture subtitle the stream should burn in, or null. */
+  #burnIn: string | null = null;
+  /** The picture subtitle the loaded stream burns in, or null. */
+  #loadedBurnIn: string | null = null;
+  /** Bumped by every change of quality or burned-in subtitle. */
+  #choicesVersion = 0;
+  /** Bumped by every negotiation and stop, so only the latest negotiation's answer is used. */
+  #negotiation = 0;
+  /**
+   * The stream being attached: where it starts and whether it plays, which the element (still
+   * reading 0, paused) does not tell yet; null otherwise.
+   */
+  #loading: { readonly atMs: number; readonly play: boolean } | null = null;
   #snapshot: PlaybackSnapshot = {
     phase: PlaybackPhase.Starting(),
     started: null,
     stream: null,
     audioStreamIndex: null,
     subtitleId: null,
+    quality: "auto",
+    loadedQuality: null,
     needsGesture: false,
   };
   readonly #listeners = new Set<() => void>();
@@ -163,10 +213,13 @@ export class PlaybackController {
     this.#capabilities = capabilities;
     this.#hlsJs = hlsJs;
     this.#request = request;
+    this.#snapshot = { ...this.#snapshot, quality: request.quality };
     this.player = new MediaElementPlayer(element);
     this.output = new SwitchablePlayer(this.player);
     element.addEventListener("playing", this.#onPlaying);
     element.addEventListener("loadeddata", this.#onFirstFrame);
+    element.addEventListener("pause", this.#onSettled);
+    element.addEventListener("seeking", this.#onSettled);
   }
 
   /** The current state; a new object after every change. */
@@ -189,6 +242,7 @@ export class PlaybackController {
   }
 
   #stop(stop: PlaybackStop): void {
+    this.#negotiation += 1;
     this.#detach();
     this.#update({ phase: PlaybackPhase.Stopped({ stop }) });
   }
@@ -261,6 +315,14 @@ export class PlaybackController {
   async #negotiate(started: StartedPlayback, positionMs: number, play = true): Promise<void> {
     this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.35 }) });
 
+    // Most streams this browser plays through hls.js need it; load it while negotiating. A failed
+    // download surfaces when the stream attaches.
+    if (this.#hlsJs) void preloadHlsJs().catch(() => undefined);
+
+    const ticket = ++this.#negotiation;
+    const version = this.#choicesVersion;
+    const chosen = this.#chosen();
+
     const negotiated = await runSdk(
       this.#runtime,
       Playback.negotiate(
@@ -268,14 +330,20 @@ export class PlaybackController {
         this.#capabilities,
         Milliseconds.make(Math.max(0, positionMs)),
         Option.fromNullishOr(this.#snapshot.audioStreamIndex),
+        this.streamChoices(),
       ),
     );
 
-    if (this.#disposed) return;
+    // A park while negotiating hands the session elsewhere; this stream is not wanted.
+    if (this.#disposed || this.#parked || ticket !== this.#negotiation) return;
 
     if (negotiated === null) return this.#stop(STOPPED);
 
     if (Result.isFailure(negotiated)) {
+      if (isUnhonoured(negotiated.failure) && this.#dropChoices()) {
+        return this.#negotiate(started, positionMs, play);
+      }
+
       return this.#follow(afterPlaybackFailure(negotiated.failure), positionMs);
     }
 
@@ -283,16 +351,50 @@ export class PlaybackController {
 
     this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.7 }) });
     this.#startReporting(playback);
-    await this.#load(playback, play);
+    await this.#load(playback, play, chosen);
+    this.#catchUpOnChoices(version, ticket);
   }
 
-  /** Puts `playback`'s stream into the element, then plays it when `play` is set. */
-  async #load(playback: Playback.Playback, play: boolean): Promise<void> {
+  /**
+   * Negotiates again when the viewer changed quality or subtitle while negotiation `ticket` ran
+   * and no later negotiation (which asks with the new choices) has started since.
+   */
+  #catchUpOnChoices(version: number, ticket: number): void {
+    const playback = this.#playback;
+
+    if (
+      this.#disposed ||
+      playback === null ||
+      ticket !== this.#negotiation ||
+      version === this.#choicesVersion
+    ) {
+      return;
+    }
+
+    void this.#renegotiate(playback, this.positionMs(), this.#snapshot.audioStreamIndex);
+  }
+
+  /** The playback position, or where the stream being attached starts. */
+  positionMs(): number {
+    return this.#loading?.atMs ?? this.player.positionMs();
+  }
+
+  /** Whether playback is under way, or the stream being attached will play. */
+  playing(): boolean {
+    return this.#loading?.play ?? !this.#element.paused;
+  }
+
+  /**
+   * Puts `playback`'s stream, negotiated with `chosen`, into the element, then plays it when `play`
+   * is set.
+   */
+  async #load(playback: Playback.Playback, play: boolean, chosen: StreamChoice): Promise<void> {
     this.#detach();
 
     const generation = ++this.#generation;
     const { stream } = playback;
 
+    this.#loading = { atMs: stream.startSeconds * 1000, play };
     this.#playback = playback;
     this.#update({
       stream,
@@ -318,9 +420,13 @@ export class PlaybackController {
     }
 
     this.#attached = attached;
+    this.#loadedBurnIn = chosen.burnIn;
+    this.#update({ loadedQuality: chosen.quality });
     this.player.setSeeker(stream.mode === "direct" ? ELEMENT_SEEKER : this.#hlsSeeker());
 
     if (play) await this.#play();
+
+    if (generation === this.#generation) this.#loading = null;
   }
 
   async #play(): Promise<void> {
@@ -338,6 +444,7 @@ export class PlaybackController {
   }
 
   #detach(): void {
+    this.#loading = null;
     this.#attached?.detach();
     this.#attached = null;
     this.player.setSeeker(ELEMENT_SEEKER);
@@ -412,6 +519,7 @@ export class PlaybackController {
   park(): void {
     if (this.#parked || this.#disposed) return;
     this.#parked = true;
+    this.#negotiation += 1;
     clearTimeout(this.#renewTimer);
     // Late callbacks of the released stream belong to an old generation and do nothing.
     this.#generation += 1;
@@ -445,11 +553,11 @@ export class PlaybackController {
     }
 
     this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.5 }) });
-    void this.#renegotiate(playback, positionMs, this.#snapshot.audioStreamIndex, play);
+    void this.#renegotiate(playback, positionMs, this.#snapshot.audioStreamIndex, { play });
   }
 
   #onStreamFailure(failure: StreamFailure): void {
-    void this.#follow(afterStreamFailure(failure), this.player.positionMs());
+    void this.#follow(afterStreamFailure(failure), this.positionMs());
   }
 
   /** Carries out a recovery step at `positionMs`. */
@@ -518,6 +626,7 @@ export class PlaybackController {
 
   /** Starts a new session at `positionMs`, as when the previous one ended elsewhere. */
   async #restart(positionMs: number): Promise<void> {
+    this.#negotiation += 1;
     this.#detach();
     this.#playback = null;
     await this.#closeReporting();
@@ -542,10 +651,21 @@ export class PlaybackController {
     playback: Playback.Playback,
     positionMs: number,
     audioStreamIndex: number | null,
-    play?: boolean,
+    options: {
+      /** Play the new stream, or not; by default as the old one was. */
+      readonly play?: boolean;
+      /**
+       * For a negotiation the viewer asked for (another quality or picture subtitle): undoes the
+       * choice when the service cannot honour it, and the current stream plays on.
+       */
+      readonly revert?: () => void;
+    } = {},
   ): Promise<void> {
     if (this.#parked) return;
-    const wasPlaying = !this.#element.paused;
+    const wasPlaying = this.playing();
+    const ticket = ++this.#negotiation;
+    const version = this.#choicesVersion;
+    const chosen = this.#chosen();
 
     const renewed = await runSdk(
       this.#runtime,
@@ -554,19 +674,47 @@ export class PlaybackController {
         this.#capabilities,
         Milliseconds.make(Math.max(0, positionMs)),
         Option.fromNullishOr(audioStreamIndex),
+        this.streamChoices(),
       ),
     );
 
-    // A park while negotiating hands the session elsewhere; this stream is not wanted.
-    if (this.#disposed || this.isParked() || playback !== this.#playback) return;
+    // A park while negotiating hands the session elsewhere; this stream is not wanted. Otherwise
+    // the latest negotiation of this session wins, even when a stream loaded meanwhile.
+    if (
+      this.#disposed ||
+      this.isParked() ||
+      ticket !== this.#negotiation ||
+      this.#playback?.started !== playback.started
+    ) {
+      return;
+    }
 
     if (renewed === null) return this.#stop(STOPPED);
+
+    if (Result.isFailure(renewed) && isUnhonoured(renewed.failure)) {
+      if (options.revert !== undefined) {
+        options.revert();
+
+        return;
+      }
+
+      if (this.#dropChoices()) {
+        return this.#renegotiate(playback, positionMs, audioStreamIndex, {
+          play: options.play ?? wasPlaying,
+        });
+      }
+    }
 
     if (Result.isFailure(renewed)) {
       return this.#follow(afterPlaybackFailure(renewed.failure), positionMs);
     }
 
-    await this.#load(renewed.success, play ?? (wasPlaying || !isPlaying(this.#snapshot.phase)));
+    await this.#load(
+      renewed.success,
+      options.play ?? (wasPlaying || !isPlaying(this.#snapshot.phase)),
+      chosen,
+    );
+    this.#catchUpOnChoices(version, ticket);
   }
 
   #scheduleRenewal(stream: NegotiateResponse): void {
@@ -579,7 +727,7 @@ export class PlaybackController {
 
       if (playback === null || this.#disposed) return;
 
-      void this.#renegotiate(playback, this.player.positionMs(), this.#snapshot.audioStreamIndex);
+      void this.#renegotiate(playback, this.positionMs(), this.#snapshot.audioStreamIndex);
     }, due);
   }
 
@@ -592,12 +740,107 @@ export class PlaybackController {
     this.#update({ audioStreamIndex: streamIndex });
 
     // While parked, the device playing the session follows the choice (`casting/`).
-    if (!this.#parked) void this.#renegotiate(playback, this.player.positionMs(), streamIndex);
+    if (!this.#parked) void this.#renegotiate(playback, this.positionMs(), streamIndex);
   }
 
-  /** Shows the subtitle track `id`, or none. */
+  /**
+   * The quality cap and burned-in subtitle every negotiation asks for, including a cast device's
+   * while parked.
+   */
+  streamChoices(): Playback.StreamChoices {
+    return {
+      quality: Option.fromNullishOr(qualityCap(this.#snapshot.quality)),
+      burnInSubtitle: Option.fromNullishOr(this.#burnIn),
+    };
+  }
+
+  #chosen(): StreamChoice {
+    return { quality: this.#snapshot.quality, burnIn: this.#burnIn };
+  }
+
+  /** `id` when it names a picture subtitle of the stream, which plays only burned in; else null. */
+  #bitmapTrack(id: string | null): string | null {
+    const track = this.#snapshot.stream?.subtitles.find((candidate) => candidate.id === id);
+
+    return track?.kind === "bitmap" ? track.id : null;
+  }
+
+  /**
+   * Drops the quality cap and burned-in subtitle after the service refused a negotiation the
+   * viewer did not just ask for, so playback goes on without them; false when there were none.
+   */
+  #dropChoices(): boolean {
+    if (this.#snapshot.quality === "auto" && this.#burnIn === null) return false;
+
+    const shown = this.#snapshot.subtitleId;
+
+    this.#burnIn = null;
+    this.#choicesVersion += 1;
+    this.#update({ quality: "auto", subtitleId: this.#bitmapTrack(shown) === null ? shown : null });
+
+    return true;
+  }
+
+  /**
+   * Shows the subtitle track `id`, or none. A picture subtitle needs a stream with it burned in,
+   * and leaving one for a text track or none goes back to a stream without it: both renegotiate
+   * at the current position. Text tracks switch in place.
+   */
   selectSubtitle(id: string | null): void {
+    const burnIn = this.#bitmapTrack(id);
+    const previous = this.#snapshot.subtitleId;
+
     this.#update({ subtitleId: id });
+
+    if (burnIn === this.#burnIn) return;
+
+    this.#changeChoices(() => {
+      this.#burnIn = burnIn;
+    }, previous);
+  }
+
+  /** Plays at `quality` from here on, renegotiating when it changes. */
+  selectQuality(quality: QualityChoice): void {
+    if (quality === this.#snapshot.quality) return;
+
+    this.#changeChoices(() => this.#update({ quality }), this.#snapshot.subtitleId);
+  }
+
+  /**
+   * Applies a change of quality or burned-in subtitle and negotiates a stream with it. When the
+   * service cannot honour it, the choices go back to the playing stream's (`subtitleBefore` is the
+   * subtitle shown before). A change made while no stream has loaded yet applies to the
+   * negotiation that loads one.
+   */
+  #changeChoices(apply: () => void, subtitleBefore: string | null): void {
+    apply();
+    this.#choicesVersion += 1;
+
+    const playback = this.#playback;
+
+    if (playback === null) return;
+
+    void this.#renegotiate(playback, this.positionMs(), this.#snapshot.audioStreamIndex, {
+      revert: () => this.#revertToLoaded(subtitleBefore),
+    });
+  }
+
+  /**
+   * Puts the choices back to those the playing stream was negotiated with, which an earlier
+   * change still negotiating may not have reached. The subtitle shown stays when that stream can
+   * show it; otherwise it becomes the one it burns in, or `subtitleBefore` when that was text.
+   */
+  #revertToLoaded(subtitleBefore: string | null): void {
+    const burnIn = this.#loadedBurnIn;
+    const shown = this.#snapshot.subtitleId;
+    const before = this.#bitmapTrack(subtitleBefore) === null ? subtitleBefore : null;
+
+    this.#burnIn = burnIn;
+    this.#choicesVersion += 1;
+    this.#update({
+      quality: this.#snapshot.loadedQuality ?? this.#snapshot.quality,
+      subtitleId: this.#bitmapTrack(shown) === burnIn ? shown : (burnIn ?? before),
+    });
   }
 
   /** Tries again from where playback stopped. */
@@ -624,7 +867,16 @@ export class PlaybackController {
 
   readonly #onPlaying = (): void => {
     this.#recoveries = 0;
+    this.#onSettled();
     this.#onFirstFrame();
+  };
+
+  /**
+   * Once the attached stream plays, pauses, or seeks, the element tells the position and state
+   * itself. Events of the stream being let go come before attaching and leave `#loading` alone.
+   */
+  readonly #onSettled = (): void => {
+    if (this.#attached !== null) this.#loading = null;
   };
 
   #startReporting(playback: Playback.Playback): void {
@@ -679,6 +931,8 @@ export class PlaybackController {
     this.#disposed = true;
     this.#element.removeEventListener("playing", this.#onPlaying);
     this.#element.removeEventListener("loadeddata", this.#onFirstFrame);
+    this.#element.removeEventListener("pause", this.#onSettled);
+    this.#element.removeEventListener("seeking", this.#onSettled);
     // Before detaching, which rewinds the element: the exit report reads the player afterwards.
     this.player.dispose();
     this.#detach();

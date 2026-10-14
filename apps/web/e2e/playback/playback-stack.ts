@@ -36,6 +36,10 @@ export interface ClipSpec {
   readonly audio: ReadonlyArray<ClipAudio>;
   /** Chapter markers: start seconds and titles; each runs to the next one or the end. */
   readonly chapters?: ReadonlyArray<{ readonly start: number; readonly title: string }>;
+  /** Picture size; 640x360 when absent. */
+  readonly size?: string;
+  /** A subtitle-only file whose first track is copied in, with its language. */
+  readonly subtitles?: { readonly file: string; readonly language: string };
 }
 
 /** Chapters in ffmpeg's metadata format, times in milliseconds. */
@@ -104,6 +108,9 @@ export const encodeClip = async (output: string, spec: ClipSpec): Promise<void> 
   const chapterArgs =
     chapters.length === 0 ? [] : ["-i", metadata, "-map_chapters", String(spec.audio.length + 1)];
 
+  // The subtitle file follows the audio inputs and the chapters file, when there is one.
+  const subtitleInput = spec.audio.length + 1 + (chapters.length === 0 ? 0 : 1);
+
   await run(ffmpegPath, [
     "-hide_banner",
     "-nostdin",
@@ -113,15 +120,26 @@ export const encodeClip = async (output: string, spec: ClipSpec): Promise<void> 
     "-f",
     "lavfi",
     "-i",
-    `testsrc2=size=640x360:rate=24:duration=${duration}`,
+    `testsrc2=size=${spec.size ?? "640x360"}:rate=24:duration=${duration}`,
     ...audioInputs,
     ...chapterArgs,
+    ...(spec.subtitles === undefined ? [] : ["-i", spec.subtitles.file]),
     "-map",
     "0:v",
     ...VIDEO_ARGS[spec.video],
     "-g",
     "48",
     ...audioArgs,
+    ...(spec.subtitles === undefined
+      ? []
+      : [
+          "-map",
+          `${String(subtitleInput)}:s:0`,
+          "-c:s",
+          "copy",
+          "-metadata:s:s:0",
+          `language=${spec.subtitles.language}`,
+        ]),
     ...(output.endsWith(".mp4") ? ["-movflags", "+faststart"] : []),
     output,
   ]);

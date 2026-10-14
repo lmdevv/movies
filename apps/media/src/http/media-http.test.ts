@@ -7,20 +7,31 @@ import {
   type ClientCapabilities,
   HealthResponse,
   NegotiateResponse,
+  type PlaybackQuality,
 } from "@movies/contracts/media-playback";
 
 import * as ArtworkKeys from "../artwork/artwork-keys.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import { parseFfprobeJson } from "../media/media-probe.ts";
 import * as PlaybackReporter from "../playback/playback-reporter.ts";
-import { ffmpegAvailable, qsvUsable } from "../testing/fixture-library.ts";
+import {
+  ffmpegAvailable,
+  qsvUsable,
+  softwareToneMappingAvailable,
+  vaapiUsable,
+} from "../testing/fixture-library.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
 import * as MediaTestServer from "../testing/media-test-server.ts";
 import { signTestToken } from "../testing/test-config.ts";
+import { sidecarTrackId } from "../subtitles/subtitle-tracks.ts";
 
 const hasFfmpeg = await ffmpegAvailable();
 
 const hasQsv = hasFfmpeg && (await qsvUsable());
+
+const hasVaapi = hasFfmpeg && (await vaapiUsable());
+
+const canToneMap = hasFfmpeg && (await softwareToneMappingAvailable());
 
 const browser: ClientCapabilities = {
   containers: ["mp4", "webm"],
@@ -99,6 +110,7 @@ const negotiate = Effect.fn(function* (body: {
   readonly capabilities: ClientCapabilities;
   readonly startSeconds?: number;
   readonly audioStreamIndex?: number;
+  readonly quality?: PlaybackQuality;
 }) {
   const server = yield* MediaTestServer.Service;
   const response = yield* post(`${server.baseUrl}/api/playback/negotiate`, body);
@@ -355,15 +367,19 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         assert.include(text, '#EXT-X-MAP:URI="init.mp4?token=');
         const durations = [...text.matchAll(/#EXTINF:([\d.]+),/g)].map((match) => Number(match[1]));
 
-        // Keyframes every 2 s grouped into 4 s segments; ffmpeg builds differ by a few milliseconds.
-        assert.strictEqual(durations.length, 3);
+        // Keyframes every 2 s: one per segment for the first eight seconds, so playback starts
+        // on a short segment, then grouped into 4 s; ffmpeg builds differ by a few milliseconds.
+        assert.strictEqual(durations.length, 5);
 
-        for (const duration of durations) assert.approximately(duration, 4, 0.05);
+        for (const [index, duration] of durations.entries()) {
+          assert.approximately(duration, index < 4 ? 2 : 4, 0.05);
+        }
+
         assert.include(text, "#EXT-X-ENDLIST");
 
         const parts = [];
 
-        for (let index = 0; index < 3; index += 1) {
+        for (let index = 0; index < durations.length; index += 1) {
           const { init, segment } = yield* fetchSegment(playlistUrl, index);
 
           assert.strictEqual(segment.status, 200);
@@ -379,6 +395,31 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const whole = yield* probeBytes(concat(yield* bytes(init), ...parts));
 
         assert.approximately(whole.durationSeconds, 12, 0.3);
+      }),
+    );
+
+    it.effect("transcodes down to the viewer's quality cap, and plays directly within it", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const { library } = yield* FixtureWorkspace.Service;
+        const fileId = server.fileId("movies", library.directMovie);
+
+        const capped = yield* negotiated({
+          token: signTestToken({ fid: fileId, sid: "quality" }),
+          capabilities: browser,
+          quality: { maxHeight: 120 },
+        });
+
+        assert.strictEqual(capped.mode, "transcode-software");
+        assert.strictEqual(capped.video.height, 120);
+
+        const within = yield* negotiated({
+          token: signTestToken({ fid: fileId, sid: "quality" }),
+          capabilities: browser,
+          quality: { maxHeight: 1080, maxBitrate: 50_000_000 },
+        });
+
+        assert.strictEqual(within.mode, "direct");
       }),
     );
 
@@ -405,22 +446,35 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
       }),
     );
 
-    it.effect("refuses HDR tone mapping without hardware", () =>
+    it.effect("tone-maps HDR to SDR in software when ffmpeg can, and refuses it otherwise", () =>
       Effect.gen(function* () {
         const server = yield* MediaTestServer.Service;
         const { library } = yield* FixtureWorkspace.Service;
         const fileId = server.fileId("movies", library.hdrMovie);
+        const token = signTestToken({ fid: fileId, sid: "hdr" });
+        const result = yield* negotiate({ token, capabilities: browser });
 
-        const result = yield* negotiate({
-          token: signTestToken({ fid: fileId, sid: "hdr" }),
-          capabilities: browser,
-        });
+        if (!canToneMap) {
+          assert.strictEqual(result.status, 422);
+          assert.deepStrictEqual(result.body, {
+            _tag: "UnsupportedPlayback",
+            reason: "hdr-tone-mapping-requires-hardware",
+          });
 
-        assert.strictEqual(result.status, 422);
-        assert.deepStrictEqual(result.body, {
-          _tag: "UnsupportedPlayback",
-          reason: "hdr-tone-mapping-requires-hardware",
-        });
+          return;
+        }
+
+        const stream = yield* negotiated({ token, capabilities: browser });
+
+        assert.strictEqual(stream.mode, "transcode-software");
+        assert.strictEqual(stream.video.dynamicRange, "sdr");
+
+        const { init, segment } = yield* fetchSegment(local(server.baseUrl, stream.url), 0);
+        const probe = yield* probeBytes(concat(yield* bytes(init), yield* bytes(segment)));
+
+        assert.strictEqual(probe.video?.codec, "h264");
+        assert.strictEqual(probe.video?.dynamicRange, "sdr");
+        assert.strictEqual(probe.video?.bitDepth, 8);
       }),
     );
 
@@ -528,8 +582,8 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           result.subtitles.map((track) => [track.id, track.source, track.language, track.forced]),
           [
             ["e3", "embedded", "eng", false],
-            ["x0", "sidecar", "eng", false],
-            ["x1", "sidecar", "fre", true],
+            [sidecarTrackId("Remux Fixture (2015).en.srt"), "sidecar", "eng", false],
+            [sidecarTrackId("Remux Fixture (2015).fr.forced.ass"), "sidecar", "fre", true],
           ],
         );
 
@@ -548,6 +602,24 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         assert.match(texts[0] ?? "", /00:01\.0\d\d --> 00:03\.0\d\d/);
         assert.include(texts[1], "Second");
         assert.include(texts[2], "Bonjour");
+      }),
+    );
+
+    it.effect("limits how fast one address may call the unauthenticated routes", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+
+        const statuses = yield* Effect.forEach(
+          Array.from({ length: 150 }, (_, index) => index),
+          () => get(`${server.baseUrl}/api/health`),
+          { concurrency: 16 },
+        );
+
+        const refused = statuses.filter((response) => response.status === 429);
+
+        assert.isAbove(refused.length, 0);
+        assert.isAtLeast(statuses.filter((response) => response.status === 200).length, 60);
+        assert.match(refused[0]?.headers["retry-after"] ?? "", /^\d+$/);
       }),
     );
 
@@ -688,6 +760,37 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           height: 180,
           dynamicRange: "sdr",
         });
+        const { init, segment } = yield* fetchSegment(local(server.baseUrl, result.url), 0);
+        const probe = yield* probeBytes(concat(yield* bytes(init), yield* bytes(segment)));
+
+        assert.deepStrictEqual(
+          [probe.video?.codec, probe.video?.bitDepth, probe.video?.dynamicRange],
+          ["h264", 8, "sdr"],
+        );
+      }),
+    );
+  });
+
+  layer(
+    MediaTestServer.layer({
+      HARDWARE_ACCELERATION: "vaapi",
+      FFMPEG_PATH: process.env["FFMPEG_PATH"] ?? "ffmpeg",
+      VAAPI_DEVICE: process.env["VAAPI_DEVICE"] ?? "/dev/dri/renderD128",
+    }),
+    { excludeTestServices: true, timeout: "120 seconds" },
+  )("on VA-API hardware", (it) => {
+    it.effect.skipIf(!hasVaapi)("tone-maps HDR10 HEVC to SDR H.264", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const { library } = yield* FixtureWorkspace.Service;
+        const fileId = server.fileId("movies", library.hdrMovie);
+
+        const result = yield* negotiated({
+          token: signTestToken({ fid: fileId, sid: "vaapi" }),
+          capabilities: browser,
+        });
+
+        assert.strictEqual(result.mode, "transcode-vaapi");
         const { init, segment } = yield* fetchSegment(local(server.baseUrl, result.url), 0);
         const probe = yield* probeBytes(concat(yield* bytes(init), yield* bytes(segment)));
 

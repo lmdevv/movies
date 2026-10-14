@@ -3,7 +3,7 @@ import { Radio } from "@base-ui/react/radio";
 import { RadioGroup } from "@base-ui/react/radio-group";
 import { cn } from "@movies/ui/lib/utils";
 import { CheckIcon } from "lucide-react";
-import { useId } from "react";
+import { Fragment, useId } from "react";
 import type { ReactElement } from "react";
 
 /** One choice in the audio or subtitles column. */
@@ -55,45 +55,52 @@ function TrackColumn({
   );
 }
 
-/** The current audio and subtitle choices and how to change them. */
-export type TrackSelection = {
-  readonly audio: ReadonlyArray<TrackOption>;
-  readonly subtitles: ReadonlyArray<TrackOption>;
-  readonly audioId: string;
-  readonly subtitleId: string;
-  readonly onAudioChange: (id: string) => void;
-  readonly onSubtitleChange: (id: string) => void;
+/** One column of choices, such as the audio tracks, the subtitles, or the stream quality. */
+export type TrackChoice = {
+  /** Stable key, such as `audio`. */
+  readonly id: string;
+  readonly label: string;
+  readonly options: ReadonlyArray<TrackOption>;
+  readonly value: string;
+  readonly onValueChange: (id: string) => void;
 };
 
+/** The columns of choices, left to right. */
+export type TrackSelection = {
+  readonly choices: ReadonlyArray<TrackChoice>;
+};
+
+/** Panel widths by column count: two columns as designed, a third column as wide again. */
+const PANEL_WIDTHS = ["w-60", "w-60", "w-115", "w-170"] as const;
+
 /**
- * The two-column audio and subtitles chooser. Each column is a radio group: arrow keys move the
- * choice, Tab moves between columns.
+ * The player's chooser: one column per choice (audio, subtitles, and quality in the player).
+ * Each column is a radio group: arrow keys move the choice, Tab moves between columns.
  */
 export function TrackPanel({
   className,
-  ...selection
+  choices,
 }: TrackSelection & { readonly className?: string }) {
   return (
     <div
       data-slot="track-panel"
       className={cn(
-        "flex w-115 overflow-hidden rounded-control border border-hairline bg-surface-raised",
+        "flex overflow-hidden rounded-control border border-hairline bg-surface-raised",
+        PANEL_WIDTHS[Math.min(choices.length, PANEL_WIDTHS.length - 1)],
         className,
       )}
     >
-      <TrackColumn
-        label="Audio"
-        options={selection.audio}
-        value={selection.audioId}
-        onValueChange={selection.onAudioChange}
-      />
-      <div aria-hidden className="w-px shrink-0 bg-hairline" />
-      <TrackColumn
-        label="Subtitles"
-        options={selection.subtitles}
-        value={selection.subtitleId}
-        onValueChange={selection.onSubtitleChange}
-      />
+      {choices.map((choice, index) => (
+        <Fragment key={choice.id}>
+          {index > 0 ? <div aria-hidden className="w-px shrink-0 bg-hairline" /> : null}
+          <TrackColumn
+            label={choice.label}
+            options={choice.options}
+            value={choice.value}
+            onValueChange={choice.onValueChange}
+          />
+        </Fragment>
+      ))}
     </div>
   );
 }
@@ -108,8 +115,11 @@ export function TrackPanel({
 export function TrackPopover({
   trigger,
   container,
-  ...selection
+  label,
+  choices,
 }: TrackSelection & {
+  /** The popover's accessible name, matching its trigger's, such as `Audio and subtitles`. */
+  readonly label: string;
   readonly trigger: ReactElement;
   /** Where the popover renders, such as the player while it is full screen; the body otherwise. */
   readonly container?: HTMLElement | null | undefined;
@@ -127,10 +137,11 @@ export function TrackPopover({
           className="z-50"
         >
           <Popover.Popup
-            aria-label="Audio and subtitles"
+            aria-label={label}
             className="origin-(--transform-origin) shadow-overlay transition-[opacity,scale] data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
           >
-            <TrackPanel {...selection} />
+            {/* On a phone the panel can be wider than the screen: cap it there, and its columns scroll. */}
+            <TrackPanel choices={choices} className="max-w-(--available-width) overflow-x-auto" />
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>

@@ -133,6 +133,13 @@ const loadRequest = (sdk: CastSdk, plan: CastLoadPlan, autoplay: boolean): CastL
   return request;
 };
 
+/** The page's quality and burned-in subtitle as one comparable value. */
+const choicesKey = (controller: PlaybackController): string => {
+  const { burnInSubtitle } = controller.streamChoices();
+
+  return `${controller.getSnapshot().quality} ${Option.getOrElse(burnInSubtitle, () => "")}`;
+};
+
 /** A cast of one playback session. Create it with `start`, end it with `stop`. */
 export class CastPlayback {
   readonly player: CastPlayer;
@@ -148,6 +155,8 @@ export class CastPlayback {
   #plan: CastLoadPlan;
   #subtitleId: string | null;
   #audioStreamIndex: number | null;
+  /** The page's quality and burned-in subtitle the receiver's stream was asked with. */
+  #choices: string;
   /**
    * The stream changes asked for (reloads, and seeks the media service moves), run one at a time:
    * the media service keeps only the newest stream of a session, so two at once could leave the
@@ -184,6 +193,7 @@ export class CastPlayback {
 
     this.#subtitleId = snapshot.subtitleId;
     this.#audioStreamIndex = snapshot.audioStreamIndex;
+    this.#choices = choicesKey(controller);
     this.player = new CastPlayer(
       sdk.framework,
       (positionMs, signal) => this.#moveTo(positionMs, signal),
@@ -218,8 +228,9 @@ export class CastPlayback {
 
     if (started === null || stream === null) return Result.fail("not-ready");
 
-    const positionMs = controller.output.positionMs();
-    const playing = !controller.output.isPaused();
+    // The controller's view, not the element's: a stream still attaching reads 0 and paused.
+    const positionMs = controller.positionMs();
+    const playing = controller.playing();
 
     // The receiver's stream will replace the page's, so the page lets go first; until the
     // receiver plays, the session reports where the page was.
@@ -240,6 +251,7 @@ export class CastPlayback {
         CAST_CAPABILITIES,
         Milliseconds.make(Math.max(0, positionMs)),
         Option.fromNullishOr(snapshot.audioStreamIndex),
+        controller.streamChoices(),
       ),
     );
 
@@ -279,7 +291,10 @@ export class CastPlayback {
     this.#scheduleRenewal();
   }
 
-  /** Follows the page's subtitle and audio choices. */
+  /**
+   * Follows the page's subtitle, audio, and quality choices; a picture subtitle or a quality needs
+   * a new stream, as audio does.
+   */
   readonly #onSnapshot = (): void => {
     const { subtitleId, audioStreamIndex } = this.#controller.getSnapshot();
 
@@ -290,8 +305,11 @@ export class CastPlayback {
       this.#showSubtitle(subtitleId);
     }
 
-    if (audioStreamIndex !== this.#audioStreamIndex) {
+    const choices = choicesKey(this.#controller);
+
+    if (audioStreamIndex !== this.#audioStreamIndex || choices !== this.#choices) {
       this.#audioStreamIndex = audioStreamIndex;
+      this.#choices = choices;
       void this.#reload();
     }
   };
@@ -365,6 +383,7 @@ export class CastPlayback {
         CAST_CAPABILITIES,
         Milliseconds.make(Math.max(0, positionMs)),
         Option.fromNullishOr(this.#audioStreamIndex),
+        this.#controller.streamChoices(),
       ),
     );
 

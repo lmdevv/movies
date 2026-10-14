@@ -129,9 +129,9 @@ check "a retried upgrade does not back up again" '[[ "$(archives)" -eq "$after" 
 if [[ "${QSV:-0}" == 1 ]]; then
   check "the media user encodes with Quick Sync in the container" \
     'in_movies setpriv --reuid=movies --regid=movies --init-groups ffmpeg -hide_banner -nostdin \
-      -v error -init_hw_device qsv=hw:/dev/dri/renderD128 -filter_hw_device hw -f lavfi \
+      -v error -init_hw_device qsv=hw,child_device=/dev/dri/renderD128 -filter_hw_device hw -f lavfi \
       -i testsrc2=size=320x240:rate=10:duration=1 -vf hwupload=extra_hw_frames=16,format=qsv \
       -c:v h264_qsv -f null -'
   check "no transcode fell back from Quick Sync" \
-    '! compose logs movies | grep -q "qsv_disabled\|encoder_failed"'
+    '! compose logs movies | grep -q "HardwareAcceleration.disabled\|encoder_failed"'
 fi

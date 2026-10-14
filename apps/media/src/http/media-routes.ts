@@ -21,7 +21,13 @@ import {
 } from "@movies/contracts/media-playback";
 import { PlaybackTokenInvalid } from "@movies/contracts/playback-token";
 import { Effect, FileSystem, Layer, Match, Option, Path, Redacted, Schema, Stream } from "effect";
-import { HttpPlatform, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
+import {
+  HttpEffect,
+  HttpPlatform,
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/http";
 
 import * as MediaConfig from "../media-config.ts";
 import * as FileResolver from "../playback/file-resolver.ts";
@@ -125,6 +131,25 @@ const CONTENT_TYPES: Readonly<Record<Container, string>> = {
 };
 
 const SEGMENT_CACHE = "private, max-age=3600";
+
+/** How much of a segment part is read at a time. */
+const READ_CHUNK = 256 * 1024;
+
+/** The first `size` bytes of an open file, in chunks. */
+const readWhole = (handle: FileSystem.File, size: number) =>
+  Stream.paginate(0, (position: number) =>
+    handle.readAlloc(Math.min(READ_CHUNK, size - position), { position: BigInt(position) }).pipe(
+      Effect.map((chunk) => {
+        const bytes = Option.getOrElse(chunk, () => new Uint8Array(0));
+        const next = position + bytes.length;
+
+        return [
+          bytes.length === 0 ? [] : [bytes],
+          bytes.length === 0 || next >= size ? Option.none<number>() : Option.some(next),
+        ] as const;
+      }),
+    ),
+  );
 
 const matchesEtag = (header: string, etag: string): boolean =>
   header.trim() === "*" ||
@@ -281,29 +306,37 @@ export const layer: Layer.Layer<
 
       if (file !== "init.mp4" && segmentMatch === null)
         return yield* new SegmentNotFound({ index: -1 });
+      const segmentIndex = segmentMatch === null ? -1 : Number(segmentMatch[1]);
 
       const parts =
         segmentMatch === null
           ? yield* sessions.init(streamId, generation, grant)
-          : yield* sessions.segment(streamId, generation, Number(segmentMatch[1]), grant);
+          : yield* sessions.segment(streamId, generation, segmentIndex, grant);
 
-      const [only] = parts.paths;
+      // Open every part before answering: a seek may delete this generation's folder at any
+      // moment, and a body cut short under its promised length breaks the player's parser. An open
+      // file stays readable after it is deleted; the request's scope closes the handles once the
+      // body is sent.
+      const opened = yield* Effect.forEach(parts.paths, (part) =>
+        fs
+          .open(part)
+          .pipe(
+            Effect.flatMap((handle) =>
+              handle.stat.pipe(Effect.map((info) => ({ handle, size: Number(info.size) }))),
+            ),
+          ),
+      ).pipe(Effect.mapError(() => new SegmentNotReady({ index: segmentIndex })));
 
-      if (parts.paths.length === 1 && only !== undefined) {
-        return yield* platform
-          .fileResponse(only, {
-            headers: { "content-type": "video/mp4", "cache-control": SEGMENT_CACHE },
-          })
-          .pipe(Effect.mapError(() => new SegmentNotReady({ index: -1 })));
-      }
+      const body = Stream.fromIterable(opened).pipe(
+        Stream.flatMap(({ handle, size }) => readWhole(handle, size)),
+      );
 
-      return HttpServerResponse.stream(
-        Stream.fromIterable(parts.paths).pipe(Stream.flatMap((part) => fs.stream(part))),
-        {
+      return HttpEffect.scopeTransferToStream(
+        HttpServerResponse.stream(body, {
           contentType: "video/mp4",
-          contentLength: parts.sizeBytes,
+          contentLength: opened.reduce((total, part) => total + part.size, 0),
           headers: { "cache-control": SEGMENT_CACHE },
-        },
+        }),
       );
     }).pipe(Effect.catch(errorResponse), Effect.withSpan("MediaRoutes.hls"));
 

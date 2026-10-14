@@ -8,7 +8,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
-import { qsvProbeArgs } from "../playback/hardware-acceleration.ts";
+import { qsvProbeArgs, vaapiProbeArgs } from "../playback/hardware-acceleration.ts";
 
 const run = promisify(execFile);
 
@@ -278,10 +278,34 @@ export const ffmpegAvailable = async (): Promise<boolean> => {
   }
 };
 
+/** Whether this ffmpeg can tone-map HDR in software (`zscale` and `tonemap`). */
+export const softwareToneMappingAvailable = async (): Promise<boolean> => {
+  try {
+    const { stdout } = await run(ffmpegPath, ["-hide_banner", "-filters"]);
+
+    return /\szscale\s/u.test(stdout) && /\stonemap\s/u.test(stdout);
+  } catch {
+    return false;
+  }
+};
+
 /** True when `FFMPEG_PATH` (or `ffmpeg`) can encode with Intel QSV on `QSV_DEVICE`. */
 export const qsvUsable = async (): Promise<boolean> => {
   try {
     await run(ffmpegPath, [...qsvProbeArgs(process.env["QSV_DEVICE"] ?? "/dev/dri/renderD128")]);
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** True when `FFMPEG_PATH` (or `ffmpeg`) can encode with VA-API on `VAAPI_DEVICE`. */
+export const vaapiUsable = async (): Promise<boolean> => {
+  try {
+    await run(ffmpegPath, [
+      ...vaapiProbeArgs(process.env["VAAPI_DEVICE"] ?? "/dev/dri/renderD128"),
+    ]);
 
     return true;
   } catch {

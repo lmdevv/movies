@@ -84,7 +84,7 @@ export interface ClientCapabilities extends Schema.Schema.Type<typeof ClientCapa
 
 /** One subtitle track a client can choose. */
 export const SubtitleTrack = Schema.Struct({
-  /** Stable ID within the file: `e<stream index>` for embedded, `x<position>` for sidecar files. */
+  /** Stable ID within the file: `e<stream index>` for embedded tracks, `x` and a hash of the file name for sidecar files. */
   id: Schema.String,
   source: Schema.Literals(["embedded", "sidecar"]),
   /** ffmpeg codec name or sidecar extension, such as `subrip`, `ass`, or `hdmv_pgs_subtitle`. */
@@ -100,12 +100,29 @@ export const SubtitleTrack = Schema.Struct({
 /** One subtitle track a client can choose. */
 export interface SubtitleTrack extends Schema.Schema.Type<typeof SubtitleTrack> {}
 
-/** A subtitle track with its WebVTT URL, or without one when it cannot be shown. */
+/**
+ * A subtitle track with its WebVTT URL. Bitmap tracks (PGS, VobSub) have none: the client shows
+ * one by negotiating again with `burnInSubtitle`, and the service draws it into the video.
+ */
 const NegotiatedSubtitle = Schema.Struct({
   ...SubtitleTrack.fields,
-  /** WebVTT URL with the playback token; absent for bitmap tracks, which are not supported yet. */
+  /** WebVTT URL with the playback token; absent for bitmap tracks. */
   url: Schema.optional(Schema.String),
 });
+
+/**
+ * The most a viewer wants to receive, such as 720p on a slow connection. A source above it is
+ * transcoded down; without it the service sends the best the client can play.
+ */
+export const PlaybackQuality = Schema.Struct({
+  /** Tallest picture, in lines, such as 1080, 720, or 480. */
+  maxHeight: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
+  /** Highest bitrate in bits per second, for the whole stream. */
+  maxBitrate: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
+});
+
+/** The most a viewer wants to receive. */
+export interface PlaybackQuality extends Schema.Schema.Type<typeof PlaybackQuality> {}
 
 /** A negotiation request. */
 export const NegotiateRequest = Schema.Struct({
@@ -116,6 +133,10 @@ export const NegotiateRequest = Schema.Struct({
   audioStreamIndex: Schema.optional(Schema.Int),
   /** Where playback starts, in seconds from the beginning. */
   startSeconds: Schema.optional(Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))),
+  /** A quality cap; the best the client can play when absent. */
+  quality: Schema.optional(PlaybackQuality),
+  /** ID of a bitmap subtitle track to draw into the video, which then always transcodes. */
+  burnInSubtitle: Schema.optional(Schema.String),
 });
 
 /** A negotiation request. */
@@ -143,6 +164,8 @@ export const NegotiateResponse = Schema.Struct({
     Schema.Struct({ streamIndex: Schema.Int, codec: Schema.String, channels: Schema.Int }),
   ),
   subtitles: Schema.Array(NegotiatedSubtitle),
+  /** The bitmap subtitle track drawn into the video, when one was asked for. */
+  burnedInSubtitle: Schema.optional(Schema.String),
   /** Token expiry in milliseconds since the epoch; renew the token and renegotiate before it. */
   expiresAt: Schema.Finite,
 });
@@ -177,7 +200,7 @@ export const StopRequest = Schema.Struct({
 export const HealthResponse = Schema.Struct({
   status: Schema.Literal("ok"),
   activeStreams: Schema.Int,
-  hardwareAcceleration: Schema.Literals(["qsv", "none"]),
+  hardwareAcceleration: Schema.Literals(["qsv", "vaapi", "none"]),
   /** Whether the service is signed in to Convex; `standalone` when it runs without Convex. */
   backend: Schema.Literals(["connected", "connecting", "standalone"]),
 });
@@ -193,6 +216,7 @@ export const UnsupportedReason = Schema.Literals([
   "no-transcode-target",
   "hdr-tone-mapping-requires-hardware",
   "unknown-duration",
+  "subtitle-not-burnable",
 ]);
 
 /** Why no rung of the playback ladder fits the client. */
@@ -352,6 +376,7 @@ export const NegotiateErrors = [
   InsufficientTranscodeSpace,
   TranscodeFailed,
   KeyframeIndexFailed,
+  StreamNotFound,
 ] as const;
 
 /** Failures of `POST /api/playback/seek`. */
@@ -378,7 +403,6 @@ export const StopErrors = [
 /** Every failure the playback API answers with, for decoding error bodies. */
 export const PlaybackApiError = Schema.Union([
   ...NegotiateErrors,
-  StreamNotFound,
   StreamAccessDenied,
   StreamGenerationGone,
   SegmentNotFound,

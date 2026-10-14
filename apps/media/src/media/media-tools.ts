@@ -4,7 +4,7 @@
  */
 import { setPriority } from "node:os";
 
-import { Context, Effect, Fiber, Layer, Ref, type Scope, Schema, Stream } from "effect";
+import { Context, Duration, Effect, Fiber, Layer, Ref, type Scope, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import * as MediaConfig from "../media-config.ts";
@@ -35,12 +35,30 @@ interface RunningTool {
   readonly suspend: (paused: boolean) => Effect.Effect<void>;
 }
 
+/** Options of a run to completion. */
+interface RunOptions {
+  /**
+   * Kill the tool and fail after this long; when absent, `PROBE_TIMEOUT_SECONDS`, or no limit for
+   * `ffmpegInBackground`.
+   */
+  readonly timeout?: Duration.Duration;
+}
+
 /** ffprobe and ffmpeg. */
 export interface Interface {
-  /** Runs ffprobe to completion and returns its standard output. */
-  readonly ffprobe: (args: ReadonlyArray<string>) => Effect.Effect<string, MediaToolFailed>;
-  /** Runs ffmpeg to completion and returns its standard output. */
-  readonly ffmpeg: (args: ReadonlyArray<string>) => Effect.Effect<string, MediaToolFailed>;
+  /**
+   * Runs ffprobe to completion and returns its standard output. A run that takes longer than its
+   * timeout is killed and fails with `MediaToolFailed` (exit code `null`).
+   */
+  readonly ffprobe: (
+    args: ReadonlyArray<string>,
+    options?: RunOptions,
+  ) => Effect.Effect<string, MediaToolFailed>;
+  /** Runs ffmpeg to completion and returns its standard output; times out as `ffprobe` does. */
+  readonly ffmpeg: (
+    args: ReadonlyArray<string>,
+    options?: RunOptions,
+  ) => Effect.Effect<string, MediaToolFailed>;
   /**
    * Runs ffmpeg to completion at the lowest CPU priority, for background work such as scrub
    * thumbnails that must never slow down playback.
@@ -176,10 +194,32 @@ const make = Effect.gen(function* () {
   });
 
   const runToCompletion = (tool: "ffmpeg" | "ffprobe", background: boolean) =>
-    Effect.fn(`MediaTools.${tool}`)(function* (args: ReadonlyArray<string>) {
+    Effect.fn(`MediaTools.${tool}`)(function* (
+      args: ReadonlyArray<string>,
+      options: RunOptions = {},
+    ) {
       const running = yield* spawn(tool, args, "SIGKILL", background);
+      // Background work (scrub thumbnails of a whole film) runs as long as it needs, at the lowest
+      // priority; anything else a request or job waits on is bounded.
+      const timeout = options.timeout ?? (background ? undefined : config.probeTimeout);
 
-      return yield* running.exit;
+      if (timeout === undefined) return yield* running.exit;
+
+      // Leaving the scope on timeout kills the process group.
+      return yield* running.exit.pipe(
+        Effect.timeoutOrElse({
+          duration: timeout,
+          orElse: () =>
+            Effect.fail(
+              new MediaToolFailed({
+                tool,
+                exitCode: null,
+                stderr: `timed out after ${String(Duration.toSeconds(timeout))} seconds`,
+                cause: null,
+              }),
+            ),
+        }),
+      );
     }, Effect.scoped);
 
   const startFfmpeg = Effect.fn("MediaTools.startFfmpeg")(function* (args: ReadonlyArray<string>) {

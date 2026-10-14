@@ -1,15 +1,28 @@
 /**
  * The subtitle tracks of a media file as clients see them: embedded streams and sidecar files,
- * each with a stable ID used in subtitle URLs (`e<stream index>` or `x<sidecar position>`), and
- * their conversion to WebVTT. Text formats convert; bitmap formats (PGS, VobSub) are listed as
- * unsupported. ASS/SSA styling is dropped to plain text with basic emphasis.
+ * each with a stable ID used in subtitle URLs, and their conversion to WebVTT. Embedded tracks are
+ * `e<stream index>`; sidecar files are `x` and a hash of their file name, so adding or removing
+ * another sidecar never renames a track. Text formats convert; bitmap formats (PGS, VobSub) cannot
+ * become WebVTT and are burned into a transcode instead. ASS/SSA styling is dropped to plain text
+ * with basic emphasis. Conversions are cached: embedded tracks by the media file's size and
+ * modification time, sidecars by their own path, size, and modification time.
  */
+import { createHash } from "node:crypto";
+
 import type { SubtitleTrack } from "@movies/contracts/media-playback";
-import { Context, Duration, Effect, FileSystem, Layer, Option, Schema } from "effect";
+import { Context, Duration, Effect, FileSystem, Layer, Option, Schema, Semaphore } from "effect";
 
 import * as DiskCache from "../disk-cache.ts";
+import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import type { ResolvedMediaFile } from "../playback/file-resolver.ts";
+
+/** The stable ID of a sidecar subtitle file, from its file name. */
+export const sidecarTrackId = (path: string): string =>
+  `x${createHash("sha256")
+    .update(path.split(/[\\/]/u).at(-1) ?? path)
+    .digest("hex")
+    .slice(0, 12)}`;
 
 /** Every subtitle track of `file`, embedded first. */
 export const subtitleTracks = (file: ResolvedMediaFile): ReadonlyArray<SubtitleTrack> => [
@@ -24,8 +37,8 @@ export const subtitleTracks = (file: ResolvedMediaFile): ReadonlyArray<SubtitleT
     default: subtitle.default,
     hearingImpaired: subtitle.hearingImpaired,
   })),
-  ...file.subtitles.map((subtitle, position): SubtitleTrack => ({
-    id: `x${position}`,
+  ...file.subtitles.map((subtitle): SubtitleTrack => ({
+    id: sidecarTrackId(subtitle.path),
     source: "sidecar",
     codec: subtitle.format,
     kind: "text",
@@ -90,6 +103,9 @@ const CACHE_NAMESPACE = "subtitles";
 
 const CACHE_MAX_AGE = Duration.days(3650);
 
+/** Conversions that run at once; each reads its whole source, embedded tracks a whole film. */
+const MAX_CONVERSIONS = 2;
+
 const webVttArgs = (input: string, map: ReadonlyArray<string>): ReadonlyArray<string> => [
   "-hide_banner",
   "-nostdin",
@@ -110,6 +126,8 @@ const make = Effect.gen(function* () {
   const tools = yield* MediaTools.Service;
   const cache = yield* DiskCache.Service;
   const fs = yield* FileSystem.FileSystem;
+  const config = yield* MediaConfig.Service;
+  const conversions = yield* Semaphore.make(MAX_CONVERSIONS);
 
   const toWebVtt = Effect.fn("SubtitleConverter.toWebVtt")(function* (
     file: ResolvedMediaFile,
@@ -121,15 +139,31 @@ const make = Effect.gen(function* () {
 
     if (track.kind === "bitmap")
       return yield* new SubtitleUnsupported({ trackId, codec: track.codec });
-    const key = `${file.fileId}:${file.sizeBytes}:${file.modifiedAtMs}:${trackId}`;
+
+    const sidecar =
+      track.source === "sidecar"
+        ? file.subtitles.find((candidate) => sidecarTrackId(candidate.path) === trackId)
+        : undefined;
+
+    const failed = (detail: string) => new SubtitleConversionFailed({ trackId, detail });
+
+    const key =
+      sidecar === undefined
+        ? `${file.fileId}:${file.sizeBytes}:${file.modifiedAtMs}:${trackId}`
+        : yield* fs.stat(sidecar.path).pipe(
+            Effect.map(
+              (info) =>
+                `sidecar:${sidecar.path}:${String(info.size)}:${Option.match(info.mtime, {
+                  onNone: () => 0,
+                  onSome: (date) => date.getTime(),
+                })}`,
+            ),
+            Effect.mapError(() => failed("unreadable")),
+          );
+
     const cached = yield* cache.read(CACHE_NAMESPACE, key, CACHE_MAX_AGE);
 
     if (Option.isSome(cached) && cached.value.startsWith("WEBVTT")) return cached.value;
-
-    const sidecar =
-      track.source === "sidecar" ? file.subtitles[Number(trackId.slice(1))] : undefined;
-
-    const failed = (detail: string) => new SubtitleConversionFailed({ trackId, detail });
 
     if (sidecar?.format === "vtt") {
       const text = yield* fs
@@ -144,9 +178,19 @@ const make = Effect.gen(function* () {
         ? webVttArgs(file.path, ["-map", `0:${trackId.slice(1)}`])
         : webVttArgs(sidecar.path, ["-map", "0:s:0"]);
 
-    const vtt = yield* tools
-      .ffmpeg(args)
-      .pipe(Effect.mapError((error) => failed(`ffmpeg exited with ${String(error.exitCode)}`)));
+    const vtt = yield* conversions.withPermits(1)(
+      tools
+        .ffmpeg(args, { timeout: config.fileScanTimeout })
+        .pipe(
+          Effect.mapError((error) =>
+            failed(
+              error.exitCode === null
+                ? error.stderr
+                : `ffmpeg exited with ${String(error.exitCode)}`,
+            ),
+          ),
+        ),
+    );
 
     yield* cache.write(CACHE_NAMESPACE, key, vtt);
 
@@ -160,5 +204,5 @@ const make = Effect.gen(function* () {
 export const layer: Layer.Layer<
   Service,
   never,
-  MediaTools.Service | DiskCache.Service | FileSystem.FileSystem
+  MediaTools.Service | DiskCache.Service | FileSystem.FileSystem | MediaConfig.Service
 > = Layer.effect(Service, make);

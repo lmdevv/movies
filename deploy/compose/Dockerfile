@@ -39,14 +39,15 @@ RUN pnpm --filter @movies/backend deploy --prod --legacy /out/backend \
 FROM ${NODE_IMAGE}
 ARG TARGETARCH
 # Debian's ffmpeg 7.1 is built with libvpl (oneVPL). On amd64 add Intel's iHD VA-API driver and the
-# oneVPL GPU runtime, which give Quick Sync on Gen12+ (Tiger Lake and newer) iGPUs. The service
-# probes QSV at startup and falls back to software encoding when it is unavailable.
+# oneVPL GPU runtime, which give Quick Sync on Gen12+ (Tiger Lake and newer) iGPUs, and Mesa's
+# VA-API drivers for AMD GPUs. The service probes Quick Sync, then VA-API, and falls back to
+# software encoding when neither works.
 RUN set -eux; \
     sed -i 's/^Components: main$/Components: main non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources; \
     apt-get update; \
     packages="ffmpeg ca-certificates"; \
     if [ "${TARGETARCH:-amd64}" = amd64 ]; then \
-      packages="$packages intel-media-va-driver-non-free libmfx-gen1.2 libvpl2 vainfo"; \
+      packages="$packages intel-media-va-driver-non-free libmfx-gen1.2 libvpl2 mesa-va-drivers vainfo"; \
     fi; \
     apt-get install -y --no-install-recommends $packages; \
     rm -rf /var/lib/apt/lists/*

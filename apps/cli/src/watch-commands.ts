@@ -152,6 +152,7 @@ const play: ShortcutCommand = {
   options: {
     "episode-id": { type: "string" },
     from: { type: "string" },
+    "max-height": { type: "string" },
     open: { type: "boolean" },
     "profile-id": { type: "string" },
   },
@@ -160,6 +161,15 @@ const play: ShortcutCommand = {
     Effect.gen(function* () {
       const query = yield* requirePositional(invocation, "a title name or ID");
       const from = yield* positionFlag(invocation, "from");
+      const maxHeight = Option.map(stringFlag(invocation.tokens, "max-height"), Number);
+
+      if (
+        Option.isSome(maxHeight) &&
+        !(Number.isInteger(maxHeight.value) && maxHeight.value >= 144 && maxHeight.value <= 4320)
+      ) {
+        return yield* usage(invocation, "--max-height expects lines from 144 to 4320, such as 720");
+      }
+
       const connection = yield* connect(invocation.env, invocation.target, "required");
       const profileId = yield* viewingProfile(invocation, connection.viewingProfileId);
       const title = yield* findTitle(connection, profileId, query);
@@ -204,6 +214,7 @@ const play: ShortcutCommand = {
           capabilities: DESKTOP_PLAYER,
           startAtMs: from,
           audioStreamIndex: Option.none(),
+          quality: Option.map(maxHeight, (height) => ({ maxHeight: height })),
         }).pipe(
           Effect.provideService(MoviesClient.MoviesClient, connection.client),
           Effect.map(Result.succeed),

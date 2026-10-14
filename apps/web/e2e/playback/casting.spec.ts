@@ -11,7 +11,7 @@ import { RoomId } from "@movies/contracts/ids";
 import { MEDIA_ROUTES } from "@movies/contracts/media-playback";
 import type { TitleId } from "@movies/contracts/ids";
 import { expect, test } from "@playwright/test";
-import type { BrowserContext, Page } from "@playwright/test";
+import type { BrowserContext, Page, Request } from "@playwright/test";
 import { Schema } from "effect";
 
 import { NO_STACK, ownedStack, signInOwner, useSession } from "../admin/session";
@@ -45,6 +45,9 @@ test.describe.configure({ mode: "serial" });
 const SETUP_TIMEOUT_MS = 240_000;
 
 const run = Date.now().toString(36);
+
+/** The player's tracks button and its popover. */
+const TRACKS = "Audio, subtitles, and quality";
 
 /** Plays directly on a Chromecast; has English subtitles. */
 const DIRECT = "Lantern Pier";
@@ -211,7 +214,7 @@ test("a Chromecast on the network gets a cast button, and casting loads the sess
   expect(load?.tracks).toEqual([
     expect.objectContaining({ trackId: 1, contentType: "text/vtt", name: "English" }),
   ]);
-  expect(load?.tracks[0]?.url).toMatch(/\/media\/subtitles\/\w+\/x0\.vtt\?token=v1\./u);
+  expect(load?.tracks[0]?.url).toMatch(/\/media\/subtitles\/\w+\/x[\da-f]{12}\.vtt\?token=v1\./u);
   expect(load?.currentTime).toBeGreaterThan(1.5);
   await expect
     .poll(async () => (await receiver(page)).fetches.map(({ status }) => status))
@@ -432,9 +435,9 @@ test("audio changes in quick succession leave the TV on the stream the media ser
   const before = (await receiver(page)).loads.length;
 
   await revealControls(page);
-  await page.getByRole("button", { name: "Audio and subtitles" }).click();
+  await page.getByRole("button", { name: TRACKS }).click();
 
-  const panel = page.getByRole("dialog", { name: "Audio and subtitles" });
+  const panel = page.getByRole("dialog", { name: TRACKS });
 
   await panel.getByRole("radio", { name: "French" }).click();
   await panel.getByRole("radio", { name: "English" }).click();
@@ -447,6 +450,43 @@ test("audio changes in quick succession leave the TV on the stream the media ser
   await page.unroute(`**${MEDIA_ROUTES.negotiate}`);
   await castFake(page, "refetch");
   expect((await receiver(page)).fetches.slice(-2).map(({ status }) => status)).toEqual([200, 200]);
+  await castFake(page, "disconnect");
+});
+
+test("a quality chosen while casting reaches the TV's stream", async () => {
+  await page.goto(`/watch/${titleId(REMUX)}?start=0`);
+  await expectPlayingPast(page, 1);
+  await castFake(page, "devicesAppear");
+  await castToTv(page);
+
+  const asked: Array<string> = [];
+
+  const onRequest = (request: Request) => {
+    if (request.url().endsWith(MEDIA_ROUTES.negotiate)) asked.push(request.postData() ?? "");
+  };
+
+  page.on("request", onRequest);
+
+  const before = (await receiver(page)).loads.length;
+
+  await revealControls(page);
+  await page.getByRole("button", { name: TRACKS }).click();
+  await page.getByRole("dialog", { name: TRACKS }).getByRole("radio", { name: "480p" }).click();
+  await page.keyboard.press("Escape");
+
+  // The TV gets a stream negotiated with the cap, not just the page's menu.
+  await expect
+    .poll(async () => (await receiver(page)).loads.length, { timeout: 15_000 })
+    .toBe(before + 1);
+  expect(asked.at(-1)).toContain('"maxHeight":480');
+  page.off("request", onRequest);
+
+  await page.getByRole("button", { name: TRACKS }).click();
+  await page.getByRole("dialog", { name: TRACKS }).getByRole("radio", { name: "Auto" }).click();
+  await page.keyboard.press("Escape");
+  await expect
+    .poll(async () => (await receiver(page)).loads.length, { timeout: 15_000 })
+    .toBe(before + 2);
   await castFake(page, "disconnect");
 });
 
