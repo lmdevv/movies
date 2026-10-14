@@ -17,7 +17,7 @@ at startup, backups and restores, and telemetry in more depth.
 
 ```sh
 git clone https://github.com/lmdevv/movies && cd movies
-git checkout "$(git describe --tags --abbrev=0)"   # the latest release, matching :latest
+git checkout "$(git describe --tags --abbrev=0 --exclude '*-*')"   # latest stable release, = :latest
 cd deploy/compose
 cp .env.example .env
 ```
