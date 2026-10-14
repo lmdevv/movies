@@ -284,6 +284,29 @@ describe("room sync", () => {
       }),
     ));
 
+  it("settles a guest whose player starts a little after its seek lands", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        const guest = yield* makeFakePlayer(0);
+
+        // Joining seeks to the live position, and the guest is in sync once the seek lands.
+        yield* start(rooms, GUEST, guest);
+        expect(Math.abs(yield* driftOf(rooms, guest))).toBeLessThanOrEqual(
+          DEFAULT_TUNABLES.settleMs,
+        );
+
+        // A real player only starts advancing a moment later.
+        guest.stall();
+        yield* advance(100);
+        guest.recover();
+        yield* advance(5_000);
+
+        expect(Math.abs(yield* driftOf(rooms, guest))).toBeLessThanOrEqual(
+          DEFAULT_TUNABLES.settleMs,
+        );
+      }),
+    ));
+
   it("lets a stalled guest buffer locally, then catch up", () =>
     scenario(playingForAMinute, ({ rooms }) =>
       Effect.gen(function* () {

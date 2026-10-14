@@ -98,7 +98,8 @@ export interface FollowDecision {
   readonly driftMs: number | null;
   /**
    * Whether the next decision still faces a fresh target, as after a seek; pass it to the next
-   * `follow`. A decision that acted on the target clears it.
+   * `follow`. A decision that starts a nudge clears it, as does one that finds the player in place
+   * and already playing past the seek cooldown.
    */
   readonly settling: boolean;
 }
@@ -198,7 +199,12 @@ export const follow = (
     ? [PlayerCommand.SetRate({ rate: wanted })]
     : [];
 
-  return { commands: [...rate, ...play], driftMs, settling: false };
+  // A player only starts advancing a little after a seek lands or play starts, so a target stays
+  // fresh until a decision sees it already playing past the seek cooldown; otherwise that start
+  // lag would leave it anywhere in the band.
+  const settled = correcting || (!player.paused && !recentlySought);
+
+  return { commands: [...rate, ...play], driftMs, settling: settling && !settled };
 };
 
 /** A room command a host player's state calls for. */
