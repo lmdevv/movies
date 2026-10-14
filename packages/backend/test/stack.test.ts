@@ -24,7 +24,7 @@ import type {
   UserId,
 } from "@movies/contracts/ids";
 import type { CatalogFile, WatchStateImport } from "@movies/contracts/models/migration-service";
-import { DeviceId as DeviceIdSchema } from "@movies/contracts/ids";
+import { DeviceId as DeviceIdSchema, JobId as JobIdSchema } from "@movies/contracts/ids";
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import {
   type ScannedEpisode as ScannedEpisodeSchema,
@@ -90,6 +90,13 @@ const sha256 = (secret: string): string => createHash("sha256").update(secret).d
 const decodeRow = Schema.decodeUnknownSync(
   Schema.fromJsonString(Schema.Struct({ status: Schema.String })),
 );
+
+const decodeId = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Struct({ _id: Schema.String })),
+);
+
+/** The `_id` of a row printed as JSON by `tableLines`. */
+const idOf = (line: string): string => decodeId(line)._id;
 
 /** The status of the first row of `table` whose JSON contains `needle`, read as an admin. */
 const rowOf = (table: string, needle: string) =>
@@ -3681,6 +3688,40 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
   });
 
   describe("scheduled upkeep", () => {
+    it("fails, rather than takes over, a lapsed job that used its last attempt", async () => {
+      const lapsedOwner = `lapsed-worker-${id}`;
+      const longAgo = Date.now() - 60 * 60 * 1000;
+
+      importDocuments("jobs", [
+        JSON.stringify({
+          kind: "metadata",
+          status: "running",
+          payload: { kind: "metadata", titleId: fixture.titles.unrated, match: null },
+          progress: { done: 0, total: null, message: null },
+          error: null,
+          requestedBy: null,
+          attempts: 5,
+          leaseOwner: lapsedOwner,
+          leaseExpiresAt: longAgo,
+          startedAt: longAgo,
+          finishedAt: null,
+        }),
+      ]);
+
+      const jobId = JobIdSchema.make(
+        idOf(tableLines("jobs").find((line) => line.includes(lapsedOwner)) ?? "{}"),
+      );
+
+      expect(
+        await service(fixture.mediaService, "mediaService.claimJob", {
+          jobId,
+          workerId: `taker-${id}`,
+          leaseMs: 5_000,
+        }),
+      ).toBeNull();
+      expect(await run(fixture.owner, "jobs.get", { jobId })).toMatchObject({ status: "failed" });
+    });
+
     it("returns lapsed leases, ends idle playback, expires device codes, and sweeps rooms", async () => {
       const { jobId } = await run(fixture.owner, "metadata.refresh", {
         titleId: fixture.titles.unrated,

@@ -17,8 +17,8 @@ import {
   upsertScannedItem,
 } from "./lib/catalog";
 import { fail } from "./lib/errors";
-import { failAttempt } from "./lib/jobOutcomes";
-import { requireLease, requireLeaseOf } from "./lib/jobs";
+import { failAttempt, LAPSED_LEASE_ERROR } from "./lib/jobOutcomes";
+import { MAX_JOB_ATTEMPTS, requireLease, requireLeaseOf } from "./lib/jobs";
 import { syncTitleGenres } from "./lib/genres";
 import { CREDIT_LIMIT, creditsOf, personKeyOf, replaceCredits } from "./lib/people";
 import { presentJob } from "./lib/present";
@@ -121,8 +121,8 @@ export const pendingJobs = query({
 
 /**
  * Claims a pending job for `workerId` with a lease of 5 seconds to 10 minutes, or takes over a
- * running job whose lease expired. Returns null when the job is gone or someone else holds it; a
- * scan comes with its library's folders.
+ * running job whose lease expired. Returns null when the job is gone or someone else holds it, and
+ * fails a lapsed job that used its last attempt; a scan comes with its library's folders.
  */
 export const claimJob = mutation({
   args: { ...leaseArgs, leaseMs: v.number() },
@@ -132,11 +132,18 @@ export const claimJob = mutation({
     const doc = await ctx.db.get(jobId);
     const now = Date.now();
 
-    const claimable =
-      doc !== null &&
-      (doc.status === "pending" || (doc.status === "running" && (doc.leaseExpiresAt ?? 0) <= now));
+    if (doc === null) return null;
+    const lapsed = doc.status === "running" && (doc.leaseExpiresAt ?? 0) <= now;
 
-    if (!claimable) return null;
+    if (doc.status !== "pending" && !lapsed) return null;
+
+    // A lapsed job that used its last attempt fails, as the lease sweep would fail it.
+    if (lapsed && doc.attempts >= MAX_JOB_ATTEMPTS) {
+      await failAttempt(ctx, doc, { error: LAPSED_LEASE_ERROR, retry: true });
+
+      return null;
+    }
+
     const leaseExpiresAt = now + checkLease(leaseMs);
 
     await ctx.db.patch(jobId, {

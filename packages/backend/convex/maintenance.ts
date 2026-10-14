@@ -5,7 +5,7 @@ import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { endPlaybackSession, endRoom, endTitlePlayback } from "./lib/endings";
 import { enqueueJob } from "./lib/jobs";
-import { failAttempt } from "./lib/jobOutcomes";
+import { failAttempt, LAPSED_LEASE_ERROR } from "./lib/jobOutcomes";
 import { removeTitleGenres, syncTitleGenres } from "./lib/genres";
 import { removeTitleCredits } from "./lib/people";
 import { overlappingLibraries as findOverlaps } from "./lib/roots";
@@ -126,9 +126,7 @@ export const releaseExpiredLeases = internalMutation({
     const expired = running.filter((job) => (job.leaseExpiresAt ?? 0) <= now);
 
     await Promise.all(
-      expired.map((job) =>
-        failAttempt(ctx, job, { error: "The worker stopped responding", retry: true }),
-      ),
+      expired.map((job) => failAttempt(ctx, job, { error: LAPSED_LEASE_ERROR, retry: true })),
     );
 
     return null;
