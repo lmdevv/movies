@@ -82,6 +82,10 @@ const heldMigration = async (
   return migrationOf(ctx, jobId);
 };
 
+/**
+ * Every enabled account other than the service account, with its profiles, for mapping source users
+ * onto [movies] profiles.
+ */
 export const targets = query({
   args: {},
   returns: v.array(migrationTarget),
@@ -109,6 +113,10 @@ export const targets = query({
   },
 });
 
+/**
+ * Every file in [movies] with its title, episode numbers, and provider IDs, for matching source
+ * items to [movies] files. Files whose title is gone are left out, so a page can come back short.
+ */
 export const catalog = query({
   args: pageArgs,
   returns: page(catalogFile),
@@ -157,6 +165,7 @@ export const catalog = query({
   },
 });
 
+/** A profile's progress rows, for a dry run to compare with the source's watch state. */
 export const localProgress = query({
   args: { profileId: v.id("profiles"), ...pageArgs },
   returns: page(localProgressRow),
@@ -242,6 +251,10 @@ export const start = mutation({
   },
 });
 
+/**
+ * A held migration job's plan, checkpoint, import counts, and libraries, so a worker resumes where
+ * the last one stopped. Fails with `conflict` when the worker lost the lease.
+ */
 export const state = query({
   args: leaseArgs,
   returns: migrationState,
@@ -318,7 +331,7 @@ const grantedAccounts = async (
 /**
  * Finds the libraries covering these folders, or adds one for the folders no library covers yet
  * and queues its scan. A folder inside, or holding, another library's folder counts as covered by
-that library, since libraries never nest; files outside it stay unmatched. An added library
+ * that library, since libraries never nest; files outside it stay unmatched. An added library
  * is open to everyone only when the source showed it to every user; otherwise it is restricted,
  * granted to the accounts of the imported users who could see it (none when the source did not
  * say, or for plans stored before access was recorded). Access comes from the stored plan, never
@@ -388,6 +401,10 @@ export const ensureLibrary = mutation({
   },
 });
 
+/**
+ * How many of the given libraries still have a scan queued or running, so a migration waits for its
+ * new libraries before matching files.
+ */
 export const scansPending = query({
   args: { libraryIds: v.array(v.id("libraries")) },
   returns: v.object({ pending: v.number() }),
@@ -517,6 +534,12 @@ const importWatchItem = async (ctx: MutationCtx, item: WatchItem): Promise<Watch
   return { ...progress, favorites: await importFavorite(ctx, item) };
 };
 
+/**
+ * Imports up to 100 watch state items for mapped profiles and returns what changed. Safe to repeat:
+ * watched marks only get set, play counts keep the larger value, a position applies only when the
+ * source played the item more recently, and a favorite adds the title to My List once. Items whose
+ * profile, title, or episode is gone are skipped.
+ */
 export const importWatchState = mutation({
   args: { ...leaseArgs, items: v.array(watchStateImport) },
   returns: watchStateImported,
@@ -538,6 +561,11 @@ export const importWatchState = mutation({
   },
 });
 
+/**
+ * Imports up to 10 collections and 2000 members per call, matched to earlier imports by source key.
+ * Each collection's imported members are replaced while members its titles' metadata added stay.
+ * Returns how many collections were new.
+ */
 export const importCollections = mutation({
   args: { ...leaseArgs, items: v.array(collectionImport) },
   returns: v.object({ imported: v.number() }),
@@ -640,6 +668,11 @@ const importExternalIds = async (
   }
 };
 
+/**
+ * Imports up to 100 titles' metadata overrides and provider IDs. Overrides and IDs already on
+ * [movies] win; an unmatched title that gains a provider ID gets a metadata job. Returns how many
+ * titles' overrides changed.
+ */
 export const importOverrides = mutation({
   args: { ...leaseArgs, items: v.array(overrideImport) },
   returns: v.object({ imported: v.number() }),

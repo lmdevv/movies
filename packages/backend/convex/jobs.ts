@@ -35,6 +35,11 @@ const loadJob = async (ctx: QueryCtx, viewer: Viewer, jobId: Id<"jobs">): Promis
   return doc;
 };
 
+/**
+ * Jobs newest first, filtered by kind and status. Requires `manage` scope; backup and migration
+ * jobs also need `admin` and are left out without it. Without both filters at most 2000 jobs are
+ * read, so a page can come back short.
+ */
 export const list = query({
   args: {
     kind: v.optional(jobKind),
@@ -101,6 +106,10 @@ export const list = query({
   },
 });
 
+/**
+ * One job with its progress and error. Requires `manage` scope, plus `admin` for backup and
+ * migration jobs.
+ */
 export const get = query({
   args: { jobId: v.id("jobs") },
   returns: job,

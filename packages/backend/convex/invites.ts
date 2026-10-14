@@ -79,6 +79,10 @@ export const insert = internalMutation({
   },
 });
 
+/**
+ * Creates an invite for an admin or member account, open for 7 days unless `expiresInDays` picks
+ * 1 to 30. Requires `admin` scope. The result carries the code and link, never shown again.
+ */
 export const create = action({
   args: {
     email: v.optional(v.string()),
@@ -105,6 +109,7 @@ export const create = action({
   },
 });
 
+/** The 200 most recent invites with their state. Requires `admin` scope. */
 export const list = query({
   args: {},
   returns: v.array(invite),
@@ -117,6 +122,10 @@ export const list = query({
   },
 });
 
+/**
+ * Revokes an open invite so its code stops working. Requires `admin` scope; an accepted invite
+ * fails with `conflict`.
+ */
 export const revoke = mutation({
   args: { inviteId: v.id("invites") },
   returns: ok,

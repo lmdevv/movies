@@ -65,6 +65,10 @@ export const list = query({
   },
 });
 
+/**
+ * Every library with its folders, access, grants, and whether a scan is queued or running. Requires
+ * `manage` scope.
+ */
 export const listDetails = query({
   args: {},
   returns: v.array(libraryDetail),
@@ -76,6 +80,7 @@ export const listDetails = query({
   },
 });
 
+/** One library with its folders, access, grants, and scan state. Requires `manage` scope. */
 export const get = query({
   args: { libraryId: v.id("libraries") },
   returns: libraryDetail,
@@ -89,6 +94,11 @@ export const get = query({
   },
 });
 
+/**
+ * Creates a library and queues its first full scan. Requires `manage` scope. A folder another
+ * library already uses fails with `conflict`; one inside or containing another library's folder
+ * fails with `invalid_args`.
+ */
 export const create = mutation({
   args: {
     name: v.string(),
@@ -116,6 +126,11 @@ export const create = mutation({
   },
 });
 
+/**
+ * Renames a library or changes its folders, access, or scrub thumbnails. Requires `manage` scope.
+ * Passing `roots` queues a full scan unless a scan of the library is already queued or running;
+ * turning thumbnails off cancels the ones still queued.
+ */
 export const update = mutation({
   args: {
     libraryId: v.id("libraries"),
@@ -200,6 +215,10 @@ export const remove = mutation({
   },
 });
 
+/**
+ * Queues a scan of a library, quick unless `mode` says full. Requires `manage` scope. When a scan
+ * of the library is already queued or running, returns that job instead.
+ */
 export const scan = mutation({
   args: { libraryId: v.id("libraries"), mode: v.optional(scanMode) },
   returns: queuedJob,

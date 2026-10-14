@@ -76,6 +76,10 @@ export const insert = internalMutation({
   },
 });
 
+/**
+ * Starts a device sign-in without an account: returns the secret device code, the short user code,
+ * and the approval link. Fails with `rate_limited` while too many codes are waiting.
+ */
 export const request = action({
   args: { clientName: v.string() },
   returns: deviceCodeRequest,
@@ -126,6 +130,7 @@ const findByUserCode = async (ctx: QueryCtx, typed: string): Promise<Doc<"device
   return found ?? fail("not_found", "No device is waiting for that code");
 };
 
+/** The device waiting on a user code, for the approval page. Requires `account` scope. */
 export const lookup = query({
   args: { userCode: v.string() },
   returns: deviceCodeLookup,
@@ -155,6 +160,11 @@ const pendingCode = async (ctx: QueryCtx, userCode: string): Promise<Doc<"device
   return found;
 };
 
+/**
+ * Approves a waiting device with scopes this session holds; the device then signs in as the
+ * approving account. Fails with `expired` or `conflict` once the code is past its ten minutes or
+ * already decided.
+ */
 export const approve = mutation({
   args: { userCode: v.string(), scopes: v.array(deviceScope) },
   returns: ok,
@@ -181,6 +191,10 @@ export const approve = mutation({
   },
 });
 
+/**
+ * Refuses a waiting device, so its code can never sign in. Fails with `expired` or `conflict` like
+ * `approve`.
+ */
 export const deny = mutation({
   args: { userCode: v.string() },
   returns: ok,

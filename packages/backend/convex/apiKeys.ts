@@ -69,6 +69,11 @@ export const insert = internalMutation({
   },
 });
 
+/**
+ * Creates an API key for the signed-in account with `account` scope. Grants only scopes this
+ * session holds, and expires after 1 to 365 days when `expiresInDays` is set. The result carries
+ * the secret, which is never shown again.
+ */
 export const create = action({
   args: {
     name: v.string(),
@@ -107,6 +112,10 @@ const managesKeysOf = async (
   return (await ctx.db.get(owner))?.role !== "owner";
 };
 
+/**
+ * API keys of the signed-in account, or with `admin` scope of another account except the owner's.
+ * Leaves out the media service's key.
+ */
 export const list = query({
   args: { userId: v.optional(v.id("users")) },
   returns: v.array(apiKey),
@@ -127,6 +136,10 @@ export const list = query({
   },
 });
 
+/**
+ * Revokes a key and ends the session it signed in, so every token it issued stops working.
+ * Repeating it is harmless. A key the viewer may not manage fails with `not_found`.
+ */
 export const revoke = mutation({
   args: { apiKeyId: v.id("apiKeys") },
   returns: ok,

@@ -99,8 +99,8 @@ const membershipsOf = async (
 
 /**
  * Whether one of the profiles the viewer joined with, unlocked on this session, may still see the
- * room's title: the host can
- * switch the room to a title a guest's profile may not see, and then that guest stops seeing it.
+ * room's title: the host can switch the room to a title a guest's profile may not see, and then
+ * that guest stops seeing it.
  */
 const membersMaySee = async (
   ctx: QueryCtx,
@@ -197,6 +197,10 @@ const leaveOtherRooms = async (
   );
 };
 
+/**
+ * Opens a watch room hosted by this device, paused at `positionMs` on the title's file. Requires
+ * `play` scope. The device first leaves every other room it is in, ending the ones it hosts.
+ */
 export const create = mutation({
   args: {
     profileId: v.id("profiles"),
@@ -288,6 +292,10 @@ export const get = query({
   },
 });
 
+/**
+ * The live room this device is in, or null. Also null when no profile it joined with, unlocked on
+ * this session, may still see the room's title.
+ */
 export const current = query({
   args: { deviceId: v.string() },
   returns: v.union(v.null(), roomResult),
@@ -309,6 +317,11 @@ export const current = query({
   },
 });
 
+/**
+ * Joins a live room as a guest on this device, or updates the profile of a device already in it.
+ * Requires `play` scope and a profile that may see the title. The device leaves its other rooms,
+ * ending the ones it hosts; an ended room fails with `conflict`.
+ */
 export const join = mutation({
   args: { roomId: v.id("rooms"), profileId: v.id("profiles"), deviceId: v.string() },
   returns: roomResult,
@@ -373,6 +386,10 @@ export const leave = mutation({
   },
 });
 
+/**
+ * Plays the room from `positionMs`. Host's device only, at the room's current revision, or it fails
+ * with `stale_revision`.
+ */
 export const play = mutation({
   args: hostControlArgs,
   returns: roomClock,
@@ -384,6 +401,7 @@ export const play = mutation({
     })),
 });
 
+/** Pauses the room at `positionMs`. Host's device only, at the room's current revision. */
 export const pause = mutation({
   args: hostControlArgs,
   returns: roomClock,
@@ -395,6 +413,10 @@ export const pause = mutation({
     })),
 });
 
+/**
+ * Moves the room to `positionMs`, keeping it playing or paused; a buffering room comes out paused.
+ * Host's device only, at the room's current revision.
+ */
 export const seek = mutation({
   args: hostControlArgs,
   returns: roomClock,
@@ -406,6 +428,10 @@ export const seek = mutation({
     })),
 });
 
+/**
+ * Freezes the room at `positionMs` while the host buffers; guests wait until the host plays again.
+ * Host's device only, at the room's current revision.
+ */
 export const buffering = mutation({
   args: hostControlArgs,
   returns: roomClock,
@@ -515,6 +541,10 @@ export const setMedia = mutation({
   },
 });
 
+/**
+ * Ends the room for every member at its live position. Host's device only; ending an ended room is
+ * harmless.
+ */
 export const end = mutation({
   args: { roomId: v.id("rooms"), deviceId: v.string() },
   returns: ok,

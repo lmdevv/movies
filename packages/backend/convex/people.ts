@@ -134,6 +134,10 @@ const visibleCredits = async (
 
 const yearOf = (title: Doc<"titles">): number => title.overrides?.year ?? title.year ?? 0;
 
+/**
+ * A person's details and their credits on titles the profile may see, newest first. A person
+ * credited on nothing the profile may see fails with `not_found`, as a missing one does.
+ */
 export const get = query({
   args: { profileId: v.id("profiles"), personId: v.id("people") },
   returns: personDetail,

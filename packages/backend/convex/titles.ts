@@ -66,6 +66,10 @@ const CREW_ORDER = ["creator", "director", "writer", "producer", "composer"] as 
 
 const NO_RATINGS = { tmdb: null, imdb: null, rottenTomatoes: null, metacritic: null };
 
+/**
+ * The home screen for a profile: a featured title, continue watching, My List, and the newest
+ * movies and shows, up to 20 per row of what the profile may see.
+ */
 export const home = query({
   args: { profileId: v.id("profiles") },
   returns: homeResult,
@@ -112,6 +116,11 @@ export const home = query({
   },
 });
 
+/**
+ * One page of the titles the profile may see, by name unless `sort` says otherwise, narrowed by
+ * kind, library, genre, years, studio, and rating. A page can come back short while `nextCursor`
+ * continues it.
+ */
 export const list = query({
   args: {
     profileId: v.id("profiles"),
@@ -144,6 +153,10 @@ export const list = query({
   },
 });
 
+/**
+ * Titles matching `query` that the profile may see, best match first. Among the first 200 hits
+ * only, so hidden titles can leave fewer results than the limit; a blank query returns none.
+ */
 export const search = query({
   args: { profileId: v.id("profiles"), query: v.string(), limit: v.optional(v.number()) },
   returns: v.array(titleCard),
@@ -167,6 +180,11 @@ export const search = query({
   },
 });
 
+/**
+ * A title page for a profile: details with overrides applied, cast and crew, seasons, a movie's
+ * files and progress, a show's next episode, and whether it is on My List. A title the profile may
+ * not see fails with `not_found`.
+ */
 export const get = query({
   args: { profileId: v.id("profiles"), titleId: v.id("titles") },
   returns: titleDetail,
@@ -255,6 +273,7 @@ export const get = query({
   },
 });
 
+/** One season's episodes in order, each with the profile's progress and up to 12 credits. */
 export const episodes = query({
   args: { profileId: v.id("profiles"), titleId: v.id("titles"), seasonNumber: v.number() },
   returns: v.array(seasonEpisode),

@@ -12,6 +12,10 @@ import { continueWatchingItem, historyEntry, ok, page, pageArgs } from "./lib/va
 import { continueWatching as continueWatchingRows, writeProgress } from "./lib/viewing";
 import { authorize } from "./lib/viewer";
 
+/**
+ * Continue watching for a profile, most recent first: items in progress and the next episode of
+ * shows whose latest episode is finished.
+ */
 export const continueWatching = query({
   args: { profileId: v.id("profiles") },
   returns: v.array(continueWatchingItem),
@@ -22,6 +26,10 @@ export const continueWatching = query({
   },
 });
 
+/**
+ * A profile's watch history, most recently played first. Titles the profile may no longer see are
+ * dropped after paging, so a page can hold fewer items than the limit.
+ */
 export const list = query({
   args: { profileId: v.id("profiles"), ...pageArgs },
   returns: page(historyEntry),
@@ -90,6 +98,10 @@ const markTargets = async (
   return { title, episodes };
 };
 
+/**
+ * Marks a movie, one episode, or with no episode every episode of a show as watched, at the end of
+ * each item. Requires `play` scope.
+ */
 export const markWatched = mutation({
   args: {
     profileId: v.id("profiles"),
@@ -125,6 +137,10 @@ export const markWatched = mutation({
   },
 });
 
+/**
+ * Clears a profile's progress for a movie, one episode, or every episode of a show, removing those
+ * items from history and continue watching.
+ */
 export const markUnwatched = mutation({
   args: {
     profileId: v.id("profiles"),

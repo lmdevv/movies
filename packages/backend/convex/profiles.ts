@@ -69,6 +69,7 @@ const setUnlocked = async (
   });
 };
 
+/** The account's profiles, each marked locked or unlocked for this session. */
 export const list = query({
   args: {},
   returns: v.array(profile),
@@ -84,6 +85,10 @@ export const list = query({
   },
 });
 
+/**
+ * Adds a profile to the account. Requires `account` scope. A kids profile gets the default age
+ * limit unless one is given; an eleventh profile fails with `conflict`.
+ */
 export const create = mutation({
   args: {
     name: v.string(),
@@ -117,6 +122,11 @@ export const create = mutation({
   },
 });
 
+/**
+ * Renames a profile or changes its avatar, kids setting, or age limit. Requires `account` scope and
+ * the profile unlocked on this session. A kids profile keeps an age limit; clearing it requires
+ * turning kids off.
+ */
 export const update = mutation({
   args: {
     profileId: v.id("profiles"),
@@ -141,6 +151,11 @@ export const update = mutation({
   },
 });
 
+/**
+ * Deletes a profile with its watch history and list, and ends its playback and room memberships,
+ * ending rooms it hosts. Requires `account` scope and the profile unlocked; the last profile fails
+ * with `conflict`.
+ */
 export const remove = mutation({
   args: { profileId: v.id("profiles") },
   returns: ok,
@@ -173,6 +188,11 @@ export const remove = mutation({
   },
 });
 
+/**
+ * Sets a 4 to 8 digit PIN on a profile, or clears it with null. Requires `account` scope and the
+ * profile unlocked. This session stays unlocked; other sessions that already unlocked the profile
+ * stay unlocked too, and the rest must enter the new PIN.
+ */
 export const setPin = mutation({
   args: { profileId: v.id("profiles"), pin: nullable(v.string()) },
   returns: ok,
@@ -250,6 +270,7 @@ export const unlock = mutation({
   },
 });
 
+/** Locks a profile on this session again, so its PIN is needed before it is used here. */
 export const lock = mutation({
   args: { profileId: v.id("profiles") },
   returns: ok,

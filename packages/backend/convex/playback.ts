@@ -95,6 +95,12 @@ const roomFile = async (
   return room;
 };
 
+/**
+ * Starts playback on a device and signs a playback token for the media service, resuming where the
+ * profile left off unless it finished. Requires `play` scope. Ends this device's earlier session,
+ * and past eight devices the account's quietest sessions. With `roomId` the room's file plays, and
+ * the device must have joined the room with this profile.
+ */
 export const createSession = mutation({
   args: {
     profileId: v.id("profiles"),
@@ -198,6 +204,10 @@ export const createSession = mutation({
   },
 });
 
+/**
+ * Signs a fresh playback token for an active session, after checking the profile may still see the
+ * title. Fails with `conflict` once the session ended.
+ */
 export const renewToken = mutation({
   args: { sessionId: v.id("playbackSessions") },
   returns: renewedToken,
@@ -241,6 +251,11 @@ const recordPosition = async (
   });
 };
 
+/**
+ * Records a device's position and play state and saves it as the profile's progress. `applied` is
+ * false when the session ended or a newer session owns the item's progress; reaching the end or an
+ * `ended` event marks the item watched.
+ */
 export const reportProgress = mutation({
   args: {
     sessionId: v.id("playbackSessions"),
@@ -269,6 +284,10 @@ export const reportProgress = mutation({
   },
 });
 
+/**
+ * Saves the final position and ends the session, so the media service stops its streams. Ending an
+ * ended session is harmless.
+ */
 export const endSession = mutation({
   args: { sessionId: v.id("playbackSessions"), positionMs: v.number() },
   returns: ok,
@@ -290,6 +309,10 @@ export const endSession = mutation({
   },
 });
 
+/**
+ * The episode after this one in season order, specials last, with the profile's progress; null
+ * after the last.
+ */
 export const nextEpisode = query({
   args: { profileId: v.id("profiles"), episodeId: v.id("episodes") },
   returns: v.union(v.null(), episode),
@@ -306,6 +329,7 @@ export const nextEpisode = query({
   },
 });
 
+/** The account's active playback sessions on every device. */
 export const active = query({
   args: {},
   returns: v.array(playbackSession),

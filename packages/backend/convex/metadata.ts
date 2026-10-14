@@ -33,6 +33,10 @@ export const fixMatch = mutation({
   },
 });
 
+/**
+ * Queues a metadata job that fetches a title's details again from its current match. Requires
+ * `manage` scope. A refresh fills credits nobody wrote yet but keeps the ones a scan wrote.
+ */
 export const refresh = mutation({
   args: { titleId: v.id("titles") },
   returns: queuedJob,

@@ -119,6 +119,11 @@ export const pendingJobs = query({
   },
 });
 
+/**
+ * Claims a pending job for `workerId` with a lease of 5 seconds to 10 minutes, or takes over a
+ * running job whose lease expired. Returns null when the job is gone or someone else holds it; a
+ * scan comes with its library's folders.
+ */
 export const claimJob = mutation({
   args: { ...leaseArgs, leaseMs: v.number() },
   returns: v.union(v.null(), claimedJob),
@@ -155,6 +160,10 @@ export const claimJob = mutation({
   },
 });
 
+/**
+ * Extends the worker's lease and records progress. Reports `cancelled` once an admin cancelled the
+ * job, so the worker stops; fails with `conflict` when the worker lost the lease.
+ */
 export const renewLease = mutation({
   args: { ...leaseArgs, leaseMs: v.number(), progress: v.optional(jobProgress) },
   returns: v.object({ leaseExpiresAt: v.number(), cancelled: v.boolean() }),
@@ -178,6 +187,10 @@ export const renewLease = mutation({
   },
 });
 
+/**
+ * Marks a held job succeeded and releases its lease; a finished scan stamps the library's last scan
+ * time. Fails with `conflict` when the worker lost the lease.
+ */
 export const completeJob = mutation({
   args: { ...leaseArgs, message: v.optional(v.string()) },
   returns: ok,
@@ -202,6 +215,10 @@ export const completeJob = mutation({
   },
 });
 
+/**
+ * Ends the held job's attempt with an error. It returns to the queue when `retry` is set and
+ * attempts remain, and otherwise fails for good.
+ */
 export const failJob = mutation({
   args: { ...leaseArgs, error: v.string(), retry: v.boolean() },
   returns: ok,
@@ -213,6 +230,7 @@ export const failJob = mutation({
   },
 });
 
+/** Every library with its folders and kind, whatever its access. */
 export const libraries = query({
   args: {},
   returns: v.array(mediaLibrary),
@@ -224,6 +242,10 @@ export const libraries = query({
   },
 });
 
+/**
+ * What the catalog knows of a library's files by path (size, modified time, sidecars, missing), up
+ * to 100 per page, so a scan can skip unchanged files.
+ */
 export const fileIndex = query({
   args: { libraryId: v.id("libraries"), ...pageArgs },
   returns: page(indexedFile),
@@ -251,6 +273,10 @@ export const fileIndex = query({
   },
 });
 
+/**
+ * Writes up to 100 scanned files with their titles and episodes, queuing scrub thumbnails for new
+ * or changed files. A path outside the library's folders fails the whole batch with `invalid_args`.
+ */
 export const upsertScanned = mutation({
   args: { libraryId: v.id("libraries"), items: v.array(scannedItem) },
   returns: v.array(upsertedFile),
@@ -268,6 +294,10 @@ export const upsertScanned = mutation({
   },
 });
 
+/**
+ * Marks up to 100 of a library's files missing by path; titles, episodes, and history stay. Returns
+ * how many were newly marked, so repeating a path is harmless.
+ */
 export const markMissing = mutation({
   args: { libraryId: v.id("libraries"), paths: v.array(v.string()) },
   returns: v.object({ marked: v.number() }),
@@ -283,6 +313,10 @@ export const markMissing = mutation({
   },
 });
 
+/**
+ * A file's path, library folders, probe, and subtitles, for streaming it. Fails with `not_found`
+ * once the file or its library is removed.
+ */
 export const resolveFile = query({
   args: { fileId: v.id("mediaFiles") },
   returns: resolvedFile,
@@ -307,6 +341,7 @@ export const resolveFile = query({
   },
 });
 
+/** Whether a playback session is still active, the file it plays, and when it ended. */
 export const sessionStatus = query({
   args: { sessionId: v.id("playbackSessions") },
   returns: sessionStatusResult,
@@ -356,6 +391,7 @@ export const endedSessions = query({
   },
 });
 
+/** Records how the media service is delivering a session: direct play, remux, or transcode. */
 export const recordPlaybackMode = mutation({
   args: { sessionId: v.id("playbackSessions"), mode: playbackMode },
   returns: ok,
@@ -370,6 +406,10 @@ export const recordPlaybackMode = mutation({
   },
 });
 
+/**
+ * What a metadata job needs to look a title up: its name and year with overrides applied, external
+ * IDs, artwork, and episode numbers.
+ */
 export const metadataTarget = query({
   args: { titleId: v.id("titles") },
   returns: metadataTargetResult,
@@ -469,6 +509,12 @@ const creditedPerson = (person: Doc<"people">) => ({
   needsDetails: person.detailsFetchedAt === null && person.externalIds.tmdb !== null,
 });
 
+/**
+ * Replaces the cast and crew of a title or one episode, unless `hash` matches what is stored or an
+ * admin matched the title by hand outside a metadata job. A refresh without a new match keeps
+ * credits a scan wrote. Returns the people credited and whether each still needs a person job for
+ * their details.
+ */
 export const applyCredits = mutation({
   args: {
     titleId: v.id("titles"),
@@ -638,6 +684,7 @@ export const applyCollection = mutation({
   },
 });
 
+/** A person's name and external IDs, for a person job to look up their details. */
 export const personTarget = query({
   args: { personId: v.id("people") },
   returns: personTargetResult,
@@ -706,6 +753,9 @@ export const applyPerson = mutation({
   },
 });
 
+/**
+ * Records the archive a backup job wrote. The job still needs `completeJob`; each call adds a row.
+ */
 export const recordBackup = mutation({
   args: { ...leaseArgs, fileName: v.string(), sizeBytes: v.number() },
   returns: v.object({ backupId: v.id("backups") }),
