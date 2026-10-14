@@ -73,13 +73,22 @@ const ms = (value: number): Milliseconds => Milliseconds.make(value);
 /** Calls a function directly, past the contract's encoding, as any client could. */
 const direct = (
   session: Session,
-  kind: "mutation" | "action",
+  kind: "query" | "mutation" | "action",
   path: string,
   args: Record<string, Value>,
 ) =>
-  kind === "mutation"
-    ? session.client.mutation(makeFunctionReference<"mutation", typeof args>(path), args)
-    : session.client.action(makeFunctionReference<"action", typeof args>(path), args);
+  Match.value(kind).pipe(
+    Match.when("query", () =>
+      session.client.query(makeFunctionReference<"query", typeof args>(path), args),
+    ),
+    Match.when("mutation", () =>
+      session.client.mutation(makeFunctionReference<"mutation", typeof args>(path), args),
+    ),
+    Match.when("action", () =>
+      session.client.action(makeFunctionReference<"action", typeof args>(path), args),
+    ),
+    Match.exhaustive,
+  );
 
 /** A string of `length` characters. */
 const long = (length: number): string => "x".repeat(length);
@@ -3184,6 +3193,16 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       );
 
       expect(Object.entries(codes).filter(([, code]) => code !== "invalid_args")).toStrictEqual([]);
+
+      // A NaN page size, which no contract client sends, gets the default page.
+      expect(
+        await outcome(
+          direct(fixture.member, "query", "titles:list", {
+            profileId: fixture.memberProfile,
+            limit: Number.NaN,
+          }),
+        ),
+      ).toBe("succeeded");
 
       // A blank folder is refused as one, not taken for `/`, which an empty server would accept.
       await expect(
