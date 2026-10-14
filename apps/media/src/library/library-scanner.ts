@@ -27,6 +27,8 @@ import {
 } from "effect";
 
 import type { LibraryId } from "@movies/contracts/ids";
+import { createHash } from "node:crypto";
+
 import * as MediaConfig from "../media-config.ts";
 import { probeFile } from "../media/media-probe.ts";
 import * as MediaTools from "../media/media-tools.ts";
@@ -59,7 +61,7 @@ interface ScanRequest {
   readonly libraryId: LibraryId;
   /** Absolute path of the library folder. */
   readonly root: string;
-  /** `incremental` skips unchanged files; `full` re-reads every file, for example after NFO edits. */
+  /** `incremental` skips files whose video and companions (NFO, artwork, subtitles) are unchanged; `full` re-reads every file. */
   readonly mode: ScanMode;
 }
 
@@ -205,7 +207,39 @@ interface StatResult {
   readonly relativePath: string;
   readonly sizeBytes: number;
   readonly modifiedAtMs: number;
+  /** A digest of the file's companions (NFO, artwork, subtitles) and their sizes and times. */
+  readonly sidecarDigest: string;
 }
+
+/** Extensions of the companions whose edits change a file's metadata: NFO, artwork, subtitles. */
+const COMPANION_EXTENSIONS = new Set([
+  "nfo",
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "tbn",
+  "srt",
+  "vtt",
+  "ass",
+  "ssa",
+]);
+
+/** One companion in a folder, by lowercased name, with its name, size, and time. */
+interface Companion {
+  readonly lowerName: string;
+  readonly line: string;
+}
+
+/** A folder's companions and the lowercased stems of the main videos beside them. */
+interface FolderCompanions {
+  readonly companions: ReadonlyArray<Companion>;
+  readonly stems: ReadonlyArray<string>;
+}
+
+/** Whether `lowerName` is named after the video `stem`: `<stem>.nfo`, `<stem>-poster.jpg`, ... */
+const namedAfter = (lowerName: string, stem: string): boolean =>
+  lowerName.startsWith(`${stem}.`) || lowerName.startsWith(`${stem}-`);
 
 /** A short, path-free label for a file system failure. */
 const platformReason = (
@@ -433,6 +467,104 @@ const make = Effect.gen(function* () {
       const absolute = (relativePath: string): string =>
         path.join(root, ...relativePath.split("/"));
 
+      // The NFO, artwork, and subtitle files in a folder, with their sizes and times.
+      const folderCompanions = yield* Cache.make({
+        capacity: 10_000,
+        lookup: (folder: string) =>
+          Effect.gen(function* () {
+            const names = listing(folder).names;
+
+            const companions = yield* Effect.forEach(
+              names.filter(
+                (name) =>
+                  COMPANION_EXTENSIONS.has(name.split(".").at(-1)?.toLowerCase() ?? "") &&
+                  !walked.folders.has(join(folder, name)),
+              ),
+              (name) =>
+                fs.stat(absolute(join(folder, name))).pipe(
+                  Effect.map((info): Companion => {
+                    const modified = Option.match(info.mtime, {
+                      onNone: () => 0,
+                      onSome: (date) => date.getTime(),
+                    });
+
+                    return {
+                      lowerName: name.toLowerCase(),
+                      line: `${name}\u0000${String(info.size)}\u0000${String(modified)}`,
+                    };
+                  }),
+                  Effect.orElseSucceed((): Companion => ({
+                    lowerName: name.toLowerCase(),
+                    line: `${name}\u0000unreadable`,
+                  })),
+                ),
+              { concurrency: STAT_CONCURRENCY },
+            );
+
+            const stems = names
+              .filter(isMainVideo(folder))
+              .map((name) => stemOf(name).toLowerCase());
+
+            // The hidden `.actors` folder is not walked; its time changes when photos come or go.
+            const actors = yield* fs.stat(absolute(join(folder, ".actors"))).pipe(
+              Effect.map((info): ReadonlyArray<Companion> =>
+                info.type === "Directory"
+                  ? [
+                      {
+                        lowerName: ".actors",
+                        line: `.actors/\u0000${String(
+                          Option.match(info.mtime, {
+                            onNone: () => 0,
+                            onSome: (date) => date.getTime(),
+                          }),
+                        )}`,
+                      },
+                    ]
+                  : [],
+              ),
+              Effect.orElseSucceed((): ReadonlyArray<Companion> => []),
+            );
+
+            return { companions: [...companions, ...actors], stems } satisfies FolderCompanions;
+          }),
+      });
+
+      /**
+       * A digest of the companions a file's metadata can come from: those named after it, those
+       * named after no other video in its folder (`movie.nfo`, `poster.jpg`, season art), and, for
+       * an episode in a season folder, the show folder's (`tvshow.nfo`, show and season art).
+       * Other videos' sidecars are left out, so a subtitle added for one film doesn't rescan the
+       * rest of a shared folder.
+       */
+      const sidecarDigest = Effect.fn("LibraryScanner.sidecarDigest")(function* (
+        relativePath: string,
+      ) {
+        const folder = parentOf(relativePath);
+        const stem = stemOf(relativePath).toLowerCase();
+        const own = yield* Cache.get(folderCompanions, folder);
+
+        const lines = own.companions
+          .filter(
+            (companion) =>
+              namedAfter(companion.lowerName, stem) ||
+              !own.stems.some((other) => namedAfter(companion.lowerName, other)),
+          )
+          .map((companion) => companion.line);
+
+        const inSeasonFolder =
+          folder.includes("/") && SEASON_FOLDER.test(folder.split("/").at(-1) ?? "");
+
+        const show = inSeasonFolder
+          ? (yield* Cache.get(folderCompanions, parentOf(folder))).companions.map(
+              (companion) => companion.line,
+            )
+          : [];
+
+        return createHash("sha256")
+          .update([...lines.toSorted(), "", ...show.toSorted()].join("\n"))
+          .digest("base64url");
+      });
+
       // An NFO may be a link like any other entry; it is read only when it stays inside the root.
       const nfoCache = yield* Cache.make({
         capacity: 10_000,
@@ -612,14 +744,15 @@ const make = Effect.gen(function* () {
         });
 
       const statFile = (relativePath: string) =>
-        fs.stat(absolute(relativePath)).pipe(
-          Effect.map((info): StatResult => ({
+        Effect.all([fs.stat(absolute(relativePath)), sidecarDigest(relativePath)]).pipe(
+          Effect.map(([info, digest]): StatResult => ({
             relativePath,
             sizeBytes: Number(info.size),
             modifiedAtMs: Option.match(info.mtime, {
               onNone: () => 0,
               onSome: (date) => date.getTime(),
             }),
+            sidecarDigest: digest,
           })),
           Effect.asSome,
           Effect.catch((error) =>
@@ -630,11 +763,13 @@ const make = Effect.gen(function* () {
       const isUnchanged = (file: StatResult): boolean => {
         const known = previous.get(file.relativePath);
 
+        // A file indexed before digests were kept has none, and is rescanned once to record it.
         return (
           request.mode === "incremental" &&
           known !== undefined &&
           known.sizeBytes === file.sizeBytes &&
-          known.modifiedAtMs === file.modifiedAtMs
+          known.modifiedAtMs === file.modifiedAtMs &&
+          known.sidecarDigest === file.sidecarDigest
         );
       };
 
@@ -651,6 +786,7 @@ const make = Effect.gen(function* () {
             relativePath: file.relativePath,
             sizeBytes: file.sizeBytes,
             modifiedAtMs: file.modifiedAtMs,
+            sidecarDigest: file.sidecarDigest,
             name,
             probe,
             subtitles: sidecarSubtitles(file.relativePath, listing(parentOf(file.relativePath))),

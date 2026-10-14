@@ -385,6 +385,7 @@ export const upsertScannedItem = async (
     probe: item.file.probe,
     externalSubtitles: item.file.externalSubtitles,
     versionName: item.file.versionName,
+    sidecarDigest: item.file.sidecarDigest ?? null,
     hdr: (item.file.probe.video[0]?.hdr ?? "none") !== "none",
     missing: false,
   };

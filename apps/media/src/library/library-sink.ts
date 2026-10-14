@@ -23,6 +23,8 @@ const IndexedFile = Schema.Struct({
   relativePath: Schema.String,
   sizeBytes: Schema.Int,
   modifiedAtMs: Schema.Finite,
+  /** Digest of the file's companions when last scanned; absent before it was recorded. */
+  sidecarDigest: Schema.optional(Schema.String),
 });
 
 /** What the store already knows about a file. */
@@ -33,6 +35,8 @@ export const ScannedFile = Schema.Struct({
   relativePath: Schema.String,
   sizeBytes: Schema.Int,
   modifiedAtMs: Schema.Finite,
+  /** Digest of the companions this file's metadata came from (NFO, artwork, subtitles). */
+  sidecarDigest: Schema.String,
   name: MediaName,
   probe: MediaProbe,
   subtitles: Schema.Array(SidecarSubtitle),

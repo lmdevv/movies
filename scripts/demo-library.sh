@@ -391,10 +391,18 @@ image_subtitle() {
 EOF
   local status=0
   spumux -s0 "$cache/spumux.xml" <"$dvd" >"$dvd.subs.mpg" 2>"$cache/spumux.log" || status=1
-  # The first cue starts late, so probe the whole stream to find the subtitle track.
+  # The first cue starts late, so probe the whole stream to find the subtitle track. Copied out
+  # alone, the track would be shifted to start at zero; keep its timestamps, less the DVD
+  # stream's own start.
   if ((status == 0)); then
-    ff "$out" -analyzeduration 400M -probesize 200M -i "$dvd.subs.mpg" -map 0:s:0 -c:s copy ||
+    local start
+    start="$(ffprobe -v error -show_entries format=start_time -of csv=p=0 "$dvd.subs.mpg" || true)"
+    if [[ "$start" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+      ff "$out" -analyzeduration 400M -probesize 200M -copyts -i "$dvd.subs.mpg" -map 0:s:0 \
+        -c:s copy -avoid_negative_ts disabled -output_ts_offset "-$start" || status=1
+    else
       status=1
+    fi
   fi
   rm -f "$dvd" "$dvd.subs.mpg"
   return "$status"
@@ -523,9 +531,8 @@ EOF
   <actor><name>Halina Reijn</name><role>Sintel (voice)</role><order>0</order></actor>
   <mpaa>NR</mpaa>
   <tag>test</tag>
-  <!-- It is Sintel, so providers match Sintel; the title and plot above still win. -->
-  <uniqueid type="imdb" default="true">tt1727587</uniqueid>
-  <uniqueid type="tmdb">45745</uniqueid>
+  <!-- No provider ids: Sintel's would merge this title into Sintel's. A provider match needs
+       the same title and year, so "Feature Test" (2010) stays unmatched. -->
 </movie>
 EOF
 }
