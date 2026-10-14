@@ -6,11 +6,12 @@
  */
 import type { CommandArgs, CommandResult } from "@movies/contracts/commands";
 import type { Duration, ManagedRuntime } from "effect";
-import { Effect, Fiber, Predicate, Schedule, Stream } from "effect";
+import { Effect, Fiber, Schedule, Stream } from "effect";
 
 import { MoviesClient } from "./movies-client";
 import type { QueryName } from "./movies-client";
 import type { CallError } from "./sdk-errors";
+import { isTransient } from "./sdk-errors";
 
 /**
  * A query's state: loading, its decoded result, or a typed failure with a way to subscribe again.
@@ -43,15 +44,9 @@ export const skipped: QueryWatch<never> = {
 };
 
 /**
- * Failures a query retries by itself: they may pass without anyone changing anything. A crashed
- * function (`Internal`) usually crashes again the same way, so it reports at once for Try again.
- */
-const isTransient = (error: CallError): boolean =>
-  Predicate.isTagged(error, "TransportError") || Predicate.isTagged(error, "RateLimited");
-
-/**
- * Four retries about 0.5, 1, 2 and 4 seconds apart, for transient failures only. The count starts
- * over once a result arrives, so a long-lived query survives occasional drops.
+ * Four retries about 0.5, 1, 2 and 4 seconds apart, for transient failures only; the rest, such
+ * as a crashed function, report at once for Try again. The count starts over once a result
+ * arrives, so a long-lived query survives occasional drops.
  */
 const retryTransient: Schedule.Schedule<Duration.Duration, CallError> = Schedule.exponential(
   "500 millis",
