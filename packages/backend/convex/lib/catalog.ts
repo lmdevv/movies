@@ -9,13 +9,20 @@ import type { Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { fail } from "./errors";
+import { changesAny } from "./changes";
 import { syncTitleGenres } from "./genres";
 import { NO_EXTERNAL_IDS } from "./present";
 import { forgetTrickplay, queueTrickplay } from "./trickplay";
-import type { scannedEpisode, scannedItem, scannedTitle, upsertedFile } from "./validators";
+import type {
+  metadataOverrides,
+  scannedEpisode,
+  scannedItem,
+  scannedTitle,
+  upsertedFile,
+} from "./validators";
 
 /** Text the title search index matches: names, the year, and any override name. */
-export const searchTextOf = (title: {
+const searchTextOf = (title: {
   readonly name: string;
   readonly sortName: string;
   readonly year: number | null;
@@ -29,6 +36,15 @@ export const searchTextOf = (title: {
   ]
     .filter((part) => part !== undefined && part !== null)
     .join(" ");
+
+/**
+ * The key title lists sort by: a sort name or name an admin set wins over the scanned sort name, so
+ * an override reorders lists as well as renaming the title.
+ */
+export const sortKeyOf = (title: {
+  readonly sortName: string;
+  readonly overrides?: { readonly name?: string; readonly sortName?: string } | undefined;
+}): string => (title.overrides?.sortName ?? title.overrides?.name ?? title.sortName).toLowerCase();
 
 /** Runs `step` for each item in order; catalog writes read the counters the previous one changed. */
 export const inSequence = async <Item, Result>(
@@ -135,7 +151,7 @@ export const TITLE_LIST_LIMIT = 20;
 export const TITLE_TAG_LIMIT = 40;
 
 /** The fields a scan or metadata job writes onto a title. */
-export const titleMetadata = (scanned: Infer<typeof scannedTitle>) => {
+const titleMetadata = (scanned: Infer<typeof scannedTitle>) => {
   const sortName = scanned.sortName ?? scanned.name;
 
   return {
@@ -162,7 +178,7 @@ export const titleMetadata = (scanned: Infer<typeof scannedTitle>) => {
  * unreachable, paused, or over its daily limit) stay as stored, and a title with such IDs stays
  * matched. A write that knows a value replaces it.
  */
-export const keepKnown = (
+const keepKnown = (
   scanned: Infer<typeof scannedTitle>,
   existing: Doc<"titles">,
 ): Infer<typeof scannedTitle> => {
@@ -197,6 +213,23 @@ export const keepKnown = (
   return kept;
 };
 
+/**
+ * What a scan or metadata job writes onto a stored title: the scanned fields with the IDs and
+ * scores it keeps, sorted and searched under the overrides an admin made.
+ */
+export const rescannedTitle = (scanned: Infer<typeof scannedTitle>, existing: Doc<"titles">) => {
+  const merged = keepKnown(scanned, existing);
+  const metadata = titleMetadata(merged);
+  const named = { ...metadata, overrides: existing.overrides };
+
+  return {
+    ...metadata,
+    matchStatus: merged.matchStatus,
+    sortKey: sortKeyOf(named),
+    searchText: searchTextOf(named),
+  };
+};
+
 const upsertTitle = async (
   ctx: MutationCtx,
   libraryId: Id<"libraries">,
@@ -218,17 +251,14 @@ const upsertTitle = async (
 
   if (existing !== null) {
     if (existing.matchStatus === "manual") return existing;
-    const merged = keepKnown(scanned, existing);
-    const fields = titleMetadata(merged);
+    const fields = rescannedTitle(scanned, existing);
 
-    await ctx.db.patch(existing._id, {
-      ...fields,
-      matchStatus: merged.matchStatus,
-      updatedAt: now,
-      searchText: searchTextOf({ ...fields, overrides: existing.overrides }),
-    });
+    // An unchanged rescan, the usual case, writes nothing, so it wakes no query that reads titles.
+    if (!changesAny(existing, fields)) return existing;
 
-    const updated = { ...existing, ...fields, matchStatus: merged.matchStatus };
+    await ctx.db.patch(existing._id, { ...fields, updatedAt: now });
+
+    const updated = { ...existing, ...fields };
 
     await syncTitleGenres(ctx, updated);
 
@@ -256,6 +286,27 @@ const upsertTitle = async (
   await syncTitleGenres(ctx, created);
 
   return created;
+};
+
+/**
+ * Stores the overrides an admin or a migration set on a title, and sorts and indexes it under them.
+ */
+export const writeOverrides = async (
+  ctx: MutationCtx,
+  title: Doc<"titles">,
+  overrides: Infer<typeof metadataOverrides>,
+): Promise<void> => {
+  const named = { ...title, overrides };
+  const sortKey = sortKeyOf(named);
+
+  await ctx.db.patch(title._id, {
+    overrides,
+    sortKey,
+    searchText: searchTextOf(named),
+    updatedAt: Date.now(),
+  });
+
+  if (sortKey !== title.sortKey) await syncTitleGenres(ctx, { ...named, sortKey });
 };
 
 /** Finds or creates a show's season and episode, updating their names and artwork. */

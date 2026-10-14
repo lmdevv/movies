@@ -11,10 +11,8 @@ import { mutation, query } from "./_generated/server";
 import { BACKUP_SYNC_LIMIT, BATCH_LIMIT } from "./lib/bounds";
 import {
   inSequence,
-  keepKnown,
   markFileMissing,
-  searchTextOf,
-  titleMetadata,
+  rescannedTitle,
   upsertEpisode,
   upsertScannedItem,
 } from "./lib/catalog";
@@ -444,14 +442,13 @@ export const applyMetadata = mutation({
     const current = await ctx.db.get(titleId);
 
     if (current === null) return fail("not_found", "No such title");
-    const merged = keepKnown(title, current);
-    const metadata = { ...titleMetadata(merged), kind: current.kind };
+    const fields = rescannedTitle(title, current);
 
     await ctx.db.patch(titleId, {
-      ...metadata,
-      matchStatus: doc.payload.match === null ? merged.matchStatus : "manual",
+      ...fields,
+      kind: current.kind,
+      matchStatus: doc.payload.match === null ? fields.matchStatus : "manual",
       updatedAt: Date.now(),
-      searchText: searchTextOf({ ...metadata, overrides: current.overrides }),
     });
 
     const updated = await ctx.db.get(titleId);

@@ -13,8 +13,13 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { BATCH_LIMIT, COLLECTION_BATCH_LIMIT, COLLECTION_MEMBER_BATCH_LIMIT } from "./lib/bounds";
-import { inSequence, searchTextOf } from "./lib/catalog";
+import {
+  BATCH_LIMIT,
+  checkOverrides,
+  COLLECTION_BATCH_LIMIT,
+  COLLECTION_MEMBER_BATCH_LIMIT,
+} from "./lib/bounds";
+import { inSequence, writeOverrides } from "./lib/catalog";
 import { fail } from "./lib/errors";
 import { enqueueJob, requireLeaseOf } from "./lib/jobs";
 import {
@@ -685,18 +690,14 @@ export const importOverrides = mutation({
       }
 
       // Overrides an admin made on [movies] win over the source's.
-      const overrides = { ...item.overrides, ...title.overrides };
+      const overrides = { ...checkOverrides(item.overrides), ...title.overrides };
       const before = title.overrides ?? {};
 
       const changed = Object.keys(overrides).length !== Object.keys(before).length;
 
       if (!changed) return 0;
 
-      await ctx.db.patch(title._id, {
-        overrides,
-        searchText: searchTextOf({ ...title, overrides }),
-        updatedAt: Date.now(),
-      });
+      await writeOverrides(ctx, title, overrides);
 
       return 1;
     });

@@ -3130,6 +3130,14 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           kind: "movies",
           roots: [`/${long(1024)}`],
         }),
+        fractionalYear: direct(fixture.owner, "mutation", "metadata:edit", {
+          titleId: fixture.titles.unrated,
+          set: { year: 1999.5 },
+        }),
+        negativeAgeRating: direct(fixture.owner, "mutation", "metadata:edit", {
+          titleId: fixture.titles.unrated,
+          set: { ageRating: -1 },
+        }),
         playbackDevice: direct(fixture.member, "mutation", "playback:createSession", {
           profileId: fixture.memberProfile,
           deviceId: long(129),
@@ -3156,6 +3164,33 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         sessionId: started.sessionId,
         positionMs: ms(0),
       });
+    });
+  });
+
+  describe("metadata overrides", () => {
+    it("sorts title lists by a sort name an admin set", async () => {
+      const moviesByName = async () =>
+        (
+          await run(fixture.owner, "titles.list", {
+            profileId: fixture.ownerProfile,
+            libraryId: fixture.openLibrary,
+            kind: "movie",
+            sort: "name",
+          })
+        ).items.map((title) => title.id);
+
+      await run(fixture.owner, "metadata.edit", {
+        titleId: fixture.titles.unrated,
+        set: { sortName: `!First ${TOKEN}` },
+      });
+      expect((await moviesByName())[0]).toBe(fixture.titles.unrated);
+
+      await run(fixture.owner, "metadata.edit", {
+        titleId: fixture.titles.unrated,
+        set: {},
+        clear: ["sortName"],
+      });
+      expect((await moviesByName())[0]).not.toBe(fixture.titles.unrated);
     });
   });
 
