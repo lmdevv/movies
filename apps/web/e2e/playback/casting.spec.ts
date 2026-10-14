@@ -46,6 +46,9 @@ const SETUP_TIMEOUT_MS = 240_000;
 
 const run = Date.now().toString(36);
 
+/** The player's tracks button and its popover. */
+const TRACKS = "Audio, subtitles, and quality";
+
 /** Plays directly on a Chromecast; has English subtitles. */
 const DIRECT = "Lantern Pier";
 
@@ -211,7 +214,7 @@ test("a Chromecast on the network gets a cast button, and casting loads the sess
   expect(load?.tracks).toEqual([
     expect.objectContaining({ trackId: 1, contentType: "text/vtt", name: "English" }),
   ]);
-  expect(load?.tracks[0]?.url).toMatch(/\/media\/subtitles\/\w+\/x0\.vtt\?token=v1\./u);
+  expect(load?.tracks[0]?.url).toMatch(/\/media\/subtitles\/\w+\/x[\da-f]{12}\.vtt\?token=v1\./u);
   expect(load?.currentTime).toBeGreaterThan(1.5);
   await expect
     .poll(async () => (await receiver(page)).fetches.map(({ status }) => status))
@@ -432,9 +435,9 @@ test("audio changes in quick succession leave the TV on the stream the media ser
   const before = (await receiver(page)).loads.length;
 
   await revealControls(page);
-  await page.getByRole("button", { name: "Audio and subtitles" }).click();
+  await page.getByRole("button", { name: TRACKS }).click();
 
-  const panel = page.getByRole("dialog", { name: "Audio and subtitles" });
+  const panel = page.getByRole("dialog", { name: TRACKS });
 
   await panel.getByRole("radio", { name: "French" }).click();
   await panel.getByRole("radio", { name: "English" }).click();
