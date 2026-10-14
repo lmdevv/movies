@@ -10,6 +10,7 @@ import { Context, Effect, Layer, Ref } from "effect";
 
 import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
+import { qsvDeviceInit } from "./transcode-command.ts";
 
 /** A GPU encoder family. */
 export type HardwareEncoder = "qsv" | "vaapi";
@@ -42,7 +43,7 @@ export const qsvProbeArgs = (device: string): ReadonlyArray<string> => [
   "-v",
   "error",
   "-init_hw_device",
-  `qsv=hw:${device}`,
+  qsvDeviceInit(device),
   "-filter_hw_device",
   "hw",
   ...testSource,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { qsvProbeArgs } from "./hardware-acceleration.ts";
 import { AudioPlan, VideoPlan } from "./playback-decision.ts";
 import type { HlsCommand } from "./transcode-command.ts";
 import { hlsCommandArgs } from "./transcode-command.ts";
@@ -73,6 +74,21 @@ describe("hlsCommandArgs", () => {
     ]);
     expect(hlsCommandArgs(command(AudioPlan.Aac({ index: 1 }), "ac3"))).not.toContain(
       "aac_adtstoasc",
+    );
+  });
+
+  it("opens Quick Sync on the configured render node, in the stream and in the probe", () => {
+    // oneVPL builds ignore the path in `qsv=hw:<path>` and use the default GPU; the node must be
+    // the child device, so a wrong one fails (and falls back) instead of encoding elsewhere.
+    const args = hlsCommandArgs({
+      ...command(AudioPlan.Copy({ index: 1 }), "aac"),
+      qsvDevice: "/dev/dri/renderD130",
+      video: encode("qsv", {}),
+    });
+
+    expect(after(args, "-init_hw_device")).toBe("qsv=hw,child_device=/dev/dri/renderD130");
+    expect(after(qsvProbeArgs("/dev/dri/renderD130"), "-init_hw_device")).toBe(
+      "qsv=hw,child_device=/dev/dri/renderD130",
     );
   });
 

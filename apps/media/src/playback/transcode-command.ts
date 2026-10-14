@@ -204,6 +204,13 @@ const audioArgs = (command: HlsCommand): ReadonlyArray<string> =>
     Aac: ({ index }) => ["-map", `0:${index}`, "-c:a", "aac", "-ac", "2", "-b:a", "192k"],
   });
 
+/**
+ * The `-init_hw_device` value for Quick Sync on the render node `device`. With oneVPL builds,
+ * `qsv=hw:<path>` ignores the path and opens the default GPU, so the node is named as the child
+ * VA-API device instead; a missing node then fails, as it should.
+ */
+export const qsvDeviceInit = (device: string): string => `qsv=hw,child_device=${device}`;
+
 const hardwareInput = (command: HlsCommand): ReadonlyArray<string> => {
   const video = command.video;
 
@@ -213,7 +220,7 @@ const hardwareInput = (command: HlsCommand): ReadonlyArray<string> => {
   if (video.encoder === "qsv") {
     return [
       "-init_hw_device",
-      `qsv=hw:${command.qsvDevice}`,
+      qsvDeviceInit(command.qsvDevice),
       "-filter_hw_device",
       "hw",
       ...(onGpu ? ["-hwaccel", "qsv", "-hwaccel_output_format", "qsv"] : []),
