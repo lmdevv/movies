@@ -181,8 +181,8 @@ export const layer: Layer.Layer<
     const resolver = yield* FileResolver.Service;
     const platform = yield* HttpPlatform.HttpPlatform;
 
-    const resolve = (fileId: MediaFileId) =>
-      resolveInsideRoots(fileId).pipe(
+    const resolve = (fileId: MediaFileId, options: { readonly sidecars: boolean }) =>
+      resolveInsideRoots(fileId, options).pipe(
         Effect.provideService(FileResolver.Service, resolver),
         Effect.provideService(MediaConfig.Service, config),
         Effect.provideService(FileSystem.FileSystem, fs),
@@ -256,7 +256,7 @@ export const layer: Layer.Layer<
       const grant = yield* grantFor(request);
 
       if (grant.fileId !== fileId) return yield* new MediaAccessDenied();
-      const file = yield* resolve(grant.fileId);
+      const file = yield* resolve(grant.fileId, { sidecars: false });
 
       return yield* fileResponse(request, file.path, CONTENT_TYPES[file.probe.container]);
     }).pipe(Effect.catch(errorResponse), Effect.withSpan("MediaRoutes.direct"));
@@ -344,7 +344,7 @@ export const layer: Layer.Layer<
       const grant = yield* grantFor(request);
 
       if (grant.fileId !== fileId) return yield* new MediaAccessDenied();
-      const file = yield* resolve(grant.fileId);
+      const file = yield* resolve(grant.fileId, { sidecars: true });
       const vtt = yield* subtitles.toWebVtt(file, track.replace(/\.vtt$/, ""));
 
       return HttpServerResponse.text(vtt, {

@@ -37,6 +37,19 @@ export interface ResolvedMediaFile {
   readonly subtitles: ReadonlyArray<ResolvedSidecar>;
 }
 
+/**
+ * A sidecar `resolveInsideRoots` checked. `path` stays as recorded: track IDs come from its file
+ * name, so two links to one file stay two tracks. `readPath` is the canonical path to open.
+ */
+export interface CheckedSidecar extends ResolvedSidecar {
+  readonly readPath: string;
+}
+
+/** A media file whose path, and sidecars when asked for, are checked against the library roots. */
+export interface CheckedMediaFile extends Omit<ResolvedMediaFile, "subtitles"> {
+  readonly subtitles: ReadonlyArray<CheckedSidecar>;
+}
+
 /** Resolves stored file IDs. */
 export interface Interface {
   readonly resolve: (
@@ -96,21 +109,20 @@ export const realPathInsideApprovedRoots = Effect.fn("FileResolver.realPathInsid
 );
 
 /**
- * Resolves `fileId` and checks that the media file and its sidecars, after following symbolic
- * links, lie inside an approved library root. The result carries their canonical paths; sidecars
- * outside the roots are dropped. A file outside the roots is reported as not found and logged;
- * its path is never returned to the client.
+ * Resolves `fileId` and checks that the media file, after following symbolic links, lies inside
+ * an approved library root; the result carries its canonical path. With `sidecars`, its subtitle
+ * files are checked the same way and those outside the roots dropped; without, they are left out,
+ * since byte-range and trickplay requests never read them. A file outside the roots is reported
+ * as not found and logged; its path is never returned to the client.
  */
 export const resolveInsideRoots = Effect.fn("FileResolver.resolveInsideRoots")(function* (
   fileId: MediaFileId,
+  options: { readonly sidecars: boolean },
 ) {
   const resolver = yield* Service;
-
-  // Resolved once for the file and all its sidecars: this runs on every byte-range request.
-  const [file, roots] = yield* Effect.all([resolver.resolve(fileId), approvedRoots()], {
-    concurrency: "unbounded",
-  });
-
+  const file = yield* resolver.resolve(fileId);
+  // Resolved once for the file and its sidecars: this runs on every byte-range request.
+  const roots = yield* approvedRoots();
   const real = yield* roots.realPathInside(file.path);
 
   if (Option.isNone(real)) {
@@ -119,16 +131,18 @@ export const resolveInsideRoots = Effect.fn("FileResolver.resolveInsideRoots")(f
     return yield* new MediaFileNotFound({ fileId });
   }
 
-  const checked = yield* Effect.forEach(
-    file.subtitles,
-    (subtitle) =>
-      Effect.map(roots.realPathInside(subtitle.path), (inside) => ({ subtitle, inside })),
-    { concurrency: "unbounded" },
+  const checked = options.sidecars
+    ? yield* Effect.forEach(
+        file.subtitles,
+        (subtitle) =>
+          Effect.map(roots.realPathInside(subtitle.path), (inside) => ({ subtitle, inside })),
+        { concurrency: "unbounded" },
+      )
+    : [];
+
+  const subtitles = checked.flatMap(({ subtitle, inside }): ReadonlyArray<CheckedSidecar> =>
+    Option.isSome(inside) ? [Struct.assign(subtitle, { readPath: inside.value })] : [],
   );
 
-  const subtitles = checked.flatMap(({ subtitle, inside }): ReadonlyArray<ResolvedSidecar> =>
-    Option.isSome(inside) ? [Struct.evolve(subtitle, { path: () => inside.value })] : [],
-  );
-
-  return { ...file, path: real.value, subtitles } satisfies ResolvedMediaFile;
+  return { ...file, path: real.value, subtitles } satisfies CheckedMediaFile;
 });

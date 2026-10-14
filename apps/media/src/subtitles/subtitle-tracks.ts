@@ -16,7 +16,7 @@ import * as DiskCache from "../disk-cache.ts";
 import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import { modifiedAtMs } from "../platform/file-info.ts";
-import type { ResolvedMediaFile } from "../playback/file-resolver.ts";
+import type { CheckedMediaFile, ResolvedMediaFile } from "../playback/file-resolver.ts";
 
 /** The stable ID of a sidecar subtitle file, from its file name. */
 export const sidecarTrackId = (path: string): string =>
@@ -87,7 +87,7 @@ export class SubtitleConversionFailed extends Schema.TaggedError<SubtitleConvers
 /** Converts subtitle tracks to WebVTT. */
 export interface Interface {
   readonly toWebVtt: (
-    file: ResolvedMediaFile,
+    file: CheckedMediaFile,
     trackId: string,
   ) => Effect.Effect<
     string,
@@ -131,7 +131,7 @@ const make = Effect.gen(function* () {
   const conversions = yield* Semaphore.make(MAX_CONVERSIONS);
 
   const toWebVtt = Effect.fn("SubtitleConverter.toWebVtt")(function* (
-    file: ResolvedMediaFile,
+    file: CheckedMediaFile,
     trackId: string,
   ) {
     const track = subtitleTracks(file).find((candidate) => candidate.id === trackId);
@@ -151,7 +151,7 @@ const make = Effect.gen(function* () {
     const key =
       sidecar === undefined
         ? `${file.fileId}:${file.sizeBytes}:${file.modifiedAtMs}:${trackId}`
-        : yield* fs.stat(sidecar.path).pipe(
+        : yield* fs.stat(sidecar.readPath).pipe(
             Effect.map(
               (info) => `sidecar:${sidecar.path}:${String(info.size)}:${modifiedAtMs(info)}`,
             ),
@@ -164,7 +164,7 @@ const make = Effect.gen(function* () {
 
     if (sidecar?.format === "vtt") {
       const text = yield* fs
-        .readFileString(sidecar.path)
+        .readFileString(sidecar.readPath)
         .pipe(Effect.mapError(() => failed("unreadable")));
 
       if (text.replace(/^﻿/, "").startsWith("WEBVTT")) return text.replace(/^﻿/, "");
@@ -173,7 +173,7 @@ const make = Effect.gen(function* () {
     const args =
       sidecar === undefined
         ? webVttArgs(file.path, ["-map", `0:${trackId.slice(1)}`])
-        : webVttArgs(sidecar.path, ["-map", "0:s:0"]);
+        : webVttArgs(sidecar.readPath, ["-map", "0:s:0"]);
 
     const vtt = yield* conversions.withPermits(1)(
       tools

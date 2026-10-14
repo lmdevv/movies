@@ -208,9 +208,10 @@ const make = Effect.gen(function* () {
 
           const info = yield* fs.stat(file).pipe(Effect.mapError(() => new ArtworkNotFound()));
 
+          // Keyed by the recorded path, as before, so resized copies cached under it stay valid.
           return {
             file,
-            fingerprint: `${file}\u0000${String(info.size)}\u0000${modifiedAtMs(info)}`,
+            fingerprint: `${candidate}\u0000${String(info.size)}\u0000${modifiedAtMs(info)}`,
           };
         }),
       Remote: ({ url }) => download(url).pipe(Effect.map((file) => ({ file, fingerprint: url }))),

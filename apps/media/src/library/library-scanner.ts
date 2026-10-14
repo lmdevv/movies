@@ -533,7 +533,9 @@ const make = Effect.gen(function* () {
             const shared: Array<string> = [];
             const byStem = new Map<string, Array<string>>();
 
-            for (const { name, line } of [...companions, ...actors]) {
+            const entries = [...companions, ...actors];
+
+            for (const { name, line } of entries) {
               const stems = stemsOf(name.toLowerCase());
 
               if (!stems.some((stem) => videoStems.has(stem))) {
@@ -552,7 +554,7 @@ const make = Effect.gen(function* () {
             return {
               shared,
               byStem,
-              all: [...companions, ...actors].map(({ line }) => line),
+              all: entries.map(({ line }) => line),
             } satisfies FolderCompanions;
           }),
       });

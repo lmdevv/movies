@@ -5,6 +5,7 @@ import { Effect, FileSystem, Layer, Path } from "effect";
 import { MediaFileId } from "@movies/contracts/ids";
 import { MediaFileNotFound } from "@movies/contracts/media-playback";
 import { testConfigLayer } from "../testing/test-config.ts";
+import { sidecarTrackId } from "../subtitles/subtitle-tracks.ts";
 import * as FileResolver from "./file-resolver.ts";
 
 const probe = {
@@ -96,36 +97,57 @@ describe("resolveInsideRoots", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const resolved = yield* FileResolver.resolveInsideRoots(MediaFileId.make("film"));
+
+        const resolved = yield* FileResolver.resolveInsideRoots(MediaFileId.make("film"), {
+          sidecars: true,
+        });
 
         assert.strictEqual(path.basename(resolved.path), "Film (2000).mkv");
         assert.strictEqual(resolved.path, yield* fs.realPath(resolved.path));
         assert.deepStrictEqual(
           resolved.subtitles.map((track) => path.basename(track.path)),
-          ["Film (2000).en.srt", "Film (2000).en.srt"],
+          ["Film (2000).en.srt", "Film (2000).es.srt"],
         );
       }),
     );
 
-    it.effect(
-      "hands out sidecars by their real paths, so a link swapped later cannot redirect",
-      () =>
-        Effect.gen(function* () {
-          const fs = yield* FileSystem.FileSystem;
-          const resolved = yield* FileResolver.resolveInsideRoots(MediaFileId.make("film"));
+    it.effect("keeps each sidecar's name for its track and opens it by its real path", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
 
-          for (const track of resolved.subtitles) {
-            assert.strictEqual(track.path, yield* fs.realPath(track.path));
-          }
-        }),
+        const resolved = yield* FileResolver.resolveInsideRoots(MediaFileId.make("film"), {
+          sidecars: true,
+        });
+
+        // A link to another sidecar is still its own track, so a link swapped later cannot
+        // redirect a read and two links to one file cannot share a track ID.
+        assert.deepStrictEqual(
+          new Set(resolved.subtitles.map((track) => sidecarTrackId(track.path))).size,
+          2,
+        );
+
+        for (const track of resolved.subtitles) {
+          assert.strictEqual(track.readPath, yield* fs.realPath(track.path));
+        }
+      }),
+    );
+
+    it.effect("leaves sidecars out unless they are asked for", () =>
+      Effect.gen(function* () {
+        const resolved = yield* FileResolver.resolveInsideRoots(MediaFileId.make("film"), {
+          sidecars: false,
+        });
+
+        assert.deepStrictEqual(resolved.subtitles, []);
+      }),
     );
 
     it.effect("refuses a file whose real path is outside the roots", () =>
       Effect.gen(function* () {
         for (const fileId of ["linked", "outside"]) {
-          const refused = yield* FileResolver.resolveInsideRoots(MediaFileId.make(fileId)).pipe(
-            Effect.flip,
-          );
+          const refused = yield* FileResolver.resolveInsideRoots(MediaFileId.make(fileId), {
+            sidecars: true,
+          }).pipe(Effect.flip);
 
           assert.instanceOf(refused, MediaFileNotFound);
         }

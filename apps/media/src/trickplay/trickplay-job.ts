@@ -123,7 +123,7 @@ export const handlers: Effect.Effect<
 
       const { fileId } = job.payload;
 
-      const file = yield* resolveInsideRoots(fileId).pipe(
+      const file = yield* resolveInsideRoots(fileId, { sidecars: false }).pipe(
         Effect.catchTags({
           MediaFileNotFound: () =>
             Effect.fail(

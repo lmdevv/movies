@@ -10,6 +10,7 @@ import { type TrickplayManifest, TrickplayVersion } from "@movies/contracts/tric
 import { Clock, Context, Duration, Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 
 import * as MediaConfig from "../media-config.ts";
+import { modifiedAtMs } from "../platform/file-info.ts";
 
 /** Thumbnails could not be written to the data folder. */
 export class TrickplayStorageFailed extends Schema.TaggedError<TrickplayStorageFailed>()(
@@ -161,12 +162,8 @@ const make = Effect.fn("TrickplayStore.make")(function* (root: string) {
   /** Whether `folder` changed within the grace period, as a build being recorded may have. */
   const isRecent = (folder: string, now: number) =>
     fs.stat(folder).pipe(
-      Effect.map((info) =>
-        Option.match(info.mtime, {
-          onNone: () => false,
-          onSome: (mtime) => now - mtime.getTime() < Duration.toMillis(SWEEP_GRACE),
-        }),
-      ),
+      // A missing time reads as 0, which is never recent.
+      Effect.map((info) => now - modifiedAtMs(info) < Duration.toMillis(SWEEP_GRACE)),
       Effect.orElseSucceed(() => true),
     );
 

@@ -6,7 +6,7 @@ import { MediaFileId } from "@movies/contracts/ids";
 
 import * as DiskCache from "../disk-cache.ts";
 import * as MediaTools from "../media/media-tools.ts";
-import type { ResolvedMediaFile } from "../playback/file-resolver.ts";
+import type { CheckedMediaFile } from "../playback/file-resolver.ts";
 import { ffmpegAvailable } from "../testing/fixture-library.ts";
 import { testConfigLayer } from "../testing/test-config.ts";
 import * as SubtitleConverter from "./subtitle-tracks.ts";
@@ -22,15 +22,16 @@ const filmFolder = Effect.gen(function* () {
   const path = yield* Path.Path;
   const folder = yield* fs.makeTempDirectoryScoped({ prefix: "movies-subtitles-" });
 
-  const sidecar = (name: string): ResolvedMediaFile["subtitles"][number] => ({
+  const sidecar = (name: string): CheckedMediaFile["subtitles"][number] => ({
     path: path.join(folder, name),
+    readPath: path.join(folder, name),
     format: "srt",
     forced: false,
     hearingImpaired: false,
     default: false,
   });
 
-  const film = (names: ReadonlyArray<string>): ResolvedMediaFile => ({
+  const film = (names: ReadonlyArray<string>): CheckedMediaFile => ({
     fileId: MediaFileId.make("film"),
     path: path.join(folder, "Film (2020).mkv"),
     sizeBytes: 1000,
