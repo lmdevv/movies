@@ -15,6 +15,7 @@ import { Context, Duration, Effect, FileSystem, Layer, Option, Schema, Semaphore
 import * as DiskCache from "../disk-cache.ts";
 import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
+import { modifiedAtMs } from "../platform/file-info.ts";
 import type { ResolvedMediaFile } from "../playback/file-resolver.ts";
 
 /** The stable ID of a sidecar subtitle file, from its file name. */
@@ -152,11 +153,7 @@ const make = Effect.gen(function* () {
         ? `${file.fileId}:${file.sizeBytes}:${file.modifiedAtMs}:${trackId}`
         : yield* fs.stat(sidecar.path).pipe(
             Effect.map(
-              (info) =>
-                `sidecar:${sidecar.path}:${String(info.size)}:${Option.match(info.mtime, {
-                  onNone: () => 0,
-                  onSome: (date) => date.getTime(),
-                })}`,
+              (info) => `sidecar:${sidecar.path}:${String(info.size)}:${modifiedAtMs(info)}`,
             ),
             Effect.mapError(() => failed("unreadable")),
           );

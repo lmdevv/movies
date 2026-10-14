@@ -11,6 +11,7 @@ import type { CallError } from "@movies/sdk/effect";
 import { Cache, Duration, Effect, Exit, FileSystem, Layer, Match, Option, Predicate } from "effect";
 
 import * as FileResolver from "../playback/file-resolver.ts";
+import { modifiedAtMs } from "../platform/file-info.ts";
 import { relativeTo, toResolvedMediaFile } from "./catalog-records.ts";
 import * as MediaBackend from "./media-backend.ts";
 
@@ -65,11 +66,7 @@ const make = Effect.gen(function* () {
       ),
     );
 
-    return toResolvedMediaFile(
-      resolved,
-      Number(info.size),
-      Option.match(info.mtime, { onNone: () => 0, onSome: (date) => date.getTime() }),
-    );
+    return toResolvedMediaFile(resolved, Number(info.size), modifiedAtMs(info));
   });
 
   const cache = yield* Cache.makeWith(lookup, {

@@ -30,6 +30,7 @@ import {
 } from "effect/http";
 
 import * as MediaConfig from "../media-config.ts";
+import { modifiedAtMs } from "../platform/file-info.ts";
 import * as FileResolver from "../playback/file-resolver.ts";
 import { resolveInsideRoots } from "../playback/file-resolver.ts";
 import { renderPlaylist } from "../playback/hls-plan.ts";
@@ -198,10 +199,7 @@ export const layer: Layer.Layer<
         const info = yield* fs.stat(file);
         const size = Number(info.size);
 
-        const modified = Option.match(info.mtime, {
-          onNone: () => 0,
-          onSome: (date) => date.getTime(),
-        });
+        const modified = modifiedAtMs(info);
 
         const etag = `"${size.toString(36)}-${Math.trunc(modified).toString(36)}"`;
         const lastModified = new Date(modified).toUTCString();

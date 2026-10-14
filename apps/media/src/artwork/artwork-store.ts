@@ -31,6 +31,7 @@ import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import { markUsed } from "../cache-pruner.ts";
 import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
+import { modifiedAtMs } from "../platform/file-info.ts";
 import { isInsideApprovedRoots } from "../playback/file-resolver.ts";
 import * as ArtworkKeys from "./artwork-keys.ts";
 import { ArtworkSource } from "./artwork-keys.ts";
@@ -202,12 +203,10 @@ const make = Effect.gen(function* () {
 
           const info = yield* fs.stat(file).pipe(Effect.mapError(() => new ArtworkNotFound()));
 
-          const modified = Option.match(info.mtime, {
-            onNone: () => 0,
-            onSome: (date) => date.getTime(),
-          });
-
-          return { file, fingerprint: `${file}\u0000${String(info.size)}\u0000${modified}` };
+          return {
+            file,
+            fingerprint: `${file}\u0000${String(info.size)}\u0000${modifiedAtMs(info)}`,
+          };
         }),
       Remote: ({ url }) => download(url).pipe(Effect.map((file) => ({ file, fingerprint: url }))),
     });

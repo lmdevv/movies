@@ -33,6 +33,7 @@ import * as MediaConfig from "../media-config.ts";
 import { probeFile } from "../media/media-probe.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import * as MetadataResolver from "../metadata/title-metadata.ts";
+import { modifiedAtMs } from "../platform/file-info.ts";
 import { type EntryKind, errorCode, listEntries } from "../platform/node-directories.ts";
 import {
   ACTORS_FOLDER,
@@ -483,10 +484,7 @@ const make = Effect.gen(function* () {
               (name) =>
                 fs.stat(absolute(join(folder, name))).pipe(
                   Effect.map((info): Companion => {
-                    const modified = Option.match(info.mtime, {
-                      onNone: () => 0,
-                      onSome: (date) => date.getTime(),
-                    });
+                    const modified = modifiedAtMs(info);
 
                     return {
                       lowerName: name.toLowerCase(),
@@ -512,12 +510,7 @@ const make = Effect.gen(function* () {
                   ? [
                       {
                         lowerName: ".actors",
-                        line: `.actors/\u0000${String(
-                          Option.match(info.mtime, {
-                            onNone: () => 0,
-                            onSome: (date) => date.getTime(),
-                          }),
-                        )}`,
+                        line: `.actors/\u0000${String(modifiedAtMs(info))}`,
                       },
                     ]
                   : [],
@@ -748,10 +741,7 @@ const make = Effect.gen(function* () {
           Effect.map(([info, digest]): StatResult => ({
             relativePath,
             sizeBytes: Number(info.size),
-            modifiedAtMs: Option.match(info.mtime, {
-              onNone: () => 0,
-              onSome: (date) => date.getTime(),
-            }),
+            modifiedAtMs: modifiedAtMs(info),
             sidecarDigest: digest,
           })),
           Effect.asSome,
