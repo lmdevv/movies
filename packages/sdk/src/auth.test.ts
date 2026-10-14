@@ -1,4 +1,17 @@
-import { Context, Deferred, Effect, Fiber, Layer, Option, Predicate, Redacted } from "effect";
+import { inspect } from "node:util";
+
+import {
+  Context,
+  Deferred,
+  Effect,
+  Fiber,
+  Layer,
+  Logger,
+  Option,
+  Predicate,
+  Redacted,
+  Ref,
+} from "effect";
 import type { Scope } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
@@ -57,7 +70,7 @@ const memoryStore = (initial: Option.Option<{ token: string; refreshToken: strin
     store: {
       getItem: (key) => items.get(key) ?? null,
       setItem: (key, value) => {
-        if (failing) throw new Error("The disk is full");
+        if (failing) throw new Error(`The disk is full; could not write ${value}`);
         items.set(key, value);
       },
       removeItem: (key) => {
@@ -88,6 +101,8 @@ interface Fixture {
   readonly fake: FakeConvex.FakeConvex;
   readonly memory: MemoryStore;
   readonly auth: Auth.Interface;
+  /** Everything logged so far, each entry rendered in full, causes included. */
+  readonly logs: () => ReadonlyArray<string>;
 }
 
 /**
@@ -101,7 +116,15 @@ const withAuth = <A, E>(
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const testClock = yield* Layer.build(TestClock.layer());
+        const logged: Array<string> = [];
+
+        const capture = Logger.make((entry) => {
+          logged.push(inspect([entry.message, entry.cause], { depth: 20 }));
+        });
+
+        const testClock = yield* Layer.build(
+          Layer.mergeAll(TestClock.layer(), Logger.layer([capture])),
+        );
 
         return yield* Effect.gen(function* () {
           yield* TestClock.setTime(START);
@@ -116,7 +139,9 @@ const withAuth = <A, E>(
 
           const auth = Context.get(sdk, Auth.Auth);
 
-          return yield* body({ fake, memory, auth }).pipe(Effect.provideContext(sdk));
+          return yield* body({ fake, memory, auth, logs: () => [...logged] }).pipe(
+            Effect.provideContext(sdk),
+          );
         }).pipe(Effect.provideContext(testClock));
       }),
     ),
@@ -443,6 +468,84 @@ describe("Auth", () => {
         expect(yield* auth.currentStatus).toBe("signedOut");
         expect(yield* auth.accessToken(false)).toStrictEqual(Option.none());
         expect(yield* refreshRequests(fake)).toStrictEqual(["refresh-1"]);
+      }),
+    ));
+
+  it("ends on the server a session renewed after sign-out forgot it", () =>
+    withAuth(signedInWith(FRESH), ({ fake, auth }) =>
+      Effect.gen(function* () {
+        const gate = yield* gateRefresh(fake, tokens(RENEWED, ROTATED));
+
+        yield* fake.reply("auth:signOut", Reply.Success({ value: null }));
+        const refreshing = yield* Effect.forkChild(auth.accessToken(true));
+
+        yield* Deferred.await(gate.arrived);
+        yield* auth.signOut;
+        yield* Deferred.succeed(gate.release, undefined);
+
+        expect(yield* Fiber.join(refreshing)).toStrictEqual(Option.none());
+
+        // The renewed session is ended in the background; give it a moment on the real clock.
+        for (let tries = 0; tries < 20; tries += 1) {
+          if ((yield* fake.requestsTo("auth:signOut")).length >= 2) break;
+          yield* TestClock.withLive(Effect.sleep(20));
+        }
+
+        expect((yield* fake.requestsTo("auth:signOut")).map((r) => r.authorization)).toStrictEqual([
+          `Bearer ${FRESH}`,
+          `Bearer ${RENEWED}`,
+        ]);
+      }),
+    ));
+
+  it("renews for a caller whose token was rejected even after another refresh kept it", () =>
+    withAuth(signedInWith(EXPIRING), ({ fake, auth }) =>
+      Effect.gen(function* () {
+        const arrived = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const count = yield* Ref.make(0);
+
+        yield* fake.handle("auth:signIn", () =>
+          Effect.gen(function* () {
+            const index = yield* Ref.getAndUpdate(count, (n) => n + 1);
+
+            if (index > 0) return tokens(RENEWED, ROTATED);
+            yield* Deferred.succeed(arrived, undefined);
+            yield* Deferred.await(release);
+
+            // A blip: the first refresh never gets an answer.
+            return Reply.Drop();
+          }),
+        );
+
+        const expiring = yield* Effect.forkChild(auth.accessToken(false));
+
+        yield* Deferred.await(arrived);
+        const rejected = yield* Effect.forkChild(auth.accessToken(true));
+
+        yield* TestClock.withLive(Effect.sleep(20));
+        yield* Deferred.succeed(release, undefined);
+
+        expect(reveal(yield* Fiber.join(expiring))).toBe(EXPIRING);
+        expect(reveal(yield* Fiber.join(rejected))).toBe(RENEWED);
+      }),
+    ));
+
+  it("logs a token storage failure without its cause", () =>
+    withAuth(signedInWith(EXPIRING), ({ fake, memory, logs }) =>
+      Effect.gen(function* () {
+        yield* fake.reply("auth:signIn", tokens(RENEWED, ROTATED));
+        yield* fake.reply("deviceAuth:status", Reply.Success({ value: { state: "pending" } }));
+        memory.failWrites(true);
+        const client = yield* MoviesClient;
+
+        yield* client.query("deviceAuth.status", { deviceCode: "device-secret" });
+
+        const warnings = logs().filter((entry) => entry.includes("Auth.tokenStorageFailed"));
+
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0]).not.toContain(RENEWED);
+        expect(warnings[0]).not.toContain(ROTATED);
       }),
     ));
 });

@@ -214,6 +214,8 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
   const transport = yield* ConvexTransport.ConvexTransport;
   const storage = yield* TokenStorage.TokenStorage;
   const context = yield* Effect.context();
+  // Background work, such as ending an orphaned session on the server, stops with the service.
+  const scope = yield* Effect.scope;
   const gateway = new ConvexHttpClient(options.convexUrl, { logger: false });
   const status = yield* SubscriptionRef.make<AuthStatus>("loading");
   const session = yield* Ref.make(Option.none<StoredSession>());
@@ -225,7 +227,8 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
   const lastAttempt = yield* Ref.make<{
     readonly finished: number;
     readonly session: Option.Option<StoredSession>;
-  }>({ finished: 0, session: Option.none() });
+    readonly forced: boolean;
+  }>({ finished: 0, session: Option.none(), forced: false });
 
   // Session changes (sign-in, sign-out, a refresh's result) apply one at a time. Holders never wait
   // on the network, so signing out is not held up by a refresh in flight.
@@ -284,7 +287,11 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
   ): Effect.Effect<Option.Option<Redacted.Redacted>> =>
     token.pipe(
       Effect.catchTag("TokenStorageError", (error) =>
-        Effect.logWarning("Auth.tokenStorageFailed", error).pipe(Effect.andThen(currentToken)),
+        // Never the cause: a store's own error may quote the serialized tokens it was writing.
+        Effect.logWarning("Auth.tokenStorageFailed").pipe(
+          Effect.annotateLogs({ operation: error.operation, message: error.message }),
+          Effect.andThen(currentToken),
+        ),
       ),
     );
 
@@ -341,8 +348,28 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
     );
 
   /**
+   * Ends `ended` on the server, best effort. The server ignores an expired token, so one about to
+   * expire is renewed first with the session's own refresh token; nothing here touches the local
+   * session, which is already gone.
+   */
+  const endOnServer = (ended: StoredSession): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
+
+      const token = isExpiring(Redacted.value(ended.token), now)
+        ? Option.map(
+            yield* requestTokens({ refreshToken: Redacted.value(ended.refreshToken) }),
+            (renewed) => renewed.token,
+          )
+        : Option.some(ended.token);
+
+      if (Option.isSome(token)) yield* callGateway(SIGN_OUT, {}, token);
+    }).pipe(Effect.timeoutOption(SERVER_SIGN_OUT_TIMEOUT), Effect.ignore);
+
+  /**
    * Applies a refresh's outcome to the session it started from. When a sign-in or sign-out
-   * replaced that session while the request was in flight, the newer session stands.
+   * replaced that session while the request was in flight, the newer session stands; a session the
+   * server renewed meanwhile belongs to nobody, so it is ended on the server in the background.
    */
   const commitRefresh = Effect.fn("Auth.commitRefresh")(function* (
     seen: StoredSession,
@@ -351,6 +378,10 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
     const current = yield* Ref.get(session);
 
     if (Option.isNone(current) || current.value !== seen) {
+      if (RefreshOutcome.$is("Renewed")(outcome)) {
+        yield* Effect.forkIn(endOnServer(outcome.session), scope);
+      }
+
       return Option.map(current, (held) => held.token);
     }
 
@@ -370,9 +401,14 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
    * Renews `seen`, unless another caller replaced it while this one waited for the permit.
    * `generation` is the finished-attempt count the caller saw before waiting. An attempt for `seen`
    * that finished since, with `seen` still standing, kept the token (the server was unreachable or
-   * slow); asking again would only wait as long, so this caller keeps the token too.
+   * slow); asking again would only wait as long, so this caller keeps the token too. A `forced`
+   * caller holds a token Convex rejected, so it only follows an attempt that was forced as well.
    */
-  const refresh = Effect.fn("Auth.refresh")(function* (seen: StoredSession, generation: number) {
+  const refresh = Effect.fn("Auth.refresh")(function* (
+    seen: StoredSession,
+    generation: number,
+    forced: boolean,
+  ) {
     const current = yield* Ref.get(session);
 
     if (Option.isNone(current) || current.value !== seen) {
@@ -381,15 +417,19 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
 
     const last = yield* Ref.get(lastAttempt);
 
-    if (last.finished !== generation && Option.exists(last.session, (tried) => tried === seen)) {
-      return Option.some(seen.token);
-    }
+    const keptSince =
+      last.finished !== generation &&
+      Option.exists(last.session, (tried) => tried === seen) &&
+      (last.forced || !forced);
+
+    if (keptSince) return Option.some(seen.token);
 
     const outcome = yield* requestRefresh(seen);
 
     yield* Ref.update(lastAttempt, (previous) => ({
       finished: previous.finished + 1,
       session: Option.some(seen),
+      forced,
     }));
 
     return yield* commitRefresh(seen, outcome);
@@ -409,7 +449,7 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
         return Option.some(current.value.token);
       }
 
-      return yield* refresh(current.value, generation);
+      return yield* refresh(current.value, generation, forceRefresh);
     });
   }
 
@@ -426,25 +466,6 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
       storage.save(opened.value).pipe(Effect.andThen(adopt(opened))),
     );
   });
-
-  /**
-   * Ends `ended` on the server, best effort. The server ignores an expired token, so one about to
-   * expire is renewed first with the session's own refresh token; nothing here touches the local
-   * session, which is already gone.
-   */
-  const endOnServer = (ended: StoredSession): Effect.Effect<void> =>
-    Effect.gen(function* () {
-      const now = yield* Clock.currentTimeMillis;
-
-      const token = isExpiring(Redacted.value(ended.token), now)
-        ? Option.map(
-            yield* requestTokens({ refreshToken: Redacted.value(ended.refreshToken) }),
-            (renewed) => renewed.token,
-          )
-        : Option.some(ended.token);
-
-      if (Option.isSome(token)) yield* callGateway(SIGN_OUT, {}, token);
-    }).pipe(Effect.timeoutOption(SERVER_SIGN_OUT_TIMEOUT), Effect.ignore);
 
   const signOut = Effect.fn("Auth.signOut")(function* () {
     // Forget locally first, so signing out never waits on the server.
