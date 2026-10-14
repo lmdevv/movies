@@ -347,6 +347,43 @@ export const MediaFile = Schema.Struct({
 /** A playable file. */
 export interface MediaFile extends Schema.Schema.Type<typeof MediaFile> {}
 
+/**
+ * One file of a movie or an episode when it has several, such as a Plex or Jellyfin
+ * `{edition-…}` version, a part of a split movie, or a copy in another quality.
+ */
+export const MediaVersion = Schema.Struct({
+  /** The file to pass to `playback.createSession` as `fileId`. */
+  id: MediaFileId,
+  /** The edition or part the file name gives, such as `Director's Cut` or `Part 2`. */
+  versionName: Schema.NullOr(Schema.String),
+  /** The primary video stream's picture size; null for a file without video. */
+  width: Schema.NullOr(Schema.Int),
+  height: Schema.NullOr(Schema.Int),
+  /** The primary video stream's HDR format; `none` for SDR and files without video. */
+  hdr: HdrFormat,
+  /** ffmpeg codec name of the primary video stream, such as `hevc`. */
+  videoCodec: Schema.NullOr(Schema.String),
+  /** ffprobe profile of the primary video stream, such as `Main 10`. */
+  videoProfile: Schema.NullOr(Schema.String),
+  /** ffprobe level of the primary video stream, such as 153 for HEVC 5.1. */
+  videoLevel: Schema.NullOr(Schema.Int),
+  videoBitDepth: Schema.NullOr(Schema.Int),
+  /** ffmpeg codec name of the default audio track, such as `eac3`. */
+  audioCodec: Schema.NullOr(Schema.String),
+  audioChannels: Schema.NullOr(Schema.Int),
+  /** How many audio tracks the file carries. */
+  audioTracks: Schema.Int,
+  /** Container family: `mp4`, `mov`, `mkv`, `webm`, `avi`, `ts`, or `other`. */
+  container: Schema.String,
+  sizeBytes: Bytes,
+  durationMs: Milliseconds,
+  /** The version this profile last played of this movie or episode. */
+  lastPlayed: Schema.Boolean,
+});
+
+/** One file of a movie or an episode. */
+export interface MediaVersion extends Schema.Schema.Type<typeof MediaVersion> {}
+
 /** A profile's progress through a movie or an episode. */
 export const Progress = Schema.Struct({
   positionMs: Milliseconds,
@@ -432,8 +469,13 @@ export const TitleDetail = Schema.Struct({
   /** Creators, directors, writers, producers, and composers. */
   crew: Schema.Array(Credit),
   seasons: Schema.Array(Season),
-  /** A movie's versions; empty for shows, whose files belong to episodes. */
+  /** A movie's files, including missing ones; empty for shows, whose files belong to episodes. */
   files: Schema.Array(MediaFile),
+  /**
+   * A movie's files on disk as versions to choose from, best quality first; empty for shows,
+   * whose episodes list theirs with `titles.versions`.
+   */
+  versions: Schema.Array(MediaVersion),
   /** A movie's progress; null for shows and unstarted movies. */
   progress: Schema.NullOr(Progress),
   /** For shows: the episode to resume or start next. */

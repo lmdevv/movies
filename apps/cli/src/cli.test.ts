@@ -137,6 +137,17 @@ describe("the movies command", () => {
     expect(invalid.stderr).toContain("--roots");
   });
 
+  it("refuses a blank --version offline instead of playing the default version", async () => {
+    const runs = await Promise.all(
+      ["", "   "].map((blank) => movies("play", "Alien", "--version", blank)),
+    );
+
+    for (const run of runs) {
+      expect(run.code).toBe(ExitCode.usage);
+      expect(run.stderr).toContain("--version expects a version name or its number");
+    }
+  });
+
   it("asks to log in before calling the server", async () => {
     const run = await movies("account", "viewer");
 

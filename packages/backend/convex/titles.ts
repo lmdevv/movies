@@ -14,6 +14,7 @@ import type { Audience } from "./lib/access";
 import { canSee, loadAudience, loadVisibleTitle } from "./lib/access";
 import { countGenres, rankBySimilarity } from "./lib/discovery";
 import { CREDIT_LIMIT, creditsOf, presentCreditGroups } from "./lib/people";
+import { filesOnDisk, onDiskBestFirst, resolveEpisode } from "./lib/playable";
 import {
   findProgress,
   NO_EXTERNAL_IDS,
@@ -22,10 +23,12 @@ import {
   presentMediaFile,
   presentProgress,
   presentTitleCard,
+  presentVersion,
 } from "./lib/present";
 import {
   genreCount,
   home as homeResult,
+  mediaVersion,
   page,
   pageArgs,
   seasonEpisode,
@@ -266,10 +269,39 @@ export const get = query({
         externalIds: season.externalIds ?? NO_EXTERNAL_IDS,
       })),
       files: files.map(presentMediaFile),
+      versions: onDiskBestFirst(files, null).map((file) =>
+        presentVersion(file, progress?.fileId ?? null),
+      ),
       progress: progress === null ? null : presentProgress(progress),
       nextEpisode: next === null ? null : await presentEpisodeFor(ctx, profileId, next),
       inMyList: listed !== null,
     };
+  },
+});
+
+/**
+ * The versions of a movie, or of an episode with `episodeId`, that are on disk: best quality first,
+ * with the one the profile last played marked. Shows need an episode.
+ */
+export const versions = query({
+  args: {
+    profileId: v.id("profiles"),
+    titleId: v.id("titles"),
+    episodeId: v.optional(v.id("episodes")),
+  },
+  returns: v.array(mediaVersion),
+  handler: async (ctx, { profileId, titleId, episodeId }) => {
+    const viewer = await authorize(ctx, "read");
+    const audience = await loadAudience(ctx, viewer, profileId);
+    const title = await loadVisibleTitle(ctx, audience, titleId);
+    const episode = await resolveEpisode(ctx, title, episodeId ?? null);
+
+    const [files, progress] = await Promise.all([
+      filesOnDisk(ctx, title, episode),
+      findProgress(ctx, profileId, titleId, episode?._id ?? null),
+    ]);
+
+    return files.map((file) => presentVersion(file, progress?.fileId ?? null));
   },
 });
 

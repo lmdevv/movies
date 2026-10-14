@@ -370,6 +370,20 @@ choices made while implementing them. Update it in the same PR that changes a de
   transaction. Each device has its own session; starting one on a device ends that device's
   previous session. An account plays on at most eight devices at once: starting a ninth ends the
   one that reported least recently, so one account cannot hold unbounded streams.
+- Versions: a movie or episode with several files on disk (Plex and Jellyfin `{edition-…}` names,
+  `cd2`/`part2` parts, which the scanner names `Part 2`, or copies in other qualities) lists them
+  with `titles.versions` (and a movie's in `titles.get` as `versions`), best quality first: taller
+  picture, then HDR, then bitrate, then size. The profile's progress row keeps the file it last
+  played, so the version is remembered per profile and item while the position stays the item's.
+  Without a `fileId`, `createSession` plays that remembered file while it is on disk, else the
+  best its `capabilities` play directly, else the best quality; the SDK's
+  `Versions.preferredVersion` orders a client's list the same way. Direct play is decided by
+  `@movies/contracts/direct-play`, which the media service's negotiation, the SDK, and the title
+  page use; Convex mirrors it in `convex/lib/directPlay.ts` and a property test keeps the two
+  equal. The web player sends its capabilities and starts at once; it switches versions in a new
+  session (the media service streams one file per session) at the same position and play state,
+  carrying the audio and text subtitle languages over, and falls back to the version that played
+  when the new one cannot start. Rooms play the host's file and offer no switch.
 - A progress report from a session that started before the session owning the item's progress is
   ignored (`applied: false`), so an old tab cannot drag a newer device back. Reaching 90 percent of
   the duration, or reporting `ended`, marks the item watched; watched stays set until someone marks
@@ -536,7 +550,9 @@ choices made while implementing them. Update it in the same PR that changes a de
   stills, and logos, `1280` backdrops), as lazy images over a fixed-aspect raised placeholder; a
   missing or failing image leaves the placeholder.
   Avatars are app assets in `public/avatars/<key>.svg`; the profile stores the key.
-- Play and Resume link to `/watch/$titleId?episodeId=&start=0`, which the playback milestone fills.
+- Play and Resume link to `/watch/$titleId?episodeId=&start=0`, which the playback milestone fills,
+  with `version=<fileId>` when the title page's Version select offers several files. A version
+  switched in the player replaces `version` in the URL without remounting the player.
 - Signing out navigates to sign-in itself; `RequireSignedIn` stays blank while the location is
   already `/sign-in` rather than racing that navigation with its own redirect.
 - The stack E2E suite (`apps/web/e2e/stack`) runs the real media service: it generates a fixture

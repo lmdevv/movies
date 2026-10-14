@@ -6,6 +6,7 @@ import {
   MEDIA_ROUTES,
   NegotiateResponse,
   TranscodeCapacityReached,
+  UnsupportedPlayback,
 } from "@movies/contracts/media-playback";
 import type { PlaybackMode } from "@movies/contracts/models/playback";
 import type { Page } from "@playwright/test";
@@ -71,5 +72,25 @@ export const refuseQualityCaps = async (page: Page, delayFirstMs = 0): Promise<v
     return route
       .fulfill({ status: 503, contentType: "application/json", body: capacityReached })
       .catch(() => undefined);
+  });
+};
+
+const unsupported = Schema.encodeSync(
+  Schema.fromJsonString(Schema.toCodecJson(UnsupportedPlayback)),
+)(new UnsupportedPlayback({ reason: "hdr-tone-mapping-requires-hardware" }));
+
+/**
+ * Answers the page's next negotiation as a media service that cannot stream the file to this
+ * browser at all would; later negotiations reach the real service.
+ */
+export const refuseNextNegotiation = async (page: Page): Promise<void> => {
+  let refused = false;
+
+  await page.route(`**${MEDIA_ROUTES.negotiate}`, async (route) => {
+    if (refused || route.request().method() !== "POST") return route.continue();
+
+    refused = true;
+
+    return route.fulfill({ status: 422, contentType: "application/json", body: unsupported });
   });
 };

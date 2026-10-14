@@ -72,6 +72,8 @@ Find something and play it in mpv or VLC:
 movies search alien
 movies play "Alien" --open           # launches mpv; without --open, prints .url
 movies play "The Expanse" --human    # a show plays its next episode
+movies titles versions <title-id>    # a title with several files: editions, parts, qualities
+movies play "Alien" --version "Director's Cut"   # or --version 2, its number in that list
 movies continue                      # what to resume
 movies progress "The Expanse"
 ```
@@ -185,7 +187,7 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies keys list`: List this account's API keys.
 - `movies keys revoke <api-key-id-or-name>`: Revoke an API key and end every session it signed in.
 - `movies search <query> [--limit <int>] [--profile-id <id>]`: Search titles on the default viewing profile.
-- `movies play <title> [--episode-id <id>] [--from <seconds>] [--max-height <lines>] [--open]`: Start playback of a title ID or the best name match (a show resumes its next episode) and print the stream URL for mpv or VLC; --max-height caps the picture, such as 720 on a slow link (a taller source is transcoded down); --open launches mpv.
+- `movies play <title> [--episode-id <id>] [--version <name|number>] [--from <seconds>] [--max-height <lines>] [--open]`: Start playback of a title ID or the best name match (a show resumes its next episode) and print the stream URL for mpv or VLC; --version picks a file by its name or its number in `titles versions` (default: the one this profile last played, else the best quality); --max-height caps the picture, such as 720 on a slow link (a taller source is transcoded down); --open launches mpv.
 - `movies progress [<title>] [--profile-id <id>]`: Show a title's progress, or the recent watch history.
 - `movies continue [--profile-id <id>]`: List what to resume and which episodes come next.
 - `movies rooms create <title> [--episode-id <id>] [--position <seconds>] [--profile-id <id>]`: Start a watch room hosted by this device, paused at the position.
@@ -262,6 +264,7 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies titles similar [--profile-id <id>] <title-id> [--limit <int>]`: Show titles like this one that a profile may see. (scope read)
 - `movies titles search [--profile-id <id>] <query> [--limit <int>]`: Search titles by name. (scope read)
 - `movies titles get [--profile-id <id>] <title-id>`: Show a movie or show. (scope read)
+- `movies titles versions [--profile-id <id>] <title-id> [--episode-id <id>]`: List the versions (files) of a movie or an episode, best quality first. (scope read)
 - `movies titles episodes [--profile-id <id>] --title-id <id> --season-number <int>`: List a season's episodes. (scope read)
 - `movies libraries list`: List the libraries this account can see. (scope read)
 - `movies collections list [--profile-id <id>] [--limit <int>]`: Show collections and the titles a profile may see in each. (scope read)
@@ -282,7 +285,7 @@ and newer [movies] progress is kept unless the source played the item more recen
 
 ### playback
 
-- `movies playback create-session [--profile-id <id>] [--device-id <id>] [--device-name <text>] <title-id> [--episode-id <id>] [--file-id <id>] [--room-id <id>]`: Start playing a movie or episode on this device. (scope play)
+- `movies playback create-session [--profile-id <id>] [--device-id <id>] [--device-name <text>] <title-id> [--episode-id <id>] [--file-id <id>] [--room-id <id>] [--capabilities <json>]`: Start playing a movie or episode on this device. (scope play)
 - `movies playback renew-token <session-id>`: Get a fresh playback token for an active session. (scope play)
 - `movies playback report-progress --session-id <id> --position-ms <number> [--duration-ms <number>] --event <tick|pause|resume|seek|ended>`: Report this device's position. (scope play)
 - `movies playback end-session --session-id <id> --position-ms <number>`: Stop playback on this device. (scope play)
