@@ -191,6 +191,13 @@ const make = Effect.fn("LibraryMonitor.make")(function* (debounce: Duration.Dura
       const rescan = (reason: "change" | "reconcile") =>
         scan(library, "incremental", reason).pipe(Effect.ignore);
 
+      /** Rescans, reporting whether the scan succeeded. */
+      const scanned = (reason: "change" | "reconcile") =>
+        scan(library, "incremental", reason).pipe(
+          Effect.as(true),
+          Effect.orElseSucceed(() => false),
+        );
+
       const restarts = yield* Ref.make(0);
 
       // After a restart, rescan: changes made while nothing watched were not reported. Node's
@@ -223,9 +230,8 @@ const make = Effect.fn("LibraryMonitor.make")(function* (debounce: Duration.Dura
           yield* Effect.sleep(timing.pollInterval);
           const next = yield* snapshot(root, previous);
 
-          previous = next.snapshot;
-
-          if (next.changed) yield* rescan("change");
+          // A change whose scan failed stays pending, so the next poll scans it again.
+          if (!next.changed || (yield* scanned("change"))) previous = next.snapshot;
         }
       });
 

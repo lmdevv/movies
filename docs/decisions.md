@@ -116,7 +116,9 @@ choices made while implementing them. Update it in the same PR that changes a de
   disks are watched with file events; network file systems (NFS, SMB/CIFS, 9p, FUSE, found with
   `statfs`) send none for changes made elsewhere, so `LIBRARY_WATCH=auto` polls them every
   `LIBRARY_POLL_SECONDS`, one `stat` per folder, reading a folder again only when its modification
-  time moved. A watcher whose folder fails, ends, or is replaced restarts with backoff (one second
+  time moved. A file rewritten in place (no rename) leaves its folder's time alone, so such an
+  edit waits for the reconciliation; a scan that fails keeps the change pending for the next
+  poll. A watcher whose folder fails, ends, or is replaced restarts with backoff (one second
   up to five minutes) and rescans once it is back. Convex
   stores absolute paths. A title's match key is its kind plus a provider ID (`movie:tmdb:603`),
   else its normalized name and year (`show:local:fixture show (2021)`). Extras (trailers,
