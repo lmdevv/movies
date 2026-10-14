@@ -8,7 +8,17 @@
  * the `jellyfin/jellyfin` image). The container lives as long as the scope that started it.
  */
 import { NodeServices } from "@effect/platform-node";
-import { Crypto, Duration, Effect, Layer, Schedule, Schema, Scope, Stream } from "effect";
+import {
+  Crypto,
+  Duration,
+  Effect,
+  Layer,
+  Predicate,
+  Schedule,
+  Schema,
+  Scope,
+  Stream,
+} from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
@@ -159,6 +169,62 @@ const LIBRARIES = [
   ["Shows", "tvshows", "/media/shows"],
 ] as const;
 
+/** Test containers are named `<prefix><pid>-<started ms>` after the process that started them. */
+const CONTAINER_PREFIX = "movies-jellyfin-test-";
+
+/** How old a container of a vanished process must be before it counts as left behind. */
+const ORPHAN_AGE_MS = 10 * 60 * 1000;
+
+/** Probing a process failed; `gone` when no such process exists. */
+class ProcessProbeFailed extends Schema.TaggedError<ProcessProbeFailed>()("ProcessProbeFailed", {
+  gone: Schema.Boolean,
+}) {}
+
+/** Whether process `pid` still runs on this host: signal 0 checks without sending anything. */
+const isRunning = (pid: number) =>
+  Effect.try({
+    try: () => process.kill(pid, 0),
+    catch: (cause) =>
+      new ProcessProbeFailed({
+        gone: Predicate.hasProperty(cause, "code") && cause.code === "ESRCH",
+      }),
+  }).pipe(
+    Effect.as(true),
+    Effect.catchTag("ProcessProbeFailed", (error) => Effect.succeed(!error.gone)),
+  );
+
+/**
+ * Removes test containers whose process is gone. A test worker killed before its scope closed
+ * never ran the release that removes its container, so each start sweeps up after earlier runs.
+ */
+const removeLeftovers = Effect.fnUntraced(function* () {
+  const names = yield* docker([
+    "ps",
+    "--all",
+    "--filter",
+    `name=^${CONTAINER_PREFIX}`,
+    "--format",
+    "{{.Names}}",
+  ]);
+
+  const now = Date.now();
+
+  yield* Effect.forEach(
+    names.split("\n").filter((name) => name.startsWith(CONTAINER_PREFIX)),
+    (name) =>
+      Effect.gen(function* () {
+        const [pid, started] = name.slice(CONTAINER_PREFIX.length).split("-").map(Number);
+
+        if (pid === undefined || started === undefined || now - started < ORPHAN_AGE_MS) return;
+
+        if (yield* isRunning(pid)) return;
+
+        yield* docker(["rm", "-f", name]).pipe(Effect.ignore);
+      }),
+    { discard: true },
+  );
+});
+
 /** The fixture has 4 movies, 6 episodes, and 1 show. */
 const FIXTURE_ITEMS = 11;
 
@@ -182,7 +248,9 @@ export const startJellyfin = Effect.fn("JellyfinDocker.start")(function* (worksp
     catch: (cause) => new JellyfinSetupFailed({ step: "generate the fixture library", cause }),
   });
 
-  const name = `movies-jellyfin-test-${String(process.pid)}-${String(Date.now())}`;
+  yield* removeLeftovers().pipe(Effect.ignore);
+
+  const name = `${CONTAINER_PREFIX}${String(process.pid)}-${String(Date.now())}`;
 
   yield* Effect.acquireRelease(
     docker([
