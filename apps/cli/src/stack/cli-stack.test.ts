@@ -6,12 +6,22 @@
  * Skipped unless `MOVIES_STACK_TESTS=1`. Shares the owner accounts of the backend's stack suite.
  */
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { ExitCode } from "../cli-errors";
-import { buildCli, makeTempDir, removeDir, runMovies, startMovies } from "../testing/process";
+import { StoredConfig } from "../config";
+import {
+  buildCli,
+  makeTempDir,
+  readText,
+  removeDir,
+  runMovies,
+  startMovies,
+  writeText,
+} from "../testing/process";
 import { scanMovie, signUp } from "../testing/stack-seed";
 import { findStack } from "../testing/stack-env";
 
@@ -63,21 +73,41 @@ const RoomCreated = parse(Schema.Struct({ id: Schema.String }));
 
 const Clock = parse(Schema.Struct({ status: Schema.String, positionAtAnchorMs: Schema.Finite }));
 
+const Titles = parse(Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })));
+
+const Progress = parse(
+  Schema.Struct({ titleId: Schema.String, name: Schema.String, progress: Schema.Null }),
+);
+
 const SetupStatus = parse(Schema.Struct({ hasOwner: Schema.Boolean }));
+
+/** One line of `rooms status --watch` in JSON mode. */
+const WatchLine = parse(
+  Schema.Struct({ room: Schema.Struct({ clock: Schema.Struct({ status: Schema.String }) }) }),
+);
 
 let owner: Readonly<Record<string, string>>;
 
-const loginOwner = async (env: Readonly<Record<string, string>>): Promise<void> => {
+/** Signs `env` in as the stack owner and returns the owner's email. */
+const loginOwner = async (env: Readonly<Record<string, string>>): Promise<string> => {
   const login = (email: string) =>
     runMovies(["login", "--server", url, "--email", email, "--password"], env, PASSWORD);
 
   // The backend suite races two sign-ups for the owner; either may have won.
-  if ((await login("owner-a@movies.test")).code === 0) return;
+  if ((await login("owner-a@movies.test")).code === 0) return "owner-a@movies.test";
 
-  if ((await login("owner-b@movies.test")).code === 0) return;
+  if ((await login("owner-b@movies.test")).code === 0) return "owner-b@movies.test";
 
   throw new Error("Could not sign in as the stack owner; use a fresh stack");
 };
+
+/** The config file of an install made by `install`. */
+const configPath = (env: Readonly<Record<string, string>>): string =>
+  join(env["XDG_CONFIG_HOME"] ?? "", "movies", "config.json");
+
+const decodeConfig = Schema.decodeSync(Schema.fromJsonString(StoredConfig));
+
+const encodeConfig = Schema.encodeSync(Schema.fromJsonString(StoredConfig));
 
 describe.skipIf(stack === undefined)("the movies CLI against a real stack", () => {
   beforeAll(async () => {
@@ -147,6 +177,49 @@ describe.skipIf(stack === undefined)("the movies CLI against a real stack", () =
     expect(fromEnv.code).toBe(ExitCode.unauthenticated);
   });
 
+  it("signs out the stored session on logout even while MOVIES_API_KEY is set", async () => {
+    const device = await install();
+
+    await loginOwner(device);
+    const saved = await readText(configPath(device));
+    const created = await runMovies(["keys", "create", `logout-${id}`, "--scopes", "read"], owner);
+    const withKey = { ...device, MOVIES_API_KEY: Secret(created.stdout).secret };
+
+    expect((await runMovies(["logout"], withKey)).code).toBe(ExitCode.ok);
+
+    // Put the old session back: the server must have ended it.
+    await writeText(configPath(device), saved);
+    expect((await runMovies(["whoami"], device)).code).toBe(ExitCode.unauthenticated);
+  });
+
+  it("logs in again to a profile saved with a trailing slash on its server", async () => {
+    const device = await install();
+    const email = await loginOwner(device);
+    const before = decodeConfig(await readText(configPath(device)));
+    const profile = before.profiles[before.defaultProfile];
+
+    expect(profile?.viewingProfileId).toBeDefined();
+
+    await writeText(
+      configPath(device),
+      encodeConfig({
+        defaultProfile: before.defaultProfile,
+        profiles: {
+          [before.defaultProfile]: { deviceId: "cli-slash", ...profile, convexUrl: `${url}/` },
+        },
+      }),
+    );
+
+    const again = await runMovies(["login", "--email", email, "--password"], device, PASSWORD);
+
+    expect(again.code, again.stderr).toBe(ExitCode.ok);
+
+    const after = decodeConfig(await readText(configPath(device))).profiles[before.defaultProfile];
+
+    expect(after?.deviceId).toBe(profile?.deviceId);
+    expect(after?.viewingProfileId).toBe(profile?.viewingProfileId);
+  });
+
   it("lets an agent on environment variables alone choose its profile once", async () => {
     const created = await runMovies(["keys", "create", `env-${id}`, "--scopes", "read"], owner);
 
@@ -204,7 +277,17 @@ describe.skipIf(stack === undefined)("the movies CLI against a real stack", () =
       join(folder, "movie.mp4"),
       name,
     );
-    expect((await runMovies(["search", name], owner)).stdout).toContain(name);
+    const [found] = Titles((await runMovies(["search", name], owner)).stdout);
+
+    expect(found?.name).toBe(name);
+
+    const progress = await Promise.all(
+      [name, found?.id ?? ""].map((query) => runMovies(["progress", query], owner)),
+    );
+
+    for (const run of progress) {
+      expect(Progress(run.stdout)).toStrictEqual({ titleId: found?.id, name, progress: null });
+    }
 
     const email = `cli-guest-${id}@movies.test`;
 
@@ -241,7 +324,37 @@ describe.skipIf(stack === undefined)("the movies CLI against a real stack", () =
     expect((await runMovies(["rooms", "status", roomId, "--human"], guest)).stdout).toContain(
       "paused",
     );
+
+    const watch = startMovies(["rooms", "status", roomId, "--watch"], guest);
+
     expect((await runMovies(["rooms", "leave"], guest)).code).toBe(ExitCode.ok);
     expect((await runMovies(["rooms", "leave"], owner)).code).toBe(ExitCode.ok);
+
+    const watched = await Promise.race([
+      watch.done,
+      delay(30_000).then(() => {
+        watch.child.kill();
+
+        return null;
+      }),
+    ]);
+
+    expect(watched?.code, "rooms status --watch exits once the room ends").toBe(ExitCode.ok);
+
+    const lines = (watched?.stdout ?? "").trimEnd().split("\n").map(WatchLine);
+
+    expect(lines.at(-1)?.room.clock.status).toBe("ended");
+  }, 120_000);
+
+  it("reports an unknown viewing profile or API key as not found", async () => {
+    const profile = await runMovies(["profiles", "use", `missing-${id}`], owner);
+
+    expect(profile.code).toBe(ExitCode.notFound);
+    expect(profile.stderr).toContain('"code":"not_found"');
+
+    const key = await runMovies(["keys", "revoke", `missing-${id}`], owner);
+
+    expect(key.code).toBe(ExitCode.notFound);
+    expect(key.stderr).toContain('"code":"not_found"');
   });
 });

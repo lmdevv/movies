@@ -93,6 +93,7 @@ export interface RoomSyncOptions {
 export interface RoomSync {
   /** The current state, then every change. */
   readonly state: Stream.Stream<RoomSyncState>;
+  /** The state now. */
   readonly current: Effect.Effect<RoomSyncState>;
 }
 
@@ -363,14 +364,23 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     return { roomId, deviceId };
   };
 
+  /**
+   * Sends one heartbeat, reading the state only once it holds `serial`: a host command that held
+   * it may have moved the revision meanwhile.
+   */
+  const beat = serial.withPermits(1)(
+    Effect.gen(function* () {
+      const current = yield* SubscriptionRef.get(state);
+      const clock = yield* client.mutate("rooms.heartbeat", heartbeatArgs(current));
+
+      return { clock, wasReconnecting: current.connection === "reconnecting" };
+    }),
+  );
+
   const heartbeat = Effect.gen(function* () {
-    const current = yield* SubscriptionRef.get(state);
+    const { clock } = yield* SubscriptionRef.get(state);
 
-    if (current.clock.status === "ended") return;
-
-    const beat = serial.withPermits(1)(
-      Effect.suspend(() => client.mutate("rooms.heartbeat", heartbeatArgs(current))),
-    );
+    if (clock.status === "ended") return;
 
     const answered = yield* beat.pipe(
       Effect.timeoutOption(Duration.millis(tunables.heartbeatTimeoutMs)),
@@ -383,10 +393,10 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
       return;
     }
 
-    const wasReconnecting = current.connection === "reconnecting";
+    const { wasReconnecting } = answered.value;
 
     yield* update((latest) => ({ ...latest, connection: "connected" }));
-    const newer = yield* applyClock(answered.value);
+    const newer = yield* applyClock(answered.value.clock);
 
     if (wasReconnecting) {
       yield* resync.pipe(Effect.catch(() => markReconnecting));

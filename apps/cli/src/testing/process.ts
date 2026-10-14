@@ -4,7 +4,7 @@
  */
 import { execFileSync, spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -99,3 +99,9 @@ export const removeDir = (path: string): Promise<void> =>
 
 /** The permission bits of a file, such as `0o600`. */
 export const permissions = async (path: string): Promise<number> => (await stat(path)).mode & 0o777;
+
+/** Reads a UTF-8 file, such as an install's config. */
+export const readText = (path: string): Promise<string> => readFile(path, "utf8");
+
+/** Replaces a file's contents, such as an install's config. */
+export const writeText = (path: string, text: string): Promise<void> => writeFile(path, text);

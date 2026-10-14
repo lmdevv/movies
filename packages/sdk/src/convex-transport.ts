@@ -199,21 +199,46 @@ export const make = (adapter: ClientAdapter): Effect.Effect<Interface> =>
     }),
   );
 
-const reference = <Kind extends FunctionKind>(
+/** A reference to the public function at `path`, for calling it by path. */
+export const reference = <Kind extends FunctionKind>(
   kind: Kind,
   path: FunctionPath,
 ): FunctionReference<Kind, "public", WireArgs, Schema.Json> =>
   makeFunctionReference<Kind, WireArgs, Schema.Json>(path);
 
+/** The one-shot calls every Convex client offers: `ConvexClient`, `ConvexHttpClient`, and React's. */
+interface OneShotClient {
+  readonly query: (
+    query: FunctionReference<"query", "public", WireArgs, Schema.Json>,
+    args: WireArgs,
+  ) => Promise<Schema.Json>;
+  readonly mutation: (
+    mutation: FunctionReference<"mutation", "public", WireArgs, Schema.Json>,
+    args: WireArgs,
+  ) => Promise<Schema.Json>;
+  readonly action: (
+    action: FunctionReference<"action", "public", WireArgs, Schema.Json>,
+    args: WireArgs,
+  ) => Promise<Schema.Json>;
+}
+
+/** Runs the function at `path` once on `client`, as the `kind` of function it is. */
+export const callByKind = (
+  client: OneShotClient,
+  kind: FunctionKind,
+  path: FunctionPath,
+  args: WireArgs,
+): Promise<Schema.Json> => {
+  if (kind === "query") return client.query(reference("query", path), args);
+
+  if (kind === "mutation") return client.mutation(reference("mutation", path), args);
+
+  return client.action(reference("action", path), args);
+};
+
 /** Adapts the WebSocket client: subscriptions are pushed, and auth refreshes through `source`. */
-export const webSocketAdapter = (client: ConvexClient): ClientAdapter => ({
-  call: (kind, path, args) => {
-    if (kind === "query") return client.query(reference("query", path), args);
-
-    if (kind === "mutation") return client.mutation(reference("mutation", path), args);
-
-    return client.action(reference("action", path), args);
-  },
+const webSocketAdapter = (client: ConvexClient): ClientAdapter => ({
+  call: (kind, path, args) => callByKind(client, kind, path, args),
   subscribe: (path, args, onValue, onError) =>
     client.onUpdate(reference("query", path), args, onValue, (error) => {
       onError(toError(error));
@@ -239,7 +264,7 @@ const valueKey = (value: Schema.Json): string => JSON.stringify(value);
  * changed results; it has no refresh hook, so each call reads the token first and retries once
  * with a fresh token when Convex rejects it.
  */
-export const httpAdapter = (client: ConvexHttpClient, options: HttpOptions): ClientAdapter => {
+const httpAdapter = (client: ConvexHttpClient, options: HttpOptions): ClientAdapter => {
   let source: AuthTokenSource | null = null;
 
   const authorize = async (forceRefresh: boolean): Promise<void> => {
@@ -247,14 +272,6 @@ export const httpAdapter = (client: ConvexHttpClient, options: HttpOptions): Cli
 
     if (token === null) client.clearAuth();
     else client.setAuth(token);
-  };
-
-  const once = (kind: FunctionKind, path: FunctionPath, args: WireArgs): Promise<Schema.Json> => {
-    if (kind === "query") return client.query(reference("query", path), args);
-
-    if (kind === "mutation") return client.mutation(reference("mutation", path), args);
-
-    return client.action(reference("action", path), args);
   };
 
   const call = async (
@@ -265,12 +282,12 @@ export const httpAdapter = (client: ConvexHttpClient, options: HttpOptions): Cli
     await authorize(false);
 
     try {
-      return await once(kind, path, args);
+      return await callByKind(client, kind, path, args);
     } catch (cause) {
       if (source === null || !(cause instanceof Error) || !isTokenRejection(cause)) throw cause;
       await authorize(true);
 
-      return once(kind, path, args);
+      return callByKind(client, kind, path, args);
     }
   };
 

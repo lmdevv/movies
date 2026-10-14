@@ -4,7 +4,7 @@ import { NotFound } from "@movies/contracts/errors";
 import { EpisodeId, TitleId } from "@movies/contracts/ids";
 import type { ProfileId } from "@movies/contracts/ids";
 import { type ClientCapabilities, PlaybackApiError } from "@movies/contracts/media-playback";
-import type { TitleCard } from "@movies/contracts/models/catalog";
+import type { TitleCard, TitleDetail } from "@movies/contracts/models/catalog";
 import { MoviesClient, Playback } from "@movies/sdk/effect";
 import { Effect, Option, Result, Schema } from "effect";
 
@@ -53,39 +53,70 @@ export const bestTitle = (
   );
 };
 
+/**
+ * The title whose ID `query` is, when it looks like one and the profile may see it. Server
+ * failures pass through; only a missing or malformed ID means "search by name instead".
+ */
+const titleById = Effect.fn("Watch.titleById")(function* (
+  connection: Connection,
+  profileId: ProfileId,
+  query: string,
+) {
+  if (!CONVEX_ID.test(query)) return Option.none<TitleDetail>();
+
+  return yield* connection
+    .withSession(connection.client.query("titles.get", { profileId, titleId: TitleId.make(query) }))
+    .pipe(
+      Effect.asSome,
+      Effect.catchTags({
+        NotFound: () => Effect.succeedNone,
+        InvalidArgs: () => Effect.succeedNone,
+      }),
+    );
+});
+
+/** The best name match for `query` on the profile. */
+const searchTitle = Effect.fn("Watch.searchTitle")(function* (
+  connection: Connection,
+  profileId: ProfileId,
+  query: string,
+) {
+  const results = yield* connection.withSession(
+    connection.client.query("titles.search", { profileId, query, limit: 20 }),
+  );
+
+  const found = bestTitle(query, results);
+
+  if (Option.isNone(found)) return yield* new NotFound({ message: `Nothing matches "${query}"` });
+
+  return found.value;
+});
+
 /** Finds a title by ID or by searching its name on the profile. */
 export const findTitle = Effect.fn("Watch.findTitle")(function* (
   connection: Connection,
   profileId: ProfileId,
   query: string,
 ) {
-  if (CONVEX_ID.test(query)) {
-    const byId = yield* connection
-      .withSession(
-        connection.client.query("titles.get", { profileId, titleId: TitleId.make(query) }),
-      )
-      .pipe(
-        Effect.asSome,
-        Effect.catchTags({
-          NotFound: () => Effect.succeedNone,
-          InvalidArgs: () => Effect.succeedNone,
-          Internal: () => Effect.succeedNone,
-        }),
-      );
+  const byId = yield* titleById(connection, profileId, query);
 
-    if (Option.isSome(byId)) return byId.value;
-  }
+  return Option.isSome(byId) ? byId.value : yield* searchTitle(connection, profileId, query);
+});
 
-  const results = yield* connection.withSession(
-    connection.client.query("titles.search", { profileId, query, limit: 20 }),
+/** Like `findTitle`, but always the title's detail: an ID lookup reads it once, a name match too. */
+const findTitleDetail = Effect.fn("Watch.findTitleDetail")(function* (
+  connection: Connection,
+  profileId: ProfileId,
+  query: string,
+) {
+  const byId = yield* titleById(connection, profileId, query);
+
+  if (Option.isSome(byId)) return byId.value;
+  const title = yield* searchTitle(connection, profileId, query);
+
+  return yield* connection.withSession(
+    connection.client.query("titles.get", { profileId, titleId: title.id }),
   );
-
-  const byId = results.find((title) => title.id === query);
-  const found = byId === undefined ? bestTitle(query, results) : Option.some(byId);
-
-  if (Option.isNone(found)) return yield* new NotFound({ message: `Nothing matches "${query}"` });
-
-  return found.value;
 });
 
 /** What mpv, VLC, and similar desktop players can play: everything, so direct play wins. */
@@ -293,11 +324,7 @@ const progress: ShortcutCommand = {
         return resultOutcome(command, yield* encodeResult("history.list", command, history));
       }
 
-      const title = yield* findTitle(connection, profileId, query.value);
-
-      const detail = yield* connection.withSession(
-        connection.client.query("titles.get", { profileId, titleId: title.id }),
-      );
+      const detail = yield* findTitleDetail(connection, profileId, query.value);
 
       const json = {
         titleId: detail.id,

@@ -3,12 +3,14 @@ import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 
 import { commands } from "@movies/contracts/commands";
+import { NotFound } from "@movies/contracts/errors";
 import { ApiKeyScope } from "@movies/contracts/scopes";
 import { Auth, DeviceLogin, MoviesClient } from "@movies/sdk/effect";
-import { Config, Effect, Option, Redacted, Schema, Struct } from "effect";
+import { Effect, Option, Redacted, Schema, Struct } from "effect";
 import { renderUnicodeCompact } from "uqr";
 
-import { ConfigFileError, LoginRefused } from "./cli-errors";
+import type { UsageError } from "./cli-errors";
+import { LoginRefused } from "./cli-errors";
 import type { StoredProfile } from "./config";
 import {
   layerProfileStorage,
@@ -18,11 +20,11 @@ import {
   setDefaultProfile,
   updateProfile,
 } from "./config";
-import { readStdin } from "./files";
 import type { Invocation, ShortcutCommand } from "./invocation";
 import {
   booleanFlag,
   encodeResult,
+  readSecret,
   requirePositional,
   resultOutcome,
   stringFlag,
@@ -34,31 +36,32 @@ import { connect, openSdk, storageFailure } from "./session";
 
 const isServerUrl = Schema.is(ServerUrl);
 
-/** Reads a secret from an environment variable or, when piped, stdin. */
-const readSecret = (invocation: Invocation, variable: string, what: string) =>
-  Effect.gen(function* () {
-    const fromEnv = yield* Config.option(Config.Redacted(variable)).pipe(
-      Effect.orElseSucceed(() => Option.none<Redacted.Redacted>()),
-    );
+/**
+ * Fails when the stored profile of this name belongs to another server than `server` while
+ * `MOVIES_CONVEX_URL` overrides it: login, logout, and `profiles use` never replace or clear it.
+ */
+const keepOtherServerProfile = (
+  invocation: Invocation,
+  server: Option.Option<string>,
+): Effect.Effect<void, UsageError> => {
+  const { target } = invocation;
 
-    if (Option.isSome(fromEnv)) return fromEnv.value;
+  const other = Option.filter(
+    target.shadowed,
+    (profile) => !Option.exists(server, (url) => url === normalizeUrl(profile.convexUrl)),
+  );
 
-    if (process.stdin.isTTY) {
-      return yield* usage(invocation, `Pipe the ${what} on stdin or set ${variable}`);
-    }
-
-    const text = yield* Effect.tryPromise({
-      try: readStdin,
-      catch: (cause) =>
-        new ConfigFileError({ path: "stdin", message: "Could not read stdin", cause }),
-    });
-
-    const secret = text.trim();
-
-    if (secret.length === 0) return yield* usage(invocation, `The ${what} on stdin is empty`);
-
-    return Redacted.make(secret);
+  return Option.match(other, {
+    onNone: () => Effect.void,
+    onSome: (profile) =>
+      Effect.fail(
+        usage(
+          invocation,
+          `The stored profile "${target.name}" is for ${profile.convexUrl}; pass --profile <new-name> to use ${Option.getOrElse(server, () => "another server")}`,
+        ),
+      ),
   });
+};
 
 const login: ShortcutCommand = {
   path: "login",
@@ -75,9 +78,9 @@ const login: ShortcutCommand = {
       const output = yield* Output;
       const { env, target, tokens } = invocation;
 
-      const server = Option.orElse(
-        Option.map(stringFlag(tokens, "server"), normalizeUrl),
-        () => target.convexUrl,
+      const server = Option.map(
+        Option.orElse(stringFlag(tokens, "server"), () => target.convexUrl),
+        normalizeUrl,
       );
 
       if (Option.isNone(server) || !isServerUrl(server.value)) {
@@ -96,9 +99,12 @@ const login: ShortcutCommand = {
         target.apiKeyFromEnvironment ? target.apiKey : Option.none(),
       );
 
+      yield* keepOtherServerProfile(invocation, server);
+
+      // The profile's own server keeps its device and viewing profile across logins.
       const previous = Option.filter(
-        target.stored,
-        (profile) => profile.convexUrl === server.value,
+        Option.orElse(target.stored, () => target.shadowed),
+        (profile) => normalizeUrl(profile.convexUrl) === server.value,
       );
 
       const base: StoredProfile = {
@@ -238,7 +244,15 @@ const logout: ShortcutCommand = {
       const output = yield* Output;
       const { env, target } = invocation;
 
-      if (Option.isSome(target.convexUrl) && !target.apiKeyFromEnvironment) {
+      yield* keepOtherServerProfile(invocation, target.convexUrl);
+
+      const storedSession = Option.flatMap(target.stored, (profile) =>
+        Option.fromNullishOr(profile.session),
+      );
+
+      // A session from an earlier login lives in the profile even while MOVIES_API_KEY is set; end
+      // it on the server before forgetting it.
+      if (Option.isSome(target.convexUrl) && Option.isSome(storedSession)) {
         const { auth } = yield* openSdk(
           target.convexUrl.value,
           target.mediaUrl,
@@ -301,7 +315,11 @@ const profilesUse: ShortcutCommand = {
   run: (invocation) =>
     Effect.gen(function* () {
       const wanted = yield* requirePositional(invocation, "a profile ID or name");
-      const connection = yield* connect(invocation.env, invocation.target, "required");
+      const { target } = invocation;
+
+      yield* keepOtherServerProfile(invocation, target.convexUrl);
+
+      const connection = yield* connect(invocation.env, target, "required");
       const profiles = yield* connection.withSession(connection.client.query("profiles.list", {}));
 
       const profile = profiles.find(
@@ -310,10 +328,9 @@ const profilesUse: ShortcutCommand = {
       );
 
       if (profile === undefined) {
-        return yield* usage(
-          invocation,
-          `No profile "${wanted}"; choose one of ${profiles.map((p) => `${p.name} (${p.id})`).join(", ")}`,
-        );
+        return yield* new NotFound({
+          message: `No profile "${wanted}"; choose one of ${profiles.map((p) => `${p.name} (${p.id})`).join(", ")}`,
+        });
       }
 
       // An install that runs on environment variables alone has no stored profile yet; it gets
@@ -430,13 +447,14 @@ const keysRevoke: ShortcutCommand = {
 
       const [key] = matches;
 
-      if (key === undefined || matches.length > 1) {
-        return yield* usage(
-          invocation,
-          matches.length > 1
-            ? `Several keys are named "${wanted}"; revoke one by ID`
-            : `No active API key "${wanted}"; see movies keys list`,
-        );
+      if (key === undefined) {
+        return yield* new NotFound({
+          message: `No active API key "${wanted}"; see movies keys list`,
+        });
+      }
+
+      if (matches.length > 1) {
+        return yield* usage(invocation, `Several keys are named "${wanted}"; revoke one by ID`);
       }
 
       yield* connection.withSession(

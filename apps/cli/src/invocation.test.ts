@@ -32,4 +32,17 @@ describe("position parsing", () => {
       ),
     );
   });
+
+  it("never throws, and rejects numbers too large to be a position", () => {
+    expect(parsePosition("9".repeat(310)), "a 310-digit position").toStrictEqual(Option.none());
+
+    fc.assert(
+      fc.property(fc.stringMatching(/^\d{1,400}(:\d{1,400}){0,2}$/u), (text) => {
+        expect(
+          Option.exists(parsePosition(text), (ms) => !Number.isFinite(ms)),
+          text,
+        ).toBe(false);
+      }),
+    );
+  });
 });

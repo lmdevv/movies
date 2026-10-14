@@ -4,22 +4,22 @@
  * Each control reads the room first and sends its current revision; a revision that moved on in
  * between is read again and retried once.
  */
-import { targetPosition } from "@movies/contracts/clock";
+import type { ClockOffset } from "@movies/contracts/clock";
+import { estimateClockOffset, targetPosition, toServerTime } from "@movies/contracts/clock";
 import { commands } from "@movies/contracts/commands";
 import { NotFound } from "@movies/contracts/errors";
-import { EpisodeId, ProfileId, RoomId } from "@movies/contracts/ids";
+import type { ProfileId } from "@movies/contracts/ids";
+import { EpisodeId, RoomId } from "@movies/contracts/ids";
 import type { Room, RoomClock } from "@movies/contracts/models/rooms";
-import type { EpochMillis, Milliseconds } from "@movies/contracts/units";
-import {
-  EpochMillis as EpochMillisSchema,
-  Milliseconds as MillisecondsSchema,
-} from "@movies/contracts/units";
-import { Clock, Effect, Option, Stream } from "effect";
+import type { Milliseconds } from "@movies/contracts/units";
+import { Milliseconds as MillisecondsSchema } from "@movies/contracts/units";
+import { Clock, Effect, Option, Ref, Stream } from "effect";
 
 import type { Invocation, ShortcutCommand } from "./invocation";
 import {
   booleanFlag,
   encodeResult,
+  Outcome,
   positionalText,
   positionFlag,
   requirePositional,
@@ -28,6 +28,7 @@ import {
   textOutcome,
   usage,
   viewingProfile,
+  viewingProfileIfAny,
 } from "./invocation";
 import { Output } from "./output";
 import { formatDuration } from "./render";
@@ -37,33 +38,28 @@ import { findTitle } from "./watch-commands";
 
 /**
  * Arguments to read a room: its ID and, for a room this account has not joined, the profile that
- * would join (`--profile-id`, else the viewing profile), which must be able to see its title.
+ * would join, which must be able to see its title.
  */
-const roomQuery = (invocation: Invocation, connection: Connection, roomId: RoomId) =>
-  Option.match(
-    Option.orElse(
-      Option.map(stringFlag(invocation.tokens, "profile-id"), (value) => ProfileId.make(value)),
-      () => connection.viewingProfileId,
-    ),
-    {
-      onNone: () => ({ roomId }),
-      onSome: (profileId) => ({ roomId, profileId }),
-    },
-  );
+const roomQuery = (roomId: RoomId, profileId: Option.Option<ProfileId>) =>
+  Option.match(profileId, {
+    onNone: () => ({ roomId }),
+    onSome: (id) => ({ roomId, profileId: id }),
+  });
 
-/** The room named on the command line, or the one this device is in. */
+/**
+ * The room named on the command line, read as `profileId` would join it, or the one this device
+ * is in.
+ */
 const resolveRoom = Effect.fn("Rooms.resolve")(function* (
   invocation: Invocation,
   connection: Connection,
+  profileId: Option.Option<ProfileId>,
 ) {
   const named = positionalText(invocation.tokens);
 
   if (Option.isSome(named)) {
     return yield* connection.withSession(
-      connection.client.query(
-        "rooms.get",
-        roomQuery(invocation, connection, RoomId.make(named.value)),
-      ),
+      connection.client.query("rooms.get", roomQuery(RoomId.make(named.value), profileId)),
     );
   }
 
@@ -78,45 +74,63 @@ const resolveRoom = Effect.fn("Rooms.resolve")(function* (
   return current;
 });
 
-/** The server's clock: `rooms.time` when this session may play, else this machine's clock. */
-const serverNow = (connection: Connection): Effect.Effect<EpochMillis> =>
-  connection.client.mutate("rooms.time", {}).pipe(
-    Effect.map(({ serverTime }) => serverTime),
-    Effect.catch(() => Effect.map(Clock.currentTimeMillis, (now) => EpochMillisSchema.make(now))),
-  );
+/** This machine's clock taken as the server's, when `rooms.time` is not available. */
+const LOCAL_CLOCK: ClockOffset = { offsetMs: 0, roundTripMs: 0 };
 
-const livePosition = (connection: Connection, clock: RoomClock): Effect.Effect<Milliseconds> =>
-  Effect.map(serverNow(connection), (now) => targetPosition(clock, now));
+/** How long `rooms status --watch` trusts a clock measurement before taking another. */
+const REMEASURE_AFTER_MS = 5 * 60_000;
+
+/**
+ * How far the server's clock runs ahead of this machine's, from one `rooms.time` round trip,
+ * assuming the server read its clock halfway through it. When this session may not call
+ * `rooms.time`, trusts this machine's clock.
+ */
+const measureClockOffset = Effect.fn("Rooms.measureClock")(function* (connection: Connection) {
+  const sentAt = yield* Clock.currentTimeMillis;
+
+  return yield* connection.client.mutate("rooms.time", {}).pipe(
+    Effect.flatMap(({ serverTime }) =>
+      Effect.map(
+        Clock.currentTimeMillis,
+        (receivedAt) => estimateClockOffset([{ sentAt, serverTime, receivedAt }]) ?? LOCAL_CLOCK,
+      ),
+    ),
+    Effect.orElseSucceed(() => LOCAL_CLOCK),
+  );
+});
+
+/** The room's live position now, by the server's clock. */
+const livePosition = (offset: ClockOffset, clock: RoomClock): Effect.Effect<Milliseconds> =>
+  Effect.map(Clock.currentTimeMillis, (now) => targetPosition(clock, toServerTime(now, offset)));
 
 type HostCommand = "rooms.play" | "rooms.pause" | "rooms.seek";
 
 /** Sends a host control at the room's current revision, retrying once after a stale revision. */
-const control = (
+const control = Effect.fn("Rooms.control")(function* (
   invocation: Invocation,
   name: HostCommand,
   position: (connection: Connection, room: Room) => Effect.Effect<Milliseconds>,
-) =>
-  Effect.gen(function* () {
-    const connection = yield* connect(invocation.env, invocation.target, "required");
+) {
+  const connection = yield* connect(invocation.env, invocation.target, "required");
 
-    const send = Effect.gen(function* () {
-      const room = yield* resolveRoom(invocation, connection);
-      const positionMs = yield* position(connection, room);
+  const send = Effect.gen(function* () {
+    const room = yield* resolveRoom(invocation, connection, connection.viewingProfileId);
+    const positionMs = yield* position(connection, room);
 
-      return yield* connection.withSession(
-        connection.client.mutate(name, {
-          roomId: room.id,
-          deviceId: connection.deviceId,
-          revision: room.clock.revision,
-          positionMs,
-        }),
-      );
-    });
-
-    const clock = yield* send.pipe(Effect.catchTag("StaleRevision", () => send));
-
-    return resultOutcome(commands[name], yield* encodeResult(name, commands[name], clock));
+    return yield* connection.withSession(
+      connection.client.mutate(name, {
+        roomId: room.id,
+        deviceId: connection.deviceId,
+        revision: room.clock.revision,
+        positionMs,
+      }),
+    );
   });
+
+  const clock = yield* send.pipe(Effect.catchTag("StaleRevision", () => send));
+
+  return resultOutcome(commands[name], yield* encodeResult(name, commands[name], clock));
+});
 
 /** A host control whose position comes from `--position` or the live position. */
 const hostControl = (
@@ -137,7 +151,10 @@ const hostControl = (
 
       return yield* control(invocation, name, (connection, room) =>
         Option.match(flag, {
-          onNone: () => livePosition(connection, room.clock),
+          onNone: () =>
+            Effect.flatMap(measureClockOffset(connection), (offset) =>
+              livePosition(offset, room.clock),
+            ),
           onSome: Effect.succeed,
         }),
       );
@@ -212,7 +229,7 @@ const leave: ShortcutCommand = {
   run: (invocation) =>
     Effect.gen(function* () {
       const connection = yield* connect(invocation.env, invocation.target, "required");
-      const room = yield* resolveRoom(invocation, connection);
+      const room = yield* resolveRoom(invocation, connection, connection.viewingProfileId);
 
       yield* connection.withSession(
         connection.client.mutate("rooms.leave", { roomId: room.id, deviceId: connection.deviceId }),
@@ -239,36 +256,58 @@ const status: ShortcutCommand = {
     Effect.gen(function* () {
       const output = yield* Output;
       const connection = yield* connect(invocation.env, invocation.target, "required");
-      const room = yield* resolveRoom(invocation, connection);
+
+      const profileId = viewingProfileIfAny(invocation, connection.viewingProfileId);
+
+      const room = yield* resolveRoom(invocation, connection, profileId);
       const command = commands["rooms.get"];
 
-      const snapshot = (current: Room) =>
-        Effect.gen(function* () {
-          const live = yield* livePosition(connection, current.clock);
+      const measured = yield* Ref.make({
+        offset: yield* measureClockOffset(connection),
+        at: yield* Clock.currentTimeMillis,
+      });
 
-          return {
-            json: {
-              room: yield* encodeResult("rooms.get", command, current),
-              livePositionMs: live,
-            },
-            human: describeRoom(current, live),
-          };
-        });
+      // Not a `rooms.time` call per change: a measurement serves for a few minutes of watching.
+      const currentOffset = Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis;
+        const last = yield* Ref.get(measured);
 
-      if (!booleanFlag(invocation.tokens, "watch")) return yield* snapshot(room);
+        if (now - last.at < REMEASURE_AFTER_MS) return last.offset;
+        const offset = yield* measureClockOffset(connection);
 
-      yield* connection.client
-        .subscribe("rooms.get", roomQuery(invocation, connection, room.id))
-        .pipe(
-          Stream.mapEffect(snapshot),
-          Stream.runForEach((next) =>
-            output.out(
-              invocation.format === "json" ? JSON.stringify(next.json) : `${next.human}\n`,
-            ),
-          ),
-        );
+        yield* Ref.set(measured, { offset, at: now });
 
-      return textOutcome({ ok: true }, "The room ended.");
+        return offset;
+      });
+
+      const snapshot = Effect.fn("Rooms.snapshot")(function* (current: Room) {
+        const live = yield* livePosition(yield* currentOffset, current.clock);
+
+        return {
+          json: { room: yield* encodeResult("rooms.get", command, current), livePositionMs: live },
+          human: describeRoom(current, live),
+        };
+      });
+
+      if (!booleanFlag(invocation.tokens, "watch")) {
+        const shown = yield* snapshot(room);
+
+        return textOutcome(shown.json, shown.human);
+      }
+
+      yield* connection.client.subscribe("rooms.get", roomQuery(room.id, profileId)).pipe(
+        // An ended room stays readable with the status `ended`; it never changes again.
+        Stream.takeUntil((current) => current.clock.status === "ended"),
+        Stream.mapEffect(snapshot),
+        Stream.runForEach((next) =>
+          output.out(invocation.format === "json" ? JSON.stringify(next.json) : `${next.human}\n`),
+        ),
+      );
+
+      // JSON mode stays one line per change; the last line shows the room ended.
+      if (invocation.format === "table") yield* output.out("The room ended.");
+
+      return Outcome.Printed();
     }),
 };
 

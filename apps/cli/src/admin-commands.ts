@@ -6,15 +6,16 @@ import { ProfileId } from "@movies/contracts/ids";
 import type { Job } from "@movies/contracts/models/jobs";
 import { MigrationSource } from "@movies/contracts/models/jobs";
 import type { MigrationSourceFailure } from "@movies/contracts/models/migration";
-import { Config, Effect, Option, Redacted, Schema, Struct } from "effect";
+import { Effect, Option, Schema, Struct } from "effect";
 
-import { ConfigFileError, MigrationSourceError } from "./cli-errors";
-import { readStdin } from "./files";
+import { MigrationSourceError } from "./cli-errors";
+import { waitOptions } from "./flags";
 import type { Invocation, ShortcutCommand } from "./invocation";
 import {
   booleanFlag,
   encodeResult,
   positionalText,
+  readSecret,
   requirePositional,
   resultOutcome,
   stringFlag,
@@ -22,7 +23,7 @@ import {
   timeoutFlag,
   usage,
 } from "./invocation";
-import { progressLine, waitForJob } from "./jobs";
+import { progressLine, waitForJobs } from "./jobs";
 import type { Connection } from "./session";
 import { connect } from "./session";
 
@@ -37,9 +38,7 @@ const followJobs = Effect.fn("Admin.followJobs")(function* (
   if (!booleanFlag(invocation.tokens, "wait")) return [];
   const timeout = yield* timeoutFlag(invocation);
 
-  return yield* Effect.forEach(jobIds, (jobId) =>
-    waitForJob(connection.client, jobId, { progress: true, timeout }),
-  );
+  return yield* waitForJobs(connection.client, jobIds, { progress: true, timeout });
 });
 
 const jobsOutcome = (base: Schema.JsonObject, jobs: ReadonlyArray<Job>, queued: string) =>
@@ -47,8 +46,6 @@ const jobsOutcome = (base: Schema.JsonObject, jobs: ReadonlyArray<Job>, queued: 
     jobs.length === 0 ? base : Struct.assign(base, { jobs: jobs.map((job) => encodeJob(job)) }),
     jobs.length === 0 ? queued : jobs.map(progressLine).join("\n"),
   );
-
-const waitOptions = { wait: { type: "boolean" }, timeout: { type: "string" } } as const;
 
 const scan: ShortcutCommand = {
   path: "scan",
@@ -156,31 +153,6 @@ const parsePathMappings = (invocation: Invocation) =>
 
 const isMigrationSource = Schema.is(MigrationSource);
 
-/** A secret from `variable`, or from stdin when piped. */
-const importSecret = (invocation: Invocation, variable: string, what: string) =>
-  Effect.gen(function* () {
-    const fromEnv = yield* Config.option(Config.Redacted(variable)).pipe(
-      Effect.orElseSucceed(() => Option.none<Redacted.Redacted>()),
-    );
-
-    if (Option.isSome(fromEnv)) return fromEnv.value;
-
-    if (process.stdin.isTTY) {
-      return yield* usage(
-        invocation,
-        `Pipe the source server's ${what} on stdin or set ${variable}`,
-      );
-    }
-
-    const text = yield* Effect.tryPromise({
-      try: readStdin,
-      catch: (cause) =>
-        new ConfigFileError({ path: "stdin", message: "Could not read stdin", cause }),
-    });
-
-    return Redacted.make(text.trim());
-  });
-
 /**
  * How to sign in to the source: a Jellyfin administrator's password with `--user`, otherwise a
  * Jellyfin API key or Plex token.
@@ -188,11 +160,11 @@ const importSecret = (invocation: Invocation, variable: string, what: string) =>
 const importCredentials = (invocation: Invocation) =>
   Option.match(stringFlag(invocation.tokens, "user"), {
     onNone: () =>
-      importSecret(invocation, "MOVIES_IMPORT_TOKEN", "token").pipe(
+      readSecret(invocation, "MOVIES_IMPORT_TOKEN", "source server's token").pipe(
         Effect.map((token) => ({ kind: "token" as const, token })),
       ),
     onSome: (username) =>
-      importSecret(invocation, "MOVIES_IMPORT_PASSWORD", "password").pipe(
+      readSecret(invocation, "MOVIES_IMPORT_PASSWORD", "source server's password").pipe(
         Effect.map((password) => ({ kind: "password" as const, username, password })),
       ),
   });

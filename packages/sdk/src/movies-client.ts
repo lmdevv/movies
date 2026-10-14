@@ -46,18 +46,28 @@ export type ClientError = CallError | TokenStorageError;
 
 /** Runs registry commands as the signed-in session. */
 export interface Interface {
+  /** Runs a query command once. */
   readonly query: <Name extends QueryName>(
     name: Name,
     args: CommandArgs<Name>,
   ) => Effect.Effect<CommandResult<Name>, CallError>;
+  /**
+   * Runs a mutation command. One that fails with `TransportError` may still have run; read the
+   * state again before retrying it.
+   */
   readonly mutate: <Name extends MutationName>(
     name: Name,
     args: CommandArgs<Name>,
   ) => Effect.Effect<CommandResult<Name>, CallError>;
+  /** Runs an action command, such as one that calls another service. */
   readonly action: <Name extends ActionName>(
     name: Name,
     args: CommandArgs<Name>,
   ) => Effect.Effect<CommandResult<Name>, CallError>;
+  /**
+   * Runs a media service command with the session's token as the bearer. Fails with
+   * `TransportError` when no media service URL is configured.
+   */
   readonly media: <Name extends MediaName>(
     name: Name,
     args: CommandArgs<Name>,
