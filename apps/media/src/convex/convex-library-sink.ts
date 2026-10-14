@@ -84,7 +84,14 @@ const make = Effect.gen(function* () {
         onSome: (relativePath) =>
           file.missing
             ? []
-            : [{ relativePath, sizeBytes: file.sizeBytes, modifiedAtMs: file.mtimeMs }],
+            : [
+                {
+                  relativePath,
+                  sizeBytes: file.sizeBytes,
+                  modifiedAtMs: file.mtimeMs,
+                  sidecarDigest: file.sidecarDigest ?? undefined,
+                },
+              ],
       }),
     );
   });

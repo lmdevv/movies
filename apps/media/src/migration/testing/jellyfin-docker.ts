@@ -7,6 +7,8 @@
  * Opt-in: the docker test and the fixture recorder run only when asked to (they need Docker and
  * the `jellyfin/jellyfin` image). The container lives as long as the scope that started it.
  */
+import { hostname } from "node:os";
+
 import { NodeServices } from "@effect/platform-node";
 import {
   Crypto,
@@ -175,23 +177,24 @@ const CONTAINER_PREFIX = "movies-jellyfin-test-";
 /** How old a container of a vanished process must be before it counts as left behind. */
 const ORPHAN_AGE_MS = 10 * 60 * 1000;
 
-/** Probing a process failed; `gone` when no such process exists. */
-class ProcessProbeFailed extends Schema.TaggedError<ProcessProbeFailed>()("ProcessProbeFailed", {
-  gone: Schema.Boolean,
-}) {}
+/**
+ * The Docker label naming the host whose test process started a container. Another PID namespace
+ * on the same daemon (a dev container, a CI job) has another hostname, so its containers are never
+ * judged by this host's process list.
+ */
+const HOST_LABEL = "movies.test.host";
 
 /** Whether process `pid` still runs on this host: signal 0 checks without sending anything. */
 const isRunning = (pid: number) =>
-  Effect.try({
-    try: () => process.kill(pid, 0),
-    catch: (cause) =>
-      new ProcessProbeFailed({
-        gone: Predicate.hasProperty(cause, "code") && cause.code === "ESRCH",
-      }),
-  }).pipe(
-    Effect.as(true),
-    Effect.catchTag("ProcessProbeFailed", (error) => Effect.succeed(!error.gone)),
-  );
+  Effect.sync(() => {
+    try {
+      process.kill(pid, 0);
+
+      return true;
+    } catch (cause) {
+      return !(Predicate.hasProperty(cause, "code") && cause.code === "ESRCH");
+    }
+  });
 
 /**
  * Removes test containers whose process is gone. A test worker killed before its scope closed
@@ -203,6 +206,8 @@ const removeLeftovers = Effect.fnUntraced(function* () {
     "--all",
     "--filter",
     `name=^${CONTAINER_PREFIX}`,
+    "--filter",
+    `label=${HOST_LABEL}=${hostname()}`,
     "--format",
     "{{.Names}}",
   ]);
@@ -259,6 +264,8 @@ export const startJellyfin = Effect.fn("JellyfinDocker.start")(function* (worksp
       "--rm",
       "--name",
       name,
+      "--label",
+      `${HOST_LABEL}=${hostname()}`,
       "--hostname",
       "jellyfin-fixture",
       "-p",

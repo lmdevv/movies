@@ -330,6 +330,8 @@ export default defineSchema({
     addedAt: v.number(),
     /** Scrub thumbnails; absent until a trickplay job is queued for this file. */
     trickplay: v.optional(trickplayState),
+    /** Digest of the companions the scan read (NFO, artwork, subtitles), to notice their edits. */
+    sidecarDigest: v.optional(nullable(v.string())),
   })
     .index("by_library_path", ["libraryId", "path"])
     .index("by_library_missing", ["libraryId", "missing"])

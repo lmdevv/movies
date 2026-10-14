@@ -396,9 +396,13 @@ EOF
   # stream's own start.
   if ((status == 0)); then
     local start
-    start="$(ffprobe -v error -show_entries format=start_time -of csv=p=0 "$dvd.subs.mpg")"
-    ff "$out" -analyzeduration 400M -probesize 200M -copyts -i "$dvd.subs.mpg" -map 0:s:0 \
-      -c:s copy -avoid_negative_ts disabled -output_ts_offset "-${start:-0}" || status=1
+    start="$(ffprobe -v error -show_entries format=start_time -of csv=p=0 "$dvd.subs.mpg" || true)"
+    if [[ "$start" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+      ff "$out" -analyzeduration 400M -probesize 200M -copyts -i "$dvd.subs.mpg" -map 0:s:0 \
+        -c:s copy -avoid_negative_ts disabled -output_ts_offset "-$start" || status=1
+    else
+      status=1
+    fi
   fi
   rm -f "$dvd" "$dvd.subs.mpg"
   return "$status"

@@ -880,6 +880,7 @@ export const scannedFile = v.object({
   probe,
   externalSubtitles: v.array(externalSubtitle),
   versionName: nullable(v.string()),
+  sidecarDigest: v.optional(v.string()),
 });
 
 /** Mirrors `ScannedItem` in `@movies/contracts`. */
@@ -906,6 +907,7 @@ export const indexedFile = v.object({
   sizeBytes: v.number(),
   mtimeMs: v.number(),
   missing: v.boolean(),
+  sidecarDigest: nullable(v.string()),
 });
 
 /** Mirrors `ResolvedFile` in `@movies/contracts`. */

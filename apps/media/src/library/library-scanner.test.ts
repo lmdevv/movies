@@ -310,6 +310,20 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
           });
         }
 
+        // A subtitle named after one edition rescans that edition only.
+        yield* fs.writeFileString(
+          path.join(target.movies, folder, `${folder} {edition-Theatrical}.en.srt`),
+          "1\n00:00:01,000 --> 00:00:02,000\nHello\n",
+        );
+
+        const subtitled = yield* scanner.scan({
+          libraryId,
+          root: target.movies,
+          mode: "incremental",
+        });
+
+        assert.strictEqual(subtitled.processed, 1);
+
         // Different films in a year-bearing folder don't share its generic metadata.
         const anthology = "Anthology (2020)";
 

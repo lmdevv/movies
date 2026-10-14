@@ -15,7 +15,6 @@
 import {
   Cache,
   Context,
-  Duration,
   Effect,
   FileSystem,
   Layer,
@@ -30,7 +29,6 @@ import {
 import type { LibraryId } from "@movies/contracts/ids";
 import { createHash } from "node:crypto";
 
-import * as DiskCache from "../disk-cache.ts";
 import * as MediaConfig from "../media-config.ts";
 import { probeFile } from "../media/media-probe.ts";
 import * as MediaTools from "../media/media-tools.ts";
@@ -210,13 +208,38 @@ interface StatResult {
   readonly sizeBytes: number;
   readonly modifiedAtMs: number;
   /** A digest of the file's companions (NFO, artwork, subtitles) and their sizes and times. */
-  readonly sidecars: string;
+  readonly sidecarDigest: string;
 }
 
-/** Where each library's companion digests are kept between scans, by relative path. */
-const SIDECAR_NAMESPACE = "scan-sidecars";
+/** Extensions of the companions whose edits change a file's metadata: NFO, artwork, subtitles. */
+const COMPANION_EXTENSIONS = new Set([
+  "nfo",
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "tbn",
+  "srt",
+  "vtt",
+  "ass",
+  "ssa",
+]);
 
-const SidecarDigests = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String));
+/** One companion in a folder, by lowercased name, with its name, size, and time. */
+interface Companion {
+  readonly lowerName: string;
+  readonly line: string;
+}
+
+/** A folder's companions and the lowercased stems of the main videos beside them. */
+interface FolderCompanions {
+  readonly companions: ReadonlyArray<Companion>;
+  readonly stems: ReadonlyArray<string>;
+}
+
+/** Whether `lowerName` is named after the video `stem`: `<stem>.nfo`, `<stem>-poster.jpg`, ... */
+const namedAfter = (lowerName: string, stem: string): boolean =>
+  lowerName.startsWith(`${stem}.`) || lowerName.startsWith(`${stem}-`);
 
 /** A short, path-free label for a file system failure. */
 const platformReason = (
@@ -284,7 +307,6 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const sink = yield* LibrarySink.Service;
-  const diskCache = yield* DiskCache.Service;
   const resolver = yield* MetadataResolver.Service;
   const tools = yield* MediaTools.Service;
 
@@ -407,23 +429,6 @@ const make = Effect.gen(function* () {
         (yield* sink.previousIndex(libraryFolder)).map((file) => [file.relativePath, file]),
       );
 
-      // Companion digests from the last scan. A video whose own size and time are unchanged is
-      // still rescanned when its NFO, artwork, or subtitles changed; one with no digest yet (a
-      // first scan with this version) is taken as unchanged and gets one.
-      const knownSidecars = yield* diskCache
-        .read(SIDECAR_NAMESPACE, libraryId, Duration.infinity)
-        .pipe(
-          Effect.flatMap((body) =>
-            Option.match(body, {
-              onNone: () => Effect.succeed<Record<string, string>>({}),
-              onSome: (text) => Schema.decodeEffect(SidecarDigests)(text),
-            }),
-          ),
-          Effect.orElseSucceed((): Record<string, string> => ({})),
-        );
-
-      const currentSidecars = new Map<string, string>();
-
       const counters: Counters = {
         discovered: 0,
         unchanged: 0,
@@ -462,43 +467,82 @@ const make = Effect.gen(function* () {
       const absolute = (relativePath: string): string =>
         path.join(root, ...relativePath.split("/"));
 
-      // The entries beside media that feed its metadata: everything but media and folders.
-      const folderDigests = yield* Cache.make({
+      // The NFO, artwork, and subtitle files in a folder, with their sizes and times.
+      const folderCompanions = yield* Cache.make({
         capacity: 10_000,
         lookup: (folder: string) =>
-          Effect.forEach(
-            listing(folder).names.filter(
-              (name) => !isMediaFile(name) && !walked.folders.has(join(folder, name)),
-            ),
-            (name) =>
-              fs.stat(absolute(join(folder, name))).pipe(
-                Effect.map((info) => {
-                  const modified = Option.match(info.mtime, {
-                    onNone: () => 0,
-                    onSome: (date) => date.getTime(),
-                  });
+          Effect.gen(function* () {
+            const names = listing(folder).names;
 
-                  return `${name}\u0000${String(info.size)}\u0000${String(modified)}`;
-                }),
-                Effect.orElseSucceed(() => `${name}\u0000unreadable`),
+            const companions = yield* Effect.forEach(
+              names.filter(
+                (name) =>
+                  COMPANION_EXTENSIONS.has(name.split(".").at(-1)?.toLowerCase() ?? "") &&
+                  !walked.folders.has(join(folder, name)),
               ),
-            { concurrency: STAT_CONCURRENCY },
-          ).pipe(Effect.map((entries) => entries.toSorted().join("\n"))),
+              (name) =>
+                fs.stat(absolute(join(folder, name))).pipe(
+                  Effect.map((info): Companion => {
+                    const modified = Option.match(info.mtime, {
+                      onNone: () => 0,
+                      onSome: (date) => date.getTime(),
+                    });
+
+                    return {
+                      lowerName: name.toLowerCase(),
+                      line: `${name}\u0000${String(info.size)}\u0000${String(modified)}`,
+                    };
+                  }),
+                  Effect.orElseSucceed((): Companion => ({
+                    lowerName: name.toLowerCase(),
+                    line: `${name}\u0000unreadable`,
+                  })),
+                ),
+              { concurrency: STAT_CONCURRENCY },
+            );
+
+            const stems = names
+              .filter(isMainVideo(folder))
+              .map((name) => stemOf(name).toLowerCase());
+
+            return { companions, stems } satisfies FolderCompanions;
+          }),
       });
 
-      /** The digest of a file's folder, plus its show folder for an episode in a season folder. */
+      /**
+       * A digest of the companions a file's metadata can come from: those named after it, those
+       * named after no other video in its folder (`movie.nfo`, `poster.jpg`, season art), and, for
+       * an episode in a season folder, the show folder's (`tvshow.nfo`, show and season art).
+       * Other videos' sidecars are left out, so a subtitle added for one film doesn't rescan the
+       * rest of a shared folder.
+       */
       const sidecarDigest = Effect.fn("LibraryScanner.sidecarDigest")(function* (
         relativePath: string,
       ) {
         const folder = parentOf(relativePath);
-        const inSeasonFolder = SEASON_FOLDER.test(folder.split("/").at(-1) ?? "");
+        const stem = stemOf(relativePath).toLowerCase();
+        const own = yield* Cache.get(folderCompanions, folder);
 
-        const folders =
-          inSeasonFolder && folder.includes("/") ? [folder, parentOf(folder)] : [folder];
+        const lines = own.companions
+          .filter(
+            (companion) =>
+              namedAfter(companion.lowerName, stem) ||
+              !own.stems.some((other) => namedAfter(companion.lowerName, other)),
+          )
+          .map((companion) => companion.line);
 
-        const digests = yield* Effect.forEach(folders, (each) => Cache.get(folderDigests, each));
+        const inSeasonFolder =
+          folder.includes("/") && SEASON_FOLDER.test(folder.split("/").at(-1) ?? "");
 
-        return createHash("sha256").update(digests.join("\n\n")).digest("base64url");
+        const show = inSeasonFolder
+          ? (yield* Cache.get(folderCompanions, parentOf(folder))).companions.map(
+              (companion) => companion.line,
+            )
+          : [];
+
+        return createHash("sha256")
+          .update([...lines.toSorted(), "", ...show.toSorted()].join("\n"))
+          .digest("base64url");
       });
 
       // An NFO may be a link like any other entry; it is read only when it stays inside the root.
@@ -681,14 +725,14 @@ const make = Effect.gen(function* () {
 
       const statFile = (relativePath: string) =>
         Effect.all([fs.stat(absolute(relativePath)), sidecarDigest(relativePath)]).pipe(
-          Effect.map(([info, sidecars]): StatResult => ({
+          Effect.map(([info, digest]): StatResult => ({
             relativePath,
             sizeBytes: Number(info.size),
             modifiedAtMs: Option.match(info.mtime, {
               onNone: () => 0,
               onSome: (date) => date.getTime(),
             }),
-            sidecars,
+            sidecarDigest: digest,
           })),
           Effect.asSome,
           Effect.catch((error) =>
@@ -698,16 +742,14 @@ const make = Effect.gen(function* () {
 
       const isUnchanged = (file: StatResult): boolean => {
         const known = previous.get(file.relativePath);
-        const storedSidecars = knownSidecars[file.relativePath];
 
-        currentSidecars.set(file.relativePath, file.sidecars);
-
+        // A file indexed before digests were kept has none, and is rescanned once to record it.
         return (
           request.mode === "incremental" &&
           known !== undefined &&
           known.sizeBytes === file.sizeBytes &&
           known.modifiedAtMs === file.modifiedAtMs &&
-          (storedSidecars === undefined || storedSidecars === file.sidecars)
+          known.sidecarDigest === file.sidecarDigest
         );
       };
 
@@ -724,6 +766,7 @@ const make = Effect.gen(function* () {
             relativePath: file.relativePath,
             sizeBytes: file.sizeBytes,
             modifiedAtMs: file.modifiedAtMs,
+            sidecarDigest: file.sidecarDigest,
             name,
             probe,
             subtitles: sidecarSubtitles(file.relativePath, listing(parentOf(file.relativePath))),
@@ -785,12 +828,6 @@ const make = Effect.gen(function* () {
         { discard: true },
       );
 
-      yield* diskCache.write(
-        SIDECAR_NAMESPACE,
-        libraryId,
-        JSON.stringify(Object.fromEntries(currentSidecars)),
-      );
-
       yield* report("done");
 
       return {
@@ -818,7 +855,6 @@ export const layer: Layer.Layer<
   | FileSystem.FileSystem
   | Path.Path
   | LibrarySink.Service
-  | DiskCache.Service
   | MetadataResolver.Service
   | MediaTools.Service
 > = Layer.effect(Service, make);

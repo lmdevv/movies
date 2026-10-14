@@ -260,6 +260,7 @@ export const fileIndex = query({
         sizeBytes: file.sizeBytes,
         mtimeMs: file.mtimeMs,
         missing: file.missing,
+        sidecarDigest: file.sidecarDigest ?? null,
       })),
       nextCursor: result.isDone ? null : result.continueCursor,
     };
