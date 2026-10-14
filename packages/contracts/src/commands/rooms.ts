@@ -54,7 +54,7 @@ export const roomCommands = {
     function: "rooms:join",
   }),
   "rooms.leave": mutation({
-    summary: "Leave a room; the host and other guests keep watching",
+    summary: "Leave a room; the host leaving ends it for everyone",
     group: "rooms",
     scope: "play",
     args: OnDevice,

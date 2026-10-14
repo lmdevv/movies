@@ -16,7 +16,7 @@ const hasFrames = (file: Doc<"mediaFiles">): boolean =>
   !file.missing && file.probe.video.length > 0 && file.probe.durationMs > 0;
 
 /** Whether `file`'s recorded state (thumbnails, a failure, a queued job) is for its contents now. */
-export const forCurrent = (file: Doc<"mediaFiles">): boolean =>
+const forCurrent = (file: Doc<"mediaFiles">): boolean =>
   file.trickplay !== undefined &&
   file.trickplay.sizeBytes === file.sizeBytes &&
   file.trickplay.mtimeMs === file.mtimeMs;

@@ -7,7 +7,7 @@ import { Schema } from "effect";
 
 import { EpisodeId, LibraryId, MediaFileId, ProfileId, TitleId, UserId } from "../ids";
 import { EpochMillis, Milliseconds } from "../units";
-import { ExternalIds, LibraryKind, LibraryRoot, MetadataOverrides, TitleKind } from "./catalog";
+import { ExternalIds, LibraryKind, LibraryRoots, MetadataOverrides, TitleKind } from "./catalog";
 import { MigrationSource } from "./jobs";
 import { MigrationImported, MigrationPhase, PathMapping, PlannedLibraryAccess } from "./migration";
 
@@ -43,14 +43,20 @@ export const PlannedUser = Schema.Struct({
   history: Schema.Literals(["full", "plays"]),
 });
 
+/** A source user as a migration plan maps them. */
+export interface PlannedUser extends Schema.Schema.Type<typeof PlannedUser> {}
+
 /** A library the import adds or reuses, with folders on this host. */
 export const PlannedLibrary = Schema.Struct({
   name: Schema.String,
   kind: LibraryKind,
-  roots: Schema.Array(LibraryRoot).check(Schema.isMinLength(1), Schema.isMaxLength(20)),
+  roots: LibraryRoots,
   /** Who sees the library if the import adds it; plans stored before this field open it to admins. */
   access: Schema.optionalKey(PlannedLibraryAccess),
 });
+
+/** A source library as a migration plan imports it. */
+export interface PlannedLibrary extends Schema.Schema.Type<typeof PlannedLibrary> {}
 
 /** Everything a migration job needs to run again after a restart. */
 export const StoredMigrationPlan = Schema.Struct({
@@ -86,6 +92,9 @@ export const StartMigrationArgs = Schema.Struct({
   serverName: Schema.String,
   plan: StoredMigrationPlan,
 });
+
+/** What starting a migration takes. */
+export interface StartMigrationArgs extends Schema.Schema.Type<typeof StartMigrationArgs> {}
 
 /** A held migration job's plan and progress. */
 export const MigrationState = Schema.Struct({
@@ -159,6 +168,9 @@ export const WatchStateImported = Schema.Struct({
   favorites: Schema.Int,
   keptLocal: Schema.Int,
 });
+
+/** What one watch state import changed. */
+export interface WatchStateImported extends Schema.Schema.Type<typeof WatchStateImported> {}
 
 /**
  * Most collections, and most members in all, one `importCollections` call may carry. Replacing a

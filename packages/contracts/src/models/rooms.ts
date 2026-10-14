@@ -75,8 +75,14 @@ export const HostControlArgs = Schema.Struct({
   positionMs: Milliseconds,
 });
 
+/** What a host playback control takes. */
+export interface HostControlArgs extends Schema.Schema.Type<typeof HostControlArgs> {}
+
 /** The server's clock reading, for estimating the offset between device and server clocks. */
 export const ServerTime = Schema.Struct({ serverTime: EpochMillis });
+
+/** The server's clock reading. */
+export interface ServerTime extends Schema.Schema.Type<typeof ServerTime> {}
 
 /** Arguments to start a room for a title the host is about to play or is playing. */
 export const CreateRoomArgs = Schema.Struct({
@@ -87,3 +93,6 @@ export const CreateRoomArgs = Schema.Struct({
   fileId: Schema.optionalKey(MediaFileId),
   positionMs: Milliseconds,
 });
+
+/** What creating a room takes. */
+export interface CreateRoomArgs extends Schema.Schema.Type<typeof CreateRoomArgs> {}

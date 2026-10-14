@@ -38,14 +38,8 @@ export type CommandNameOfKind<Kind extends AnyCommand["kind"]> = {
 /** Decoded arguments of a command. */
 export type CommandArgs<Name extends CommandName> = Commands[Name]["args"]["Type"];
 
-/** Arguments of a command as they travel on the wire. */
-export type CommandArgsEncoded<Name extends CommandName> = Commands[Name]["args"]["Encoded"];
-
 /** Decoded result of a command. */
 export type CommandResult<Name extends CommandName> = Commands[Name]["result"]["Type"];
-
-/** Result of a command as it travels on the wire. */
-export type CommandResultEncoded<Name extends CommandName> = Commands[Name]["result"]["Encoded"];
 
 const names: ReadonlySet<string> = new Set(Object.keys(commands));
 

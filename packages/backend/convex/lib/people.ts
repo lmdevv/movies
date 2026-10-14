@@ -71,7 +71,7 @@ const compatible = (left: ExternalIds, right: ExternalIds): boolean =>
  * named with an IMDb ID). The person gains the credit's IDs (and a better key); a photo fills in
  * only where none is stored.
  */
-export const upsertPerson = async (
+const upsertPerson = async (
   ctx: MutationCtx,
   person: Infer<typeof scannedPerson>,
 ): Promise<Doc<"people">> => {

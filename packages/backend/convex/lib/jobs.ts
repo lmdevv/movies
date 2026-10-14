@@ -9,6 +9,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { fail } from "./errors";
 import type { jobPayload } from "./validators";
+import type { ReadCtx } from "./viewer";
 
 /** Attempts before a job whose worker keeps disappearing fails for good. */
 export const MAX_JOB_ATTEMPTS = 5;
@@ -71,7 +72,7 @@ export const enqueueJob = async (
  * claimed it, or the lease expired and the job went back to the queue) or `not_found`.
  */
 export const requireLease = async (
-  ctx: MutationCtx,
+  ctx: ReadCtx,
   jobId: Id<"jobs">,
   workerId: string,
 ): Promise<Doc<"jobs">> => {
@@ -86,9 +87,9 @@ export const requireLease = async (
   return job;
 };
 
-/** Loads a held job of one kind. */
+/** Loads a held job of one kind; a job of another kind fails with `invalid_args`. */
 export const requireLeaseOf = async <Kind extends Doc<"jobs">["kind"]>(
-  ctx: MutationCtx,
+  ctx: ReadCtx,
   jobId: Id<"jobs">,
   workerId: string,
   kind: Kind,
@@ -105,3 +106,20 @@ const isPayloadOf = <Kind extends Doc<"jobs">["kind"]>(
   payload: Doc<"jobs">["payload"],
   kind: Kind,
 ): payload is Extract<Doc<"jobs">["payload"], { kind: Kind }> => payload.kind === kind;
+
+/** Whether a scan of the library is queued or running. */
+export const isLibraryScanning = async (
+  ctx: ReadCtx,
+  libraryId: Id<"libraries">,
+): Promise<boolean> => {
+  const active = await Promise.all(
+    (["pending", "running"] as const).map((status) =>
+      ctx.db
+        .query("jobs")
+        .withIndex("by_library_status", (q) => q.eq("libraryId", libraryId).eq("status", status))
+        .first(),
+    ),
+  );
+
+  return active.some((job) => job !== null);
+};

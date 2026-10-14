@@ -13,10 +13,16 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { BATCH_LIMIT, COLLECTION_BATCH_LIMIT, COLLECTION_MEMBER_BATCH_LIMIT } from "./lib/bounds";
-import { inSequence, searchTextOf } from "./lib/catalog";
+import {
+  checkBatch,
+  COLLECTION_BATCH_LIMIT,
+  COLLECTION_MEMBER_BATCH_LIMIT,
+  resultLimit,
+  withoutBrokenOverrides,
+} from "./lib/bounds";
+import { inSequence, writeOverrides } from "./lib/catalog";
 import { fail } from "./lib/errors";
-import { enqueueJob, requireLeaseOf } from "./lib/jobs";
+import { enqueueJob, isLibraryScanning, requireLease, requireLeaseOf } from "./lib/jobs";
 import {
   catalogFile,
   collectionImport,
@@ -25,6 +31,7 @@ import {
   migrationImported,
   migrationState,
   migrationTarget,
+  NOTHING_IMPORTED,
   overrideImport,
   storedMigrationPlan,
   watchStateImport,
@@ -56,25 +63,7 @@ import { writeProgress } from "./lib/viewing";
 /** Most members one imported collection keeps. */
 const COLLECTION_LIMIT = 1000;
 
-const NOTHING_IMPORTED = {
-  librariesAdded: 0,
-  watched: 0,
-  inProgress: 0,
-  playCounts: 0,
-  favorites: 0,
-  collections: 0,
-  overrides: 0,
-  keptLocal: 0,
-  unmatched: 0,
-};
-
-const checkBatch = <Item>(items: ReadonlyArray<Item>): ReadonlyArray<Item> =>
-  items.length > BATCH_LIMIT
-    ? fail("invalid_args", `Send at most ${BATCH_LIMIT} items per call`)
-    : items;
-
-const pageSize = (limit: number | undefined): number =>
-  Math.min(Math.max(1, Math.floor(limit ?? 100)), 100);
+const pageSize = (limit: number | undefined): number => resultLimit(limit, 100, 100);
 
 const migrationOf = async (ctx: ReadCtx, jobId: Id<"jobs">): Promise<Doc<"migrations">> =>
   (await ctx.db
@@ -82,23 +71,21 @@ const migrationOf = async (ctx: ReadCtx, jobId: Id<"jobs">): Promise<Doc<"migrat
     .withIndex("by_job", (q) => q.eq("jobId", jobId))
     .unique()) ?? fail("not_found", "This job has no migration plan");
 
-/** Loads a held migration job's plan. Queries cannot use `requireLease`, so this checks the same. */
+/** Loads a held migration job's plan. */
 const heldMigration = async (
   ctx: ReadCtx,
   jobId: Id<"jobs">,
   workerId: string,
 ): Promise<Doc<"migrations">> => {
-  const job = await ctx.db.get(jobId);
-
-  if (job === null) return fail("not_found", "No such job");
-
-  if (job.status !== "running" || job.leaseOwner !== workerId) {
-    return fail("conflict", "This worker no longer holds the job's lease");
-  }
+  await requireLease(ctx, jobId, workerId);
 
   return migrationOf(ctx, jobId);
 };
 
+/**
+ * Every enabled account other than the service account, with its profiles, for mapping source users
+ * onto [movies] profiles.
+ */
 export const targets = query({
   args: {},
   returns: v.array(migrationTarget),
@@ -126,6 +113,10 @@ export const targets = query({
   },
 });
 
+/**
+ * Every file in [movies] with its title, episode numbers, and provider IDs, for matching source
+ * items to [movies] files. Files whose title is gone are left out, so a page can come back short.
+ */
 export const catalog = query({
   args: pageArgs,
   returns: page(catalogFile),
@@ -174,6 +165,7 @@ export const catalog = query({
   },
 });
 
+/** A profile's progress rows, for a dry run to compare with the source's watch state. */
 export const localProgress = query({
   args: { profileId: v.id("profiles"), ...pageArgs },
   returns: page(localProgressRow),
@@ -259,6 +251,10 @@ export const start = mutation({
   },
 });
 
+/**
+ * A held migration job's plan, checkpoint, import counts, and libraries, so a worker resumes where
+ * the last one stopped. Fails with `conflict` when the worker lost the lease.
+ */
 export const state = query({
   args: leaseArgs,
   returns: migrationState,
@@ -335,7 +331,7 @@ const grantedAccounts = async (
 /**
  * Finds the libraries covering these folders, or adds one for the folders no library covers yet
  * and queues its scan. A folder inside, or holding, another library's folder counts as covered by
-that library, since libraries never nest; files outside it stay unmatched. An added library
+ * that library, since libraries never nest; files outside it stay unmatched. An added library
  * is open to everyone only when the source showed it to every user; otherwise it is restricted,
  * granted to the accounts of the imported users who could see it (none when the source did not
  * say, or for plans stored before access was recorded). Access comes from the stored plan, never
@@ -405,26 +401,19 @@ export const ensureLibrary = mutation({
   },
 });
 
+/**
+ * How many of the given libraries still have a scan queued or running, so a migration waits for its
+ * new libraries before matching files.
+ */
 export const scansPending = query({
   args: { libraryIds: v.array(v.id("libraries")) },
   returns: v.object({ pending: v.number() }),
   handler: async (ctx, { libraryIds }) => {
     await authorize(ctx, "media-service");
 
-    const counts = await inSequence(libraryIds, async (libraryId) => {
-      const active = await Promise.all(
-        (["pending", "running"] as const).map((status) =>
-          ctx.db
-            .query("jobs")
-            .withIndex("by_library_status", (q) =>
-              q.eq("libraryId", libraryId).eq("status", status),
-            )
-            .first(),
-        ),
-      );
-
-      return active.some((job) => job !== null) ? 1 : 0;
-    });
+    const counts = await inSequence(libraryIds, async (libraryId) =>
+      (await isLibraryScanning(ctx, libraryId)) ? 1 : 0,
+    );
 
     return { pending: counts.reduce<number>((total, count) => total + count, 0) };
   },
@@ -545,6 +534,12 @@ const importWatchItem = async (ctx: MutationCtx, item: WatchItem): Promise<Watch
   return { ...progress, favorites: await importFavorite(ctx, item) };
 };
 
+/**
+ * Imports up to 100 watch state items for mapped profiles and returns what changed. Safe to repeat:
+ * watched marks only get set, play counts keep the larger value, a position applies only when the
+ * source played the item more recently, and a favorite adds the title to My List once. Items whose
+ * profile, title, or episode is gone are skipped.
+ */
 export const importWatchState = mutation({
   args: { ...leaseArgs, items: v.array(watchStateImport) },
   returns: watchStateImported,
@@ -566,6 +561,11 @@ export const importWatchState = mutation({
   },
 });
 
+/**
+ * Imports up to 10 collections and 2000 members per call, matched to earlier imports by source key.
+ * Each collection's imported members are replaced while members its titles' metadata added stay.
+ * Returns how many collections were new.
+ */
 export const importCollections = mutation({
   args: { ...leaseArgs, items: v.array(collectionImport) },
   returns: v.object({ imported: v.number() }),
@@ -668,6 +668,11 @@ const importExternalIds = async (
   }
 };
 
+/**
+ * Imports up to 100 titles' metadata overrides and provider IDs. Overrides and IDs already on
+ * [movies] win; an unmatched title that gains a provider ID gets a metadata job. Returns how many
+ * titles' overrides changed.
+ */
 export const importOverrides = mutation({
   args: { ...leaseArgs, items: v.array(overrideImport) },
   returns: v.object({ imported: v.number() }),
@@ -685,18 +690,14 @@ export const importOverrides = mutation({
       }
 
       // Overrides an admin made on [movies] win over the source's.
-      const overrides = { ...item.overrides, ...title.overrides };
+      const overrides = { ...withoutBrokenOverrides(item.overrides), ...title.overrides };
       const before = title.overrides ?? {};
 
       const changed = Object.keys(overrides).length !== Object.keys(before).length;
 
       if (!changed) return 0;
 
-      await ctx.db.patch(title._id, {
-        overrides,
-        searchText: searchTextOf({ ...title, overrides }),
-        updatedAt: Date.now(),
-      });
+      await writeOverrides(ctx, title, overrides);
 
       return 1;
     });

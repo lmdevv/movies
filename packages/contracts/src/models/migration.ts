@@ -123,6 +123,9 @@ export const SourceFolder = Schema.Struct({
   localPath: Schema.NullOr(LibraryRoot),
 });
 
+/** A folder of a source server library. */
+export interface SourceFolder extends Schema.Schema.Type<typeof SourceFolder> {}
+
 /**
  * Who sees a library the import adds: `everyone`, when every source user could see the source
  * library; otherwise only admins and the accounts of the listed imported source users, which get
@@ -156,6 +159,9 @@ export const AppliedPathMapping = Schema.Struct({
   ...PathMapping.fields,
   inferred: Schema.Boolean,
 });
+
+/** A path mapping a migration applied. */
+export interface AppliedPathMapping extends Schema.Schema.Type<typeof AppliedPathMapping> {}
 
 /** A connected source server. The connection lives in the media service for an hour. */
 export const MigrationConnection = Schema.Struct({

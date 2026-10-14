@@ -9,8 +9,8 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { visibleLibraryIds } from "./lib/access";
 import { inSequence } from "./lib/catalog";
 import { fail } from "./lib/errors";
-import { checkDisplayName } from "./lib/bounds";
-import { enqueueJob } from "./lib/jobs";
+import { checkDisplayName, resultLimit } from "./lib/bounds";
+import { enqueueJob, isLibraryScanning } from "./lib/jobs";
 import { checkRoots } from "./lib/roots";
 import { forgetTrickplay, queueTrickplay } from "./lib/trickplay";
 import { presentLibrary, presentLibraryDetail } from "./lib/present";
@@ -30,21 +30,6 @@ import {
 } from "./lib/validators";
 import { authorize } from "./lib/viewer";
 
-const isScanning = async (ctx: QueryCtx, libraryId: Id<"libraries">): Promise<boolean> => {
-  const statuses = ["pending", "running"] as const;
-
-  const active = await Promise.all(
-    statuses.map((status) =>
-      ctx.db
-        .query("jobs")
-        .withIndex("by_library_status", (q) => q.eq("libraryId", libraryId).eq("status", status))
-        .first(),
-    ),
-  );
-
-  return active.some((job) => job !== null);
-};
-
 const grantedUsers = async (ctx: QueryCtx, libraryId: Id<"libraries">) => {
   const grants = await ctx.db
     .query("libraryGrants")
@@ -55,7 +40,11 @@ const grantedUsers = async (ctx: QueryCtx, libraryId: Id<"libraries">) => {
 };
 
 const detail = async (ctx: QueryCtx, doc: Doc<"libraries">) =>
-  presentLibraryDetail(doc, await isScanning(ctx, doc._id), await grantedUsers(ctx, doc._id));
+  presentLibraryDetail(
+    doc,
+    await isLibraryScanning(ctx, doc._id),
+    await grantedUsers(ctx, doc._id),
+  );
 
 const checkName = (name: string): string => checkDisplayName(name, "Library names");
 
@@ -71,11 +60,15 @@ export const list = query({
     return Promise.all(
       libraries
         .filter((doc) => visible.has(doc._id))
-        .map(async (doc) => presentLibrary(doc, await isScanning(ctx, doc._id))),
+        .map(async (doc) => presentLibrary(doc, await isLibraryScanning(ctx, doc._id))),
     );
   },
 });
 
+/**
+ * Every library with its folders, access, grants, and whether a scan is queued or running. Requires
+ * `manage` scope.
+ */
 export const listDetails = query({
   args: {},
   returns: v.array(libraryDetail),
@@ -87,6 +80,7 @@ export const listDetails = query({
   },
 });
 
+/** One library with its folders, access, grants, and scan state. Requires `manage` scope. */
 export const get = query({
   args: { libraryId: v.id("libraries") },
   returns: libraryDetail,
@@ -100,6 +94,11 @@ export const get = query({
   },
 });
 
+/**
+ * Creates a library and queues its first full scan. Requires `manage` scope. A folder another
+ * library already uses fails with `conflict`; one inside or containing another library's folder
+ * fails with `invalid_args`.
+ */
 export const create = mutation({
   args: {
     name: v.string(),
@@ -127,6 +126,11 @@ export const create = mutation({
   },
 });
 
+/**
+ * Renames a library or changes its folders, access, or scrub thumbnails. Requires `manage` scope.
+ * Passing `roots` queues a full scan unless a scan of the library is already queued or running;
+ * turning thumbnails off cancels the ones still queued.
+ */
 export const update = mutation({
   args: {
     libraryId: v.id("libraries"),
@@ -211,6 +215,10 @@ export const remove = mutation({
   },
 });
 
+/**
+ * Queues a scan of a library, quick unless `mode` says full. Requires `manage` scope. When a scan
+ * of the library is already queued or running, returns that job instead.
+ */
 export const scan = mutation({
   args: { libraryId: v.id("libraries"), mode: v.optional(scanMode) },
   returns: queuedJob,
@@ -404,7 +412,7 @@ export const files = query({
   returns: page(libraryFile),
   handler: async (ctx, { libraryId, cursor, limit, filter, titleId }) => {
     await authorize(ctx, "manage");
-    const numItems = Math.min(Math.max(1, Math.floor(limit ?? DEFAULT_FILE_PAGE)), MAX_FILE_PAGE);
+    const numItems = resultLimit(limit, DEFAULT_FILE_PAGE, MAX_FILE_PAGE);
     const paging = { numItems, cursor: cursor ?? null };
 
     if (titleId !== undefined) {

@@ -2,10 +2,8 @@
  * Shared-timeline math for watch rooms. Convex stores an anchored clock; every client computes the
  * live position locally from the server time it estimates, then corrects its player toward it.
  *
- * The thresholds and cadences here are starting points for the playback spike, not guarantees.
+ * The thresholds and cadences here are tuning defaults, not guarantees.
  */
-import { Data } from "effect";
-
 import type { RoomClock } from "./models/rooms";
 import { EpochMillis, Milliseconds } from "./units";
 
@@ -54,39 +52,6 @@ export const targetPosition = (clock: ClockAnchor, serverNow: EpochMillis): Mill
   return Milliseconds.make(clock.positionAtAnchorMs + elapsed * clock.playbackRate);
 };
 
-/** What a following player should do to reach the shared position. */
-export type DriftCorrection = Data.TaggedEnum<{
-  InSync: {};
-  /** Run at `rate` until back in sync. */
-  Nudge: { readonly rate: number };
-  /** Jump to `positionMs`. */
-  Seek: { readonly positionMs: Milliseconds };
-}>;
-
-/** Constructors and matchers for `DriftCorrection`. */
-export const DriftCorrection = Data.taggedEnum<DriftCorrection>();
-
-/**
- * Classifies a player's drift from the shared position. Small drift is ignored, moderate drift is
- * corrected by running slightly faster or slower than `roomRate`, and large drift seeks.
- */
-export const classifyDrift = (
-  localPositionMs: Milliseconds,
-  targetMs: Milliseconds,
-  roomRate: number,
-): DriftCorrection => {
-  const drift = localPositionMs - targetMs;
-  const distance = Math.abs(drift);
-
-  if (distance <= DRIFT_THRESHOLDS.inSyncMs) return DriftCorrection.InSync();
-
-  if (distance >= DRIFT_THRESHOLDS.seekMs) return DriftCorrection.Seek({ positionMs: targetMs });
-
-  const direction = drift > 0 ? -1 : 1;
-
-  return DriftCorrection.Nudge({ rate: roomRate * (1 + direction * DRIFT_THRESHOLDS.nudgeRate) });
-};
-
 /**
  * Whether `incoming` should replace the clock a client last applied. Clocks arrive over several
  * paths (subscription, command result, optimistic update); only a higher revision wins.
@@ -114,13 +79,16 @@ export interface ClockOffset {
 
 /**
  * Estimates the server clock offset from round-trip samples, trusting the sample with the shortest
- * round trip and assuming the server read its clock halfway through it. Returns `undefined` for no
- * samples.
+ * round trip and assuming the server read its clock halfway through it. A sample whose client clock
+ * stepped back while it was out (an NTP correction) has no meaningful round trip and is ignored.
+ * Returns `undefined` when no sample is usable.
  */
 export const estimateClockOffset = (
   samples: ReadonlyArray<ClockSample>,
 ): ClockOffset | undefined => {
-  const best = samples.reduce<ClockSample | undefined>(
+  const usable = samples.filter((sample) => sample.receivedAt >= sample.sentAt);
+
+  const best = usable.reduce<ClockSample | undefined>(
     (shortest, sample) =>
       shortest === undefined ||
       sample.receivedAt - sample.sentAt < shortest.receivedAt - shortest.sentAt
@@ -130,7 +98,7 @@ export const estimateClockOffset = (
   );
 
   if (best === undefined) return undefined;
-  const roundTripMs = Math.max(0, best.receivedAt - best.sentAt);
+  const roundTripMs = best.receivedAt - best.sentAt;
 
   return { offsetMs: best.serverTime - (best.sentAt + roundTripMs / 2), roundTripMs };
 };

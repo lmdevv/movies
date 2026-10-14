@@ -6,6 +6,7 @@ import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
+import { resultLimit } from "./lib/bounds";
 import type { Audience } from "./lib/access";
 import { canSee, loadAudience } from "./lib/access";
 import { fail } from "./lib/errors";
@@ -48,9 +49,10 @@ const seenBy = async (
   ctx: ReadCtx,
   audience: Audience,
   people: ReadonlyArray<Doc<"people">>,
+  creditBudget: number,
 ): Promise<ReadonlyArray<boolean>> => {
   const titles = new Map<Id<"titles">, Promise<boolean>>();
-  let budget = SEARCH_CREDIT_BUDGET;
+  let budget = creditBudget;
 
   const sees = (titleId: Id<"titles">) => {
     const known = titles.get(titleId);
@@ -63,15 +65,27 @@ const seenBy = async (
     return visible;
   };
 
+  /** Stops at the first visible credit or the budget's end, closing the credits query early. */
   const anyVisible = async (credits: AsyncIterator<Doc<"credits">>): Promise<boolean> => {
-    if (budget <= 0) return false;
+    if (budget <= 0) {
+      await credits.return?.();
+
+      return false;
+    }
+
     budget -= 1;
 
     const step = await credits.next();
 
     if (step.done === true) return false;
 
-    return (await sees(step.value.titleId)) || anyVisible(credits);
+    if (await sees(step.value.titleId)) {
+      await credits.return?.();
+
+      return true;
+    }
+
+    return anyVisible(credits);
   };
 
   const creditsOf = (person: Doc<"people">) =>
@@ -132,6 +146,10 @@ const visibleCredits = async (
 
 const yearOf = (title: Doc<"titles">): number => title.overrides?.year ?? title.year ?? 0;
 
+/**
+ * A person's details and their credits on titles the profile may see, newest first. A person
+ * credited on nothing the profile may see fails with `not_found`, as a missing one does.
+ */
 export const get = query({
   args: { profileId: v.id("profiles"), personId: v.id("people") },
   returns: personDetail,
@@ -179,7 +197,7 @@ export const search = query({
   handler: async (ctx, { profileId, query: text, limit }) => {
     const viewer = await authorize(ctx, "read");
     const audience = await loadAudience(ctx, viewer, profileId);
-    const wanted = Math.min(Math.max(1, Math.floor(limit ?? 10)), 50);
+    const wanted = resultLimit(limit, 10, 50);
 
     if (text.trim().length === 0) return [];
 
@@ -188,7 +206,7 @@ export const search = query({
       .withSearchIndex("search_name", (q) => q.search("name", text.trim()))
       .take(SEARCH_SCAN);
 
-    const visible = await seenBy(ctx, audience, matches);
+    const visible = await seenBy(ctx, audience, matches, SEARCH_CREDIT_BUDGET);
 
     return matches
       .filter((_, index) => visible[index] === true)
@@ -216,9 +234,10 @@ export const requestDetails = mutation({
 
     if (person === null) return fail("not_found", "No such person");
 
-    if ((await visibleCredits(ctx, audience, personId, CREDIT_SCAN)).length === 0) {
-      return fail("not_found", "No such person");
-    }
+    // Only whether one credit is visible matters, so this stops at the first one.
+    const [seen] = await seenBy(ctx, audience, [person], CREDIT_SCAN);
+
+    if (seen !== true) return fail("not_found", "No such person");
 
     const now = Date.now();
 

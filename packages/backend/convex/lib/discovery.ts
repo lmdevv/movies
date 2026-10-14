@@ -17,7 +17,7 @@ export interface TitleFilter {
 const folded = (text: string): string => text.trim().toLowerCase();
 
 /** The score the rating filter and sorting use: IMDb when known, else TMDB. */
-export const communityScore = (title: Doc<"titles">): number | null =>
+const communityScore = (title: Doc<"titles">): number | null =>
   title.ratings?.imdb?.value ?? title.ratings?.tmdb?.value ?? null;
 
 /** The year a title shows, after admin overrides. */

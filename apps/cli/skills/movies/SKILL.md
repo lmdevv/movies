@@ -292,7 +292,7 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies rooms get <room-id> [--profile-id <id>]`: Show a room's members and committed clock. (scope read)
 - `movies rooms current [--device-id <id>]`: Show the room this device is in. (scope read)
 - `movies call rooms.join --json <object>`: Join a room on this device. (scope play)
-- `movies call rooms.leave --json <object>`: Leave a room; the host and other guests keep watching. (scope play)
+- `movies call rooms.leave --json <object>`: Leave a room; the host leaving ends it for everyone. (scope play)
 - `movies call rooms.play --json <object>`: Play the room from the host's position. (scope play)
 - `movies call rooms.pause --json <object>`: Pause the room at the host's position. (scope play)
 - `movies call rooms.seek --json <object>`: Move the room to a position. (scope play)

@@ -19,11 +19,12 @@ import type {
   PersonId,
   PlaybackSessionId,
   ProfileId,
+  RoomId,
   TitleId,
   UserId,
 } from "@movies/contracts/ids";
 import type { CatalogFile, WatchStateImport } from "@movies/contracts/models/migration-service";
-import { DeviceId as DeviceIdSchema } from "@movies/contracts/ids";
+import { DeviceId as DeviceIdSchema, JobId as JobIdSchema } from "@movies/contracts/ids";
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import {
   type ScannedEpisode as ScannedEpisodeSchema,
@@ -72,13 +73,22 @@ const ms = (value: number): Milliseconds => Milliseconds.make(value);
 /** Calls a function directly, past the contract's encoding, as any client could. */
 const direct = (
   session: Session,
-  kind: "mutation" | "action",
+  kind: "query" | "mutation" | "action",
   path: string,
   args: Record<string, Value>,
 ) =>
-  kind === "mutation"
-    ? session.client.mutation(makeFunctionReference<"mutation", typeof args>(path), args)
-    : session.client.action(makeFunctionReference<"action", typeof args>(path), args);
+  Match.value(kind).pipe(
+    Match.when("query", () =>
+      session.client.query(makeFunctionReference<"query", typeof args>(path), args),
+    ),
+    Match.when("mutation", () =>
+      session.client.mutation(makeFunctionReference<"mutation", typeof args>(path), args),
+    ),
+    Match.when("action", () =>
+      session.client.action(makeFunctionReference<"action", typeof args>(path), args),
+    ),
+    Match.exhaustive,
+  );
 
 /** A string of `length` characters. */
 const long = (length: number): string => "x".repeat(length);
@@ -89,6 +99,13 @@ const sha256 = (secret: string): string => createHash("sha256").update(secret).d
 const decodeRow = Schema.decodeUnknownSync(
   Schema.fromJsonString(Schema.Struct({ status: Schema.String })),
 );
+
+const decodeId = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Struct({ _id: Schema.String })),
+);
+
+/** The `_id` of a row printed as JSON by `tableLines`. */
+const idOf = (line: string): string => decodeId(line)._id;
 
 /** The status of the first row of `table` whose JSON contains `needle`, read as an admin. */
 const rowOf = (table: string, needle: string) =>
@@ -1423,6 +1440,26 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           items: [{ ...override, overrides: { sortName: "Zzz" } }],
         }),
       ).toStrictEqual({ imported: 0 });
+
+      // A source value past a bound is dropped; the rest of that title's overrides still land.
+      const unboundedYear = 2001.5;
+
+      await direct(fixture.mediaService, "mutation", "migrationService:importOverrides", {
+        ...lease,
+        items: [
+          {
+            titleId: fixture.titles.adult,
+            overrides: { overview: `Imported ${id}`, year: unboundedYear },
+          },
+        ],
+      });
+
+      expect(
+        await run(fixture.owner, "titles.get", {
+          profileId: fixture.ownerProfile,
+          titleId: fixture.titles.adult,
+        }),
+      ).toMatchObject({ overview: `Imported ${id}`, year: 2024 });
 
       await service(fixture.mediaService, "mediaService.completeJob", lease);
     });
@@ -3052,16 +3089,60 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       });
 
       await run(single, "myList.add", { profileId: spare.id, titleId: fixture.titles.allAges });
+
+      const playing = await run(single, "playback.createSession", {
+        profileId: spare.id,
+        deviceId: device("spare-tv"),
+        titleId: fixture.titles.allAges,
+      });
+
+      const hostDevice = device("spare-host");
+
+      await run(single, "rooms.create", {
+        profileId: spare.id,
+        deviceId: hostDevice,
+        titleId: fixture.titles.allAges,
+        positionMs: ms(0),
+      });
+
+      // A room the spare profile started, whose host device has since rejoined as another profile.
+      const switchedHost = device("spare-switched-host");
+
+      const switched = await run(single, "rooms.create", {
+        profileId: spare.id,
+        deviceId: switchedHost,
+        titleId: fixture.titles.allAges,
+        positionMs: ms(0),
+      });
+
+      await run(single, "rooms.join", {
+        roomId: switched.id,
+        profileId: only,
+        deviceId: switchedHost,
+      });
+
       await run(single, "profiles.remove", { profileId: spare.id });
       expect((await run(single, "profiles.list", {})).map((profile) => profile.id)).toStrictEqual([
         only,
       ]);
       expect(await outcome(run(single, "titles.home", { profileId: spare.id }))).toBe("not_found");
+
+      // Its playback and the rooms it hosted end, so a device still playing records nothing more.
+      expect(
+        await run(single, "playback.reportProgress", {
+          sessionId: playing.sessionId,
+          positionMs: ms(60_000),
+          event: "tick",
+        }),
+      ).toStrictEqual({ applied: false, watched: false });
+      expect(rowOf("rooms", hostDevice).status).toBe("ended");
+      expect(rowOf("rooms", switchedHost).status).toBe("ended");
+      expect(await run(single, "rooms.current", { deviceId: hostDevice })).toBeNull();
     });
   });
 
   describe("argument bounds", () => {
-    it("refuses names, avatars, device IDs, folders, and positions outside the contract", async () => {
+    it("refuses names, avatars, device IDs, folders, positions, and overrides outside the contract", async () => {
       const started = await run(fixture.member, "playback.createSession", {
         profileId: fixture.memberProfile,
         deviceId: device("bounds"),
@@ -3102,6 +3183,18 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           kind: "movies",
           roots: [`/${long(1024)}`],
         }),
+        fractionalYear: direct(fixture.owner, "mutation", "metadata:edit", {
+          titleId: fixture.titles.unrated,
+          set: { year: 1999.5 },
+        }),
+        blankSortName: direct(fixture.owner, "mutation", "metadata:edit", {
+          titleId: fixture.titles.unrated,
+          set: { sortName: "  " },
+        }),
+        negativeAgeRating: direct(fixture.owner, "mutation", "metadata:edit", {
+          titleId: fixture.titles.unrated,
+          set: { ageRating: -1 },
+        }),
         playbackDevice: direct(fixture.member, "mutation", "playback:createSession", {
           profileId: fixture.memberProfile,
           deviceId: long(129),
@@ -3124,9 +3217,120 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       );
 
       expect(Object.entries(codes).filter(([, code]) => code !== "invalid_args")).toStrictEqual([]);
+
+      // A NaN page size, which no contract client sends, gets the default page.
+      expect(
+        await outcome(
+          direct(fixture.member, "query", "titles:list", {
+            profileId: fixture.memberProfile,
+            limit: Number.NaN,
+          }),
+        ),
+      ).toBe("succeeded");
+
+      // A blank folder is refused as one, not taken for `/`, which an empty server would accept.
+      await expect(
+        direct(fixture.owner, "mutation", "libraries:create", {
+          name: `Bounds ${id}`,
+          kind: "movies",
+          roots: ["   "],
+        }),
+      ).rejects.toMatchObject({
+        data: { code: "invalid_args", message: "Folders must be absolute paths: " },
+      });
       await run(fixture.member, "playback.endSession", {
         sessionId: started.sessionId,
         positionMs: ms(0),
+      });
+    });
+  });
+
+  describe("metadata overrides", () => {
+    it("keeps a hand-picked match through a later refresh", async () => {
+      const name = `Hand Matched ${TOKEN}`;
+
+      const item = scanned(
+        `/stack-${id}/open/hand-matched.mp4`,
+        {
+          kind: "movie",
+          name,
+          ageRating: 0,
+        },
+        null,
+      );
+
+      await service(fixture.mediaService, "mediaService.upsertScanned", {
+        libraryId: fixture.openLibrary,
+        items: [item],
+      });
+
+      const titleId = (await titleNamed(fixture.owner, fixture.ownerProfile, name)).id;
+
+      // Each job writes what a provider would return, as the media service's metadata job does.
+      const runMetadataJob = async (jobId: JobId) => {
+        const workerId = `metadata-${id}`;
+
+        await service(fixture.mediaService, "mediaService.claimJob", {
+          jobId,
+          workerId,
+          leaseMs: 60_000,
+        });
+        await service(fixture.mediaService, "mediaService.applyMetadata", {
+          jobId,
+          workerId,
+          titleId,
+          title: { ...item.title, matchStatus: "matched" },
+          episodes: [],
+        });
+        await service(fixture.mediaService, "mediaService.completeJob", { jobId, workerId });
+      };
+
+      const matchStatus = async () =>
+        (await run(fixture.owner, "titles.get", { profileId: fixture.ownerProfile, titleId }))
+          .matchStatus;
+
+      const fixed = await run(fixture.owner, "metadata.fixMatch", {
+        titleId,
+        provider: "tmdb",
+        providerId: `603${id}`,
+      });
+
+      await runMetadataJob(fixed.jobId);
+      expect(await matchStatus()).toBe("manual");
+
+      await runMetadataJob((await run(fixture.owner, "metadata.refresh", { titleId })).jobId);
+      expect(await matchStatus()).toBe("manual");
+    });
+
+    it("sorts title lists by a sort name an admin set", async () => {
+      const moviesByName = async () =>
+        (
+          await run(fixture.owner, "titles.list", {
+            profileId: fixture.ownerProfile,
+            libraryId: fixture.openLibrary,
+            kind: "movie",
+            sort: "name",
+          })
+        ).items.map((title) => title.id);
+
+      await run(fixture.owner, "metadata.edit", {
+        titleId: fixture.titles.unrated,
+        set: { sortName: `!First ${TOKEN}` },
+      });
+      expect((await moviesByName())[0]).toBe(fixture.titles.unrated);
+
+      // A name override alone keeps the scanned order: fixing a typo does not move a title.
+      await run(fixture.owner, "metadata.edit", {
+        titleId: fixture.titles.unrated,
+        set: { name: `!Renamed ${TOKEN}` },
+        clear: ["sortName"],
+      });
+      expect((await moviesByName())[0]).not.toBe(fixture.titles.unrated);
+
+      await run(fixture.owner, "metadata.edit", {
+        titleId: fixture.titles.unrated,
+        set: {},
+        clear: ["name"],
       });
     });
   });
@@ -3192,6 +3396,52 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
   });
 
   describe("room membership and PINs", () => {
+    it("moves a device that joins another room out of the one it was in", async () => {
+      const firstHost = device("first-host");
+      const secondHost = device("second-host");
+      const guestDevice = device("hopping-guest");
+
+      const first = await run(fixture.owner, "rooms.create", {
+        profileId: fixture.ownerProfile,
+        deviceId: firstHost,
+        titleId: fixture.titles.allAges,
+        positionMs: ms(0),
+      });
+
+      const second = await run(fixture.owner, "rooms.create", {
+        profileId: fixture.ownerProfile,
+        deviceId: secondHost,
+        titleId: fixture.titles.allAges,
+        positionMs: ms(0),
+      });
+
+      const joinWithGuest = (roomId: RoomId) =>
+        run(fixture.member, "rooms.join", {
+          roomId,
+          profileId: fixture.memberProfile,
+          deviceId: guestDevice,
+        });
+
+      await joinWithGuest(first.id);
+      await joinWithGuest(second.id);
+
+      expect((await run(fixture.member, "rooms.current", { deviceId: guestDevice }))?.id).toBe(
+        second.id,
+      );
+      expect((await run(fixture.owner, "rooms.get", { roomId: first.id })).members).toHaveLength(1);
+
+      // A host that joins another room ends the one it hosted, as hosting a new one does.
+      await run(fixture.owner, "rooms.join", {
+        roomId: second.id,
+        profileId: fixture.ownerProfile,
+        deviceId: firstHost,
+      });
+      expect(rowOf("rooms", firstHost).status).toBe("ended");
+
+      await run(fixture.member, "rooms.leave", { roomId: second.id, deviceId: guestDevice });
+      await run(fixture.owner, "rooms.end", { roomId: second.id, deviceId: secondHost });
+    });
+
     it("hides a room joined with a PIN profile from sessions that have not entered the PIN", async () => {
       const hostDevice = device("pin-host");
       const guestDevice = device("pin-guest");
@@ -3561,6 +3811,40 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
   });
 
   describe("scheduled upkeep", () => {
+    it("fails, rather than takes over, a lapsed job that used its last attempt", async () => {
+      const lapsedOwner = `lapsed-worker-${id}`;
+      const longAgo = Date.now() - 60 * 60 * 1000;
+
+      importDocuments("jobs", [
+        JSON.stringify({
+          kind: "metadata",
+          status: "running",
+          payload: { kind: "metadata", titleId: fixture.titles.unrated, match: null },
+          progress: { done: 0, total: null, message: null },
+          error: null,
+          requestedBy: null,
+          attempts: 5,
+          leaseOwner: lapsedOwner,
+          leaseExpiresAt: longAgo,
+          startedAt: longAgo,
+          finishedAt: null,
+        }),
+      ]);
+
+      const jobId = JobIdSchema.make(
+        idOf(tableLines("jobs").find((line) => line.includes(lapsedOwner)) ?? "{}"),
+      );
+
+      expect(
+        await service(fixture.mediaService, "mediaService.claimJob", {
+          jobId,
+          workerId: `taker-${id}`,
+          leaseMs: 5_000,
+        }),
+      ).toBeNull();
+      expect(await run(fixture.owner, "jobs.get", { jobId })).toMatchObject({ status: "failed" });
+    });
+
     it("returns lapsed leases, ends idle playback, expires device codes, and sweeps rooms", async () => {
       const { jobId } = await run(fixture.owner, "metadata.refresh", {
         titleId: fixture.titles.unrated,

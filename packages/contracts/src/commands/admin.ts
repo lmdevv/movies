@@ -9,7 +9,7 @@ import {
   LibraryFileFilter,
   LibraryFileSummary,
   LibraryKind,
-  LibraryRoot,
+  LibraryRoots,
   MetadataCandidate,
   MetadataField,
   MetadataOverrides,
@@ -25,8 +25,6 @@ import {
   MigrationRun,
 } from "../models/migration";
 import { media, mutation, query } from "./command";
-
-const Roots = Schema.Array(LibraryRoot).check(Schema.isMinLength(1), Schema.isMaxLength(20));
 
 /** Library administration and scans. */
 export const libraryCommands = {
@@ -53,7 +51,7 @@ export const libraryCommands = {
     args: Schema.Struct({
       name: DisplayName,
       kind: LibraryKind,
-      roots: Roots,
+      roots: LibraryRoots,
       access: Schema.optionalKey(LibraryAccess),
     }),
     result: Schema.Struct({ libraryId: LibraryId, jobId: JobId }),
@@ -66,7 +64,7 @@ export const libraryCommands = {
     args: Schema.Struct({
       libraryId: LibraryId,
       name: Schema.optionalKey(DisplayName),
-      roots: Schema.optionalKey(Roots),
+      roots: Schema.optionalKey(LibraryRoots),
       access: Schema.optionalKey(LibraryAccess),
       /** Whether scans queue scrub thumbnails for new and changed files. */
       trickplay: Schema.optionalKey(Schema.Boolean),

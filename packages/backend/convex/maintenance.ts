@@ -4,11 +4,13 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { endPlaybackSession, endRoom, endTitlePlayback } from "./lib/endings";
-import { enqueueJob, MAX_JOB_ATTEMPTS } from "./lib/jobs";
+import { enqueueJob } from "./lib/jobs";
+import { failAttempt, LAPSED_LEASE_ERROR } from "./lib/jobOutcomes";
+import { sortKeyOf } from "./lib/catalog";
 import { removeTitleGenres, syncTitleGenres } from "./lib/genres";
 import { removeTitleCredits } from "./lib/people";
 import { overlappingLibraries as findOverlaps } from "./lib/roots";
-import { forgetTrickplay, settleTrickplay } from "./lib/trickplay";
+import { forgetTrickplay } from "./lib/trickplay";
 import { endAuthSession } from "./lib/viewer";
 import {
   HOST_ABANDON_TIMEOUT_MS,
@@ -125,19 +127,7 @@ export const releaseExpiredLeases = internalMutation({
     const expired = running.filter((job) => (job.leaseExpiresAt ?? 0) <= now);
 
     await Promise.all(
-      expired.map(async (job) => {
-        const failed = job.attempts >= MAX_JOB_ATTEMPTS;
-
-        await ctx.db.patch(job._id, {
-          status: failed ? "failed" : "pending",
-          error: "The worker stopped responding",
-          leaseOwner: undefined,
-          leaseExpiresAt: undefined,
-          finishedAt: failed ? now : null,
-        });
-
-        if (failed) await settleTrickplay(ctx, job, "failed");
-      }),
+      expired.map((job) => failAttempt(ctx, job, { error: LAPSED_LEASE_ERROR, retry: true })),
     );
 
     return null;
@@ -182,26 +172,34 @@ export const requestNightlyBackup = internalMutation({
   },
 });
 
-/** Titles whose genre rows one backfill step writes. */
-const GENRE_BACKFILL_BATCH = 100;
+/** Titles one backfill step brings in step. */
+const TITLE_BACKFILL_BATCH = 100;
 
 /**
- * Writes the genre rows of every title, a batch at a time, rescheduling itself until done. Titles
- * stored before the `titleGenres` table existed need it once; `scripts/configure.ts` runs it on
- * every deploy, and a pass over titles already in step writes nothing.
+ * Brings every title's sort key and genre rows in step with its fields, a batch at a time,
+ * rescheduling itself until done. Titles stored before the `titleGenres` table existed, or before
+ * a sort-name override set the sort key, need it once; `scripts/configure.ts` runs it on every
+ * deploy, and a pass over titles already in step writes nothing.
  */
-export const backfillTitleGenres = internalMutation({
+export const backfillTitleIndexes = internalMutation({
   args: { cursor: v.optional(v.union(v.string(), v.null())) },
   returns: v.null(),
   handler: async (ctx, { cursor }) => {
     const page = await ctx.db
       .query("titles")
-      .paginate({ numItems: GENRE_BACKFILL_BATCH, cursor: cursor ?? null });
+      .paginate({ numItems: TITLE_BACKFILL_BATCH, cursor: cursor ?? null });
 
-    await Promise.all(page.page.map((title) => syncTitleGenres(ctx, title)));
+    await Promise.all(
+      page.page.map(async (title) => {
+        const sortKey = sortKeyOf(title);
+
+        if (sortKey !== title.sortKey) await ctx.db.patch(title._id, { sortKey });
+        await syncTitleGenres(ctx, { ...title, sortKey });
+      }),
+    );
 
     if (!page.isDone) {
-      await ctx.scheduler.runAfter(0, internal.maintenance.backfillTitleGenres, {
+      await ctx.scheduler.runAfter(0, internal.maintenance.backfillTitleIndexes, {
         cursor: page.continueCursor,
       });
     }
