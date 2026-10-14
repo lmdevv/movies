@@ -2,6 +2,8 @@
  * Dates, durations, sizes, and counts as the settings and admin screens print them. Every function
  * takes `now` so tests and live rows agree on the clock.
  */
+import type { LibraryKind } from "@movies/contracts/models/catalog";
+
 const SECOND_MS = 1000;
 
 const MINUTE_MS = 60 * SECOND_MS;
@@ -104,3 +106,10 @@ export const formatBytes = (bytes: number): string => {
 /** A fraction as a whole percentage, such as `62%`. */
 export const formatPercent = (fraction: number): string =>
   `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
+
+/** How each library kind reads in the admin screens. */
+export const KIND_LABELS: Readonly<Record<LibraryKind, string>> = {
+  movies: "Films",
+  shows: "Series",
+  mixed: "Mixed",
+};

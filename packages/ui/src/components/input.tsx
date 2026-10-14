@@ -11,7 +11,7 @@ export function Input({ className, ...props }: ComponentProps<"input">) {
     <InputPrimitive
       data-slot="input"
       className={cn(
-        "h-11 w-full min-w-0 rounded-control border border-hairline bg-surface-raised px-3.5 font-sans text-body/4.5 text-text caret-accent transition-colors placeholder:text-text-muted disabled:cursor-not-allowed disabled:opacity-(--opacity-disabled) aria-invalid:border-[1.5px] aria-invalid:border-danger",
+        "h-11 w-full min-w-0 rounded-control border border-hairline bg-surface-raised px-3.5 font-sans text-body/4.5 text-text caret-accent transition-colors placeholder:text-text-muted disabled:cursor-not-allowed disabled:opacity-(--opacity-disabled) aria-invalid:border-control aria-invalid:border-danger",
         className,
       )}
       {...props}

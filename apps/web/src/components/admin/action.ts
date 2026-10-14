@@ -1,7 +1,8 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
 import { describeFailure } from "@/lib/failure";
+import { useLatest } from "@/lib/use-latest";
 
 /** Options for {@link useAction}. */
 export interface ActionOptions<Result> {
@@ -33,35 +34,36 @@ export const useAction = <Args extends ReadonlyArray<unknown>, Result>(
 ): ActionState<Args, Result> => {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
-  const latest = useRef({ action, options });
+  const latest = useLatest({ action, options });
 
-  latest.current = { action, options };
+  const run = useCallback(
+    async (...args: Args): Promise<Result | undefined> => {
+      setPending(true);
+      setError(undefined);
 
-  const run = useCallback(async (...args: Args): Promise<Result | undefined> => {
-    setPending(true);
-    setError(undefined);
+      try {
+        const result = await latest.current.action(...args);
+        const success = latest.current.options.success;
 
-    try {
-      const result = await latest.current.action(...args);
-      const success = latest.current.options.success;
+        if (success !== undefined) toast.success(success(result));
 
-      if (success !== undefined) toast.success(success(result));
+        latest.current.options.onSuccess?.(result);
 
-      latest.current.options.onSuccess?.(result);
+        return result;
+      } catch (cause) {
+        const message = describeFailure(cause);
 
-      return result;
-    } catch (cause) {
-      const message = describeFailure(cause);
+        setError(message);
 
-      setError(message);
+        if (latest.current.options.quiet !== true) toast.error(message);
 
-      if (latest.current.options.quiet !== true) toast.error(message);
-
-      return undefined;
-    } finally {
-      setPending(false);
-    }
-  }, []);
+        return undefined;
+      } finally {
+        setPending(false);
+      }
+    },
+    [latest],
+  );
 
   const reset = useCallback(() => setError(undefined), []);
 

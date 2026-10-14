@@ -44,7 +44,7 @@ export function ScanToast() {
             : `${formatCount(progress.done)} / ${formatCount(progress.total)}`}
         </p>
       </div>
-      <ProgressBar value={progress.fraction ?? 0} tone="surface" className="rounded-xs" />
+      <ProgressBar value={progress.fraction ?? 0} tone="surface" className="rounded-bar" />
       <div className="flex flex-col gap-1">
         {job.progress.message === null ? null : (
           <p className="truncate font-mono text-caption/caption text-text-muted">

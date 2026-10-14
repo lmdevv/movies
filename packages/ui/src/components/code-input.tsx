@@ -64,7 +64,7 @@ export function CodeInput({
         {Array.from({ length }, (_, index) => (
           <Fragment key={index}>
             {groupSize !== undefined && index > 0 && index % groupSize === 0 ? (
-              <OTPField.Separator className="h-0.5 w-4 shrink-0 rounded-xs bg-text-muted" />
+              <OTPField.Separator className="h-0.5 w-4 shrink-0 rounded-bar bg-text-muted" />
             ) : null}
             <OTPField.Input
               autoFocus={autoFocus && index === 0}

@@ -13,4 +13,12 @@ describe("cn", () => {
     expect(cn("rounded-control", "rounded-pill")).toBe("rounded-pill");
     expect(cn("text-text", "text-danger")).toBe("text-danger");
   });
+
+  it("knows the labelled Paper literals", () => {
+    expect(cn("text-small/5", "text-text-muted")).toBe("text-small/5 text-text-muted");
+    expect(cn("font-hero", "text-text")).toBe("font-hero text-text");
+    expect(cn("border-control border-text-muted")).toBe("border-control border-text-muted");
+    expect(cn("border-control", "border-radio-checked")).toBe("border-radio-checked");
+    expect(cn("rounded-bar", "rounded-control")).toBe("rounded-control");
+  });
 });

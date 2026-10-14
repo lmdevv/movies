@@ -49,7 +49,7 @@ export function PlayerButton({
       type={type}
       data-active={active || undefined}
       className={cn(
-        "relative flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-xs text-text transition-opacity before:absolute before:-inset-2 before:rounded-control before:bg-text/14 before:opacity-0 hover:opacity-80 disabled:opacity-(--opacity-disabled) data-active:before:opacity-100 data-popup-open:before:opacity-100 [&_svg]:relative [&_svg]:size-6.5",
+        "relative flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-bar text-text transition-opacity before:absolute before:-inset-2 before:rounded-control before:bg-text/14 before:opacity-0 hover:opacity-80 disabled:opacity-(--opacity-disabled) data-active:before:opacity-100 data-popup-open:before:opacity-100 [&_svg]:relative [&_svg]:size-6.5",
         className,
       )}
       {...props}
@@ -201,11 +201,11 @@ export function Scrubber({
             <span data-slot="scrubber-time" className="font-mono text-label/caption text-text">
               {formatTimecode(shown)}
             </span>
-            <span className="h-3 w-0.5 rounded-xs bg-text" />
+            <span className="h-3 w-0.5 rounded-bar bg-text" />
           </span>
         )}
-        <Slider.Track className="relative h-1 w-full rounded-xs bg-text/25">
-          <Slider.Indicator className="rounded-xs bg-accent" />
+        <Slider.Track className="relative h-1 w-full rounded-bar bg-text/25">
+          <Slider.Indicator className="rounded-bar bg-accent" />
           {(chapters ?? [])
             .filter((start) => start > 0 && start < duration)
             .map((start) => (
@@ -251,9 +251,9 @@ function ProgressLine({
       aria-valuemax={Math.round(duration)}
       aria-valuenow={Math.round(position)}
       aria-valuetext={`${formatTimecode(position)} of ${formatTimecode(duration)}`}
-      className="flex h-1 flex-1 rounded-xs bg-text/25"
+      className="flex h-1 flex-1 rounded-bar bg-text/25"
     >
-      <div className="h-1 rounded-xs bg-accent" style={{ width: `${String(fraction * 100)}%` }} />
+      <div className="h-1 rounded-bar bg-accent" style={{ width: `${String(fraction * 100)}%` }} />
     </div>
   );
 }

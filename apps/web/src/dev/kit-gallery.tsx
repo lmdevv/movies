@@ -117,8 +117,8 @@ function Section({
 function DuneTitleArt() {
   return (
     <div className="flex flex-col gap-5">
-      <h1 className="font-sans text-hero/26 font-black tracking-hero">DUNE</h1>
-      <p className="font-sans text-subtitle/6.5 font-light tracking-spread uppercase">Part Two</p>
+      <h1 className="font-sans text-hero/26 font-hero tracking-hero">DUNE</h1>
+      <p className="font-sans text-subtitle/6.5 font-tagline tracking-spread uppercase">Part Two</p>
     </div>
   );
 }
@@ -660,9 +660,7 @@ export function KitGallery() {
                   title="Dune"
                   backdrop={ART.dune}
                   titleArt={
-                    <p className="font-sans text-hero-card/10.5 font-black tracking-display">
-                      DUNE
-                    </p>
+                    <p className="font-sans text-hero-card/10.5 font-hero tracking-display">DUNE</p>
                   }
                   facts="Sci-fi · Epic · 2024"
                   actions={

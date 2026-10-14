@@ -139,7 +139,7 @@ function AddLibraryForm() {
                     aria-checked={selected}
                     onClick={() => setKind(option.kind)}
                     className={cn(
-                      "flex h-9 grow basis-0 cursor-pointer items-center justify-center gap-2 rounded-md text-label/caption transition-colors",
+                      "flex h-9 grow basis-0 cursor-pointer items-center justify-center gap-2 rounded-inner text-label/caption transition-colors",
                       selected
                         ? "bg-text font-semibold text-bg"
                         : "font-medium text-text-muted hover:text-text",
@@ -230,7 +230,7 @@ function FolderField({
           autoComplete="off"
           value={row.path}
           onChange={(event) => onChange(event.target.value)}
-          className="h-full min-w-0 grow bg-transparent font-mono text-sm/label text-text caret-accent outline-none placeholder:text-text-muted"
+          className="h-full min-w-0 grow bg-transparent font-mono text-small/label text-text caret-accent outline-none placeholder:text-text-muted"
         />
         {row.problem === null ? (
           onRemove === undefined ? null : (
@@ -238,7 +238,7 @@ function FolderField({
               type="button"
               aria-label={`Remove ${label.toLowerCase()}`}
               onClick={onRemove}
-              className="flex size-8 cursor-pointer items-center justify-center rounded-md text-text-muted hover:text-text"
+              className="flex size-8 cursor-pointer items-center justify-center rounded-inner text-text-muted hover:text-text"
             >
               <XIcon className="size-4" strokeWidth={1.75} aria-hidden />
             </button>
@@ -247,7 +247,7 @@ function FolderField({
           <button
             type="button"
             onClick={onRetry}
-            className="flex h-8 cursor-pointer items-center rounded-md bg-text/8 px-3 text-label/caption font-semibold text-text hover:bg-text/12"
+            className="flex h-8 cursor-pointer items-center rounded-inner bg-text/8 px-3 text-label/caption font-semibold text-text hover:bg-text/12"
           >
             Try again
           </button>

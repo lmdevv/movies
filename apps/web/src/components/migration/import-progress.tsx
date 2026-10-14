@@ -1,6 +1,7 @@
 import type { MigrationRun } from "@movies/contracts/models/migration";
 import { useCommand } from "@movies/sdk/react";
-import { Button, buttonVariants } from "@movies/ui/components/button";
+import { Button } from "@movies/ui/components/button";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { ProgressBar } from "@movies/ui/components/progress-bar";
 import { Link } from "@tanstack/react-router";
 
@@ -48,7 +49,7 @@ export function Importing({ run }: { readonly run: MigrationRun }) {
           value={fraction}
           tone="surface"
           label={`Import from ${SOURCE_NAMES[run.source]}`}
-          className="rounded-xs"
+          className="rounded-bar"
         />
         <p className="font-sans text-label/label text-text-muted">{detail}</p>
       </div>

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent } from "react";
 
 import { chordFromEvent, stepKeymap } from "./keymap";
 import type { KeySequence, Keymap, Platform } from "./keymap";
@@ -33,9 +33,8 @@ export function useKeymap<Id extends string>(
   handlers: Partial<Record<Id, (event: KeyboardEvent) => void>>,
   enabled = true,
 ): void {
-  const latest = useRef(handlers);
-
-  latest.current = handlers;
+  // The handlers of the latest render, without re-adding the listener when they change.
+  const handlerFor = useEffectEvent((id: Id) => handlers[id]);
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -75,7 +74,7 @@ export function useKeymap<Id extends string>(
 
       if (step.kind !== "matched") return;
 
-      const handler = latest.current[step.id];
+      const handler = handlerFor(step.id);
 
       if (handler === undefined) return;
 

@@ -4,7 +4,7 @@ import type { VariantProps } from "class-variance-authority";
 import type { ComponentProps } from "react";
 
 const badgeVariants = cva(
-  "inline-flex h-5 shrink-0 items-center rounded-sm px-1.5 text-micro/3.5",
+  "inline-flex h-5 shrink-0 items-center rounded-poster px-1.5 text-micro/3.5",
   {
     variants: {
       variant: {

@@ -100,6 +100,72 @@
   --shadow-overlay: 0 32px 80px var(--color-scrim);
   --shadow-glass: inset 0 1px 0 rgb(255 255 255 / 14%), 0 10px 30px rgb(0 0 0 / 45%);
   --radius-thumb: 10px;
+  /* Progress bars, slider tracks, skeleton lines, and focus rings on small links. */
+  --radius-bar: 0.125rem;
+  /* Buttons and chips nested inside a panel or menu. */
+  --radius-inner: 0.375rem;
+  /* The search field on phones. */
+  --radius-search: 0.75rem;
+  /* Outlined controls: icon buttons, checkboxes, radios, invalid fields, dashed placeholders. */
+  --border-width-control: 1.5px;
+  /* A checked radio: the accent ring around the white dot. */
+  --border-width-radio-checked: 5px;
+  /* Chips, top-bar links, command rows, and the folder path field. */
+  --text-small: 0.875rem;
+  /* Large and pill buttons. */
+  --text-button: 1rem;
+  /* The command menu's input. */
+  --text-command: 1.125rem;
+  /* The wordmark in the top bar. */
+  --text-logo: 1.5rem;
+  /* An avatar's initial at medium size. */
+  --text-avatar: 2.25rem;
+  /* Title-art headings: the hero and collection titles. */
+  --font-weight-hero: 900;
+  /* The spaced uppercase line under a hero title. */
+  --font-weight-tagline: 300;
+  /* Popover lists: the chapter list and the command menu's results. */
+  --spacing-chapter-list: 28rem;
+  --spacing-command-list: 30rem;
+  /* Paddings, gaps, margins, and offsets between the Paper spacing steps. The key is the step on
+     Tailwind's 4px grid (`gap-1.5` reads `--spacing-1_5`), so classes keep their usual names, and
+     the value is in rem, as Tailwind's multiplier drew it, so it follows the text size setting;
+     `apps/web/src/lib/design-tokens.test.ts` keeps every such class on this list or the Paper scale. */
+  --spacing-0_5: 0.125rem;
+  --spacing-0_75: 0.1875rem;
+  --spacing-1_25: 0.3125rem;
+  --spacing-1_5: 0.375rem;
+  --spacing-1_75: 0.4375rem;
+  --spacing-2_5: 0.625rem;
+  --spacing-3_5: 0.875rem;
+  --spacing-4_5: 1.125rem;
+  --spacing-5: 1.25rem;
+  --spacing-5_5: 1.375rem;
+  --spacing-6_5: 1.625rem;
+  --spacing-7: 1.75rem;
+  --spacing-7_5: 1.875rem;
+  --spacing-9: 2.25rem;
+  --spacing-10_5: 2.625rem;
+  --spacing-11: 2.75rem;
+  --spacing-14: 3.5rem;
+  --spacing-15: 3.75rem;
+  --spacing-17: 4.25rem;
+  --spacing-18: 4.5rem;
+  --spacing-20: 5rem;
+  --spacing-21: 5.25rem;
+  --spacing-22: 5.5rem;
+  --spacing-24: 6rem;
+  --spacing-25: 6.25rem;
+  --spacing-26: 6.5rem;
+  --spacing-28: 7rem;
+  --spacing-30: 7.5rem;
+  --spacing-32: 8rem;
+  --spacing-35: 8.75rem;
+  --spacing-36: 9rem;
+  --spacing-40: 10rem;
+  --spacing-42: 10.5rem;
+  --spacing-49: 12.25rem;
+  --spacing-56: 14rem;
   /* The page canvas: Paper draws light pages on bg, dark phone pages on dark-bg and dark desktop
      pages on dark-surface (see the .dark rules below). */
   --color-page: var(--color-bg);

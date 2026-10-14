@@ -3,10 +3,12 @@ import type {
   LibraryDetail,
   LibraryFile,
   LibraryFileFilter,
+  LibraryFileSummary,
 } from "@movies/contracts/models/catalog";
 import type { Job } from "@movies/contracts/models/jobs";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
-import { Button, buttonVariants } from "@movies/ui/components/button";
+import { Button } from "@movies/ui/components/button";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Chip } from "@movies/ui/components/chip";
 import {
@@ -75,30 +77,7 @@ export function LibraryDetailScreen({ libraryId }: { readonly libraryId: Library
   if (library.status === "loading") return <Skeleton className="h-60 w-full rounded-control" />;
 
   if (library.status === "error") {
-    const gone = isFailure(library.error, "NotFound");
-
-    return (
-      <CalmState
-        className="py-24"
-        title={gone ? "This library is gone" : "This library didn't load"}
-        description={gone ? undefined : describeFailure(library.error)}
-        actions={
-          <>
-            {gone ? null : (
-              <Button variant="raised" size="sm" onClick={library.retry}>
-                Try again
-              </Button>
-            )}
-            <Link
-              to="/admin/libraries"
-              className={buttonVariants({ variant: "raised", size: "sm" })}
-            >
-              Back to Libraries
-            </Link>
-          </>
-        }
-      />
-    );
+    return <LibraryLoadError error={library.error} onRetry={library.retry} />;
   }
 
   const detail = library.data;
@@ -135,26 +114,12 @@ export function LibraryDetailScreen({ libraryId }: { readonly libraryId: Library
       ) : (
         <>
           {counts === null || counts.missingFiles === 0 ? null : (
-            <Notice
-              action={
-                filter === "missing" ? null : (
-                  <button
-                    type="button"
-                    onClick={() => setFilter("missing")}
-                    className="shrink-0 cursor-pointer font-sans text-label/label font-semibold text-text hover:underline"
-                  >
-                    Review {formatCount(counts.missingFiles)} missing
-                  </button>
-                )
-              }
-            >
-              {counts.missingFiles === 1
-                ? "1 file disappeared"
-                : `${formatCount(counts.missingFiles)} files disappeared`}
-              {counts.missingSince === null
-                ? "."
-                : ` since ${formatDate(counts.missingSince, now)}.`}
-            </Notice>
+            <MissingNotice
+              counts={counts}
+              reviewing={filter === "missing"}
+              onReview={() => setFilter("missing")}
+              now={now}
+            />
           )}
           <FileList
             libraryId={libraryId}
@@ -167,6 +132,71 @@ export function LibraryDetailScreen({ libraryId }: { readonly libraryId: Library
       )}
       <LibraryDialog open={editing} onOpenChange={setEditing} library={detail} />
     </>
+  );
+}
+
+/** The library did not load: gone for good, or a failure worth another try. */
+function LibraryLoadError({
+  error,
+  onRetry,
+}: {
+  readonly error: unknown;
+  readonly onRetry: () => void;
+}) {
+  const gone = isFailure(error, "NotFound");
+
+  return (
+    <CalmState
+      className="py-24"
+      title={gone ? "This library is gone" : "This library didn't load"}
+      description={gone ? undefined : describeFailure(error)}
+      actions={
+        <>
+          {gone ? null : (
+            <Button variant="raised" size="sm" onClick={onRetry}>
+              Try again
+            </Button>
+          )}
+          <Link to="/admin/libraries" className={buttonVariants({ variant: "raised", size: "sm" })}>
+            Back to Libraries
+          </Link>
+        </>
+      }
+    />
+  );
+}
+
+/** Files that disappeared since the last scan, with a shortcut to review them. */
+function MissingNotice({
+  counts,
+  reviewing,
+  onReview,
+  now,
+}: {
+  readonly counts: LibraryFileSummary;
+  readonly reviewing: boolean;
+  readonly onReview: () => void;
+  readonly now: number;
+}) {
+  return (
+    <Notice
+      action={
+        reviewing ? null : (
+          <button
+            type="button"
+            onClick={onReview}
+            className="shrink-0 cursor-pointer font-sans text-label/label font-semibold text-text hover:underline"
+          >
+            Review {formatCount(counts.missingFiles)} missing
+          </button>
+        )
+      }
+    >
+      {counts.missingFiles === 1
+        ? "1 file disappeared"
+        : `${formatCount(counts.missingFiles)} files disappeared`}
+      {counts.missingSince === null ? "." : ` since ${formatDate(counts.missingSince, now)}.`}
+    </Notice>
   );
 }
 
@@ -491,7 +521,7 @@ function FileRow({
           <span
             aria-hidden
             className={cn(
-              "h-9 w-6 shrink-0 rounded-xs border border-dashed border-text-muted",
+              "h-9 w-6 shrink-0 rounded-bar border border-dashed border-text-muted",
               file.missing && "opacity-50",
             )}
           />
@@ -499,7 +529,7 @@ function FileRow({
           <Poster
             src={artworkUrl(file.title.poster, "thumb")}
             alt=""
-            className={cn("h-9 w-6 rounded-xs", file.missing && "opacity-50")}
+            className={cn("h-9 w-6 rounded-bar", file.missing && "opacity-50")}
           />
         )}
         <span className="flex min-w-0 flex-col gap-0.5">

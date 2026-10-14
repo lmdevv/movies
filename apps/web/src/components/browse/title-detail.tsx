@@ -8,7 +8,8 @@ import type { ProfileId } from "@movies/contracts/ids";
 import type { MediaFile, ShowStatus, TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommand } from "@movies/sdk/react";
 import { Badge } from "@movies/ui/components/badge";
-import { Button, buttonVariants } from "@movies/ui/components/button";
+import { Button } from "@movies/ui/components/button";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { PlayGlyph } from "@movies/ui/components/icons";
 import { formatTimecode } from "@movies/ui/lib/timecode";
 import { cn } from "@movies/ui/lib/utils";
@@ -34,6 +35,7 @@ import { formatDate, languageName, titleLinks } from "@/lib/metadata";
 
 import { Episodes } from "./episodes";
 import { playTarget, useMyListToggle, watchSearch } from "./play-target";
+import type { MyListToggle, PlayTarget } from "./play-target";
 import {
   CastAndCrew,
   CollectionRow,
@@ -112,6 +114,20 @@ const sizeLabel = (bytes: number): string =>
 const mainFile = (title: TitleDetail): MediaFile | undefined =>
   title.files.find((file) => !file.missing) ?? title.files[0];
 
+/** What the phone and desktop layouts of a title's page share. */
+interface DetailParts {
+  readonly title: TitleDetail;
+  readonly profileId: ProfileId;
+  readonly canManage: boolean;
+  readonly target: PlayTarget;
+  readonly myList: MyListToggle;
+  readonly file: MediaFile | undefined;
+  readonly badges: ReadonlyArray<string>;
+  readonly backdrop: string | undefined;
+  readonly logo: string | undefined;
+  readonly links: ReturnType<typeof titleLinks>;
+}
+
 /** The page for `title`, on `profileId`. */
 export function TitleDetailView({
   title,
@@ -124,41 +140,40 @@ export function TitleDetailView({
   readonly canManage: boolean;
   readonly phone: boolean;
 }) {
-  const target = playTarget(title);
   const myList = useMyListToggle(profileId, title.id, title.inMyList, title.name);
   const file = mainFile(title);
-  const badges = file === undefined ? [] : fileBadges(file);
-  const tracks = file === undefined ? null : trackSummary(file);
-  const backdrop = artworkUrl(title.artwork.backdrop, "backdrop");
-  const logo = artworkUrl(title.artwork.logo, "card");
-  const missing = !title.available;
-  const links = titleLinks(title.kind, title.externalIds);
 
-  const remaining =
-    target.fraction === null || target.positionMs === null
-      ? null
-      : (() => {
-          const duration =
-            title.kind === "movie"
-              ? title.progress?.durationMs
-              : title.nextEpisode?.progress?.durationMs;
+  const parts: DetailParts = {
+    title,
+    profileId,
+    canManage,
+    target: playTarget(title),
+    myList,
+    file,
+    badges: file === undefined ? [] : fileBadges(file),
+    backdrop: artworkUrl(title.artwork.backdrop, "backdrop"),
+    logo: artworkUrl(title.artwork.logo, "card"),
+    links: titleLinks(title.kind, title.externalIds),
+  };
 
-          return duration === undefined ? null : duration - target.positionMs;
-        })();
+  return phone ? <PhoneTitleDetail {...parts} /> : <DesktopTitleDetail {...parts} />;
+}
 
-  const factLine = (
+/** `2024`, the certification, the runtime or season count, and the file's badges. */
+function FactLine({
+  title,
+  badges,
+}: {
+  readonly title: TitleDetail;
+  readonly badges: ReadonlyArray<string>;
+}) {
+  return (
     <div className="flex flex-wrap items-center gap-2.5 text-body/body text-text">
       {title.year === null ? null : <span>{title.year}</span>}
       {title.certification === null ? null : (
         <Badge className="border-text/40 font-sans font-semibold">{title.certification}</Badge>
       )}
-      <span>
-        {title.kind === "show"
-          ? plural(title.seasons.length, "season", "seasons")
-          : title.runtimeMs === null
-            ? null
-            : formatRuntime(title.runtimeMs)}
-      </span>
+      <span>{lengthFact(title)}</span>
       {badges.map((badge) => (
         <Badge key={badge} className="border-text/40">
           {badge}
@@ -166,8 +181,31 @@ export function TitleDetailView({
       ))}
     </div>
   );
+}
 
-  const watch = (start: boolean) => (
+/** A show's season count, or a film's runtime when it is known. */
+const lengthFact = (title: TitleDetail): string | null =>
+  title.kind === "show"
+    ? plural(title.seasons.length, "season", "seasons")
+    : title.runtimeMs === null
+      ? null
+      : formatRuntime(title.runtimeMs);
+
+/** Play or Resume, or Play from start with `start`; inert while the title's files are missing. */
+function WatchLink({
+  title,
+  target,
+  start,
+  phone,
+}: {
+  readonly title: TitleDetail;
+  readonly target: PlayTarget;
+  readonly start: boolean;
+  readonly phone: boolean;
+}) {
+  const missing = !title.available;
+
+  return (
     <Link
       to="/watch/$titleId"
       params={{ titleId: title.id }}
@@ -194,48 +232,67 @@ export function TitleDetailView({
       ) : null}
     </Link>
   );
+}
 
-  const myListButton = (
-    <Button
-      variant="icon"
-      size="icon"
-      className="size-12"
-      aria-pressed={myList.inList}
-      aria-label={myList.inList ? "Remove from My List" : "Add to My List"}
-      onClick={() => void myList.toggle()}
-    >
-      {myList.inList ? <CheckIcon strokeWidth={1.75} /> : <PlusIcon strokeWidth={1.75} />}
-    </Button>
-  );
+/** Time left in what Resume plays, when the title has a known duration. */
+const remainingMs = (title: TitleDetail, target: PlayTarget): number | null => {
+  if (target.fraction === null || target.positionMs === null) return null;
 
-  const progress =
-    target.fraction === null ? null : (
-      <div className={cn("flex items-center gap-3", phone ? "px-1" : "w-105")}>
-        <div className="flex h-1 grow overflow-hidden rounded-xs bg-hairline">
-          <div
-            className="h-1 bg-accent"
-            style={{ width: `${Math.round(target.fraction * 100)}%` }}
-          />
-        </div>
-        {remaining === null ? null : (
-          <span className="text-label/label text-text-muted">
-            {facts(
-              title.kind === "show" && title.nextEpisode !== null && phone
-                ? `S${title.nextEpisode.seasonNumber}:E${title.nextEpisode.episodeNumber}`
-                : null,
-              formatRemaining(remaining),
-            )}
-          </span>
-        )}
+  const duration =
+    title.kind === "movie" ? title.progress?.durationMs : title.nextEpisode?.progress?.durationMs;
+
+  return duration === undefined ? null : duration - target.positionMs;
+};
+
+/** How far Resume is, as a bar and the time left. */
+function WatchProgress({
+  title,
+  target,
+  phone,
+}: {
+  readonly title: TitleDetail;
+  readonly target: PlayTarget;
+  readonly phone: boolean;
+}) {
+  if (target.fraction === null) return null;
+
+  const remaining = remainingMs(title, target);
+
+  return (
+    <div className={cn("flex items-center gap-3", phone ? "px-1" : "w-105")}>
+      <div className="flex h-1 grow overflow-hidden rounded-bar bg-hairline">
+        <div className="h-1 bg-accent" style={{ width: `${Math.round(target.fraction * 100)}%` }} />
       </div>
-    );
+      {remaining === null ? null : (
+        <span className="text-label/label text-text-muted">
+          {facts(
+            title.kind === "show" && title.nextEpisode !== null && phone
+              ? `S${title.nextEpisode.seasonNumber}:E${title.nextEpisode.episodeNumber}`
+              : null,
+            formatRemaining(remaining),
+          )}
+        </span>
+      )}
+    </div>
+  );
+}
 
-  const heading = (
+/** The title's logo, or its name as billboard text, and the tagline on desktops. */
+function TitleHeading({
+  title,
+  logo,
+  phone,
+}: {
+  readonly title: TitleDetail;
+  readonly logo: string | undefined;
+  readonly phone: boolean;
+}) {
+  return (
     <div className="flex flex-col gap-3.5">
       {logo === undefined ? (
         <h1
           className={cn(
-            "font-black text-text",
+            "font-hero text-text",
             phone
               ? "text-hero-card/11 tracking-display"
               : title.name.length > LONG_NAME
@@ -253,87 +310,121 @@ export function TitleDetailView({
         />
       )}
       {title.tagline === null || phone ? null : (
-        <p className="text-heading/6 font-light tracking-spread text-text uppercase">
+        <p className="text-heading/6 font-tagline tracking-spread text-text uppercase">
           {title.tagline}
         </p>
       )}
     </div>
   );
+}
 
-  if (phone) {
-    return (
-      <div className="flex flex-col pb-36">
-        <PhoneBackdrop backdrop={backdrop}>{heading}</PhoneBackdrop>
-        <div className="flex flex-col gap-3.5 px-4 pt-1">
-          {missing ? <MissingBanner title={title} canManage={canManage} phone /> : null}
-          <p className="flex flex-wrap items-center gap-2 px-1 text-label/label text-text-muted">
-            {facts(
-              title.year,
-              title.certification,
-              title.kind === "show"
-                ? plural(title.seasons.length, "season", "seasons")
-                : title.runtimeMs === null
-                  ? null
-                  : formatRuntime(title.runtimeMs),
-            )}
-            {badges.slice(0, 2).map((badge) => (
-              <Badge key={badge} className="h-4.5 border-text/40 px-1.25 text-tab/3">
-                {badge}
-              </Badge>
-            ))}
-          </p>
-          {watch(false)}
-          {progress}
-          <Scores ratings={title.ratings} className="px-1" />
-          {title.overview === null ? null : (
-            <p className="px-1 text-body/body text-text">{title.overview}</p>
-          )}
-          <CreditSummary
-            credits={[...title.crew, ...title.cast.slice(0, STARRING)]}
-            kinds={["creator", "director"]}
-            className="px-1 text-label/label"
-          />
-        </div>
-        <div className="flex justify-around px-6 pt-4.5 pb-1">
-          <button
-            type="button"
-            aria-pressed={myList.inList}
-            onClick={() => void myList.toggle()}
-            className="flex w-26 cursor-pointer flex-col items-center gap-1.5 text-caption/caption text-text-muted"
-          >
-            {myList.inList ? (
-              <CheckIcon className="size-5.5 text-text" strokeWidth={1.75} aria-hidden />
-            ) : (
-              <PlusIcon className="size-5.5 text-text" strokeWidth={1.75} aria-hidden />
-            )}
-            My List
-          </button>
-          {target.resuming ? (
-            <Link
-              to="/watch/$titleId"
-              params={{ titleId: title.id }}
-              search={watchSearch(target.episodeId, true)}
-              className="flex w-26 flex-col items-center gap-1.5 text-caption/caption text-text-muted"
-            >
-              <RotateCcwIcon className="size-5.5 text-text" strokeWidth={1.75} aria-hidden />
-              Play from start
-            </Link>
-          ) : null}
-          {title.trailer === null ? null : (
-            <TrailerButton trailer={title.trailer} name={title.name} phone />
-          )}
-        </div>
-        {title.kind === "show" ? <Episodes show={title} profileId={profileId} phone /> : null}
-        <TitleRows title={title} profileId={profileId} phone />
-        {links.length === 0 ? null : (
-          <div className="px-5 pt-6">
-            <ExternalLinks links={links} />
-          </div>
+/** The phone page (09 iOS): backdrop card, facts, play, overview, then the action row. */
+function PhoneTitleDetail({
+  title,
+  profileId,
+  canManage,
+  target,
+  myList,
+  badges,
+  backdrop,
+  logo,
+  links,
+}: DetailParts) {
+  return (
+    <div className="flex flex-col pb-36">
+      <PhoneBackdrop backdrop={backdrop}>
+        <TitleHeading title={title} logo={logo} phone />
+      </PhoneBackdrop>
+      <div className="flex flex-col gap-3.5 px-4 pt-1">
+        {title.available ? null : <MissingBanner title={title} canManage={canManage} phone />}
+        <p className="flex flex-wrap items-center gap-2 px-1 text-label/label text-text-muted">
+          {facts(title.year, title.certification, lengthFact(title))}
+          {badges.slice(0, 2).map((badge) => (
+            <Badge key={badge} className="h-4.5 border-text/40 px-1.25 text-tab/3">
+              {badge}
+            </Badge>
+          ))}
+        </p>
+        <WatchLink title={title} target={target} start={false} phone />
+        <WatchProgress title={title} target={target} phone />
+        <Scores ratings={title.ratings} className="px-1" />
+        {title.overview === null ? null : (
+          <p className="px-1 text-body/body text-text">{title.overview}</p>
         )}
+        <CreditSummary
+          credits={[...title.crew, ...title.cast.slice(0, STARRING)]}
+          kinds={["creator", "director"]}
+          className="px-1 text-label/label"
+        />
       </div>
-    );
-  }
+      <PhoneActions title={title} target={target} myList={myList} />
+      {title.kind === "show" ? <Episodes show={title} profileId={profileId} phone /> : null}
+      <TitleRows title={title} profileId={profileId} phone />
+      {links.length === 0 ? null : (
+        <div className="px-5 pt-6">
+          <ExternalLinks links={links} />
+        </div>
+      )}
+    </div>
+  );
+}
 
+/** The phone's row of icon actions: My List, Play from start, and the trailer. */
+function PhoneActions({
+  title,
+  target,
+  myList,
+}: {
+  readonly title: TitleDetail;
+  readonly target: PlayTarget;
+  readonly myList: MyListToggle;
+}) {
+  return (
+    <div className="flex justify-around px-6 pt-4.5 pb-1">
+      <button
+        type="button"
+        aria-pressed={myList.inList}
+        onClick={() => void myList.toggle()}
+        className="flex w-26 cursor-pointer flex-col items-center gap-1.5 text-caption/caption text-text-muted"
+      >
+        {myList.inList ? (
+          <CheckIcon className="size-5.5 text-text" strokeWidth={1.75} aria-hidden />
+        ) : (
+          <PlusIcon className="size-5.5 text-text" strokeWidth={1.75} aria-hidden />
+        )}
+        My List
+      </button>
+      {target.resuming ? (
+        <Link
+          to="/watch/$titleId"
+          params={{ titleId: title.id }}
+          search={watchSearch(target.episodeId, true)}
+          className="flex w-26 flex-col items-center gap-1.5 text-caption/caption text-text-muted"
+        >
+          <RotateCcwIcon className="size-5.5 text-text" strokeWidth={1.75} aria-hidden />
+          Play from start
+        </Link>
+      ) : null}
+      {title.trailer === null ? null : (
+        <TrailerButton trailer={title.trailer} name={title.name} phone />
+      )}
+    </div>
+  );
+}
+
+/** The desktop page (05 Browse · 04): the backdrop band, then details beside the facts list. */
+function DesktopTitleDetail({
+  title,
+  profileId,
+  canManage,
+  target,
+  myList,
+  file,
+  badges,
+  backdrop,
+  logo,
+  links,
+}: DetailParts) {
   return (
     <div className="flex flex-col">
       <div
@@ -348,22 +439,37 @@ export function TitleDetailView({
           aria-hidden
           className="absolute inset-0 -z-10 bg-linear-to-b from-dark-bg/55 via-transparent via-20% to-page to-92%"
         />
-        <div className="mx-auto w-full max-w-content">{heading}</div>
+        <div className="mx-auto w-full max-w-content">
+          <TitleHeading title={title} logo={logo} phone={false} />
+        </div>
       </div>
       <div className="mx-auto box-content flex w-full max-w-content gap-16 px-16 pb-12">
         <div className="flex w-200 shrink-0 flex-col gap-5">
-          {missing ? <MissingBanner title={title} canManage={canManage} phone={false} /> : null}
-          {factLine}
+          {title.available ? null : (
+            <MissingBanner title={title} canManage={canManage} phone={false} />
+          )}
+          <FactLine title={title} badges={badges} />
           <Scores ratings={title.ratings} />
           <div className="flex items-center gap-3">
-            {watch(false)}
-            {target.resuming ? watch(true) : null}
+            <WatchLink title={title} target={target} start={false} phone={false} />
+            {target.resuming ? (
+              <WatchLink title={title} target={target} start phone={false} />
+            ) : null}
             {title.trailer === null ? null : (
               <TrailerButton trailer={title.trailer} name={title.name} phone={false} />
             )}
-            {myListButton}
+            <Button
+              variant="icon"
+              size="icon"
+              className="size-12"
+              aria-pressed={myList.inList}
+              aria-label={myList.inList ? "Remove from My List" : "Add to My List"}
+              onClick={() => void myList.toggle()}
+            >
+              {myList.inList ? <CheckIcon strokeWidth={1.75} /> : <PlusIcon strokeWidth={1.75} />}
+            </Button>
           </div>
-          {progress}
+          <WatchProgress title={title} target={target} phone={false} />
           {title.overview === null ? null : (
             <p className="w-170 pt-2 text-lead/6.75 text-text">{title.overview}</p>
           )}
@@ -375,44 +481,58 @@ export function TitleDetailView({
             </p>
           )}
         </div>
-        <dl className="flex grow basis-0 flex-col gap-4.5 pt-0.5">
-          {title.cast.length === 0 ? null : (
-            <Meta label="Starring">
-              <PeopleLinks people={title.cast.slice(0, STARRING)} />
-            </Meta>
-          )}
-          {title.genres.length === 0 ? null : (
-            <Meta label="Genres">
-              <GenreLinks genres={title.genres} />
-            </Meta>
-          )}
-          {title.studios.length === 0 ? null : (
-            <Meta label={title.kind === "show" ? "Network" : "Studio"}>
-              {title.studios.join(", ")}
-            </Meta>
-          )}
-          {title.releaseDate === null ? null : (
-            <Meta label={title.kind === "show" ? "First aired" : "Released"}>
-              {formatDate(title.releaseDate)}
-            </Meta>
-          )}
-          {title.status === null ? null : <Meta label="Status">{STATUS_LABELS[title.status]}</Meta>}
-          {title.originalLanguage === null ? null : (
-            <Meta label="Original language">
-              {facts(languageName(title.originalLanguage), title.originalName)}
-            </Meta>
-          )}
-          {tracks === null ? null : <Meta label="Audio · Subtitles">{tracks}</Meta>}
-          {links.length === 0 ? null : (
-            <Meta label="Elsewhere">
-              <ExternalLinks links={links} />
-            </Meta>
-          )}
-        </dl>
+        <TitleMeta title={title} file={file} links={links} />
       </div>
       {title.kind === "show" ? <Episodes show={title} profileId={profileId} phone={false} /> : null}
       <TitleRows title={title} profileId={profileId} phone={false} />
     </div>
+  );
+}
+
+/** The desktop facts list: starring, genres, studio, dates, status, language, tracks, links. */
+function TitleMeta({
+  title,
+  file,
+  links,
+}: {
+  readonly title: TitleDetail;
+  readonly file: MediaFile | undefined;
+  readonly links: ReturnType<typeof titleLinks>;
+}) {
+  const tracks = file === undefined ? null : trackSummary(file);
+  const show = title.kind === "show";
+
+  return (
+    <dl className="flex grow basis-0 flex-col gap-4.5 pt-0.5">
+      {title.cast.length === 0 ? null : (
+        <Meta label="Starring">
+          <PeopleLinks people={title.cast.slice(0, STARRING)} />
+        </Meta>
+      )}
+      {title.genres.length === 0 ? null : (
+        <Meta label="Genres">
+          <GenreLinks genres={title.genres} />
+        </Meta>
+      )}
+      {title.studios.length === 0 ? null : (
+        <Meta label={show ? "Network" : "Studio"}>{title.studios.join(", ")}</Meta>
+      )}
+      {title.releaseDate === null ? null : (
+        <Meta label={show ? "First aired" : "Released"}>{formatDate(title.releaseDate)}</Meta>
+      )}
+      {title.status === null ? null : <Meta label="Status">{STATUS_LABELS[title.status]}</Meta>}
+      {title.originalLanguage === null ? null : (
+        <Meta label="Original language">
+          {facts(languageName(title.originalLanguage), title.originalName)}
+        </Meta>
+      )}
+      {tracks === null ? null : <Meta label="Audio · Subtitles">{tracks}</Meta>}
+      {links.length === 0 ? null : (
+        <Meta label="Elsewhere">
+          <ExternalLinks links={links} />
+        </Meta>
+      )}
+    </dl>
   );
 }
 
@@ -439,7 +559,7 @@ function PhoneBackdrop({
 
   return (
     <div
-      className="on-media relative isolate flex h-75 flex-col justify-between bg-dark-surface-raised bg-cover bg-center pt-[max(env(safe-area-inset-top),--spacing(12))]"
+      className="on-media relative isolate flex h-75 flex-col justify-between bg-dark-surface-raised bg-cover bg-center pt-[max(env(safe-area-inset-top),var(--spacing-12))]"
       style={backdrop === undefined ? undefined : { backgroundImage: `url("${backdrop}")` }}
     >
       <div
