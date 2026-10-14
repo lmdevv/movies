@@ -61,6 +61,15 @@ export const findStack = (): Stack | undefined => {
   return { convexUrl, mediaServiceKey, playbackTokenSecret };
 };
 
+/** The stack's Convex admin key, for admin endpoints such as the function log. */
+export const adminKey = (): string => {
+  const key = pick("CONVEX_SELF_HOSTED_ADMIN_KEY", readEnvFile(join(backendDir, ".env.local")));
+
+  if (key === undefined) throw new Error("No admin key; run scripts/dev-stack.sh up");
+
+  return key;
+};
+
 /**
  * Appends documents to a table with `convex import`, the admin import path backups restore through.
  * The suite uses it to plant records it cannot wait for, such as a device code ten minutes old.
