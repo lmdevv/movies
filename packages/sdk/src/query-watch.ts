@@ -88,7 +88,7 @@ export const make = <Name extends QueryName>(
   const stop = (): void => {
     if (running === null) return;
 
-    runtime.runFork(Fiber.interrupt(running));
+    Effect.runFork(Fiber.interrupt(running));
     running = null;
   };
 

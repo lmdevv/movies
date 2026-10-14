@@ -150,6 +150,10 @@ export const createMovies = (options: MoviesOptions): MoviesSdk => {
   const auth = <A, E>(f: (auth: Auth.Interface) => Effect.Effect<A, E>) =>
     runtime.runPromise(Effect.flatMap(Auth.Auth, f));
 
+  // Each workflow runs in a scope forked from this one, so `dispose` stops every one still running:
+  // disposing the runtime interrupts the fibers it started, not the ones forked into a scope.
+  const workflows = Scope.makeUnsafe();
+
   /** Runs `stream` in the background, calling `listener` per value; the result stops it. */
   const listen = <A, E>(
     stream: Stream.Stream<A, E, Movies.Services>,
@@ -162,16 +166,17 @@ export const createMovies = (options: MoviesOptions): MoviesSdk => {
       ),
     );
 
-    return () => runtime.runPromise(Fiber.interrupt(fiber));
+    // Interrupting needs no services, so stopping still works after `dispose`.
+    return () => Effect.runPromise(Fiber.interrupt(fiber));
   };
 
   /** Runs a scoped workflow and returns its result with a function that closes its scope. */
   const scoped = async <A, E>(
     workflow: Effect.Effect<A, E, Movies.Services | Scope.Scope>,
   ): Promise<{ readonly value: A; readonly stop: Stop }> => {
-    const scope = await runtime.runPromise(Scope.make());
-
-    const stop: Stop = () => runtime.runPromise(Scope.close(scope, Exit.void));
+    const scope = Scope.forkUnsafe(workflows);
+    // Closing needs no services, so stopping still works after `dispose`.
+    const stop: Stop = () => Effect.runPromise(Scope.close(scope, Exit.void));
 
     try {
       return { value: await runtime.runPromise(Scope.provide(scope)(workflow)), stop };
@@ -238,12 +243,16 @@ export const createMovies = (options: MoviesOptions): MoviesSdk => {
         const { value, stop } = await scoped(RoomSync.run({ roomId, deviceId, player, tunables }));
 
         return {
-          current: () => runtime.runPromise(value.current),
+          current: () => Effect.runPromise(value.current),
           subscribe: (listener) => listen(value.state, listener, () => undefined),
           stop,
         };
       },
     },
-    dispose: () => runtime.dispose(),
+    dispose: async () => {
+      // Workflows stop first, while the connection their finalizers may use is still open.
+      await Effect.runPromise(Scope.close(workflows, Exit.void));
+      await runtime.dispose();
+    },
   };
 };

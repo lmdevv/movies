@@ -246,7 +246,7 @@ export const useAuth = (): UseAuth => {
         );
 
         return () => {
-          runtime.runFork(Fiber.interrupt(fiber));
+          Effect.runFork(Fiber.interrupt(fiber));
         };
       },
       read: () => status,
@@ -319,7 +319,9 @@ const useScoped = <A, E>(
     return () => {
       active = false;
       setOutcome(null);
-      runtime.runFork(Effect.andThen(Fiber.interrupt(fiber), Scope.close(scope, Exit.void)));
+      // Neither step needs services, so this also stops the workflow when the provider disposed the
+      // runtime first; the runtime's disposal would not close this scope.
+      Effect.runFork(Effect.andThen(Fiber.interrupt(fiber), Scope.close(scope, Exit.void)));
     };
     // The key stands for the workflow's inputs.
   }, [runtime, key]);
