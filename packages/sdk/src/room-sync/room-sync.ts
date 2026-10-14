@@ -93,6 +93,7 @@ export interface RoomSyncOptions {
 export interface RoomSync {
   /** The current state, then every change. */
   readonly state: Stream.Stream<RoomSyncState>;
+  /** The state now. */
   readonly current: Effect.Effect<RoomSyncState>;
 }
 

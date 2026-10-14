@@ -6,6 +6,7 @@
 import type { DeviceCodeState } from "@movies/contracts/models/account";
 import type { EpochMillis } from "@movies/contracts/units";
 import { Clock, Duration, Effect, Option, Redacted, Schedule, Schema, Stream } from "effect";
+import type { ManagedRuntime } from "effect";
 
 import * as Auth from "./auth";
 import { MoviesClient } from "./movies-client";
@@ -100,3 +101,30 @@ export const start: (
 
   return login;
 });
+
+/** A pending device sign-in for code that does not use Effect. */
+export interface PendingDeviceLogin {
+  /** The short code the person types or confirms on the approval page. */
+  readonly userCode: string;
+  /** The approval page; render it as a QR code too. */
+  readonly verificationUrl: string;
+  /** When the server stops accepting approval; `complete` gives up shortly after. */
+  readonly expiresAt: EpochMillis;
+  /** Resolves once approved and signed in; rejects with `DeviceLoginRefused` when denied or expired. */
+  readonly complete: () => Promise<void>;
+}
+
+/** Starts a device sign-in on `runtime`, for the Promise and React entry points. */
+export const startOn = async (
+  runtime: ManagedRuntime.ManagedRuntime<MoviesClient | Auth.Auth, unknown>,
+  clientName: string,
+): Promise<PendingDeviceLogin> => {
+  const login = await runtime.runPromise(start(clientName));
+
+  return {
+    userCode: login.userCode,
+    verificationUrl: login.verificationUrl,
+    expiresAt: login.expiresAt,
+    complete: () => runtime.runPromise(login.complete),
+  };
+};

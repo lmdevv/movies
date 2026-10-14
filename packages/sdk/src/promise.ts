@@ -5,7 +5,6 @@
  */
 import type { CommandArgs, CommandName, CommandResult } from "@movies/contracts/commands";
 import type { DeviceId, RoomId } from "@movies/contracts/ids";
-import type { EpochMillis } from "@movies/contracts/units";
 import {
   Effect,
   Exit,
@@ -19,8 +18,9 @@ import {
 } from "effect";
 
 import * as Auth from "./auth";
-import type { AuthStatus } from "./auth";
+import type { AuthStatus, PasswordSignIn } from "./auth";
 import * as DeviceLogin from "./device-login";
+import type { PendingDeviceLogin } from "./device-login";
 import * as Movies from "./movies";
 import type { ActionName, MediaName, MutationName, QueryName } from "./movies-client";
 import { MoviesClient } from "./movies-client";
@@ -35,6 +35,7 @@ import type { KeyValueStore } from "./token-storage";
 
 /** Where to connect and where to keep the session. */
 export interface MoviesOptions {
+  /** The Convex deployment URL. */
   readonly convexUrl: string;
   /** The media service URL for `media` commands. */
   readonly mediaUrl?: string;
@@ -42,57 +43,56 @@ export interface MoviesOptions {
   readonly connection?: "websocket" | "http";
   /** Where the session's tokens live; memory when omitted. */
   readonly storage?: KeyValueStore;
-  /** The key the session is stored under. */
+  /** The key the session is stored under; `movies.session` when omitted. */
   readonly storageKey?: string;
 }
 
 /** Stops a subscription or a running workflow. */
 export type Stop = () => Promise<void>;
 
-/** A pending device sign-in. Show `userCode` and a QR code of `verificationUrl`. */
-export interface PendingDeviceLogin {
-  readonly userCode: string;
-  readonly verificationUrl: string;
-  readonly expiresAt: EpochMillis;
-  /** Resolves once approved and signed in; rejects with `DeviceLoginRefused` when denied or expired. */
-  readonly complete: () => Promise<void>;
-}
+export type { PasswordSignIn } from "./auth";
 
-/** Email and password sign-in or sign-up. */
-export interface PasswordSignIn {
-  readonly flow: "signIn" | "signUp";
-  readonly email: string;
-  readonly password: string;
-  readonly name?: string;
-  readonly inviteCode?: string;
-}
+export type { PendingDeviceLogin } from "./device-login";
 
 /** A running room engine. */
 export interface RoomSyncHandle {
+  /** The engine's state now. */
   readonly current: () => Promise<RoomSyncState>;
   /** Calls `listener` with the current state and every change; returns a function that stops. */
   readonly subscribe: (listener: (state: RoomSyncState) => void) => Stop;
+  /** Stops following the room and restores the player's rate. Resolves after `dispose` too. */
   readonly stop: Stop;
 }
 
 /** The SDK as Promises. */
 export interface MoviesSdk {
+  /** Runs a query command once. */
   readonly query: <Name extends QueryName>(
     name: Name,
     args: CommandArgs<Name>,
   ) => Promise<CommandResult<Name>>;
+  /**
+   * Runs a mutation command. When it rejects with `TransportError` it may still have run; read
+   * the state again before retrying.
+   */
   readonly mutate: <Name extends MutationName>(
     name: Name,
     args: CommandArgs<Name>,
   ) => Promise<CommandResult<Name>>;
+  /** Runs an action command, such as one that calls another service. */
   readonly action: <Name extends ActionName>(
     name: Name,
     args: CommandArgs<Name>,
   ) => Promise<CommandResult<Name>>;
+  /**
+   * Runs a media service command with the session's token. Rejects with `TransportError` when no
+   * `mediaUrl` was given.
+   */
   readonly media: <Name extends MediaName>(
     name: Name,
     args: CommandArgs<Name>,
   ) => Promise<CommandResult<Name>>;
+  /** Runs any command, choosing the transport by its kind. */
   readonly run: <Name extends CommandName>(
     name: Name,
     args: CommandArgs<Name>,
@@ -104,20 +104,38 @@ export interface MoviesSdk {
     onValue: (value: CommandResult<Name>) => void,
     onError: (error: Error) => void,
   ) => Stop;
+  /** Signing in and out. */
   readonly auth: {
+    /** The status now: `loading` until the stored session has been read. */
     readonly status: () => Promise<AuthStatus>;
+    /** Calls `listener` with the current status and every change. */
     readonly onStatus: (listener: (status: AuthStatus) => void) => Stop;
+    /**
+     * Signs in or up with email and password and stores the session. Rejects with
+     * `Unauthenticated` for wrong credentials, or `Forbidden` or `Conflict` for a sign-up without a
+     * valid invite.
+     */
     readonly signInWithPassword: (credentials: PasswordSignIn) => Promise<void>;
+    /** Signs in with a scoped API key. Rejects with `Unauthenticated` when the key is refused. */
     readonly signInWithApiKey: (key: string) => Promise<void>;
+    /** Starts a device sign-in named `clientName`, as the approving person will see it. */
     readonly startDeviceLogin: (clientName: string) => Promise<PendingDeviceLogin>;
+    /** Ends the session on the server when reachable, then forgets it locally. */
     readonly signOut: () => Promise<void>;
   };
+  /** Playback sessions. */
   readonly playback: {
+    /** Negotiates a stream for `request`. */
     readonly start: (request: Playback.PlaybackRequest) => Promise<Playback.Playback>;
     /** Reports progress until stopped; stopping ends the session. */
     readonly reportProgress: (playback: Playback.Playback, player: PlayerPort) => Promise<Stop>;
   };
+  /** Watch rooms. */
   readonly rooms: {
+    /**
+     * Keeps `player` on the room's shared timeline until stopped. Rejects when the room cannot be
+     * read.
+     */
     readonly sync: (
       roomId: RoomId,
       deviceId: DeviceId,
@@ -208,29 +226,10 @@ export const createMovies = (options: MoviesOptions): MoviesSdk => {
           () => undefined,
         ),
       signInWithPassword: (credentials) =>
-        auth((session) =>
-          session.signIn(
-            Auth.Credentials.Password({
-              flow: credentials.flow,
-              email: credentials.email,
-              password: Redacted.make(credentials.password),
-              name: Option.fromNullishOr(credentials.name),
-              inviteCode: Option.fromNullishOr(credentials.inviteCode),
-            }),
-          ),
-        ),
+        auth((session) => session.signIn(Auth.passwordCredentials(credentials))),
       signInWithApiKey: (key) =>
         auth((session) => session.signIn(Auth.Credentials.ApiKey({ key: Redacted.make(key) }))),
-      startDeviceLogin: async (clientName) => {
-        const login = await runtime.runPromise(DeviceLogin.start(clientName));
-
-        return {
-          userCode: login.userCode,
-          verificationUrl: login.verificationUrl,
-          expiresAt: login.expiresAt,
-          complete: () => runtime.runPromise(login.complete),
-        };
-      },
+      startDeviceLogin: (clientName) => DeviceLogin.startOn(runtime, clientName),
       signOut: () => auth((session) => session.signOut),
     },
     playback: {

@@ -59,6 +59,27 @@ export type Credentials = Data.TaggedEnum<{
 /** Constructors and matchers for `Credentials`. */
 export const Credentials = Data.taggedEnum<Credentials>();
 
+/** Email and password sign-in or sign-up as plain values, for the Promise and React entry points. */
+export interface PasswordSignIn {
+  readonly flow: "signIn" | "signUp";
+  readonly email: string;
+  readonly password: string;
+  /** The new account's display name, for `signUp`. */
+  readonly name?: string;
+  /** The invite to redeem, for `signUp` after the owner exists. */
+  readonly inviteCode?: string;
+}
+
+/** The `Password` credentials for `input`, with the password redacted. */
+export const passwordCredentials = (input: PasswordSignIn): Credentials =>
+  Credentials.Password({
+    flow: input.flow,
+    email: input.email,
+    password: Redacted.make(input.password),
+    name: Option.fromNullishOr(input.name),
+    inviteCode: Option.fromNullishOr(input.inviteCode),
+  });
+
 /** Signs in and out and supplies the session's current token. */
 export interface Interface {
   /** The current status, then every change. */
@@ -101,7 +122,7 @@ const decodeClaims = Schema.decodeUnknownOption(Schema.fromJsonString(JwtClaims)
 const EXPIRY_MARGIN_MS = 60_000;
 
 /** When `token` expires in epoch milliseconds, or none when it carries no readable `exp`. */
-export const tokenExpiry = (token: string): Option.Option<number> => {
+const tokenExpiry = (token: string): Option.Option<number> => {
   const [, payload] = token.split(".");
 
   if (payload === undefined) return Option.none();

@@ -8,7 +8,6 @@ import type { CommandArgs, CommandName, CommandResult } from "@movies/contracts/
 import type { DeviceId, RoomId } from "@movies/contracts/ids";
 import type { ConvexReactClient } from "convex/react";
 import { ConvexProvider } from "convex/react";
-import { makeFunctionReference } from "convex/server";
 import {
   Effect,
   Exit,
@@ -21,7 +20,6 @@ import {
   Scope,
   Stream,
 } from "effect";
-import type { Schema } from "effect";
 import type { ReactNode } from "react";
 import {
   createContext,
@@ -34,10 +32,11 @@ import {
 } from "react";
 
 import * as Auth from "./auth";
-import type { AuthStatus } from "./auth";
+import type { AuthStatus, PasswordSignIn } from "./auth";
 import * as ConvexTransport from "./convex-transport";
-import type { AuthTokenSource, ClientAdapter, WireArgs } from "./convex-transport";
+import type { AuthTokenSource, ClientAdapter } from "./convex-transport";
 import * as DeviceLogin from "./device-login";
+import type { PendingDeviceLogin } from "./device-login";
 import type { PlaybackCallError } from "./media-http";
 import * as Movies from "./movies";
 import type { QueryName } from "./movies-client";
@@ -60,21 +59,9 @@ const RuntimeContext = createContext<Runtime | null>(null);
 
 /** Adapts the app's React client; the app owns it, so closing the SDK leaves it open. */
 const reactAdapter = (client: ConvexReactClient): ClientAdapter => ({
-  call: (kind, path, args) => {
-    if (kind === "query")
-      return client.query(makeFunctionReference<"query", WireArgs, Schema.Json>(path), args);
-
-    if (kind === "mutation") {
-      return client.mutation(makeFunctionReference<"mutation", WireArgs, Schema.Json>(path), args);
-    }
-
-    return client.action(makeFunctionReference<"action", WireArgs, Schema.Json>(path), args);
-  },
+  call: (kind, path, args) => ConvexTransport.callByKind(client, kind, path, args),
   subscribe: (path, args, onValue, onError) => {
-    const watch = client.watchQuery(
-      makeFunctionReference<"query", WireArgs, Schema.Json>(path),
-      args,
-    );
+    const watch = client.watchQuery(ConvexTransport.reference("query", path), args);
 
     const read = (): void => {
       try {
@@ -107,6 +94,7 @@ export interface MoviesProviderProps {
   readonly mediaUrl?: string;
   /** Where the session lives, such as `window.localStorage`. */
   readonly storage: KeyValueStore;
+  /** The key the session is stored under; `movies.session` when omitted. */
   readonly storageKey?: string;
   readonly children: ReactNode;
 }
@@ -210,20 +198,18 @@ export const useCommand = <Name extends CommandName>(
 
 /** The session's sign-in state and the ways to change it. */
 export interface UseAuth {
+  /** `loading` until the stored session has been read, then whether someone is signed in. */
   readonly status: AuthStatus;
-  readonly signInWithPassword: (credentials: {
-    readonly flow: "signIn" | "signUp";
-    readonly email: string;
-    readonly password: string;
-    readonly name?: string;
-    readonly inviteCode?: string;
-  }) => Promise<void>;
+  /**
+   * Signs in or up with email and password and stores the session. Rejects with `Unauthenticated`
+   * for wrong credentials, or `Forbidden` or `Conflict` for a sign-up without a valid invite.
+   */
+  readonly signInWithPassword: (credentials: PasswordSignIn) => Promise<void>;
+  /** Signs in with a scoped API key. Rejects with `Unauthenticated` when the key is refused. */
   readonly signInWithApiKey: (key: string) => Promise<void>;
-  readonly startDeviceLogin: (clientName: string) => Promise<{
-    readonly userCode: string;
-    readonly verificationUrl: string;
-    readonly complete: () => Promise<void>;
-  }>;
+  /** Starts a device sign-in named `clientName`, as the approving person will see it. */
+  readonly startDeviceLogin: (clientName: string) => Promise<PendingDeviceLogin>;
+  /** Ends the session on the server when reachable, then forgets it locally. */
   readonly signOut: () => Promise<void>;
 }
 
@@ -262,28 +248,10 @@ export const useAuth = (): UseAuth => {
     return {
       status,
       signInWithPassword: (credentials) =>
-        withAuth((auth) =>
-          auth.signIn(
-            Auth.Credentials.Password({
-              flow: credentials.flow,
-              email: credentials.email,
-              password: Redacted.make(credentials.password),
-              name: Option.fromNullishOr(credentials.name),
-              inviteCode: Option.fromNullishOr(credentials.inviteCode),
-            }),
-          ),
-        ),
+        withAuth((auth) => auth.signIn(Auth.passwordCredentials(credentials))),
       signInWithApiKey: (key) =>
         withAuth((auth) => auth.signIn(Auth.Credentials.ApiKey({ key: Redacted.make(key) }))),
-      startDeviceLogin: async (clientName) => {
-        const login = await runtime.runPromise(DeviceLogin.start(clientName));
-
-        return {
-          userCode: login.userCode,
-          verificationUrl: login.verificationUrl,
-          complete: () => runtime.runPromise(login.complete),
-        };
-      },
+      startDeviceLogin: (clientName) => DeviceLogin.startOn(runtime, clientName),
       signOut: () => withAuth((auth) => auth.signOut),
     };
   }, [runtime, status]);
