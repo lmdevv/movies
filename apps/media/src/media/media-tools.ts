@@ -2,6 +2,8 @@
  * Runs ffprobe and ffmpeg through Effect's `ChildProcessSpawner`. Arguments are always built by
  * this service's callers from server-side state; nothing here accepts client-supplied arguments.
  */
+import { setPriority } from "node:os";
+
 import { Context, Effect, Fiber, Layer, Ref, type Scope, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
@@ -40,6 +42,13 @@ export interface Interface {
   /** Runs ffmpeg to completion and returns its standard output. */
   readonly ffmpeg: (args: ReadonlyArray<string>) => Effect.Effect<string, MediaToolFailed>;
   /**
+   * Runs ffmpeg to completion at the lowest CPU priority, for background work such as scrub
+   * thumbnails that must never slow down playback.
+   */
+  readonly ffmpegInBackground: (
+    args: ReadonlyArray<string>,
+  ) => Effect.Effect<string, MediaToolFailed>;
+  /**
    * Starts ffmpeg in the current scope. Closing the scope kills the whole process group with
    * `SIGKILL`; its output is disposable.
    */
@@ -52,6 +61,9 @@ export interface Interface {
 export class Service extends Context.Service<Service, Interface>()("@movies/media/MediaTools") {}
 
 const STDERR_TAIL = 4096;
+
+/** The nicest CPU priority on Unix systems. */
+const LOWEST_PRIORITY = 19;
 
 /** Replaces absolute paths that appear in the arguments, so diagnostics do not leak them. */
 const scrubPaths = (text: string, args: ReadonlyArray<string>): string =>
@@ -99,6 +111,7 @@ const make = Effect.gen(function* () {
     tool: "ffmpeg" | "ffprobe",
     args: ReadonlyArray<string>,
     killSignal: "SIGKILL" | "SIGTERM",
+    background = false,
   ) {
     const failed = (exitCode: number | null, stderr: string, cause: unknown) =>
       new MediaToolFailed({ tool, exitCode, stderr: scrubPaths(stderr, args), cause });
@@ -117,6 +130,10 @@ const make = Effect.gen(function* () {
     const handle = yield* spawner
       .spawn(command)
       .pipe(Effect.mapError((cause) => failed(null, "", cause)));
+
+    // Lowering a child's priority needs no privileges; a platform that refuses runs it as is.
+    if (background)
+      yield* Effect.try(() => setPriority(handle.pid, LOWEST_PRIORITY)).pipe(Effect.ignore);
 
     const stderr = yield* Ref.make("");
 
@@ -158,9 +175,9 @@ const make = Effect.gen(function* () {
     };
   });
 
-  const runToCompletion = (tool: "ffmpeg" | "ffprobe") =>
+  const runToCompletion = (tool: "ffmpeg" | "ffprobe", background: boolean) =>
     Effect.fn(`MediaTools.${tool}`)(function* (args: ReadonlyArray<string>) {
-      const running = yield* spawn(tool, args, "SIGKILL");
+      const running = yield* spawn(tool, args, "SIGKILL", background);
 
       return yield* running.exit;
     }, Effect.scoped);
@@ -176,8 +193,9 @@ const make = Effect.gen(function* () {
   });
 
   return Service.of({
-    ffprobe: runToCompletion("ffprobe"),
-    ffmpeg: runToCompletion("ffmpeg"),
+    ffprobe: runToCompletion("ffprobe", false),
+    ffmpeg: runToCompletion("ffmpeg", false),
+    ffmpegInBackground: runToCompletion("ffmpeg", true),
     startFfmpeg,
   });
 });

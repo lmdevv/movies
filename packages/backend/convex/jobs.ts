@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { fail } from "./lib/errors";
+import { settleTrickplay } from "./lib/trickplay";
 import { presentJob } from "./lib/present";
 import { job, jobKind, jobStatus, ok } from "./lib/validators";
 import { authorize } from "./lib/viewer";
@@ -119,6 +120,7 @@ export const cancel = mutation({
 
     if (doc.status === "pending" || doc.status === "running") {
       await ctx.db.patch(jobId, { status: "cancelled", finishedAt: Date.now() });
+      await settleTrickplay(ctx, doc, "cancelled");
     }
 
     return { ok: true as const };

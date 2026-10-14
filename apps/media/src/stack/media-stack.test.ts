@@ -20,10 +20,22 @@ import {
   NegotiateResponse,
 } from "@movies/contracts/media-playback";
 import type { StartedPlayback } from "@movies/contracts/models/playback";
+import { trickplayManifestUrl, trickplaySheetUrl } from "@movies/contracts/trickplay";
 import { Milliseconds } from "@movies/contracts/units";
 import type { Movies } from "@movies/sdk/effect";
 import { Auth, ConvexTransport, MoviesClient } from "@movies/sdk/effect";
-import { Context, Effect, Exit, Fiber, Option, Redacted, Schema, Scope, Stream } from "effect";
+import {
+  Context,
+  Effect,
+  Exit,
+  Fiber,
+  Option,
+  Redacted,
+  Schedule,
+  Schema,
+  Scope,
+  Stream,
+} from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { ffmpegAvailable, generateFixtureLibrary } from "../testing/fixture-library.ts";
@@ -360,6 +372,87 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
       } finally {
         await removeDir(outside);
       }
+    });
+
+    it("reads chapters and makes scrub thumbnails, served only with the file's token", async () => {
+      const begin = performance.now();
+
+      const movie = await asOwner(
+        Effect.gen(function* () {
+          const found = yield* titleIn(moviesLibrary, "Big Buck Fixture");
+
+          return (found.files[0]?.trickplay ?? null) === null
+            ? yield* Effect.fail("not yet")
+            : found;
+        }).pipe(Effect.retry({ schedule: Schedule.spaced("500 millis"), times: 120 })),
+      );
+
+      timings["trickplayAfterScanMs"] = Math.round(performance.now() - begin);
+
+      const [file] = movie.files;
+      const manifest = file?.trickplay ?? null;
+
+      if (file === undefined || manifest === null) throw new Error("No thumbnails were recorded");
+
+      expect(file.probe.chapters).toStrictEqual([
+        { startMs: 0, endMs: 5_000, title: "Opening" },
+        { startMs: 5_000, endMs: 12_000, title: "Credits" },
+      ]);
+      expect(manifest).toMatchObject({
+        intervalMs: 10_000,
+        tileWidth: 320,
+        tileHeight: 180,
+        thumbnailCount: 2,
+        sheetCount: 1,
+      });
+
+      const started = await asOwner(startSession(movie.id, "trickplay"));
+      const sheet = trickplaySheetUrl(mediaUrl, file.id, manifest, 0, started.token);
+      const response = await fetch(sheet);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("image/jpeg");
+      expect(response.headers.get("cache-control")).toContain("immutable");
+      expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(1000);
+
+      const stored = await fetch(
+        trickplayManifestUrl(mediaUrl, file.id, manifest.version, started.token),
+      );
+
+      expect(await stored.json()).toStrictEqual(manifest);
+
+      // Without a token, with another file's token, or for another version, nothing is served.
+      const other = await asOwner(titleIn(moviesLibrary, "Remux Fixture"));
+      const otherStarted = await asOwner(startSession(other.id, "trickplay-other"));
+
+      expect((await fetch(sheet.replace(/\?token=.*$/u, ""))).status).toBe(401);
+      expect(
+        (await fetch(trickplaySheetUrl(mediaUrl, file.id, manifest, 0, otherStarted.token))).status,
+      ).toBe(403);
+      expect(
+        (await fetch(trickplaySheetUrl(mediaUrl, file.id, { version: "0-0" }, 0, started.token)))
+          .status,
+      ).toBe(404);
+      expect(
+        (
+          await fetch(
+            trickplaySheetUrl(mediaUrl, file.id, manifest, manifest.sheetCount, started.token),
+          )
+        ).status,
+      ).toBe(404);
+
+      const jobs = await asOwner(
+        Effect.flatMap(client, (movies) =>
+          movies.query("jobs.list", { kind: "trickplay", status: "succeeded", limit: 100 }),
+        ),
+      );
+
+      const job = jobs.find(
+        (candidate) =>
+          candidate.payload.kind === "trickplay" && candidate.payload.fileId === file.id,
+      );
+
+      expect(job?.progress.message).toMatch(/^2 thumbnails on 1 sheet in [\d.]+ s$/u);
     });
 
     it("plays a compatible file directly with byte ranges", async () => {

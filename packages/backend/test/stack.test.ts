@@ -100,8 +100,9 @@ const DURATION_MS = 600_000;
 
 type Encoded<Item> = Item extends { readonly Encoded: infer E } ? E : never;
 
-/** Rich fields a rescan adds to a fixture title or episode. */
+/** Rich fields a rescan adds to a fixture title or episode, and the file's size. */
 interface ScanExtras {
+  readonly sizeBytes?: number;
   readonly title?: Partial<Encoded<typeof ScannedTitleSchema>>;
   readonly episode?: Partial<Encoded<typeof ScannedEpisodeSchema>>;
 }
@@ -120,7 +121,7 @@ const scanned = (
   decodeItem({
     file: {
       path,
-      sizeBytes: 1_000_000,
+      sizeBytes: extras.sizeBytes ?? 1_000_000,
       mtimeMs: 1_760_000_000_000,
       probe: {
         container: "mp4",
@@ -906,6 +907,337 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       ).toBe("forbidden");
 
       await service(fixture.mediaService, "mediaService.completeJob", { jobId, workerId: worker });
+    });
+
+    it("queues scrub thumbnails for new and changed files and records them", async () => {
+      const library = await run(fixture.owner, "libraries.create", {
+        name: `Thumbnails ${id}`,
+        kind: "movies",
+        roots: [`/stack-${id}/thumbnails`],
+      });
+
+      const name = `Scrubbed thumbs${id}`;
+      const path = `/stack-${id}/thumbnails/a.mp4`;
+      const original = scanned(path, { kind: "movie", name, ageRating: 0 }, null);
+
+      const changed = scanned(path, { kind: "movie", name, ageRating: 0 }, null, {
+        sizeBytes: 2_000_000,
+      });
+
+      const upsert = (item: ScannedItem) =>
+        service(fixture.mediaService, "mediaService.upsertScanned", {
+          libraryId: library.libraryId,
+          items: [item],
+        });
+
+      const [upserted] = await upsert(original);
+
+      if (upserted === undefined) throw new Error("The scan wrote no file");
+      const { fileId } = upserted;
+
+      const fileOf = async () => {
+        const title = await titleNamed(fixture.owner, fixture.ownerProfile, name);
+
+        const detail = await run(fixture.owner, "titles.get", {
+          profileId: fixture.ownerProfile,
+          titleId: title.id,
+        });
+
+        return detail.files.find((file) => file.id === fileId);
+      };
+
+      const queuedFor = async () =>
+        (
+          await run(fixture.owner, "jobs.list", {
+            kind: "trickplay",
+            status: "pending",
+            limit: 100,
+          })
+        )
+          .filter((job) => job.payload.kind === "trickplay" && job.payload.fileId === fileId)
+          .map((job) => job.id);
+
+      const [jobId] = await queuedFor();
+
+      if (jobId === undefined) throw new Error("No trickplay job was queued");
+
+      // The worker is shown the ten oldest thumbnail jobs; earlier runs on this stack leave theirs.
+      const stray = await run(fixture.owner, "jobs.list", {
+        kind: "trickplay",
+        status: "pending",
+        limit: 100,
+      });
+
+      await Promise.all(
+        stray.flatMap((job) =>
+          job.id === jobId ? [] : [run(fixture.owner, "jobs.cancel", { jobId: job.id })],
+        ),
+      );
+      expect((await fileOf())?.trickplay).toBeNull();
+      expect(
+        (await service(fixture.mediaService, "mediaService.pendingJobs", {})).map((job) => job.id),
+      ).toContain(jobId);
+
+      // An unchanged rescan queues nothing more.
+      await upsert(original);
+      expect(await queuedFor()).toStrictEqual([jobId]);
+
+      const worker = `thumbnailer-${id}`;
+
+      const manifest = {
+        version: "lfls-pbf7ksg0",
+        intervalMs: 10_000,
+        tileWidth: 320,
+        tileHeight: 180,
+        columns: 10,
+        rows: 10,
+        thumbnailCount: 60,
+        sheetCount: 1,
+      };
+
+      await service(fixture.mediaService, "mediaService.claimJob", {
+        jobId,
+        workerId: worker,
+        leaseMs: 60_000,
+      });
+      await service(fixture.mediaService, "mediaService.recordTrickplay", {
+        jobId,
+        workerId: worker,
+        fileId,
+        sizeBytes: Bytes.make(1_000_000),
+        mtimeMs: EpochMillis.make(1_760_000_000_000),
+        manifest,
+      });
+      await service(fixture.mediaService, "mediaService.completeJob", { jobId, workerId: worker });
+
+      expect((await fileOf())?.trickplay).toStrictEqual(manifest);
+      expect(
+        await service(fixture.mediaService, "mediaService.trickplayVersions", {
+          fileIds: [fileId, "not-a-file"],
+        }),
+      ).toStrictEqual([
+        { fileId, version: manifest.version },
+        { fileId: "not-a-file", version: null },
+      ]);
+      await upsert(original);
+      expect(await queuedFor()).toStrictEqual([]);
+
+      // A changed file is queued again, and its old thumbnails stop showing.
+      await upsert(changed);
+      const [again] = await queuedFor();
+
+      if (again === undefined) throw new Error("The changed file was not queued again");
+      expect((await fileOf())?.trickplay).toBeNull();
+
+      // A failed job is not retried by scans, only when an admin asks.
+      await service(fixture.mediaService, "mediaService.claimJob", {
+        jobId: again,
+        workerId: worker,
+        leaseMs: 60_000,
+      });
+      await service(fixture.mediaService, "mediaService.failJob", {
+        jobId: again,
+        workerId: worker,
+        error: "ffmpeg could not read the file",
+        retry: false,
+      });
+      await upsert(changed);
+      expect(await queuedFor()).toStrictEqual([]);
+
+      await run(fixture.owner, "libraries.generateTrickplay", { libraryId: library.libraryId });
+      await expect.poll(queuedFor, { timeout: 10_000 }).toHaveLength(1);
+
+      // Missing files forget their thumbnails, and libraries can opt out.
+      await service(fixture.mediaService, "mediaService.markMissing", {
+        libraryId: library.libraryId,
+        paths: [original.file.path],
+      });
+      expect(
+        await service(fixture.mediaService, "mediaService.trickplayVersions", {
+          fileIds: [fileId],
+        }),
+      ).toStrictEqual([{ fileId, version: null }]);
+
+      const off = await run(fixture.owner, "libraries.update", {
+        libraryId: library.libraryId,
+        trickplay: false,
+      });
+
+      expect(off.trickplay).toBe(false);
+
+      const [unscrubbed] = await upsert(
+        scanned(
+          `/stack-${id}/thumbnails/b.mp4`,
+          { kind: "movie", name: `Unscrubbed thumbs${id}`, ageRating: 0 },
+          null,
+        ),
+      );
+
+      const pending = await run(fixture.owner, "jobs.list", {
+        kind: "trickplay",
+        status: "pending",
+        limit: 100,
+      });
+
+      expect(unscrubbed).toBeDefined();
+      expect(
+        pending.filter(
+          (job) => job.payload.kind === "trickplay" && job.payload.fileId === unscrubbed?.fileId,
+        ),
+      ).toStrictEqual([]);
+    });
+
+    it("replaces thumbnail jobs for old contents and cancels the ones nobody needs", async () => {
+      const library = await run(fixture.owner, "libraries.create", {
+        name: `Thumbnail jobs ${id}`,
+        kind: "movies",
+        roots: [`/stack-${id}/thumbnail-jobs`],
+      });
+
+      const item = (name: string, sizeBytes = 1_000_000) =>
+        scanned(
+          `/stack-${id}/thumbnail-jobs/${name}.mp4`,
+          { kind: "movie", name: `${name} jobs${id}`, ageRating: 0 },
+          null,
+          { sizeBytes },
+        );
+
+      const upsert = async (scannedItem: ScannedItem) => {
+        const [upserted] = await service(fixture.mediaService, "mediaService.upsertScanned", {
+          libraryId: library.libraryId,
+          items: [scannedItem],
+        });
+
+        if (upserted === undefined) throw new Error("The scan wrote no file");
+
+        return upserted.fileId;
+      };
+
+      const jobsOf = async (fileId: string) =>
+        (await run(fixture.owner, "jobs.list", { kind: "trickplay", limit: 100 }))
+          .filter((job) => job.payload.kind === "trickplay" && job.payload.fileId === fileId)
+          .map((job) => job.status);
+
+      // A file that changes while its job waits gets a new job; the old one is cancelled.
+      const changing = await upsert(item("Changing"));
+
+      await upsert(item("Changing", 2_000_000));
+      expect((await jobsOf(changing)).toSorted()).toStrictEqual(["cancelled", "pending"]);
+
+      // A file that goes missing cancels its job.
+      await service(fixture.mediaService, "mediaService.markMissing", {
+        libraryId: library.libraryId,
+        paths: [item("Changing").file.path],
+      });
+      expect(await jobsOf(changing)).toStrictEqual(["cancelled", "cancelled"]);
+
+      // Turning thumbnails off cancels the library's queued jobs.
+      const queued = await upsert(item("Queued"));
+
+      await run(fixture.owner, "libraries.update", {
+        libraryId: library.libraryId,
+        trickplay: false,
+      });
+      await expect.poll(() => jobsOf(queued), { timeout: 10_000 }).toStrictEqual(["cancelled"]);
+
+      // A job that made thumbnails of other contents than the catalog has records nothing.
+      await run(fixture.owner, "libraries.update", {
+        libraryId: library.libraryId,
+        trickplay: true,
+      });
+      const raced = await upsert(item("Raced"));
+
+      const racedJob = (
+        await run(fixture.owner, "jobs.list", { kind: "trickplay", status: "pending", limit: 100 })
+      ).find((job) => job.payload.kind === "trickplay" && job.payload.fileId === raced);
+
+      if (racedJob === undefined) throw new Error("No job was queued for the raced file");
+      const worker = `racer-${id}`;
+
+      const manifest = {
+        version: "abc-def",
+        intervalMs: 10_000,
+        tileWidth: 320,
+        tileHeight: 180,
+        columns: 10,
+        rows: 10,
+        thumbnailCount: 60,
+        sheetCount: 1,
+      };
+
+      await service(fixture.mediaService, "mediaService.claimJob", {
+        jobId: racedJob.id,
+        workerId: worker,
+        leaseMs: 60_000,
+      });
+      await service(fixture.mediaService, "mediaService.recordTrickplay", {
+        jobId: racedJob.id,
+        workerId: worker,
+        fileId: raced,
+        sizeBytes: Bytes.make(3_000_000),
+        mtimeMs: EpochMillis.make(1_760_000_000_000),
+        manifest,
+      });
+      expect(
+        await service(fixture.mediaService, "mediaService.trickplayVersions", { fileIds: [raced] }),
+      ).toStrictEqual([{ fileId: raced, version: null }]);
+      await service(fixture.mediaService, "mediaService.completeJob", {
+        jobId: racedJob.id,
+        workerId: worker,
+      });
+
+      // Thumbnails of a file's old contents never show, even where nothing queues new ones.
+      const redone = await upsert(item("Raced"));
+
+      const redoneJob = (
+        await run(fixture.owner, "jobs.list", { kind: "trickplay", status: "pending", limit: 100 })
+      ).find((job) => job.payload.kind === "trickplay" && job.payload.fileId === redone);
+
+      if (redoneJob === undefined) throw new Error("The raced file was not queued again");
+      await service(fixture.mediaService, "mediaService.claimJob", {
+        jobId: redoneJob.id,
+        workerId: worker,
+        leaseMs: 60_000,
+      });
+      await service(fixture.mediaService, "mediaService.recordTrickplay", {
+        jobId: redoneJob.id,
+        workerId: worker,
+        fileId: redone,
+        sizeBytes: Bytes.make(1_000_000),
+        mtimeMs: EpochMillis.make(1_760_000_000_000),
+        manifest,
+      });
+      await service(fixture.mediaService, "mediaService.completeJob", {
+        jobId: redoneJob.id,
+        workerId: worker,
+      });
+      expect(
+        await service(fixture.mediaService, "mediaService.trickplayVersions", {
+          fileIds: [redone],
+        }),
+      ).toStrictEqual([{ fileId: redone, version: "abc-def" }]);
+
+      await run(fixture.owner, "libraries.update", {
+        libraryId: library.libraryId,
+        trickplay: false,
+      });
+      await upsert(item("Raced", 4_000_000));
+      expect(
+        await service(fixture.mediaService, "mediaService.trickplayVersions", {
+          fileIds: [redone],
+        }),
+      ).toStrictEqual([{ fileId: redone, version: null }]);
+
+      // Removing the library cancels the jobs of its files.
+      await run(fixture.owner, "libraries.update", {
+        libraryId: library.libraryId,
+        trickplay: true,
+      });
+      const removed = await upsert(item("Removed"));
+
+      expect(await jobsOf(removed)).toStrictEqual(["pending"]);
+      await run(fixture.owner, "libraries.remove", { libraryId: library.libraryId });
+      await expect.poll(() => jobsOf(removed), { timeout: 10_000 }).toStrictEqual(["cancelled"]);
     });
 
     it("refuses files outside the library's folders", async () => {

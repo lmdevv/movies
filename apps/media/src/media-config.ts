@@ -1,10 +1,21 @@
 /** Runtime configuration of the media service, read once from the environment at startup. */
 import { isAbsolute, resolve } from "node:path";
 
+import { DEFAULT_TRICKPLAY_INTERVAL_SECONDS } from "@movies/contracts/trickplay";
 import { Config, Context, Duration, Effect, Layer, Option, type Redacted, Schema } from "effect";
 
 /** How the service may use the GPU for video transcoding. */
 type HardwareAccelerationMode = "auto" | "qsv" | "none";
+
+/** Scrub thumbnail generation. */
+interface TrickplaySettings {
+  /** Whether `trickplay` jobs make thumbnails; when off they fail with a message saying so. */
+  readonly enabled: boolean;
+  /** Time between thumbnails. */
+  readonly interval: Duration.Duration;
+  /** Files whose thumbnails are made at once, besides the other jobs. */
+  readonly concurrency: number;
+}
 
 /** Typed media service settings. */
 export interface Interface {
@@ -59,6 +70,7 @@ export interface Interface {
   readonly minFreeTranscodeBytes: number;
   /** Interval of the authoritative library reconciliation that backs up file watching. */
   readonly reconcileInterval: Duration.Duration;
+  readonly trickplay: TrickplaySettings;
   readonly ffmpegPath: string;
   readonly ffprobePath: string;
 }
@@ -69,6 +81,9 @@ export class Service extends Context.Service<Service, Interface>()("@movies/medi
 const MEBIBYTE = 1024 * 1024;
 
 const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0));
+
+/** One thumbnail a second at most, one every ten minutes at least. */
+const TrickplayIntervalSeconds = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 600 }));
 
 const absolute = (path: string): string => (isAbsolute(path) ? path : resolve(path));
 
@@ -141,6 +156,19 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
       Config.withDefault(360),
     );
 
+    const trickplay = yield* Config.Literals(["on", "off"], "TRICKPLAY").pipe(
+      Config.withDefault("on"),
+    );
+
+    const trickplayIntervalSeconds = yield* Config.schema(
+      TrickplayIntervalSeconds,
+      "TRICKPLAY_INTERVAL_SECONDS",
+    ).pipe(Config.withDefault(DEFAULT_TRICKPLAY_INTERVAL_SECONDS));
+
+    const trickplayConcurrency = yield* Config.schema(PositiveInt, "TRICKPLAY_CONCURRENCY").pipe(
+      Config.withDefault(1),
+    );
+
     const ffmpegPath = yield* Config.NonEmptyString("FFMPEG_PATH").pipe(
       Config.withDefault("ffmpeg"),
     );
@@ -175,6 +203,11 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
       streamBufferAhead: Duration.seconds(streamBufferAheadSeconds),
       minFreeTranscodeBytes: minFreeTranscodeMb * MEBIBYTE,
       reconcileInterval: Duration.minutes(reconcileMinutes),
+      trickplay: {
+        enabled: trickplay === "on",
+        interval: Duration.seconds(trickplayIntervalSeconds),
+        concurrency: trickplayConcurrency,
+      },
       ffmpegPath,
       ffprobePath,
     });

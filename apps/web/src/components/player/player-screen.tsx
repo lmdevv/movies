@@ -15,6 +15,7 @@ import type { Room } from "@movies/contracts/models/rooms";
 import { EpochMillis, Milliseconds } from "@movies/contracts/units";
 import { Playback } from "@movies/sdk/effect";
 import { useCommand, useCommandQuery, useMoviesRuntime, useRoomSync } from "@movies/sdk/react";
+import { ChapterPopover } from "@movies/ui/components/chapter-popover";
 import { CommandMenu } from "@movies/ui/components/command-menu";
 import { PlayerButton, PlayerControls, TracksGlyph } from "@movies/ui/components/player-controls";
 import { RoomPanel } from "@movies/ui/components/room-panel";
@@ -24,7 +25,7 @@ import { useKeymap } from "@movies/ui/lib/use-keymap";
 import { cn } from "@movies/ui/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
 import { Effect, Fiber, Result, Stream } from "effect";
-import { ArrowLeftIcon, InfoIcon } from "lucide-react";
+import { ArrowLeftIcon, InfoIcon, ListVideoIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -42,6 +43,7 @@ import { volumeIsSettable } from "@/playback/browser-support";
 import { PlaybackPhase, StartChoice } from "@/playback/playback-controller";
 import type { PlaybackRequest } from "@/playback/playback-controller";
 import { PlaybackStop } from "@/playback/playback-policy";
+import { chapterAt, useScrubbing } from "@/playback/scrubbing";
 import { useMediaState, usePlayback } from "@/playback/use-playback";
 import { useActiveProfile } from "@/session/guards";
 import { useScopes } from "@/session/viewer";
@@ -81,6 +83,9 @@ const BUFFER_TARGET_SECONDS = 4;
 
 /** A stall shorter than this shows no buffering ring. */
 const BUFFERING_GRACE_MS = 400;
+
+/** How long a keyboard seek shows its thumbnail. */
+const KEY_PREVIEW_MS = 1_200;
 
 /** The volume keys move by this much. */
 const VOLUME_STEP = 0.1;
@@ -170,6 +175,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   const [countdown, setCountdown] = useState<number | null>(null);
   const [brightness, setBrightness] = useState(1);
   const [scrub, setScrub] = useState<number | null>(null);
+  const [keyPreview, setKeyPreview] = useState<number | null>(null);
   const [menuQuery, setMenuQuery] = useState("");
   const [startDialog, setStartDialog] = useState<{ readonly roomId: RoomId | null } | null>(null);
   const [wantsTogether, setWantsTogether] = useState(together);
@@ -281,6 +287,29 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
     (by: number) => seekTo(media.positionSeconds + by),
     [seekTo, media.positionSeconds],
   );
+
+  const scrubbing = useScrubbing(started);
+  const preloadThumbnails = scrubbing.preload;
+  const keyPreviewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // A keyboard seek shows where it landed on the scrubber for a moment.
+  const skipByKey = useCallback(
+    (by: number) => {
+      if (!controlsTimeline) return;
+      const target = Math.max(0, Math.min(duration, media.positionSeconds + by));
+
+      skip(by);
+      preloadThumbnails();
+      setKeyPreview(target);
+      clearTimeout(keyPreviewTimer.current);
+      keyPreviewTimer.current = setTimeout(() => setKeyPreview(null), KEY_PREVIEW_MS);
+    },
+    [controlsTimeline, duration, media.positionSeconds, skip, preloadThumbnails],
+  );
+
+  useEffect(() => () => clearTimeout(keyPreviewTimer.current), []);
+
+  const currentChapter = chapterAt(scrubbing.chapters, media.positionSeconds);
 
   const togglePlay = useCallback(() => {
     if (player === null || video === null || !controlsTimeline) return;
@@ -537,10 +566,10 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       "menu.toggle": () => setMenu((open) => !open),
       "player.toggle": togglePlay,
       "player.toggle-k": togglePlay,
-      "player.back-10": () => skip(-10),
-      "player.forward-10": () => skip(10),
-      "player.back-5": () => skip(-5),
-      "player.forward-5": () => skip(5),
+      "player.back-10": () => skipByKey(-10),
+      "player.forward-10": () => skipByKey(10),
+      "player.back-5": () => skipByKey(-5),
+      "player.forward-5": () => skipByKey(5),
       "player.volume-up": () => setVolume((video?.volume ?? 1) + VOLUME_STEP),
       "player.volume-down": () => setVolume((video?.volume ?? 1) - VOLUME_STEP),
       "player.fullscreen": toggleFullscreen,
@@ -640,6 +669,23 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       onSubtitleChange={selectSubtitle}
     />
   );
+
+  const chapterMenu = (trigger: React.ReactElement) => (
+    <ChapterPopover
+      trigger={trigger}
+      container={fullscreen ? frame : undefined}
+      chapters={scrubbing.chapters}
+      currentId={currentChapter?.id ?? null}
+      onSelect={(chapter) => seekTo(chapter.startSeconds)}
+    />
+  );
+
+  const scrubProps = {
+    describe: scrubbing.describe,
+    chapters: scrubbing.chapterStarts,
+    preview: keyPreview,
+    onPreviewStart: scrubbing.preload,
+  };
 
   const center = (() => {
     const stopped = PlaybackPhase.$is("Stopped")(phase) ? phase.stop : null;
@@ -851,6 +897,16 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
               <TracksGlyph />
             </PlayerButton>,
           )}
+          chapterList={
+            scrubbing.chapters.length === 0 || guest
+              ? undefined
+              : chapterMenu(
+                  <PlayerButton aria-label="Chapters">
+                    <ListVideoIcon strokeWidth={1.75} aria-hidden />
+                  </PlayerButton>,
+                )
+          }
+          scrub={scrubProps}
           onPlayPause={togglePlay}
           onSeek={(seconds) => setScrub(seconds)}
           onSeekCommit={seekTo}
@@ -897,11 +953,23 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
                       label={audioOptions.find((option) => option.id === audioId)?.label ?? "Audio"}
                     />,
                   )}
+              {scrubbing.chapters.length === 0 || guest
+                ? null
+                : chapterMenu(
+                    <TrackPill
+                      icon="chapters"
+                      label={currentChapter?.title ?? "Chapters"}
+                      aria-label={`Chapters: ${currentChapter?.title ?? "none playing"}`}
+                    />,
+                  )}
             </>
           }
           onClose={backToDetails}
           onPlayPause={togglePlay}
           onSkip={skip}
+          onSeek={(seconds) => setScrub(seconds)}
+          onSeekCommit={seekTo}
+          scrub={scrubProps}
           onBrightness={setBrightness}
           onVolume={setVolume}
           onRoom={inRoom ? undefined : openStartRoom}

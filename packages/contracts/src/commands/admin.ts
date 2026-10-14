@@ -60,7 +60,7 @@ export const libraryCommands = {
     function: "libraries:create",
   }),
   "libraries.update": mutation({
-    summary: "Rename a library or change its folders or access",
+    summary: "Rename a library or change its folders, access, or scrub thumbnails",
     group: "libraries",
     scope: "manage",
     args: Schema.Struct({
@@ -68,6 +68,8 @@ export const libraryCommands = {
       name: Schema.optionalKey(DisplayName),
       roots: Schema.optionalKey(Roots),
       access: Schema.optionalKey(LibraryAccess),
+      /** Whether scans queue scrub thumbnails for new and changed files. */
+      trickplay: Schema.optionalKey(Schema.Boolean),
     }),
     result: LibraryDetail,
     function: "libraries:update",
@@ -109,6 +111,14 @@ export const libraryCommands = {
     args: Schema.Struct({ libraryId: LibraryId, mode: Schema.optionalKey(ScanMode) }),
     result: QueuedJob,
     function: "libraries:scan",
+  }),
+  "libraries.generateTrickplay": mutation({
+    summary: "Generate scrub thumbnails for every file in a library that has none",
+    group: "libraries",
+    scope: "manage",
+    args: Schema.Struct({ libraryId: LibraryId }),
+    result: Ok,
+    function: "libraries:generateTrickplay",
   }),
   "jobs.list": query({
     summary: "List recent background jobs",

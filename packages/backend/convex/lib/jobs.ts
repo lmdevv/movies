@@ -57,10 +57,13 @@ export const enqueueJob = async (
     finishedAt: null,
   };
 
-  return ctx.db.insert(
-    "jobs",
-    payload.kind === "scan" ? { ...job, libraryId: payload.libraryId } : job,
-  );
+  if (payload.kind === "scan")
+    return ctx.db.insert("jobs", { ...job, libraryId: payload.libraryId });
+
+  if (payload.kind === "trickplay")
+    return ctx.db.insert("jobs", { ...job, fileId: payload.fileId });
+
+  return ctx.db.insert("jobs", job);
 };
 
 /**

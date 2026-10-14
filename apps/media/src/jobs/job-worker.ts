@@ -45,6 +45,11 @@ export class JobFailed extends Schema.TaggedError<JobFailed>()("JobFailed", {
 export interface JobHandler {
   readonly kind: JobKind;
   /**
+   * Jobs of this kind run in their own slots, this many at once, instead of sharing the worker's
+   * slots with other kinds; for long, low-priority work such as scrub thumbnails.
+   */
+  readonly concurrency?: number;
+  /**
    * Runs a claimed job and returns the message recorded when it succeeds. `workerId` holds the
    * lease, for functions that require it; `reportProgress` replaces what the next lease renewal
    * reports.
@@ -70,7 +75,7 @@ const LEASE_MS = 60_000;
 
 const RENEW_EVERY = Duration.seconds(15);
 
-/** Jobs run at the same time by one worker. */
+/** Jobs of kinds without their own slots run at the same time by one worker. */
 const MAX_RUNNING = 2;
 
 /** How often pending jobs are looked at again without a subscription update. */
@@ -86,7 +91,13 @@ const make = Effect.fn("JobWorker.make")(function* (handlers: ReadonlyArray<JobH
   const workerId = `${hostname()}:${String(process.pid)}:${suffix}`;
   const byKind = new Map(handlers.map((handler) => [handler.kind, handler]));
   const pending = yield* Ref.make<ReadonlyArray<Job>>([]);
-  const running = yield* Ref.make<ReadonlySet<JobId>>(new Set());
+  /** Running jobs and the slot pool each one holds: its kind's own, or the shared one. */
+  const running = yield* Ref.make<ReadonlyMap<JobId, JobKind | null>>(new Map());
+
+  /** The pool a kind runs in, and how many of its jobs may run at once. */
+  const poolOf = (handler: JobHandler): readonly [JobKind | null, number] =>
+    handler.concurrency === undefined ? [null, MAX_RUNNING] : [handler.kind, handler.concurrency];
+
   const wake = yield* Queue.sliding<void>(1);
 
   /** Renews the lease until the job is cancelled or the lease is lost. */
@@ -211,25 +222,28 @@ const make = Effect.fn("JobWorker.make")(function* (handlers: ReadonlyArray<JobH
     (effect, job) => effect.pipe(Effect.annotateLogs({ jobId: job.id, workerId })),
   );
 
-  /** Claims every pending job this worker can run, up to `MAX_RUNNING` at once. */
+  /** Claims every pending job this worker can run while its pool has a free slot. */
   const dispatch = Effect.gen(function* () {
     for (const job of yield* Ref.get(pending)) {
       const handler = byKind.get(job.kind);
 
       if (handler === undefined) continue;
+      const [pool, limit] = poolOf(handler);
 
-      const start = yield* Ref.modify(running, (current) =>
-        current.has(job.id) || current.size >= MAX_RUNNING
+      const start = yield* Ref.modify(running, (current) => {
+        const inPool = [...current.values()].filter((held) => held === pool).length;
+
+        return current.has(job.id) || inPool >= limit
           ? [false, current]
-          : [true, new Set(current).add(job.id)],
-      );
+          : [true, new Map(current).set(job.id, pool)];
+      });
 
       if (!start) continue;
 
       yield* runJob(job, handler).pipe(
         Effect.ensuring(
           Ref.update(running, (current) => {
-            const next = new Set(current);
+            const next = new Map(current);
             next.delete(job.id);
 
             return next;

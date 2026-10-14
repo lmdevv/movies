@@ -65,6 +65,16 @@ const EmbeddedSubtitle = Schema.Struct({
 /** One subtitle stream inside the media file. */
 interface EmbeddedSubtitle extends Schema.Schema.Type<typeof EmbeddedSubtitle> {}
 
+/** A chapter marker, in seconds from the start of the file. */
+const MediaChapter = Schema.Struct({
+  startSeconds: Schema.Finite,
+  endSeconds: Schema.Finite,
+  title: Schema.optional(Schema.String),
+});
+
+/** A chapter marker. */
+interface MediaChapter extends Schema.Schema.Type<typeof MediaChapter> {}
+
 /** What ffprobe found in a media file. */
 export const MediaProbe = Schema.Struct({
   container: Container,
@@ -78,6 +88,8 @@ export const MediaProbe = Schema.Struct({
   video: Schema.optional(VideoStream),
   audio: Schema.Array(AudioTrack),
   subtitles: Schema.Array(EmbeddedSubtitle),
+  /** Chapters in start order, measured from the first frame; empty when the file has none. */
+  chapters: Schema.Array(MediaChapter),
 });
 
 /** What ffprobe found in a media file. */
@@ -129,6 +141,14 @@ const FfprobeStream = Schema.Struct({
 
 type FfprobeStream = typeof FfprobeStream.Type;
 
+const FfprobeChapter = Schema.Struct({
+  start_time: Schema.optionalKey(Schema.String),
+  end_time: Schema.optionalKey(Schema.String),
+  tags: Schema.optionalKey(Schema.Struct({ title: Schema.optionalKey(Schema.String) })),
+});
+
+type FfprobeChapter = typeof FfprobeChapter.Type;
+
 const FfprobeOutput = Schema.Struct({
   format: Schema.Struct({
     format_name: Schema.String,
@@ -137,6 +157,7 @@ const FfprobeOutput = Schema.Struct({
     bit_rate: Schema.optionalKey(Schema.String),
   }),
   streams: Schema.Array(FfprobeStream),
+  chapters: Schema.optionalKey(Schema.Array(FfprobeChapter)),
 });
 
 const decodeFfprobeOutput = Schema.decodeUnknownEffect(Schema.fromJsonString(FfprobeOutput));
@@ -255,7 +276,39 @@ const toSubtitle = (stream: FfprobeStream): EmbeddedSubtitle => {
 };
 
 /**
- * Translates ffprobe's `-show_format -show_streams` JSON for the file at `path` into a
+ * Chapters as players use them: measured from the first frame, inside the file's length, in start
+ * order, and without empty ones (some muxers write a zero-length marker at the end).
+ */
+const toChapters = (
+  chapters: ReadonlyArray<FfprobeChapter>,
+  startSeconds: number,
+  durationSeconds: number,
+): ReadonlyArray<MediaChapter> =>
+  chapters
+    .flatMap((chapter) => {
+      const start = finiteOr(chapter.start_time, Number.NaN) - startSeconds;
+      const end = finiteOr(chapter.end_time, Number.NaN) - startSeconds;
+      const limit = durationSeconds > 0 ? durationSeconds : Number.POSITIVE_INFINITY;
+
+      if (!Number.isFinite(start) || !Number.isFinite(end)) return [];
+
+      const startSecondsInFile = Math.min(limit, Math.max(0, start));
+      const endSecondsInFile = Math.min(limit, Math.max(startSecondsInFile, end));
+
+      return endSecondsInFile > startSecondsInFile
+        ? [
+            {
+              startSeconds: startSecondsInFile,
+              endSeconds: endSecondsInFile,
+              title: nonBlank(chapter.tags?.title),
+            },
+          ]
+        : [];
+    })
+    .toSorted((left, right) => left.startSeconds - right.startSeconds);
+
+/**
+ * Translates ffprobe's `-show_format -show_streams -show_chapters` JSON for the file at `path` into a
  * `MediaProbe`. Cover art stored as a video stream is ignored.
  */
 export const parseFfprobeJson = Effect.fn("MediaProbe.parse")(function* (
@@ -274,16 +327,19 @@ export const parseFfprobeJson = Effect.fn("MediaProbe.parse")(function* (
     .find((stream) => stream !== undefined);
 
   const bitRate = Math.trunc(finiteOr(output.format.bit_rate, 0));
+  const durationSeconds = finiteOr(output.format.duration, 0);
+  const startSeconds = finiteOr(output.format.start_time, 0);
 
   return {
     container: containerOf(output.format.format_name, path),
     formatName: output.format.format_name,
-    durationSeconds: finiteOr(output.format.duration, 0),
-    startSeconds: finiteOr(output.format.start_time, 0),
+    durationSeconds,
+    startSeconds,
     bitRate: bitRate > 0 ? bitRate : undefined,
     video,
     audio: ofType("audio").map(toAudio),
     subtitles: ofType("subtitle").map(toSubtitle),
+    chapters: toChapters(output.chapters ?? [], startSeconds, durationSeconds),
   } satisfies MediaProbe;
 });
 
@@ -298,6 +354,7 @@ export const probeFile = Effect.fn("MediaProbe.probeFile")(function* (path: stri
     "json",
     "-show_format",
     "-show_streams",
+    "-show_chapters",
     path,
   ]);
 

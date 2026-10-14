@@ -220,6 +220,7 @@ export const libraryDetail = v.object({
   roots: v.array(v.string()),
   access: libraryAccess,
   grantedUserIds: v.array(v.id("users")),
+  trickplay: v.boolean(),
   createdAt: v.number(),
 });
 
@@ -413,6 +414,13 @@ export const subtitleStream = v.object({
   hearingImpaired: v.optional(v.boolean()),
 });
 
+/** Mirrors `Chapter` in `@movies/contracts`. */
+export const chapter = v.object({
+  startMs: v.number(),
+  endMs: v.number(),
+  title: nullable(v.string()),
+});
+
 /** Mirrors `Probe` in `@movies/contracts`. */
 export const probe = v.object({
   container: v.string(),
@@ -423,7 +431,41 @@ export const probe = v.object({
   video: v.array(videoStream),
   audio: v.array(audioStream),
   subtitles: v.array(subtitleStream),
+  chapters: v.optional(v.array(chapter)),
 });
+
+/** Mirrors `TrickplayManifest` in `@movies/contracts/trickplay`. */
+export const trickplayManifest = v.object({
+  version: v.string(),
+  intervalMs: v.number(),
+  tileWidth: v.number(),
+  tileHeight: v.number(),
+  columns: v.number(),
+  rows: v.number(),
+  thumbnailCount: v.number(),
+  sheetCount: v.number(),
+});
+
+/**
+ * A file's scrub thumbnails as stored: queued or running (`pending`), made (`ready`), or given up
+ * on (`failed`, until an admin asks again), each for the file at `sizeBytes` and `mtimeMs`. Absent
+ * means none were asked for.
+ */
+export const trickplayState = v.union(
+  v.object({
+    status: v.literal("pending"),
+    jobId: v.id("jobs"),
+    sizeBytes: v.number(),
+    mtimeMs: v.number(),
+  }),
+  v.object({
+    status: v.literal("ready"),
+    sizeBytes: v.number(),
+    mtimeMs: v.number(),
+    manifest: trickplayManifest,
+  }),
+  v.object({ status: v.literal("failed"), sizeBytes: v.number(), mtimeMs: v.number() }),
+);
 
 /** Mirrors `ExternalSubtitle` in `@movies/contracts`. */
 export const externalSubtitle = v.object({
@@ -447,6 +489,7 @@ export const mediaFile = v.object({
   externalSubtitles: v.array(externalSubtitle),
   hdr: v.boolean(),
   missing: v.boolean(),
+  trickplay: nullable(trickplayManifest),
 });
 
 /** Mirrors `Progress` in `@movies/contracts`. */
@@ -684,6 +727,7 @@ export const jobKind = v.union(
   v.literal("person"),
   v.literal("backup"),
   v.literal("migration"),
+  v.literal("trickplay"),
 );
 
 /** Mirrors `JobStatus` in `@movies/contracts`. */
@@ -719,6 +763,7 @@ export const jobPayload = v.union(
     source: migrationSource,
     serverName: v.string(),
   }),
+  v.object({ kind: v.literal("trickplay"), fileId: v.id("mediaFiles") }),
 );
 
 /** Mirrors `JobProgress` in `@movies/contracts`. */

@@ -36,6 +36,7 @@ import {
   SubtitleUnsupported,
 } from "../subtitles/subtitle-tracks.ts";
 import { ByteRange, parseByteRange } from "./byte-range.ts";
+import { playbackTokenOf as tokenOf } from "./playback-token-param.ts";
 
 /** The token is valid but for another file. */
 class MediaAccessDenied extends Schema.TaggedError<MediaAccessDenied>()(
@@ -124,17 +125,6 @@ const CONTENT_TYPES: Readonly<Record<Container, string>> = {
 };
 
 const SEGMENT_CACHE = "private, max-age=3600";
-
-/** The `token` query parameter, kept redacted. */
-const tokenOf = (request: HttpServerRequest.HttpServerRequest) => {
-  const token = new URL(request.url, "http://media.invalid").searchParams.get("token");
-
-  return token === null || token === ""
-    ? Effect.fail(
-        new PlaybackTokenInvalid({ reason: "malformed", message: "Playback token is missing" }),
-      )
-    : Effect.succeed(Redacted.make(token));
-};
 
 const matchesEtag = (header: string, etag: string): boolean =>
   header.trim() === "*" ||
