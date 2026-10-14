@@ -9,12 +9,13 @@ import type { ProfileId } from "@movies/contracts/ids";
 import { ProfileId as ProfileIdSchema } from "@movies/contracts/ids";
 import { Milliseconds } from "@movies/contracts/units";
 import { ProtocolError } from "@movies/sdk/effect";
-import { Data, Duration, Effect, Option, Predicate, Schema } from "effect";
+import { Config, Data, Duration, Effect, Option, Predicate, Redacted, Schema } from "effect";
 import type { Scope } from "effect";
 
 import type { CliError } from "./cli-errors";
-import { UsageError } from "./cli-errors";
+import { ConfigFileError, UsageError } from "./cli-errors";
 import type { Environment, StoredConfig, Target } from "./config";
+import { readStdin } from "./files";
 import type { ParsedTokens } from "./flags";
 import type { Output } from "./output";
 import { renderResult } from "./render";
@@ -86,6 +87,41 @@ export const requirePositional = (
   Effect.fromOption(positionalText(invocation.tokens)).pipe(
     Effect.mapError(() => usage(invocation, `${invocation.path} needs ${what}`)),
   );
+
+/**
+ * A secret from the environment variable `variable` or, when stdin is piped, from stdin. A blank
+ * variable counts as unset. `what` names the secret in messages, such as `password`.
+ *
+ * @returns The secret, or a usage error when stdin is a terminal or the piped secret is empty.
+ */
+export const readSecret = Effect.fn("Cli.readSecret")(function* (
+  invocation: Invocation,
+  variable: string,
+  what: string,
+) {
+  const fromEnv = yield* Config.option(Config.Redacted(variable)).pipe(
+    Effect.map(Option.filter((secret) => Redacted.value(secret).trim().length > 0)),
+    Effect.orElseSucceed(() => Option.none<Redacted.Redacted>()),
+  );
+
+  if (Option.isSome(fromEnv)) return fromEnv.value;
+
+  if (process.stdin.isTTY) {
+    return yield* usage(invocation, `Pipe the ${what} on stdin or set ${variable}`);
+  }
+
+  const text = yield* Effect.tryPromise({
+    try: readStdin,
+    catch: (cause) =>
+      new ConfigFileError({ path: "stdin", message: "Could not read stdin", cause }),
+  });
+
+  const secret = text.trim();
+
+  if (secret.length === 0) return yield* usage(invocation, `The ${what} on stdin is empty`);
+
+  return Redacted.make(secret);
+});
 
 /**
  * Parses a media position: seconds (`90`, `12.5`) or `h:mm:ss` / `m:ss`. Returns none when the

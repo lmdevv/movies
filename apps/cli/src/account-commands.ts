@@ -6,10 +6,10 @@ import { commands } from "@movies/contracts/commands";
 import { NotFound } from "@movies/contracts/errors";
 import { ApiKeyScope } from "@movies/contracts/scopes";
 import { Auth, DeviceLogin, MoviesClient } from "@movies/sdk/effect";
-import { Config, Effect, Option, Redacted, Schema, Struct } from "effect";
+import { Effect, Option, Redacted, Schema, Struct } from "effect";
 import { renderUnicodeCompact } from "uqr";
 
-import { ConfigFileError, LoginRefused } from "./cli-errors";
+import { LoginRefused } from "./cli-errors";
 import type { StoredProfile } from "./config";
 import {
   layerProfileStorage,
@@ -19,11 +19,11 @@ import {
   setDefaultProfile,
   updateProfile,
 } from "./config";
-import { readStdin } from "./files";
-import type { Invocation, ShortcutCommand } from "./invocation";
+import type { ShortcutCommand } from "./invocation";
 import {
   booleanFlag,
   encodeResult,
+  readSecret,
   requirePositional,
   resultOutcome,
   stringFlag,
@@ -34,32 +34,6 @@ import { Output } from "./output";
 import { connect, openSdk, storageFailure } from "./session";
 
 const isServerUrl = Schema.is(ServerUrl);
-
-/** Reads a secret from an environment variable or, when piped, stdin. */
-const readSecret = (invocation: Invocation, variable: string, what: string) =>
-  Effect.gen(function* () {
-    const fromEnv = yield* Config.option(Config.Redacted(variable)).pipe(
-      Effect.orElseSucceed(() => Option.none<Redacted.Redacted>()),
-    );
-
-    if (Option.isSome(fromEnv)) return fromEnv.value;
-
-    if (process.stdin.isTTY) {
-      return yield* usage(invocation, `Pipe the ${what} on stdin or set ${variable}`);
-    }
-
-    const text = yield* Effect.tryPromise({
-      try: readStdin,
-      catch: (cause) =>
-        new ConfigFileError({ path: "stdin", message: "Could not read stdin", cause }),
-    });
-
-    const secret = text.trim();
-
-    if (secret.length === 0) return yield* usage(invocation, `The ${what} on stdin is empty`);
-
-    return Redacted.make(secret);
-  });
 
 const login: ShortcutCommand = {
   path: "login",
