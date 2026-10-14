@@ -505,7 +505,27 @@ const make = Effect.gen(function* () {
               .filter(isMainVideo(folder))
               .map((name) => stemOf(name).toLowerCase());
 
-            return { companions, stems } satisfies FolderCompanions;
+            // The hidden `.actors` folder is not walked; its time changes when photos come or go.
+            const actors = yield* fs.stat(absolute(join(folder, ".actors"))).pipe(
+              Effect.map((info): ReadonlyArray<Companion> =>
+                info.type === "Directory"
+                  ? [
+                      {
+                        lowerName: ".actors",
+                        line: `.actors/\u0000${String(
+                          Option.match(info.mtime, {
+                            onNone: () => 0,
+                            onSome: (date) => date.getTime(),
+                          }),
+                        )}`,
+                      },
+                    ]
+                  : [],
+              ),
+              Effect.orElseSucceed((): ReadonlyArray<Companion> => []),
+            );
+
+            return { companions: [...companions, ...actors], stems } satisfies FolderCompanions;
           }),
       });
 

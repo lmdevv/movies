@@ -260,6 +260,16 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
         const subtitled = yield* scanner.scan(request);
 
         assert.deepStrictEqual([subtitled.processed, subtitled.unchanged], [1, 3]);
+
+        yield* fs.makeDirectory(path.join(folder, ".actors"));
+        yield* fs.copyFile(
+          path.join(folder, "poster.jpg"),
+          path.join(folder, ".actors/Big_Buck.jpg"),
+        );
+
+        const portrayed = yield* scanner.scan(request);
+
+        assert.deepStrictEqual([portrayed.processed, portrayed.unchanged], [1, 3]);
       }),
     );
 
