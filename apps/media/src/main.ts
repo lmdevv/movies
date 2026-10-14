@@ -45,6 +45,8 @@ import * as MigrationRoutes from "./migration/migration-routes.ts";
 import * as Migrations from "./migration/migrations.ts";
 import * as Observability from "./observability.ts";
 import * as PlaybackReporter from "./playback/playback-reporter.ts";
+import * as TrickplayJob from "./trickplay/trickplay-job.ts";
+import * as TrickplaySweep from "./trickplay/trickplay-sweep.ts";
 
 /** `CONVEX_URL` is set without `MEDIA_SERVICE_API_KEY`, so the service cannot sign in. */
 class MediaServiceKeyMissing extends Schema.TaggedError<MediaServiceKeyMissing>()(
@@ -58,12 +60,15 @@ class MediaServiceKeyMissing extends Schema.TaggedError<MediaServiceKeyMissing>(
 
 /** The job kinds this service runs. Add a kind's handler here. */
 const jobHandlers = Effect.all([
-  ScanJob.handler,
-  MetadataJob.handler,
-  PersonJob.handler,
-  MigrationJob.handler,
-  BackupJob.handler,
-]);
+  Effect.all([
+    ScanJob.handler,
+    MetadataJob.handler,
+    PersonJob.handler,
+    MigrationJob.handler,
+    BackupJob.handler,
+  ]),
+  TrickplayJob.handlers,
+]).pipe(Effect.map(([always, trickplay]) => [...always, ...trickplay]));
 
 /** Route groups of registry `media` commands. Add a group's layer here. */
 const commandRoutes = Layer.mergeAll(
@@ -79,6 +84,7 @@ const convexMode = (options: MediaBackend.Options) =>
     JobWorker.layer(jobHandlers),
     LibrarySync.layer,
     EndedSessionWatcher.layer,
+    TrickplaySweep.layer,
     Backups.layerSyncOnStart,
   ).pipe(
     Layer.provide(Backups.layer.pipe(Layer.provide(ConvexCli.layer))),

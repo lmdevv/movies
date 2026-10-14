@@ -94,6 +94,9 @@ default. The NixOS options are in brackets.
 | `STREAM_BUFFER_AHEAD_SECONDS` | How far ffmpeg runs ahead of the player, 120 (`streamBufferAheadSeconds`) |
 | `MIN_FREE_TRANSCODE_MB`       | Free space the transcode folder keeps, 2048 MiB (`minFreeTranscodeMb`)    |
 | `LIBRARY_RECONCILE_MINUTES`   | Full library reconciliation interval, 360 (`libraryReconcileMinutes`)     |
+| `TRICKPLAY`                   | Scrub thumbnails, `on` or `off`, `on` (`trickplay.enable`)                |
+| `TRICKPLAY_INTERVAL_SECONDS`  | Seconds between scrub thumbnails, 10 (`trickplay.intervalSeconds`)        |
+| `TRICKPLAY_CONCURRENCY`       | Files given thumbnails at once, 1 (`trickplay.concurrency`)               |
 | `BACKUP_RETENTION_DAYS`       | Days of nightly backups kept, 14 (`backupRetentionDays`)                  |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Optional OTLP/HTTP collector for traces and logs (`otlpEndpoint`)         |
 

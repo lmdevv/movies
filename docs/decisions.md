@@ -243,6 +243,48 @@ choices made while implementing them. Update it in the same PR that changes a de
 - Migration carries the source's provider IDs: they fill IDs a matched title lacks, and an
   unmatched title that gains one is queued for a metadata refresh.
 
+## Scrub thumbnails and chapters
+
+- A `trickplay` job per file makes its scrub thumbnails. Scans queue one for each new or changed
+  file (another size or modification time) when the library's "Generate scrub thumbnails" setting
+  is on (the default); `libraries.generateTrickplay` queues every file without current thumbnails,
+  including failed ones, paging through the library with scheduled mutations. The file's
+  `trickplay` field follows its job: `pending`, `ready` with the manifest, `failed` (scans leave it
+  alone until an admin asks again), or absent, each for the file's size and modification time
+  then. A file that changes while its job waits or runs gets a new job and the old one is
+  cancelled; thumbnails are shown and kept only while they match the file's current contents, and
+  a job that read other contents than the catalog has records nothing. A missing file, a removed
+  library, or a library turning thumbnails off cancels the jobs nobody needs.
+- A job retries (up to five attempts) when ffmpeg fails or the share or data folder is
+  unreadable, and fails for good only when the file is gone, has no video, or yields no frames.
+  With `TRICKPLAY=off` the media service runs no trickplay jobs; they wait, and run once it is on.
+- Generation is one ffmpeg run on one thread at the lowest CPU priority: keyframes only
+  (`-skip_frame nokey`), one frame per `TRICKPLAY_INTERVAL_SECONDS` (10) taken as the last
+  keyframe at or before each tick (`fps` with `round=up` and `start_time=0`; ffmpeg 6 emits nothing
+  for clips shorter than one interval without it), counted as ffmpeg picks them so a video shorter
+  than its container leaves no black tiles, 320 pixels wide by the display aspect ratio, HDR tone-mapped
+  when ffmpeg has `zscale`, tiled 10 × 10 into JPEG sheets. A two-hour film takes about 23 s and
+  3.8 MB (measured on a 32-thread desktop, Sintel looped to 1 h 58 min). Trickplay jobs have
+  their own worker slots (`TRICKPLAY_CONCURRENCY`, 1), and `mediaService:pendingJobs` reads each
+  kind on its own, so thousands of queued thumbnails never hold up a scan or a backup.
+- Sheets live in `DATA_DIR/trickplay/<fileId>/<version>/` with `manifest.json`; the version is the
+  file's size and modification time in base 36, so a replaced file never shows old frames. A new
+  version is built in a hidden folder and renamed into place. A job reads the file's size and time
+  again after ffmpeg and drops its sheets if they changed. Publishing leaves the file's other
+  versions alone, because two jobs for one file may both publish and only the catalog knows which
+  it accepted. A sweep a minute after startup and every `LIBRARY_RECONCILE_MINUTES` deletes
+  folders the catalog no longer names (`mediaService:trickplayVersions`), sparing ones younger
+  than an hour.
+- Players read the manifest from `MediaFile.trickplay` and load
+  `/media/trickplay/<fileId>/<version>/<n>.jpg?token=` with the session's playback token. Frames
+  are content, not artwork: a sealed key like artwork's would let anyone holding a URL see frames
+  of private videos forever, while the token is bound to one file and one session and stops working
+  when either ends. Responses are `private, max-age=31536000, immutable`: the version changes with
+  the file.
+- Chapters come from ffprobe (`-show_chapters`), measured from the first frame, clipped to the
+  file's length, without empty markers; `Probe.chapters` is absent for files scanned before, so a
+  full scan picks them up.
+
 ## Playback and progress
 
 - `playback.createSession` is a mutation: it authorizes the profile and library, picks the file,

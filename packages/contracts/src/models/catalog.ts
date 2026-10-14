@@ -12,6 +12,7 @@ import {
   TitleId,
   UserId,
 } from "../ids";
+import { TrickplayManifest } from "../trickplay";
 import { Bytes, EpochMillis, Milliseconds } from "../units";
 
 /** What a library holds. `mixed` folders contain both movies and shows. */
@@ -49,6 +50,8 @@ export const LibraryDetail = Schema.Struct({
   access: LibraryAccess,
   /** Members granted a `restricted` library. Admins always see every library. */
   grantedUserIds: Schema.Array(UserId),
+  /** Scans queue scrub thumbnails for new and changed files. */
+  trickplay: Schema.Boolean,
   createdAt: EpochMillis,
 });
 
@@ -278,6 +281,17 @@ export const SubtitleStream = Schema.Struct({
 /** An embedded subtitle stream. */
 export interface SubtitleStream extends Schema.Schema.Type<typeof SubtitleStream> {}
 
+/** A chapter marker from the file, such as a disc's scene list. */
+export const Chapter = Schema.Struct({
+  startMs: Milliseconds,
+  endMs: Milliseconds,
+  /** The chapter's name as tagged; null when the file names none. */
+  title: Schema.NullOr(Schema.String),
+});
+
+/** A chapter marker. */
+export interface Chapter extends Schema.Schema.Type<typeof Chapter> {}
+
 /** What ffprobe reported about a file. */
 export const Probe = Schema.Struct({
   /** Container family: `mp4`, `mov`, `mkv`, `webm`, `avi`, `ts`, or `other`. */
@@ -291,6 +305,8 @@ export const Probe = Schema.Struct({
   video: Schema.Array(VideoStream),
   audio: Schema.Array(AudioStream),
   subtitles: Schema.Array(SubtitleStream),
+  /** Chapters in start order; absent for files scanned before chapters were read. */
+  chapters: Schema.optionalKey(Schema.Array(Chapter)),
 });
 
 /** What ffprobe reported about a file. */
@@ -326,6 +342,8 @@ export const MediaFile = Schema.Struct({
   hdr: Schema.Boolean,
   /** The file is no longer on disk. History that points at it stays. */
   missing: Schema.Boolean,
+  /** Scrub thumbnails, once generated; null until then. */
+  trickplay: Schema.NullOr(TrickplayManifest),
 });
 
 /** A playable file. */

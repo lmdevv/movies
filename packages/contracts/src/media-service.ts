@@ -20,6 +20,7 @@ import { migrationServiceFunctions } from "./migration-service";
 import { NoArgs, Ok, Page, PageArgs } from "./models/common";
 import { BACKUP_SYNC_LIMIT, BackupArchive, Job, JobProgress } from "./models/jobs";
 import { PlaybackMode } from "./models/playback";
+import { TrickplayManifest, TrickplayVersion } from "./trickplay";
 import {
   ClaimedJob,
   CREDIT_BATCH_LIMIT,
@@ -271,6 +272,31 @@ export const mediaServiceFunctions = {
     }),
     result: Schema.Struct({ added: Schema.Int, removed: Schema.Int }),
     function: "mediaService:syncBackups",
+  }),
+  "mediaService.recordTrickplay": mutation({
+    summary: "Record a file's finished scrub thumbnails during its trickplay job",
+    group: "media-service",
+    scope: "media-service",
+    args: Schema.Struct({
+      ...LeaseArgs,
+      fileId: MediaFileId,
+      /** The size and modification time of the file the thumbnails were made from. */
+      sizeBytes: Bytes,
+      mtimeMs: EpochMillis,
+      manifest: TrickplayManifest,
+    }),
+    result: Ok,
+    function: "mediaService:recordTrickplay",
+  }),
+  "mediaService.trickplayVersions": query({
+    summary: "Which stored thumbnail version each file still uses; null for files without one",
+    group: "media-service",
+    scope: "media-service",
+    args: Schema.Struct({ fileIds: Batch(Schema.String) }),
+    result: Schema.Array(
+      Schema.Struct({ fileId: Schema.String, version: Schema.NullOr(TrickplayVersion) }),
+    ),
+    function: "mediaService:trickplayVersions",
   }),
   ...migrationServiceFunctions,
 };

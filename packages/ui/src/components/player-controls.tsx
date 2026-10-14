@@ -10,10 +10,12 @@ import {
   Volume2Icon,
   VolumeXIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ComponentProps, PointerEvent, ReactNode } from "react";
 
 import { PauseGlyph, PlayGlyph, SkipNextGlyph } from "./icons";
+import { SpriteThumbnail } from "./sprite-thumbnail";
+import type { SpriteTile } from "./sprite-thumbnail";
 
 /** Paper's corner-bracket fullscreen glyph. */
 function FullscreenGlyph(props: ComponentProps<"svg">) {
@@ -55,66 +57,171 @@ export function PlayerButton({
   );
 }
 
+/** How long a keyboard seek on the scrubber shows its preview. */
+const KEY_PREVIEW_MS = 1_200;
+
+/** Keys the slider seeks with. */
+const SEEK_KEYS: ReadonlySet<string> = new Set([
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+]);
+
+/** What the scrubber shows above a time: its thumbnail and chapter, when known. */
+export interface ScrubPreview {
+  readonly thumbnail: SpriteTile | null;
+  readonly chapter: string | null;
+}
+
+const NO_PREVIEW: ScrubPreview = { thumbnail: null, chapter: null };
+
 /**
  * The playback scrubber. Arrow keys step 5 seconds and Page Up/Down a minute; the value text reads
- * the position as a timecode. Hovering shows the time under the pointer.
+ * the position as a timecode. Hovering or dragging shows the time under the pointer with its
+ * thumbnail and chapter (`describe`); `chapters` draws a tick at each chapter's start.
+ *
+ * @param preview - Shows the preview at this time without a pointer, as after a keyboard seek.
+ * @param onPreviewStart - Called once the viewer first points at or focuses the scrubber, so
+ *   thumbnails can load before they are needed.
  */
 export function Scrubber({
   position,
   duration,
   onSeek,
   onSeekCommit,
+  describe,
+  chapters,
+  preview,
+  onPreviewStart,
   className,
 }: {
   readonly position: number;
   readonly duration: number;
   readonly onSeek: (seconds: number) => void;
   readonly onSeekCommit?: ((seconds: number) => void) | undefined;
+  readonly describe?: ((seconds: number) => ScrubPreview) | undefined;
+  /** Chapter starts in seconds. */
+  readonly chapters?: ReadonlyArray<number> | undefined;
+  readonly preview?: number | null | undefined;
+  readonly onPreviewStart?: (() => void) | undefined;
   readonly className?: string;
 }) {
   const [hover, setHover] = useState<number | null>(null);
+  const [dragging, setDragging] = useState(false);
+  // Arrow and Page keys on the focused thumb seek too; their preview shows for a moment.
+  const [keyed, setKeyed] = useState(false);
+  const keyedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const length = Math.max(duration, 1);
+
+  useEffect(() => () => clearTimeout(keyedTimer.current), []);
+
+  const showKeyed = (): void => {
+    setKeyed(true);
+    clearTimeout(keyedTimer.current);
+    keyedTimer.current = setTimeout(() => setKeyed(false), KEY_PREVIEW_MS);
+  };
+
+  // A drag ends wherever the pointer is released, even off the bar or without moving the value.
+  useEffect(() => {
+    if (!dragging) return undefined;
+
+    const end = (): void => setDragging(false);
+
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+
+    return () => {
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+  }, [dragging]);
 
   const track = (event: PointerEvent<HTMLDivElement>): void => {
     const box = event.currentTarget.getBoundingClientRect();
     const fraction = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
 
-    setHover(fraction);
+    setHover(fraction * duration);
   };
+
+  // Dragging or keying previews where the thumb is; otherwise the pointer, then a forced preview.
+  const shown = dragging || keyed ? Math.min(position, duration) : (hover ?? preview ?? null);
+  const details = shown === null ? NO_PREVIEW : (describe?.(shown) ?? NO_PREVIEW);
 
   return (
     <Slider.Root
       value={Math.min(position, duration)}
       min={0}
-      max={Math.max(duration, 1)}
+      max={length}
       step={5}
       largeStep={60}
       onValueChange={(value) => onSeek(value)}
-      onValueCommitted={(value) => onSeekCommit?.(value)}
+      onValueCommitted={(value) => {
+        setDragging(false);
+        onSeekCommit?.(value);
+      }}
       className={cn("flex-1", className)}
     >
       <Slider.Control
         data-slot="scrubber"
+        onPointerEnter={onPreviewStart}
+        onPointerDown={(event) => {
+          if (event.button === 0) setDragging(true);
+        }}
         onPointerMove={track}
         onPointerLeave={() => setHover(null)}
+        onFocus={onPreviewStart}
         className="relative flex h-3.5 w-full cursor-pointer touch-none items-center"
       >
-        {hover === null ? null : (
+        {shown === null ? null : (
           <span
             aria-hidden
             data-slot="scrubber-hover"
-            className="pointer-events-none absolute bottom-full mb-2 flex -translate-x-1/2 flex-col items-center gap-3"
-            style={{ left: `${String(hover * 100)}%` }}
+            className="pointer-events-none absolute bottom-full mb-2 flex -translate-x-1/2 flex-col items-center gap-1.5"
+            style={{ left: `${String((shown / length) * 100)}%` }}
           >
-            <span className="font-mono text-label/caption text-text">
-              {formatTimecode(hover * duration)}
+            {details.thumbnail === null ? null : (
+              <SpriteThumbnail
+                tile={details.thumbnail}
+                className="w-48 shadow-overlay ring-1 ring-text/25"
+              />
+            )}
+            {details.chapter === null ? null : (
+              <span
+                data-slot="scrubber-chapter"
+                className="max-w-48 truncate font-sans text-label/caption font-semibold text-text"
+              >
+                {details.chapter}
+              </span>
+            )}
+            <span data-slot="scrubber-time" className="font-mono text-label/caption text-text">
+              {formatTimecode(shown)}
             </span>
             <span className="h-3 w-0.5 rounded-xs bg-text" />
           </span>
         )}
         <Slider.Track className="relative h-1 w-full rounded-xs bg-text/25">
           <Slider.Indicator className="rounded-xs bg-accent" />
+          {(chapters ?? [])
+            .filter((start) => start > 0 && start < duration)
+            .map((start) => (
+              <span
+                key={start}
+                aria-hidden
+                data-slot="scrubber-chapter-mark"
+                className="absolute inset-y-0 w-0.5 -translate-x-1/2 bg-dark-bg/70"
+                style={{ left: `${String((start / length) * 100)}%` }}
+              />
+            ))}
           <Slider.Thumb
             aria-label="Seek"
+            onKeyDown={(event) => {
+              if (SEEK_KEYS.has(event.key)) showKeyed();
+            }}
             getAriaValueText={(_, value) =>
               `${formatTimecode(value)} of ${formatTimecode(duration)}`
             }
@@ -160,6 +267,9 @@ function ProgressLine({
  *   and the skip buttons' targets.
  * @param duration - Length in seconds.
  * @param tracks - The audio and subtitles control, usually a {@link TrackPopover} trigger.
+ * @param chapterList - The chapters control, usually a `ChapterPopover` trigger.
+ * @param scrub - Thumbnails, chapter marks, and a forced preview for the scrubber
+ *   ({@link Scrubber}).
  * @param locked - Replaces the transport and the scrubber with a lock line, such as `Only Alex
  *   can pause or seek`, for a room guest.
  * @param roomActive - The room panel is open, so its button shows as active.
@@ -171,6 +281,8 @@ export function PlayerControls({
   duration,
   muted = false,
   tracks,
+  chapterList,
+  scrub,
   locked,
   roomActive = false,
   onPlayPause,
@@ -188,6 +300,11 @@ export function PlayerControls({
   readonly duration: number;
   readonly muted?: boolean;
   readonly tracks?: ReactNode;
+  readonly chapterList?: ReactNode;
+  readonly scrub?: Pick<
+    ComponentProps<typeof Scrubber>,
+    "describe" | "chapters" | "preview" | "onPreviewStart"
+  >;
   readonly locked?: string | undefined;
   readonly roomActive?: boolean;
   readonly onPlayPause: () => void;
@@ -217,6 +334,7 @@ export function PlayerControls({
             duration={duration}
             onSeek={onSeek}
             onSeekCommit={onSeekCommit}
+            {...scrub}
           />
         ) : (
           <ProgressLine position={position} duration={duration} />
@@ -270,6 +388,7 @@ export function PlayerControls({
               <SkipNextGlyph />
             </PlayerButton>
           )}
+          {chapterList}
           {tracks}
           {onRoom === undefined ? null : (
             <PlayerButton

@@ -9,6 +9,7 @@
  */
 import { Slider } from "@base-ui/react/slider";
 import { PauseGlyph, PlayGlyph } from "@movies/ui/components/icons";
+import { Scrubber } from "@movies/ui/components/player-controls";
 import type { RoomMember } from "@movies/ui/components/room-panel";
 import { Avatar } from "@movies/ui/components/avatar";
 import { formatTimecode } from "@movies/ui/lib/timecode";
@@ -16,6 +17,7 @@ import { cn } from "@movies/ui/lib/utils";
 import {
   CaptionsIcon,
   CastIcon,
+  ListVideoIcon,
   LockIcon,
   LogOutIcon,
   Maximize2Icon,
@@ -111,13 +113,16 @@ function SideSlider({
   );
 }
 
-/** A frosted pill under the scrubber: the subtitle or audio track playing. */
+/** A frosted pill under the scrubber: the subtitle or audio track playing, or the chapter. */
 export function TrackPill({
   icon,
   label,
   className,
   ...props
-}: ComponentProps<"button"> & { readonly icon: "subtitles" | "audio"; readonly label: string }) {
+}: ComponentProps<"button"> & {
+  readonly icon: "subtitles" | "audio" | "chapters";
+  readonly label: string;
+}) {
   return (
     <button
       type="button"
@@ -127,11 +132,9 @@ export function TrackPill({
       )}
       {...props}
     >
-      {icon === "subtitles" ? (
-        <CaptionsIcon strokeWidth={1.75} aria-hidden />
-      ) : (
-        <Volume1Icon strokeWidth={1.75} aria-hidden />
-      )}
+      {icon === "subtitles" ? <CaptionsIcon strokeWidth={1.75} aria-hidden /> : null}
+      {icon === "audio" ? <Volume1Icon strokeWidth={1.75} aria-hidden /> : null}
+      {icon === "chapters" ? <ListVideoIcon strokeWidth={1.75} aria-hidden /> : null}
       {label}
     </button>
   );
@@ -142,7 +145,9 @@ export function TrackPill({
  *
  * @param volume - The page's volume, or null where only the hardware buttons set it.
  * @param tracks - Track pills, usually wrapped in a track popover.
- * @param locked - For room guests: replaces the transport with who hosts.
+ * @param locked - For room guests: replaces the transport with who hosts, and the scrubber with a
+ *   bar that cannot be moved.
+ * @param scrub - Thumbnails and chapter marks for the scrubber.
  */
 export function PhoneControls({
   title,
@@ -156,6 +161,9 @@ export function PhoneControls({
   onClose,
   onPlayPause,
   onSkip,
+  onSeek,
+  onSeekCommit,
+  scrub,
   onBrightness,
   onVolume,
   onRoom,
@@ -172,6 +180,12 @@ export function PhoneControls({
   readonly onClose: () => void;
   readonly onPlayPause: () => void;
   readonly onSkip: (seconds: number) => void;
+  readonly onSeek: (seconds: number) => void;
+  readonly onSeekCommit: (seconds: number) => void;
+  readonly scrub?: Pick<
+    ComponentProps<typeof Scrubber>,
+    "describe" | "chapters" | "preview" | "onPreviewStart"
+  >;
   readonly onBrightness: (value: number) => void;
   readonly onVolume: (value: number) => void;
   readonly onRoom?: (() => void) | undefined;
@@ -257,12 +271,22 @@ export function PhoneControls({
           <span className="w-14 shrink-0 font-mono text-caption/caption text-text">
             {formatTimecode(position)}
           </span>
-          <div className="flex h-1 grow items-center rounded-xs bg-text/30">
-            <div
-              className="h-1 rounded-xs bg-accent"
-              style={{ width: `${String(fraction * 100)}%` }}
+          {locked === undefined ? (
+            <Scrubber
+              position={position}
+              duration={duration}
+              onSeek={onSeek}
+              onSeekCommit={onSeekCommit}
+              {...scrub}
             />
-          </div>
+          ) : (
+            <div className="flex h-1 grow items-center rounded-xs bg-text/30">
+              <div
+                className="h-1 rounded-xs bg-accent"
+                style={{ width: `${String(fraction * 100)}%` }}
+              />
+            </div>
+          )}
           <span className="w-16 shrink-0 text-right font-mono text-caption/caption text-text">
             {formatTimecode(position - duration)}
           </span>

@@ -18,7 +18,10 @@ const ffmpegPath = process.env["FFMPEG_PATH"] ?? "ffmpeg";
 export interface FixtureLibrary {
   readonly moviesRoot: string;
   readonly showsRoot: string;
-  /** H.264/AAC in MP4: direct play everywhere. 12 seconds, a keyframe every 2 seconds. */
+  /**
+   * H.264/AAC in MP4: direct play everywhere. 12 seconds, a keyframe every 2 seconds, and two
+   * chapters ("Opening" to 0:05, then "Credits").
+   */
   readonly directMovie: string;
   /** H.264 with AC-3 and E-AC-3 tracks in MKV, an embedded SRT, and sidecar SRT and ASS subtitles. */
   readonly remuxMovie: string;
@@ -72,6 +75,20 @@ Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,{\\b1}Bonjour{\\b0} le monde
+`;
+
+/** Chapters of the direct movie, in ffmpeg's metadata format (times in milliseconds). */
+const CHAPTERS = `;FFMETADATA1
+[CHAPTER]
+TIMEBASE=1/1000
+START=0
+END=5000
+title=Opening
+[CHAPTER]
+TIMEBASE=1/1000
+START=5000
+END=12000
+title=Credits
 `;
 
 const MOVIE_NFO = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -133,7 +150,9 @@ export const generateFixtureLibrary = async (root: string): Promise<FixtureLibra
 
   const remuxDir = join(moviesRoot, dirname(remuxMovie));
   const srtPath = join(remuxDir, "Remux Fixture (2015).en.srt");
+  const chaptersPath = join(root, "chapters.txt");
   await mkdir(remuxDir, { recursive: true });
+  await writeFile(chaptersPath, CHAPTERS);
   await writeFile(srtPath, SRT);
   await writeFile(join(remuxDir, "Remux Fixture (2015).fr.forced.ass"), ASS);
 
@@ -142,6 +161,14 @@ export const generateFixtureLibrary = async (root: string): Promise<FixtureLibra
       [
         ...testVideo(12, "320x180"),
         ...testAudio(12, 440),
+        "-i",
+        chaptersPath,
+        "-map",
+        "0:v",
+        "-map",
+        "1:a",
+        "-map_chapters",
+        "2",
         ...h264,
         "-c:a",
         "aac",

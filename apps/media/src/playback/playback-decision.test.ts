@@ -57,6 +57,7 @@ const probe = (
   video: stream,
   audio: tracks,
   subtitles: [],
+  chapters: [],
 });
 
 interface ClientOptions {

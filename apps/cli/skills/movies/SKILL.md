@@ -307,15 +307,16 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies libraries list-details`: List every library with its folders and access. (scope manage)
 - `movies libraries get <library-id>`: Show a library's folders and access. (scope manage)
 - `movies libraries create --name <text> --kind <movies|shows|mixed> --roots <text,...> [--access <everyone|restricted>] [--wait [--timeout <seconds>]]`: Add a library folder and scan it. (scope manage; job: add `--wait`)
-- `movies libraries update <library-id> [--name <text>] [--roots <text,...>] [--access <everyone|restricted>]`: Rename a library or change its folders or access. (scope manage)
+- `movies libraries update <library-id> [--name <text>] [--roots <text,...>] [--access <everyone|restricted>] [--trickplay | --no-trickplay]`: Rename a library or change its folders, access, or scrub thumbnails. (scope manage)
 - `movies libraries remove <library-id>`: Remove a library from [movies]; files on disk are untouched. (scope manage)
 - `movies libraries files <library-id> [--cursor <text>] [--limit <int>] [--filter <all|missing|unmatched>] [--title-id <id>]`: List a library's files with their titles, or only missing or unmatched ones. (scope manage)
 - `movies libraries file-summary <library-id>`: Count a library's missing files and unmatched titles. (scope manage)
 - `movies libraries scan <library-id> [--mode <full|quick>] [--wait [--timeout <seconds>]]`: Scan a library for new, changed, and missing files. (scope manage; job: add `--wait`)
+- `movies libraries generate-trickplay <library-id>`: Generate scrub thumbnails for every file in a library that has none. (scope manage)
 
 ### jobs
 
-- `movies jobs list [--kind <scan|metadata|person|backup|migration>] [--status <pending|running|succeeded|failed|cancelled>] [--limit <int>]`: List recent background jobs. (scope manage)
+- `movies jobs list [--kind <scan|metadata|person|backup|migration|trickplay>] [--status <pending|running|succeeded|failed|cancelled>] [--limit <int>]`: List recent background jobs. (scope manage)
 - `movies jobs get <job-id>`: Show a background job's progress. (scope manage)
 - `movies jobs cancel <job-id>`: Cancel a pending or running job. (scope manage)
 

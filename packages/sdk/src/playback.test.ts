@@ -33,6 +33,7 @@ const started = Schema.decodeSync(StartedPlayback)({
     externalSubtitles: [],
     hdr: false,
     missing: false,
+    trickplay: null,
   },
   token: "v1.payload.signature",
   tokenExpiresAt: 1_760_000_000_000,
