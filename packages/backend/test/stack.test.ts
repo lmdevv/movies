@@ -1441,6 +1441,26 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         }),
       ).toStrictEqual({ imported: 0 });
 
+      // A source value past a bound is dropped; the rest of that title's overrides still land.
+      const unboundedYear = 2001.5;
+
+      await direct(fixture.mediaService, "mutation", "migrationService:importOverrides", {
+        ...lease,
+        items: [
+          {
+            titleId: fixture.titles.adult,
+            overrides: { overview: `Imported ${id}`, year: unboundedYear },
+          },
+        ],
+      });
+
+      expect(
+        await run(fixture.owner, "titles.get", {
+          profileId: fixture.ownerProfile,
+          titleId: fixture.titles.adult,
+        }),
+      ).toMatchObject({ overview: `Imported ${id}`, year: 2024 });
+
       await service(fixture.mediaService, "mediaService.completeJob", lease);
     });
 
@@ -3167,6 +3187,10 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           titleId: fixture.titles.unrated,
           set: { year: 1999.5 },
         }),
+        blankSortName: direct(fixture.owner, "mutation", "metadata:edit", {
+          titleId: fixture.titles.unrated,
+          set: { sortName: "  " },
+        }),
         negativeAgeRating: direct(fixture.owner, "mutation", "metadata:edit", {
           titleId: fixture.titles.unrated,
           set: { ageRating: -1 },
@@ -3295,12 +3319,19 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       });
       expect((await moviesByName())[0]).toBe(fixture.titles.unrated);
 
+      // A name override alone keeps the scanned order: fixing a typo does not move a title.
       await run(fixture.owner, "metadata.edit", {
         titleId: fixture.titles.unrated,
-        set: {},
+        set: { name: `!Renamed ${TOKEN}` },
         clear: ["sortName"],
       });
       expect((await moviesByName())[0]).not.toBe(fixture.titles.unrated);
+
+      await run(fixture.owner, "metadata.edit", {
+        titleId: fixture.titles.unrated,
+        set: {},
+        clear: ["name"],
+      });
     });
   });
 

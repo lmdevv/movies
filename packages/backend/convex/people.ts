@@ -65,15 +65,27 @@ const seenBy = async (
     return visible;
   };
 
+  /** Stops at the first visible credit or the budget's end, closing the credits query early. */
   const anyVisible = async (credits: AsyncIterator<Doc<"credits">>): Promise<boolean> => {
-    if (budget <= 0) return false;
+    if (budget <= 0) {
+      await credits.return?.();
+
+      return false;
+    }
+
     budget -= 1;
 
     const step = await credits.next();
 
     if (step.done === true) return false;
 
-    return (await sees(step.value.titleId)) || anyVisible(credits);
+    if (await sees(step.value.titleId)) {
+      await credits.return?.();
+
+      return true;
+    }
+
+    return anyVisible(credits);
   };
 
   const creditsOf = (person: Doc<"people">) =>

@@ -38,13 +38,17 @@ const searchTextOf = (title: {
     .join(" ");
 
 /**
- * The key title lists sort by: a sort name or name an admin set wins over the scanned sort name, so
- * an override reorders lists as well as renaming the title.
+ * The key title lists sort by: a sort name an admin set wins over the scanned one. A name override
+ * alone leaves the order as scanned, so fixing a typo in "Teh Matrix" keeps it under M.
  */
 export const sortKeyOf = (title: {
   readonly sortName: string;
-  readonly overrides?: { readonly name?: string; readonly sortName?: string } | undefined;
-}): string => (title.overrides?.sortName ?? title.overrides?.name ?? title.sortName).toLowerCase();
+  readonly overrides?: { readonly sortName?: string } | undefined;
+}): string => {
+  const override = title.overrides?.sortName?.trim();
+
+  return (override === undefined || override === "" ? title.sortName : override).toLowerCase();
+};
 
 /** Runs `step` for each item in order; catalog writes read the counters the previous one changed. */
 export const inSequence = async <Item, Result>(
@@ -455,7 +459,10 @@ export const upsertScannedItem = async (
     });
 
     await adjustPresent(ctx, title._id, episodeId, 1);
-    await queueTrickplayFor(ctx, library, await ctx.db.get(fileId));
+
+    if (library.trickplay !== false) {
+      await queueTrickplayFor(ctx, library, await ctx.db.get(fileId));
+    }
 
     return { path: item.file.path, fileId, ...landed };
   }

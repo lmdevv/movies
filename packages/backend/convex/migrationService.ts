@@ -15,10 +15,10 @@ import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import {
   checkBatch,
-  checkOverrides,
   COLLECTION_BATCH_LIMIT,
   COLLECTION_MEMBER_BATCH_LIMIT,
   resultLimit,
+  withoutBrokenOverrides,
 } from "./lib/bounds";
 import { inSequence, writeOverrides } from "./lib/catalog";
 import { fail } from "./lib/errors";
@@ -690,7 +690,7 @@ export const importOverrides = mutation({
       }
 
       // Overrides an admin made on [movies] win over the source's.
-      const overrides = { ...checkOverrides(item.overrides), ...title.overrides };
+      const overrides = { ...withoutBrokenOverrides(item.overrides), ...title.overrides };
       const before = title.overrides ?? {};
 
       const changed = Object.keys(overrides).length !== Object.keys(before).length;

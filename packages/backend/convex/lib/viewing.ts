@@ -461,10 +461,10 @@ export interface VisibleBudget {
 }
 
 /**
- * The first titles of a query the profile may see. It reads the query in batches of as many items
- * as are still wanted, finding their titles in parallel: a profile that sees everything reads no
- * more than it returns, and a heavily filtered one stops after `scanLimit` items, so it cannot make
- * one query read the whole table. `titleOf` finds an item's title, or null when it is gone.
+ * The first titles of a query the profile may see. It reads the query in batches of `limit` items,
+ * finding their titles in parallel: a profile that sees everything reads no more than it returns,
+ * and a heavily filtered one stops after `scanLimit` items, so it cannot make one query read the
+ * whole table. `titleOf` finds an item's title, or null when it is gone.
  */
 export const firstVisible = async <Item>(
   audience: Audience,
@@ -490,7 +490,9 @@ export const firstVisible = async <Item>(
     budget: number,
   ): Promise<Array<Doc<"titles">>> => {
     if (found.length >= limit || budget <= 0) return found;
-    const { batch, ended } = await next(Math.min(limit - found.length, budget));
+    // A full row's worth each time: a profile that sees everything fills it in one batch, and a
+    // filtered one does not crawl through ever smaller batches.
+    const { batch, ended } = await next(Math.min(limit, budget));
     const titles = await Promise.all(batch.map(titleOf));
 
     const visible = titles.flatMap((title) =>
