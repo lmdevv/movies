@@ -5,14 +5,17 @@ import { fail } from "./errors";
 import type { ReadCtx } from "./viewer";
 
 /**
- * A folder trimmed, with repeated and trailing slashes removed (`/` stays `/`). A blank folder
- * stays blank, so `checkAbsolute` refuses it rather than taking it for `/`.
+ * A folder as stored and compared: trimmed, repeated slashes collapsed, and any trailing run of
+ * slashes and whitespace dropped (`/` stays), in one pass. Mirrors `normalizeFolder` in
+ * `@movies/contracts/library-folder`, which the web app uses; `test/library-folder.test.ts`
+ * checks they agree. A blank folder stays blank, so `checkAbsolute` refuses it rather than taking
+ * it for `/`.
  */
 export const normalizeRoot = (root: string): string =>
   root
     .trim()
     .replace(/\/{2,}/gu, "/")
-    .replace(/(?<=.)\/$/u, "");
+    .replace(/(?<=.)[\s/]+$/u, "");
 
 /** Whether `path` is `root` or lies inside it; both normalized. */
 export const isInside = (path: string, root: string): boolean =>

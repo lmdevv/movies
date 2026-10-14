@@ -3,13 +3,9 @@
  * no `.` or `..` segments, no trailing slash) so most mistakes show before a round trip. The
  * server still decides; its refusals (such as a folder another library uses) show the same way.
  */
+import { normalizeFolder } from "@movies/contracts/library-folder";
 
-/** The folder as the server stores it: trimmed, without trailing slashes. */
-export const normalizeFolder = (path: string): string => {
-  const trimmed = path.trim().replace(/\/+$/u, "");
-
-  return trimmed === "" && path.trim() !== "" ? "/" : trimmed;
-};
+export { normalizeFolder };
 
 /** Why a typed folder cannot be saved, or null when it looks valid. */
 export const folderProblem = (path: string): string | null => {

@@ -21,6 +21,7 @@
     "./trickplay": "./src/trickplay.ts",
     "./cast": "./src/cast.ts",
     "./direct-play": "./src/direct-play.ts",
+    "./library-folder": "./src/library-folder.ts",
     "./models/*": "./src/models/*.ts"
   },
   "scripts": {
