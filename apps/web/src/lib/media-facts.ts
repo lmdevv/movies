@@ -34,16 +34,30 @@ export const audioTrackLabel = (
   return [name, channelLabel(track.channels)].filter((part) => part !== null).join(" ");
 };
 
-/** A subtitle track as the chooser lists it: `English`, `English CC`, or `English (Forced)`. */
+/** Image subtitle formats by ffmpeg codec name, as players usually name them. */
+const BITMAP_FORMATS = new Map([
+  ["hdmv_pgs_subtitle", "PGS"],
+  ["dvd_subtitle", "VobSub"],
+  ["dvb_subtitle", "DVB"],
+]);
+
+/**
+ * A subtitle track as the chooser lists it: `English`, `English CC`, `English (Forced)`, or, for an
+ * image track that is drawn into the picture, `English (PGS)`, so it never reads like the text
+ * track in the same language.
+ */
 export const subtitleTrackLabel = (
-  track: Pick<SubtitleTrack, "language" | "title" | "hearingImpaired" | "forced">,
+  track: Pick<SubtitleTrack, "language" | "title" | "hearingImpaired" | "forced"> &
+    Partial<Pick<SubtitleTrack, "kind" | "codec">>,
   position: number,
 ): string => {
   const name = languageName(track.language ?? null) ?? track.title ?? `Subtitles ${position + 1}`;
 
-  if (track.hearingImpaired) return `${name} CC`;
+  const base = track.hearingImpaired ? `${name} CC` : track.forced ? `${name} (Forced)` : name;
 
-  return track.forced ? `${name} (Forced)` : name;
+  if (track.kind !== "bitmap") return base;
+
+  return `${base} (${BITMAP_FORMATS.get(track.codec ?? "") ?? "image"})`;
 };
 
 /** The badges Paper draws after a title's facts, in order: resolution, HDR, codec, audio, CC. */
