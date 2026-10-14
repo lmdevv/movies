@@ -61,7 +61,8 @@ function PinEntry({ profile }: { readonly profile: Profile }) {
   const navigate = useNavigate();
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [checking, setChecking] = useState(false);
+  // Guards against a second submit while one is checked; nothing on screen shows it.
+  const checking = useRef(false);
   const target = safeRedirect(redirect);
   const art = profileArt(profile);
 
@@ -71,7 +72,7 @@ function PinEntry({ profile }: { readonly profile: Profile }) {
   };
 
   const submit = async (value: string): Promise<void> => {
-    setChecking(true);
+    checking.current = true;
 
     try {
       const result = await unlock({ profileId: profile.id, pin: value });
@@ -92,7 +93,7 @@ function PinEntry({ profile }: { readonly profile: Profile }) {
       setError(describeFailure(cause));
       setPin("");
     } finally {
-      setChecking(false);
+      checking.current = false;
     }
   };
 
@@ -120,7 +121,7 @@ function PinEntry({ profile }: { readonly profile: Profile }) {
             if (next !== "") setError(null);
           }}
           onComplete={(value) => {
-            if (!checking) void submit(value);
+            if (!checking.current) void submit(value);
           }}
         />
         <p role="alert" className="flex min-h-5.5 items-center gap-2 text-body/body text-danger">

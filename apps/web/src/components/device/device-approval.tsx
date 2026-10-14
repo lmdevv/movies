@@ -1,7 +1,8 @@
 import type { DeviceCodeLookup } from "@movies/contracts/models/account";
 import { DeviceScope } from "@movies/contracts/scopes";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
-import { Button, buttonVariants } from "@movies/ui/components/button";
+import { Button } from "@movies/ui/components/button";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { CodeInput } from "@movies/ui/components/code-input";
 import { Spinner } from "@movies/ui/components/spinner";
 import { Wordmark } from "@movies/ui/components/wordmark";
@@ -35,7 +36,7 @@ export function DeviceApproval({ code }: { readonly code: string | undefined }) 
 
   return (
     <main className="flex min-h-svh flex-col items-center bg-page px-4 pt-10 pb-16 font-sans text-text">
-      <Link to="/" aria-label="[movies] home" className="rounded-xs">
+      <Link to="/" aria-label="[movies] home" className="rounded-bar">
         <Wordmark className="text-wordmark/8.5" />
       </Link>
       {userCode === null ? (

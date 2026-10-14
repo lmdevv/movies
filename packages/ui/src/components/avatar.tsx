@@ -1,3 +1,4 @@
+import { monogramOf } from "@movies/ui/lib/monogram";
 import { cn } from "@movies/ui/lib/utils";
 import { PencilIcon } from "lucide-react";
 
@@ -17,16 +18,13 @@ const SIZES = {
 const MONOGRAMS = {
   xs: "p-1 text-caption/4",
   sm: "p-1 text-caption/4",
-  md: "p-2.5 text-4xl/9",
+  md: "p-2.5 text-avatar/9",
   lg: "p-3 text-title/title",
   xl: "p-3.5 text-display/display",
 } as const;
 
 /** Avatar dimensions, from the 28px compact bar up to the 160px profile picker. */
 export type AvatarSize = keyof typeof SIZES;
-
-/** The letter an avatar without a picture shows: the name's first, upper-cased. */
-export const monogramOf = (name: string): string => name.trim().slice(0, 1).toUpperCase();
 
 /**
  * A profile picture. Without an image, or with `monogram`, it shows the name's first letter in the

@@ -4,7 +4,8 @@
  * the player, a crashed shell) they take the sign-in frame with the wordmark.
  */
 import { useAuth, useCommandQuery } from "@movies/sdk/react";
-import { Button, buttonVariants } from "@movies/ui/components/button";
+import { Button } from "@movies/ui/components/button";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { cn } from "@movies/ui/lib/utils";
 import { Link, useMatches, useRouter } from "@tanstack/react-router";

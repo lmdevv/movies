@@ -3,7 +3,7 @@
  * element's own state (time, buffering, volume) for the controls.
  */
 import { useMoviesRuntime } from "@movies/sdk/react";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from "react";
 
 import { browserMediaSupport } from "./browser-support";
 import { detectCapabilities } from "./capabilities";
@@ -21,19 +21,24 @@ export interface PlaybackHandle {
 const subscribeNothing = (): (() => void) => () => undefined;
 
 /**
- * Plays `request` in `element` while both stay the same, disposing the controller (and ending the
- * session) on change or unmount. `key` names the request: a new key starts a new session.
+ * Plays the request `buildRequest` makes in `element`, disposing the controller (and ending the
+ * session) when the element, the runtime, or `key` changes, or on unmount. `key` names the
+ * request: a new key starts a new session, and only then is the request built, from the latest
+ * render. Pass `null` while there is nothing to play yet.
  */
 export const usePlayback = (
   element: HTMLVideoElement | null,
-  request: PlaybackRequest | null,
+  buildRequest: (() => PlaybackRequest) | null,
   key: string,
 ): PlaybackHandle | null => {
   const runtime = useMoviesRuntime();
   const [controller, setController] = useState<PlaybackController | null>(null);
+  const currentRequest = useEffectEvent(() => (buildRequest === null ? null : buildRequest()));
 
   useEffect(() => {
-    if (element === null || request === null) return undefined;
+    const started = currentRequest();
+
+    if (element === null || started === null) return undefined;
 
     const capabilities = detectCapabilities(browserMediaSupport());
 
@@ -42,7 +47,7 @@ export const usePlayback = (
       element,
       capabilities,
       usesHlsJs(capabilities.mse),
-      request,
+      started,
     );
 
     setController(created);
@@ -52,7 +57,6 @@ export const usePlayback = (
       created.dispose();
       setController(null);
     };
-    // The key stands for the request's identity; later changes to it do not restart playback.
   }, [runtime, element, key]);
 
   const snapshot = useSyncExternalStore(

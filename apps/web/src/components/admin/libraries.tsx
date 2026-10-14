@@ -12,8 +12,8 @@ import { PlusIcon, RotateCwIcon } from "lucide-react";
 import { useNow } from "@/lib/use-now";
 
 import { useAction } from "./action";
-import { formatAgo, formatCount, formatPercent, formatSpan, plural } from "./format";
-import { KIND_LABELS, LibraryDialog } from "./library-dialog";
+import { KIND_LABELS, formatAgo, formatCount, formatPercent, formatSpan, plural } from "./format";
+import { LibraryDialog } from "./library-dialog";
 import { PageHeader } from "./page-header";
 import { isActive, useLatestScans } from "./scan-jobs";
 import { Cell, Column, StatusDot, Table, TableHead } from "./table";
@@ -97,7 +97,7 @@ export function LibrariesScreen({
               onClick={() => setAdding(true)}
               className="flex h-11 shrink-0 cursor-pointer items-center gap-2.5 px-3 text-left font-sans text-label/label font-medium text-text-muted transition-colors hover:text-text"
             >
-              <span className="flex h-7 w-5 shrink-0 items-center justify-center rounded-xs border border-dashed border-text-muted">
+              <span className="flex h-7 w-5 shrink-0 items-center justify-center rounded-bar border border-dashed border-text-muted">
                 <PlusIcon className="size-3" strokeWidth={2} aria-hidden />
               </span>
               Add a folder
@@ -172,7 +172,7 @@ function LibraryRow({
     >
       <div role="row" className="flex h-11 shrink-0 items-center gap-3 px-3">
         <Cell className="flex w-40 items-center gap-2.5">
-          <span aria-hidden className="h-7 w-5 shrink-0 rounded-xs bg-text/10" />
+          <span aria-hidden className="h-7 w-5 shrink-0 rounded-bar bg-text/10" />
           <Link
             to="/admin/libraries/$libraryId"
             params={{ libraryId: library.id }}

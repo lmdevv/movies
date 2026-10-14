@@ -78,7 +78,7 @@ export function AddProfileTile({ className, type = "button", ...props }: Compone
     >
       <span
         className={cn(
-          "flex items-center justify-center bg-text/8 text-text md:border-[1.5px] md:border-dashed md:border-hairline md:bg-transparent md:text-text-muted",
+          "flex items-center justify-center bg-text/8 text-text md:border-control md:border-dashed md:border-hairline md:bg-transparent md:text-text-muted",
           squareClassName,
           ringClassName,
         )}

@@ -26,6 +26,7 @@ export function Poster({
       src={src}
       alt={alt}
       loading="lazy"
+      decoding="async"
       onError={() => setFailed(src)}
       className={cn("shrink-0 bg-text/10 object-cover", className)}
     />

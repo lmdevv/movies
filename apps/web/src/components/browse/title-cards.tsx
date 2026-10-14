@@ -11,13 +11,6 @@ import { episodeCode, facts, formatRemaining, progressFraction, titleFacts } fro
 
 import { usePrefetchTitle } from "./prefetch";
 
-/** Titles added this recently carry the red `NEW` flag. */
-const NEW_FOR_MS = 7 * 86_400_000;
-
-/** `New` for titles added in the last week, at `now`. */
-export const newBadge = (title: TitleCard, now: number): string | undefined =>
-  now - title.addedAt < NEW_FOR_MS ? "New" : undefined;
-
 /** A 2:3 poster linking to the title's page. `subtitle` adds the grid's `2024 · 2h 46m` line. */
 export function TitlePosterCard({
   title,

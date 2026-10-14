@@ -71,34 +71,14 @@ export function Episodes({
   const watched = list.filter((episode) => episode.progress?.watched === true).length;
   const nextId = show.nextEpisode?.id;
 
-  const options = show.seasons.map((candidate) => ({
-    value: String(candidate.seasonNumber),
-    label: candidate.name,
-    detail: plural(candidate.episodeCount, "episode", "episodes"),
-  }));
-
   const picker = (
-    <SelectMenu
-      label="Season"
-      value={String(seasonNumber)}
-      options={options}
-      onChange={(value) => setSeasonNumber(Number(value))}
-      className={
-        phone
-          ? "gap-1.5 text-heading/heading font-bold tracking-tight"
-          : "h-10 gap-3 border border-hairline bg-surface-raised pr-3.5 pl-4"
-      }
-    >
-      <span className={phone ? undefined : "text-body/label font-semibold"}>
-        {season?.name ?? `Season ${seasonNumber}`}
-      </span>
-      {phone || season === undefined ? null : (
-        <span className="text-label/label text-text-muted">
-          {plural(season.episodeCount, "episode", "episodes")}
-        </span>
-      )}
-      <ChevronDownIcon className="size-4" strokeWidth={phone ? 2 : 1.75} aria-hidden />
-    </SelectMenu>
+    <SeasonPicker
+      seasons={show.seasons}
+      season={season}
+      seasonNumber={seasonNumber}
+      phone={phone}
+      onChange={setSeasonNumber}
+    />
   );
 
   const progress =
@@ -144,45 +124,112 @@ export function Episodes({
         <ol className="flex flex-col gap-2">
           {episodes.status === "loading"
             ? Array.from({ length: Math.min(season?.episodeCount ?? 4, 6) }, (_, index) => (
-                <li key={index} aria-hidden className="flex items-center gap-6 p-4">
-                  <span className="w-7" />
-                  <span className="aspect-video w-44 rounded-poster bg-text/5" />
-                  <span className="flex grow flex-col gap-2">
-                    <span className="h-4 w-48 rounded-xs bg-text/6" />
-                    <span className="h-3 w-96 rounded-xs bg-text/5" />
-                  </span>
-                </li>
+                <EpisodeSkeleton key={index} />
               ))
             : list.map((episode) => (
                 <li key={episode.id}>
-                  <EpisodeRow
-                    number={episode.episodeNumber}
-                    title={episode.name}
-                    runtime={episodeWhen(episode)}
-                    synopsis={episode.overview ?? undefined}
-                    credits={episodeCredits(episode)}
-                    facts={episodeFacts(episode)}
-                    image={artworkUrl(episode.still, "card")}
-                    progress={progressFraction(episode.progress) ?? undefined}
-                    aria-current={episode.id === nextId ? "true" : undefined}
-                    className={cn(
-                      "max-w-none gap-6 bg-transparent hover:bg-text/6",
-                      episode.id === nextId && "bg-surface-raised hover:bg-surface-raised",
-                      !episode.available && "opacity-(--opacity-muted)",
-                    )}
-                    render={
-                      <Link
-                        to="/watch/$titleId"
-                        params={{ titleId: show.id }}
-                        search={{ episodeId: episode.id }}
-                      />
-                    }
-                  />
+                  <DesktopEpisode show={show} episode={episode} next={episode.id === nextId} />
                 </li>
               ))}
         </ol>
       </div>
     </section>
+  );
+}
+
+/** The season menu: a large heading on phones, a bordered button with the episode count wider. */
+function SeasonPicker({
+  seasons,
+  season,
+  seasonNumber,
+  phone,
+  onChange,
+}: {
+  readonly seasons: TitleDetail["seasons"];
+  readonly season: TitleDetail["seasons"][number] | undefined;
+  readonly seasonNumber: number;
+  readonly phone: boolean;
+  readonly onChange: (seasonNumber: number) => void;
+}) {
+  const options = seasons.map((candidate) => ({
+    value: String(candidate.seasonNumber),
+    label: candidate.name,
+    detail: plural(candidate.episodeCount, "episode", "episodes"),
+  }));
+
+  return (
+    <SelectMenu
+      label="Season"
+      value={String(seasonNumber)}
+      options={options}
+      onChange={(value) => onChange(Number(value))}
+      className={
+        phone
+          ? "gap-1.5 text-heading/heading font-bold tracking-tight"
+          : "h-10 gap-3 border border-hairline bg-surface-raised pr-3.5 pl-4"
+      }
+    >
+      <span className={phone ? undefined : "text-body/label font-semibold"}>
+        {season?.name ?? `Season ${seasonNumber}`}
+      </span>
+      {phone || season === undefined ? null : (
+        <span className="text-label/label text-text-muted">
+          {plural(season.episodeCount, "episode", "episodes")}
+        </span>
+      )}
+      <ChevronDownIcon className="size-4" strokeWidth={phone ? 2 : 1.75} aria-hidden />
+    </SelectMenu>
+  );
+}
+
+/** A placeholder episode row while the season loads. */
+function EpisodeSkeleton() {
+  return (
+    <li aria-hidden className="flex items-center gap-6 p-4">
+      <span className="w-7" />
+      <span className="aspect-video w-44 rounded-poster bg-text/5" />
+      <span className="flex grow flex-col gap-2">
+        <span className="h-4 w-48 rounded-bar bg-text/6" />
+        <span className="h-3 w-96 rounded-bar bg-text/5" />
+      </span>
+    </li>
+  );
+}
+
+/** An episode row on wider screens; the next episode to watch is raised. */
+function DesktopEpisode({
+  show,
+  episode,
+  next,
+}: {
+  readonly show: TitleDetail;
+  readonly episode: SeasonEpisode;
+  readonly next: boolean;
+}) {
+  return (
+    <EpisodeRow
+      number={episode.episodeNumber}
+      title={episode.name}
+      runtime={episodeWhen(episode)}
+      synopsis={episode.overview ?? undefined}
+      credits={episodeCredits(episode)}
+      facts={episodeFacts(episode)}
+      image={artworkUrl(episode.still, "card")}
+      progress={progressFraction(episode.progress) ?? undefined}
+      aria-current={next ? "true" : undefined}
+      className={cn(
+        "max-w-none gap-6 bg-transparent hover:bg-text/6",
+        next && "bg-surface-raised hover:bg-surface-raised",
+        !episode.available && "opacity-(--opacity-muted)",
+      )}
+      render={
+        <Link
+          to="/watch/$titleId"
+          params={{ titleId: show.id }}
+          search={{ episodeId: episode.id }}
+        />
+      }
+    />
   );
 }
 

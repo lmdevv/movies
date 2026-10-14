@@ -7,7 +7,7 @@ export function Wordmark({ className, ...props }: ComponentProps<"span">) {
     <span
       data-slot="wordmark"
       className={cn(
-        "font-sans text-2xl/7.5 font-heavy tracking-snug whitespace-nowrap text-accent select-none",
+        "font-sans text-logo/7.5 font-heavy tracking-snug whitespace-nowrap text-accent select-none",
         className,
       )}
       {...props}

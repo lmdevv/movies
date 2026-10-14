@@ -19,7 +19,8 @@ import { PageHeader } from "@/components/admin/page-header";
 import { useActiveProfile } from "@/session/guards";
 
 import { usePreview } from "./connect";
-import type { Preview, SourceForm } from "./connect";
+import type { Preview } from "./connect";
+import type { SourceForm } from "./migration-model";
 import { currentMappings, mappingsWith, userRows, withChoice } from "./migration-model";
 import type { UserChoice, UserRow } from "./migration-model";
 import { Caution, SectionLabel, Stat, Stats } from "./parts";

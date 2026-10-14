@@ -15,13 +15,15 @@ import type { ReactNode } from "react";
 
 import { describeFailure } from "@/lib/failure";
 import { plural, titleFacts } from "@/lib/format";
+import { useLatest } from "@/lib/use-latest";
 import { decadesUntil } from "@/lib/metadata";
 import { useActiveProfile } from "@/session/guards";
 
 import { PosterGridSkeleton } from "./skeletons";
 import { SelectMenu } from "./select-menu";
 import type { SelectOption } from "./select-menu";
-import { TitlePosterCard, newBadge } from "./title-cards";
+import { newBadge } from "./new-badge";
+import { TitlePosterCard } from "./title-cards";
 
 /** Titles per page; the grid asks for the next page as its end scrolls into view. */
 const PAGE_SIZE = 60;
@@ -68,6 +70,10 @@ type Mutable<Value> = { -readonly [Key in keyof Value]: Value[Key] };
 /** The `titles.list` arguments of one page of the grid. */
 type ListArgs = Mutable<CommandArgs<"titles.list">>;
 
+/** Whether a genre, decade, or score hides some titles. */
+const isNarrowed = (filters: GridFilters): boolean =>
+  filters.genre !== null || filters.decade !== ANY || filters.score !== ANY;
+
 /** One page's arguments: the profile, kind, filters, and where the page starts. */
 const listArgs = (
   profileId: ProfileId,
@@ -75,13 +81,11 @@ const listArgs = (
   filters: GridFilters,
   cursor: string | null,
 ): ListArgs => {
-  const narrowed = filters.genre !== null || filters.decade !== ANY || filters.score !== ANY;
-
   const args: ListArgs = {
     profileId,
     sort: filters.sort,
     cursor,
-    limit: narrowed ? FILTERED_PAGE_SIZE : PAGE_SIZE,
+    limit: isNarrowed(filters) ? FILTERED_PAGE_SIZE : PAGE_SIZE,
   };
 
   if (kind !== undefined) args.kind = kind;
@@ -106,6 +110,12 @@ type LoadedPage = {
   readonly items: ReadonlyArray<TitleCard>;
   readonly nextCursor: string | null;
 };
+
+/** The earliest failed page's cause, which speaks for the grid; none while every page is fine. */
+const firstFailure = (
+  failures: ReadonlyMap<number, unknown>,
+): { readonly cause: unknown } | undefined =>
+  failures.size === 0 ? undefined : { cause: failures.get(Math.min(...failures.keys())) };
 
 /** Subscribes to one page and reports it; the grid draws every page's titles together. */
 function PageSubscription({
@@ -135,29 +145,44 @@ function PageSubscription({
   return null;
 }
 
-/** Calls `onVisible` whenever the returned element scrolls near the viewport. */
-const useNearViewport = (
-  onChange: (near: boolean) => void,
-): ((element: HTMLElement | null) => (() => void) | undefined) => {
-  const latest = useRef(onChange);
+/** What {@link useNearViewport} returns. */
+interface NearViewport {
+  readonly near: { readonly current: boolean };
+  readonly ref: (element: HTMLElement | null) => (() => void) | undefined;
+}
 
-  latest.current = onChange;
+/**
+ * Watches the returned element: `near` says whether it is within reach of the viewport, and
+ * `onNear` runs each time it comes near. Leaving, or the element going away, only clears `near`.
+ */
+const useNearViewport = (onNear: () => void): NearViewport => {
+  const latest = useLatest(onNear);
+  const near = useRef(false);
 
-  return useCallback((element: HTMLElement | null) => {
-    if (element === null) return undefined;
+  const ref = useCallback(
+    (element: HTMLElement | null) => {
+      if (element === null) return undefined;
 
-    const observer = new IntersectionObserver(
-      (entries) => latest.current(entries.some((entry) => entry.isIntersecting)),
-      { rootMargin: "600px 0px" },
-    );
+      const observer = new IntersectionObserver(
+        (entries) => {
+          near.current = entries.some((entry) => entry.isIntersecting);
 
-    observer.observe(element);
+          if (near.current) latest.current();
+        },
+        { rootMargin: "600px 0px" },
+      );
 
-    return () => {
-      observer.disconnect();
-      latest.current(false);
-    };
-  }, []);
+      observer.observe(element);
+
+      return () => {
+        observer.disconnect();
+        near.current = false;
+      };
+    },
+    [latest],
+  );
+
+  return { near, ref };
 };
 
 /** Page heading: a heavy title with a mono count, and controls on the right. */
@@ -186,7 +211,7 @@ export function GridHeader({
 /** The responsive poster grid: two columns on phones, 168px posters on desktops. */
 export function PosterGrid({ children }: { readonly children: ReactNode }) {
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-[repeat(auto-fill,minmax(--spacing(42),1fr))] md:gap-x-5.5 md:gap-y-8">
+    <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-[repeat(auto-fill,minmax(var(--spacing-42),1fr))] md:gap-x-5.5 md:gap-y-8">
       {children}
     </div>
   );
@@ -284,7 +309,18 @@ export function TitleGridPage({
   const [failures, setFailures] = useState<ReadonlyMap<number, unknown>>(new Map());
   // Try again counts up; it is part of every page subscription's key, so they all subscribe anew.
   const [attempt, setAttempt] = useState(0);
-  const nearEnd = useRef(false);
+  const last = pages[cursors.length - 1];
+
+  // The grid's end coming into view asks for the page after the last one loaded.
+  const end = useNearViewport(() => {
+    if (last?.nextCursor !== undefined && last.nextCursor !== null) {
+      const cursor = last.nextCursor;
+
+      setCursors((current) => (current.includes(cursor) ? current : [...current, cursor]));
+    }
+  });
+
+  const nearEnd = end.near;
 
   // Any change of filter starts over from the first page.
   const changeFilters = (next: Partial<GridFilters>): void => {
@@ -296,25 +332,28 @@ export function TitleGridPage({
 
   // A page that lands while the grid's end is still in view asks for the next one, so filtered
   // pages that hold few titles keep loading until the grid fills or the list ends.
-  const onPage = useCallback((index: number, page: LoadedPage) => {
-    setPages((current) => {
-      const next = [...current];
+  const onPage = useCallback(
+    (index: number, page: LoadedPage) => {
+      setPages((current) => {
+        const next = [...current];
 
-      next[index] = page;
+        next[index] = page;
 
-      return next;
-    });
+        return next;
+      });
 
-    const { nextCursor } = page;
+      const { nextCursor } = page;
 
-    if (nearEnd.current && nextCursor !== null) {
-      setCursors((current) =>
-        current.length === index + 1 && !current.includes(nextCursor)
-          ? [...current, nextCursor]
-          : current,
-      );
-    }
-  }, []);
+      if (nearEnd.current && nextCursor !== null) {
+        setCursors((current) =>
+          current.length === index + 1 && !current.includes(nextCursor)
+            ? [...current, nextCursor]
+            : current,
+        );
+      }
+    },
+    [nearEnd],
+  );
 
   const onError = useCallback((index: number, cause: unknown) => {
     setFailures((current) => new Map(current).set(index, cause));
@@ -325,26 +364,11 @@ export function TitleGridPage({
     setAttempt((current) => current + 1);
   };
 
-  // The earliest failed page speaks for the grid.
-  const firstFailed = failures.size === 0 ? undefined : Math.min(...failures.keys());
-
+  const failure = firstFailure(failures);
   const loaded = pages.flatMap((page) => page?.items ?? []);
-  const last = pages[cursors.length - 1];
   const complete = last !== undefined && last.nextCursor === null;
   const now = Date.now();
 
-  const sentinel = useNearViewport((near) => {
-    nearEnd.current = near;
-
-    if (near && last?.nextCursor !== undefined && last.nextCursor !== null) {
-      const cursor = last.nextCursor;
-
-      setCursors((current) => (current.includes(cursor) ? current : [...current, cursor]));
-    }
-  });
-
-  const firstLoaded = pages[0] !== undefined;
-  const narrowed = filters.genre !== null || filters.decade !== ANY || filters.score !== ANY;
   const noun = kind === "show" ? ["show", "shows"] : ["title", "titles"];
 
   return (
@@ -395,40 +419,81 @@ export function TitleGridPage({
           onChange={(genre) => changeFilters({ genre })}
         />
       ) : null}
-      {firstFailed !== undefined ? (
-        <CalmState
-          className="py-24"
-          title={`${heading} didn't load`}
-          description={describeFailure(failures.get(firstFailed))}
-          actions={<Button onClick={retryFailed}>Try again</Button>}
-        />
-      ) : !firstLoaded ? (
-        <PosterGridSkeleton />
-      ) : loaded.length === 0 && complete ? (
-        <CalmState
-          className="py-24"
-          title={narrowed ? `No ${noun[1] ?? ""} match` : `No ${heading.toLowerCase()} yet`}
-        />
-      ) : (
-        <>
-          <PosterGrid>
-            {loaded.map((title) => (
-              <TitlePosterCard
-                key={title.id}
-                title={title}
-                subtitle={titleFacts(title) || undefined}
-                badge={newBadge(title, now)}
-                className="w-full"
-              />
-            ))}
-          </PosterGrid>
-          {complete ? null : (
-            <div ref={sentinel} aria-hidden className="pt-8">
-              <PosterGridSkeleton count={7} />
-            </div>
-          )}
-        </>
-      )}
+      <GridResults
+        heading={heading}
+        failure={failure}
+        onRetry={retryFailed}
+        firstLoaded={pages[0] !== undefined}
+        loaded={loaded}
+        complete={complete}
+        emptyTitle={
+          isNarrowed(filters) ? `No ${noun[1] ?? ""} match` : `No ${heading.toLowerCase()} yet`
+        }
+        now={now}
+        sentinel={end.ref}
+      />
     </div>
+  );
+}
+
+/**
+ * The grid below the heading: the failure, a skeleton until the first page lands, the empty
+ * state, or the posters with a loading row at the end that asks for more as it comes into view.
+ */
+function GridResults({
+  heading,
+  failure,
+  onRetry,
+  firstLoaded,
+  loaded,
+  complete,
+  emptyTitle,
+  now,
+  sentinel,
+}: {
+  readonly heading: string;
+  readonly failure: { readonly cause: unknown } | undefined;
+  readonly onRetry: () => void;
+  readonly firstLoaded: boolean;
+  readonly loaded: ReadonlyArray<TitleCard>;
+  readonly complete: boolean;
+  readonly emptyTitle: string;
+  readonly now: number;
+  readonly sentinel: (element: HTMLElement | null) => (() => void) | undefined;
+}) {
+  if (failure !== undefined) {
+    return (
+      <CalmState
+        className="py-24"
+        title={`${heading} didn't load`}
+        description={describeFailure(failure.cause)}
+        actions={<Button onClick={onRetry}>Try again</Button>}
+      />
+    );
+  }
+
+  if (!firstLoaded) return <PosterGridSkeleton />;
+
+  if (loaded.length === 0 && complete) return <CalmState className="py-24" title={emptyTitle} />;
+
+  return (
+    <>
+      <PosterGrid>
+        {loaded.map((title) => (
+          <TitlePosterCard
+            key={title.id}
+            title={title}
+            subtitle={titleFacts(title) || undefined}
+            badge={newBadge(title, now)}
+            className="w-full"
+          />
+        ))}
+      </PosterGrid>
+      {complete ? null : (
+        <div ref={sentinel} aria-hidden className="pt-8">
+          <PosterGridSkeleton count={7} />
+        </div>
+      )}
+    </>
   );
 }

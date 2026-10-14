@@ -3,7 +3,7 @@
  * scan still running (07 Scanning), or a library with nothing this profile can see.
  */
 import type { TitleCard } from "@movies/contracts/models/catalog";
-import { buttonVariants } from "@movies/ui/components/button";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { cn } from "@movies/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
@@ -20,16 +20,16 @@ const ARRIVING_SLOTS = 8;
 /** No library yet. People who manage libraries get the way to add one. */
 export function EmptyLibrary({ canManage }: { readonly canManage: boolean }) {
   return (
-    <div className="flex min-h-[calc(100svh-var(--spacing)*40)] items-center justify-center px-6 pb-17">
+    <div className="flex min-h-[calc(100svh-var(--spacing-40))] items-center justify-center px-6 pb-17">
       <CalmState
         className="max-w-140 gap-7"
         visual={
           <div aria-hidden className="flex items-end gap-3">
-            <span className="h-36 w-24 rounded-poster border-[1.5px] border-dashed border-hairline" />
-            <span className="flex h-45 w-30 items-center justify-center rounded-poster border-[1.5px] border-dashed border-accent/70">
+            <span className="h-36 w-24 rounded-poster border-control border-dashed border-hairline" />
+            <span className="flex h-45 w-30 items-center justify-center rounded-poster border-control border-dashed border-accent/70">
               <PlusIcon className="size-8 text-accent" strokeWidth={1.75} />
             </span>
-            <span className="h-36 w-24 rounded-poster border-[1.5px] border-dashed border-hairline" />
+            <span className="h-36 w-24 rounded-poster border-control border-dashed border-hairline" />
           </div>
         }
         title="No libraries yet"
@@ -54,7 +54,7 @@ export function EmptyLibrary({ canManage }: { readonly canManage: boolean }) {
 /** A library with no titles this profile can see, and no scan running. */
 export function NothingToWatch() {
   return (
-    <div className="flex min-h-[calc(100svh-var(--spacing)*40)] items-center justify-center px-6 pb-17">
+    <div className="flex min-h-[calc(100svh-var(--spacing-40))] items-center justify-center px-6 pb-17">
       <CalmState title="Nothing to watch yet" />
     </div>
   );

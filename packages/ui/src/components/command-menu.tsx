@@ -8,7 +8,7 @@ import {
 import type { CommandItem, CommandLeading, CommandPage } from "@movies/ui/lib/command-menu";
 import { cn } from "@movies/ui/lib/utils";
 import { CheckIcon } from "lucide-react";
-import { useEffect, useId, useReducer, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useId, useReducer, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 import { Keycaps } from "./keycap";
@@ -27,7 +27,13 @@ function Leading({
       {leading === undefined ? null : leading.kind === "icon" ? (
         <leading.icon className={cn("size-4", running ? "text-text" : "text-text-muted")} />
       ) : leading.kind === "poster" ? (
-        <img src={leading.src} alt="" className="h-5 w-3.5 rounded-xs object-cover" />
+        <img
+          src={leading.src}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          className="h-5 w-3.5 rounded-bar object-cover"
+        />
       ) : (
         <CheckIcon className="size-4 text-text" strokeWidth={1.75} />
       )}
@@ -72,7 +78,7 @@ function CommandRow({
       <div className="flex items-center gap-3">
         <Leading leading={item.leading} running={running} />
         <span className="flex min-w-0 flex-1 items-baseline gap-2">
-          <span className="truncate text-sm/5 text-text">{item.title}</span>
+          <span className="truncate text-small/5 text-text">{item.title}</span>
           {item.detail === undefined ? null : (
             <span className="truncate text-label/5 text-text-muted">{item.detail}</span>
           )}
@@ -147,17 +153,15 @@ export function CommandMenu({
       document.getElementById(activeId)?.scrollIntoView({ block: "nearest" });
   }, [activeId]);
 
-  const latestRoot = useRef(root);
-
-  latestRoot.current = root;
-
   // Opening on a submenu reads the root of that moment; later rebuilds keep the opened options.
+  const findStart = useEffectEvent((id: string) =>
+    root.groups.flatMap((group) => group.items).find((candidate) => candidate.id === id),
+  );
+
   useEffect(() => {
     if (!open || start === undefined) return;
 
-    const item = latestRoot.current.groups
-      .flatMap((group) => group.items)
-      .find((candidate) => candidate.id === start);
+    const item = findStart(start);
 
     if (item?.kind !== "submenu") return;
 
@@ -253,11 +257,11 @@ export function CommandMenu({
           initialFocus={inputRef}
           aria-label="Command menu"
           data-slot="command-menu"
-          className="fixed top-4 left-1/2 z-50 flex w-160 max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col overflow-hidden rounded-card border border-text/8 bg-surface font-sans shadow-overlay transition-[opacity,scale] duration-150 data-ending-style:scale-98 data-ending-style:opacity-0 data-starting-style:scale-98 data-starting-style:opacity-0 md:top-35"
+          className="fixed top-4 left-1/2 z-50 flex w-160 max-w-[calc(100vw-var(--spacing-8))] -translate-x-1/2 flex-col overflow-hidden rounded-card border border-text/8 bg-surface font-sans shadow-overlay transition-[opacity,scale] duration-150 data-ending-style:scale-98 data-ending-style:opacity-0 data-starting-style:scale-98 data-starting-style:opacity-0 md:top-35"
         >
           <div className="flex h-16 shrink-0 items-center gap-3 border-b border-hairline px-5">
             {page.breadcrumb === undefined ? null : (
-              <span className="flex h-6 shrink-0 items-center rounded-md bg-text/7 px-2 text-label/4 text-text">
+              <span className="flex h-6 shrink-0 items-center rounded-inner bg-text/7 px-2 text-label/4 text-text">
                 {page.breadcrumb}
               </span>
             )}
@@ -277,17 +281,17 @@ export function CommandMenu({
               onChange={(event) => setQuery(event.target.value, page)}
               onKeyDown={onKeyDown}
               // The caret is the focus indicator Paper draws for this borderless field.
-              className="h-6 min-w-0 flex-1 bg-transparent text-lg/6 tracking-tight text-text caret-accent outline-none placeholder:text-text-muted"
+              className="h-6 min-w-0 flex-1 bg-transparent text-command/6 tracking-tight text-text caret-accent outline-none placeholder:text-text-muted"
             />
           </div>
           <div
             id={listboxId}
             role="listbox"
             aria-label={page.breadcrumb ?? "Commands"}
-            className="flex max-h-[min(30rem,calc(100dvh-14rem))] flex-col overflow-y-auto px-2 pt-2 pb-1 scrollbar-none"
+            className="flex max-h-[min(var(--spacing-command-list),calc(100dvh-var(--spacing-56)))] flex-col overflow-y-auto px-2 pt-2 pb-1 scrollbar-none"
           >
             {visible.noResults ? (
-              <p className="px-3 pt-5 pb-4 text-sm/5 text-text-muted">
+              <p className="px-3 pt-5 pb-4 text-small/5 text-text-muted">
                 No results for “{frame.query.trim()}”
               </p>
             ) : null}

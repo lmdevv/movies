@@ -36,7 +36,7 @@ export function ChapterList({
     <div
       data-slot="chapter-list"
       className={cn(
-        "flex max-h-[min(28rem,70vh)] w-90 flex-col gap-0.5 overflow-y-auto rounded-control border border-hairline bg-surface-raised p-3",
+        "flex max-h-[min(var(--spacing-chapter-list),70vh)] w-90 flex-col gap-0.5 overflow-y-auto rounded-control border border-hairline bg-surface-raised p-3",
         className,
       )}
     >
@@ -52,7 +52,7 @@ export function ChapterList({
             type="button"
             aria-current={current || undefined}
             onClick={() => onSelect(chapter)}
-            className="flex cursor-pointer items-center gap-3 rounded-xs p-2 text-left font-sans text-body/label text-text-muted transition-colors hover:bg-text/8 hover:text-text aria-current:font-semibold aria-current:text-text"
+            className="flex cursor-pointer items-center gap-3 rounded-bar p-2 text-left font-sans text-body/label text-text-muted transition-colors hover:bg-text/8 hover:text-text aria-current:font-semibold aria-current:text-text"
           >
             {chapter.thumbnail === null ? null : (
               <SpriteThumbnail tile={chapter.thumbnail} className="w-24 shrink-0" />

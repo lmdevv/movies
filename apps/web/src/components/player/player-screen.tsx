@@ -11,7 +11,6 @@
 import { targetPosition } from "@movies/contracts/clock";
 import { DRIFT_THRESHOLDS } from "@movies/contracts/clock";
 import type { EpisodeId, RoomId, TitleId } from "@movies/contracts/ids";
-import type { Room } from "@movies/contracts/models/rooms";
 import { EpochMillis, Milliseconds } from "@movies/contracts/units";
 import { Playback } from "@movies/sdk/effect";
 import { useCommand, useCommandQuery, useMoviesRuntime, useRoomSync } from "@movies/sdk/react";
@@ -50,6 +49,7 @@ import { copyText } from "@/lib/secure-context";
 import { episodeCode } from "@/lib/format";
 import { playerKeymap } from "@/lib/keymap";
 import { audioTrackLabel, subtitleTrackLabel } from "@/lib/media-facts";
+import { useLatest } from "@/lib/use-latest";
 import { volumeIsSettable } from "@/playback/browser-support";
 import { PlaybackPhase, StartChoice } from "@/playback/playback-controller";
 import type { PlaybackRequest } from "@/playback/playback-controller";
@@ -67,7 +67,8 @@ import { useMediaState, usePlayback } from "@/playback/use-playback";
 import { useActiveProfile } from "@/session/guards";
 import { useScopes } from "@/session/viewer";
 
-import { AUTOPLAY_COUNTDOWN, AUTOPLAY_VIDEO_FRAME, AutoplayNext } from "./autoplay-next";
+import { AUTOPLAY_COUNTDOWN, AUTOPLAY_VIDEO_FRAME } from "./autoplay";
+import { AutoplayNext } from "./autoplay-next";
 import { CastMenu, CastingState } from "./cast-menu";
 import {
   PhoneControls,
@@ -194,65 +195,65 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   const [menu, setMenu] = useState(false);
   const [info, setInfo] = useState(false);
   const [panel, setPanel] = useState(true);
+
+  // The route keys the player by title and episode, so a dismissal ends with its episode.
   const [creditsDismissed, setCreditsDismissed] = useState(false);
+
   const [countdown, setCountdown] = useState<number | null>(null);
   const [brightness, setBrightness] = useState(1);
   const [scrub, setScrub] = useState<number | null>(null);
   const [keyPreview, setKeyPreview] = useState<number | null>(null);
   const [menuQuery, setMenuQuery] = useState("");
   const [startDialog, setStartDialog] = useState<{ readonly roomId: RoomId | null } | null>(null);
-  const [wantsTogether, setWantsTogether] = useState(together);
+  // Asked for with `?together`: start a room once playback begins, once.
+  const wantsTogether = useRef(together);
   const canSetVolume = useMemo(() => volumeIsSettable(), []);
 
   const watch = useWatchRoom(roomId ?? null, profile.id, deviceId);
-  const roomRef = useRef<Room | null>(null);
-
-  roomRef.current = watch?.room ?? null;
 
   // Leaving the room the stream belongs to drops it from the URL; the stream plays on alone.
   const leftRoom = openedRoom !== null && roomId === undefined;
   const joined = openedRoom === null || leftRoom || watch?.join.status === "joined";
   const roomReady = openedRoom === null || leftRoom || (joined && watch?.room !== null);
   const roomRecord = watch?.room ?? null;
+  // The room as of the latest commit, for the start position, which is asked for later.
+  const latestRoom = useLatest(roomRecord);
 
-  const request = useMemo((): PlaybackRequest | null => {
-    if (!roomReady) return null;
+  // Built only when a session starts (`playbackKey` changes), from that render's room and props.
+  const buildRequest = roomReady
+    ? (): PlaybackRequest => ({
+        profileId: profile.id,
+        deviceId,
+        deviceName: deviceName(),
+        titleId: roomRecord?.title.id ?? titleId,
+        episodeId: roomRecord === null ? (episodeId ?? null) : (roomRecord.episode?.id ?? null),
+        roomId: openedRoom,
+        start:
+          openedRoom === null
+            ? startChoice(start)
+            : StartChoice.At({
+                positionMs: () => {
+                  const current = latestRoom.current;
 
-    const room = roomRef.current;
-
-    return {
-      profileId: profile.id,
-      deviceId,
-      deviceName: deviceName(),
-      titleId: room?.title.id ?? titleId,
-      episodeId: room === null ? (episodeId ?? null) : (room.episode?.id ?? null),
-      roomId: openedRoom,
-      start:
-        openedRoom === null
-          ? startChoice(start)
-          : StartChoice.At({
-              positionMs: () => {
-                const current = roomRef.current;
-
-                return current === null
-                  ? 0
-                  : targetPosition(current.clock, EpochMillis.make(Date.now()));
-              },
-            }),
-      // Read once per session; later changes go through `selectQuality`.
-      quality: loadQualityChoice(),
-    };
-  }, [roomReady, profile.id, deviceId, titleId, episodeId, openedRoom, start]);
+                  return current === null
+                    ? 0
+                    : targetPosition(current.clock, EpochMillis.make(Date.now()));
+                },
+              }),
+        // Read once per session; later changes go through `selectQuality`.
+        quality: loadQualityChoice(),
+      })
+    : null;
 
   const playbackKey = [
-    request === null ? "waiting" : "ready",
+    roomReady ? "ready" : "waiting",
     profile.id,
     titleId,
     episodeId ?? "",
     openedRoom ?? "",
   ].join(":");
 
-  const handle = usePlayback(video, request, playbackKey);
+  const handle = usePlayback(video, buildRequest, playbackKey);
   const controller = handle?.controller ?? null;
   const snapshot = handle?.snapshot ?? null;
   const phase = snapshot?.phase ?? PlaybackPhase.Starting();
@@ -527,10 +528,10 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   }, [started, output, createRoom, profile.id, deviceId]);
 
   useEffect(() => {
-    if (!wantsTogether || !isPlaying || roomId !== undefined) return;
-    setWantsTogether(false);
+    if (!wantsTogether.current || !isPlaying || roomId !== undefined) return;
+    wantsTogether.current = false;
     openStartRoom();
-  }, [wantsTogether, isPlaying, roomId, openStartRoom]);
+  }, [isPlaying, roomId, openStartRoom]);
 
   const cancelStartRoom = useCallback(() => {
     const created = startDialog?.roomId ?? null;
@@ -670,10 +671,6 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       runtime.runFork(Fiber.interrupt(fiber));
     };
   }, [showNext, runtime, playNext]);
-
-  useEffect(() => {
-    setCreditsDismissed(false);
-  }, [episode?.id]);
 
   // Guests catching up.
   const guestSyncing =
@@ -1029,7 +1026,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
               <track
                 key={`${track.id}:${track.url}`}
                 id={track.id}
-                kind="subtitles"
+                kind={track.hearingImpaired ? "captions" : "subtitles"}
                 src={track.url}
                 label={subtitleTrackLabel(track, index)}
                 {...(track.language === undefined ? {} : { srcLang: track.language })}

@@ -1,6 +1,7 @@
 import { CollectionId } from "@movies/contracts/ids";
 import { useCommandQuery } from "@movies/sdk/react";
-import { Button, buttonVariants } from "@movies/ui/components/button";
+import { Button } from "@movies/ui/components/button";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Schema } from "effect";
@@ -74,9 +75,7 @@ function CollectionPage() {
           className="absolute inset-0 -z-10 bg-linear-to-b from-dark-bg/55 via-transparent via-20% to-page to-92%"
         />
         <div className="mx-auto flex w-full max-w-content flex-col gap-3">
-          <h1 className="text-display/display font-black tracking-display text-text">
-            {data.name}
-          </h1>
+          <h1 className="text-display/display font-hero tracking-display text-text">{data.name}</h1>
           <p className="text-label/label text-text-muted">
             {plural(data.titles.length, "title", "titles")}
           </p>

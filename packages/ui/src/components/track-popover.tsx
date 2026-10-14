@@ -40,7 +40,7 @@ function TrackColumn({
           <Radio.Root
             key={option.id}
             value={option.id}
-            className="group/track flex h-10 cursor-pointer items-center gap-2.5 rounded-xs text-left font-sans text-body/label text-text-muted transition-colors hover:text-text data-checked:font-semibold data-checked:text-text"
+            className="group/track flex h-10 cursor-pointer items-center gap-2.5 rounded-bar text-left font-sans text-body/label text-text-muted transition-colors hover:text-text data-checked:font-semibold data-checked:text-text"
           >
             <span className="flex size-4 shrink-0 items-center justify-center">
               <Radio.Indicator>

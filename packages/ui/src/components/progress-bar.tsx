@@ -36,13 +36,13 @@ export function ProgressBar({
           })}
       className={cn(
         "flex w-full shrink-0 overflow-hidden",
-        thickness === "regular" ? "h-1" : "h-0.5 rounded-xs",
+        thickness === "regular" ? "h-1" : "h-0.5 rounded-bar",
         tone === "media" ? "bg-dark-text/25" : "bg-text/10",
         className,
       )}
     >
       <div
-        className={cn("h-full bg-accent", thickness === "thin" && "rounded-xs")}
+        className={cn("h-full bg-accent", thickness === "thin" && "rounded-bar")}
         style={{ width: `${percent}%` }}
       />
     </div>

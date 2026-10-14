@@ -1,5 +1,5 @@
 import type { Scope } from "@movies/contracts/scopes";
-import { buttonVariants } from "@movies/ui/components/button";
+import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Spinner } from "@movies/ui/components/spinner";
 import { Link } from "@tanstack/react-router";

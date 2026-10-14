@@ -48,16 +48,13 @@ export function SelectMenu<Value extends string>({
       >
         {children}
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="w-auto min-w-48 rounded-control border border-hairline bg-surface-raised p-1 font-sans shadow-overlay ring-0"
-      >
+      <DropdownMenuContent align="end">
         <DropdownMenuRadioGroup value={value} onValueChange={(next: Value) => onChange(next)}>
           {options.map((option) => (
             <DropdownMenuRadioItem
               key={option.value}
               value={option.value}
-              className="gap-2 rounded-md py-2 pr-9 pl-3 text-label/label text-text focus:bg-text/8 [&_[data-slot=dropdown-menu-radio-item-indicator]]:right-3"
+              className="gap-2 rounded-inner py-2 pr-9 pl-3 text-label/label text-text focus:bg-text/8 [&_[data-slot=dropdown-menu-radio-item-indicator]]:right-3"
             >
               <span className="font-semibold">{option.label}</span>
               {option.detail === undefined ? null : (

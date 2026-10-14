@@ -11,10 +11,11 @@ import { useEffect, useState } from "react";
 import { describeFailure } from "@/lib/failure";
 import { isActive } from "@/lib/scan-progress";
 
-import { Connect, EMPTY_FORM } from "./connect";
-import type { Preview, SourceForm } from "./connect";
+import { Connect } from "./connect";
+import type { Preview } from "./connect";
+import type { SourceForm } from "./migration-model";
 import { Done, Importing } from "./import-progress";
-import { SOURCE_NAMES } from "./migration-model";
+import { EMPTY_FORM, SOURCE_NAMES } from "./migration-model";
 import { Review } from "./review";
 
 /** Where the admin is before an import starts. */

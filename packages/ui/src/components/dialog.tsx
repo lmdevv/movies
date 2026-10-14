@@ -35,7 +35,7 @@ export function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] -translate-1/2 flex-col overflow-y-auto rounded-card border border-hairline bg-surface font-sans text-text shadow-overlay transition-[opacity,scale] duration-150 outline-none data-ending-style:scale-98 data-ending-style:opacity-0 data-starting-style:scale-98 data-starting-style:opacity-0",
+          "fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-var(--spacing-8))] max-w-[calc(100vw-var(--spacing-8))] -translate-1/2 flex-col overflow-y-auto rounded-card border border-hairline bg-surface font-sans text-text shadow-overlay transition-[opacity,scale] duration-150 outline-none data-ending-style:scale-98 data-ending-style:opacity-0 data-starting-style:scale-98 data-starting-style:opacity-0",
           size === "md" ? "w-dialog" : "w-120",
           className,
         )}
