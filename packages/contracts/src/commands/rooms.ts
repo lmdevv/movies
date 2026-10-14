@@ -7,7 +7,7 @@ import { Schema } from "effect";
 import { DeviceId, EpisodeId, MediaFileId, ProfileId, RoomId, TitleId } from "../ids";
 import { NoArgs, Ok } from "../models/common";
 import { CreateRoomArgs, HostControlArgs, Room, RoomClock, ServerTime } from "../models/rooms";
-import { Milliseconds } from "../units";
+import { EpochMillis, Milliseconds } from "../units";
 import { mutation, query } from "./command";
 
 const OnDevice = Schema.Struct({ roomId: RoomId, deviceId: DeviceId });
@@ -100,6 +100,11 @@ export const roomCommands = {
     args: Schema.Struct({
       ...OnDevice.fields,
       positionMs: Schema.optionalKey(Milliseconds),
+      /**
+       * When the host read `positionMs`, by its estimate of the server clock, so the server carries
+       * the position forward instead of counting the request's travel time as drift.
+       */
+      atServerTime: Schema.optionalKey(EpochMillis),
       revision: Schema.optionalKey(Schema.Int),
       /** A guest's distance from the shared position, shown to the room; omit while buffering. */
       driftMs: Schema.optionalKey(Schema.Finite),

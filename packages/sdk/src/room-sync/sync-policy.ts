@@ -17,6 +17,11 @@ import { Data, Option } from "effect";
 export interface RoomSyncTunables {
   /** Within this distance a follower is in sync and runs at the room's rate. */
   readonly inSyncMs: number;
+  /**
+   * A nudging follower, or one whose clock just changed, corrects until it is this close, so it
+   * settles near the shared position rather than anywhere inside `inSyncMs`.
+   */
+  readonly settleMs: number;
   /** Beyond this distance a follower seeks; between the two it nudges its rate. */
   readonly seekMs: number;
   /**
@@ -49,6 +54,7 @@ export interface RoomSyncTunables {
 /** The default tunables, using the contracts' drift thresholds and heartbeat cadence. */
 export const DEFAULT_TUNABLES: RoomSyncTunables = {
   inSyncMs: DRIFT_THRESHOLDS.inSyncMs,
+  settleMs: 30,
   seekMs: DRIFT_THRESHOLDS.seekMs,
   fixedRateSeekMs: 750,
   nudgeRate: DRIFT_THRESHOLDS.nudgeRate,
@@ -90,6 +96,11 @@ export interface FollowDecision {
   readonly commands: ReadonlyArray<PlayerCommand>;
   /** Player position minus the shared position; positive means ahead. Null while buffering. */
   readonly driftMs: number | null;
+  /**
+   * Whether the next decision still faces a fresh target, as after a seek; pass it to the next
+   * `follow`. A decision that acted on the target clears it.
+   */
+  readonly settling: boolean;
 }
 
 /** Whether two rates differ enough to be worth setting. */
@@ -100,6 +111,7 @@ const holdAt = (
   player: PlayerSnapshot,
   positionMs: Milliseconds,
   clock: ClockAnchor,
+  settling: boolean,
   tunables: RoomSyncTunables,
 ): FollowDecision => {
   const driftMs = player.positionMs - positionMs;
@@ -112,7 +124,7 @@ const holdAt = (
       : []),
   ];
 
-  return { commands, driftMs };
+  return { commands, driftMs, settling };
 };
 
 /**
@@ -120,19 +132,26 @@ const holdAt = (
  * player at the anchor. A playing room leaves a buffering player alone, seeks when far off
  * (unless a seek just happened), nudges the rate when moderately off, and runs at the room's rate
  * when in sync; a paused player also starts playing.
+ *
+ * In sync means within `inSyncMs`, so jitter does not keep changing the rate. A nudge, though, runs
+ * until the player is within `settleMs` or passes the shared position. A `settling` follower faces
+ * a fresh target (its clock just changed, or it just sought): it drops whatever nudge was running,
+ * which may now lead away from the target, and nudges from `settleMs` on. Either way the player
+ * ends near the shared position instead of anywhere in the band.
  */
 export const follow = (
   clock: ClockAnchor,
   serverNow: EpochMillis,
   player: PlayerSnapshot,
   recentlySought: boolean,
+  settling: boolean,
   tunables: RoomSyncTunables,
 ): FollowDecision => {
   const target = targetPosition(clock, serverNow);
 
-  if (clock.status !== "playing") return holdAt(player, target, clock, tunables);
+  if (clock.status !== "playing") return holdAt(player, target, clock, settling, tunables);
 
-  if (player.buffering) return { commands: [], driftMs: null };
+  if (player.buffering) return { commands: [], driftMs: null, settling };
   const driftMs = player.positionMs - target;
   const distance = Math.abs(driftMs);
   const play = player.paused ? [PlayerCommand.Play()] : [];
@@ -145,22 +164,41 @@ export const follow = (
         ? [PlayerCommand.SetRate({ rate: clock.playbackRate })]
         : [];
 
-    return { commands: [PlayerCommand.Seek({ positionMs: target }), ...rate, ...play], driftMs };
+    return {
+      commands: [PlayerCommand.Seek({ positionMs: target }), ...rate, ...play],
+      driftMs,
+      settling: true,
+    };
   }
 
   // A player that cannot nudge its rate waits for drift to reach `fixedRateSeekMs`.
-  if (player.fixedRate) return { commands: play, driftMs };
+  if (player.fixedRate) return { commands: play, driftMs, settling };
 
-  const wanted =
-    distance <= tunables.inSyncMs
-      ? clock.playbackRate
-      : clock.playbackRate * (1 + (driftMs > 0 ? -1 : 1) * tunables.nudgeRate);
+  // Positive while running fast to catch up, negative while running slow to let the room catch up.
+  // A fresh target starts over: a nudge toward the old one may lead away from it.
+  const nudging =
+    !settling && rateDiffers(player.playbackRate, clock.playbackRate)
+      ? Math.sign(player.playbackRate - clock.playbackRate)
+      : 0;
+
+  // A running nudge stops once within `settleMs` or past the shared position, so it cannot swing.
+  const closing =
+    (nudging > 0 && driftMs < -tunables.settleMs) || (nudging < 0 && driftMs > tunables.settleMs);
+
+  const correcting =
+    nudging === 0
+      ? distance > (settling ? tunables.settleMs : tunables.inSyncMs)
+      : closing || distance > tunables.inSyncMs;
+
+  const wanted = correcting
+    ? clock.playbackRate * (1 + (driftMs > 0 ? -1 : 1) * tunables.nudgeRate)
+    : clock.playbackRate;
 
   const rate = rateDiffers(player.playbackRate, wanted)
     ? [PlayerCommand.SetRate({ rate: wanted })]
     : [];
 
-  return { commands: [...rate, ...play], driftMs };
+  return { commands: [...rate, ...play], driftMs, settling: false };
 };
 
 /** A room command a host player's state calls for. */

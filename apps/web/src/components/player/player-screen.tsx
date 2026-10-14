@@ -370,22 +370,14 @@ export function PlayerScreen({
   );
 
   /**
-   * Where a skip of `by` seconds lands. It counts from the output's position now, which holds an
-   * earlier seek's target, rather than the last render's, so presses quicker than a render add up.
+   * Skips `by` seconds from the output's position now, which holds an earlier seek's target, rather
+   * than the last render's, so presses quicker than a render add up.
    */
-  const skipTarget = useCallback(
-    (by: number): number | null =>
-      output === null ? null : Math.max(0, Math.min(duration, output.positionMs() / 1000 + by)),
-    [output, duration],
-  );
-
   const skip = useCallback(
     (by: number) => {
-      const target = skipTarget(by);
-
-      if (target !== null) seekTo(target);
+      if (output !== null) seekTo(output.positionMs() / 1000 + by);
     },
-    [skipTarget, seekTo],
+    [output, seekTo],
   );
 
   const scrubbing = useScrubbing(started);
@@ -395,16 +387,16 @@ export function PlayerScreen({
   // A keyboard seek shows where it landed on the scrubber for a moment.
   const skipByKey = useCallback(
     (by: number) => {
-      const target = skipTarget(by);
+      if (!controlsTimeline || output === null) return;
+      const target = Math.max(0, Math.min(duration, output.positionMs() / 1000 + by));
 
-      if (!controlsTimeline || target === null) return;
       seekTo(target);
       preloadThumbnails();
       setKeyPreview(target);
       clearTimeout(keyPreviewTimer.current);
       keyPreviewTimer.current = setTimeout(() => setKeyPreview(null), KEY_PREVIEW_MS);
     },
-    [controlsTimeline, skipTarget, seekTo, preloadThumbnails],
+    [controlsTimeline, output, duration, seekTo, preloadThumbnails],
   );
 
   useEffect(() => () => clearTimeout(keyPreviewTimer.current), []);

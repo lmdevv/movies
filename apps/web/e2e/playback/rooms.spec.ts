@@ -8,6 +8,7 @@
  */
 import { join } from "node:path";
 
+import { HEARTBEAT_INTERVAL_MS } from "@movies/contracts/clock";
 import { DeviceId, RoomId } from "@movies/contracts/ids";
 import type { TitleId } from "@movies/contracts/ids";
 import { Milliseconds } from "@movies/contracts/units";
@@ -57,10 +58,18 @@ const PRIVATE = "Quiet Hours";
 const FILM_SECONDS = 360;
 
 /**
- * A settled guest is this close to the host: within the engine's in-sync band (120 ms) plus what
- * reading two pages one after the other adds.
+ * A settled guest is this close to the host: the engine settles it within 30 ms of the room clock,
+ * and the host's heartbeat keeps the clock within 50 ms of the host. The rest is for reading two
+ * pages one after the other on a loaded machine.
  */
 const SETTLED_MS = 150;
+
+/**
+ * How long after first coming within `SETTLED_MS` the drift is read again: the guest is often still
+ * nudging then, and the host's next heartbeat may still re-anchor the clock. Two heartbeats cover
+ * both, so the second reading shows where the guest ends up, and that it stayed.
+ */
+const REPORT_AFTER_MS = 2 * HEARTBEAT_INTERVAL_MS;
 
 const GUEST = { name: "Sam", email: `sam-rooms-${run}@movies.test`, password: "sam-password-1" };
 
@@ -185,12 +194,17 @@ function titleId(name: string): TitleId {
   return id;
 }
 
-/** Waits until the guest is within `SETTLED_MS` of the host, and records the drift. */
+/** Waits until the guest is within `SETTLED_MS` of the host, then checks and records it stays. */
 const expectSettled = async (when: string): Promise<void> => {
   await expect
     .poll(async () => Math.abs(await driftMs(host, guest)), { timeout: 30_000 })
     .toBeLessThanOrEqual(SETTLED_MS);
-  drifts.push({ when, ms: await driftMs(host, guest) });
+  await host.waitForTimeout(REPORT_AFTER_MS);
+
+  const settled = await driftMs(host, guest);
+
+  drifts.push({ when, ms: settled });
+  expect(Math.abs(settled)).toBeLessThanOrEqual(SETTLED_MS);
 };
 
 /** Holds `page`'s HLS segment requests until the returned function releases them. */

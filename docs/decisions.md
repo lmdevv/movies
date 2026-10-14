@@ -396,7 +396,10 @@ choices made while implementing them. Update it in the same PR that changes a de
   `rooms.play`. Host commands require the host's account and device and the room's current
   revision, and bump the revision; an older revision fails with `stale_revision`.
 - Heartbeats every five seconds keep members present. The host's heartbeat re-anchors the clock
-  when its player is more than 250 ms off. A cron every ten seconds pauses a room whose host was
+  when its player is more than 50 ms off. It carries the server time, as the host estimates it, at
+  which it read its position, so the request's travel time does not count as drift. Guests follow
+  the clock, not the host, so this keeps them close to a host whose player started a little after
+  the command that anchored it. A cron every ten seconds pauses a room whose host was
   silent for 20 seconds (`hostAway`), drops guests silent for a minute, and ends rooms abandoned
   for 30 minutes. The host leaving or ending ends the room; a guest leaving only removes them.
 - Guests start their own playback session with `roomId`, which plays the room's file.

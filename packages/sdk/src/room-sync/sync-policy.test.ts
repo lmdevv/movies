@@ -43,9 +43,9 @@ describe("follow", () => {
   it("leaves an in-sync player at the room's rate alone", () => {
     fc.assert(
       fc.property(playing, fc.integer({ min: -100, max: 100 }), (clock, offset) => {
-        expect(follow(clock, NOW, at(clock, offset, false), false, DEFAULT_TUNABLES)).toStrictEqual(
-          { commands: [], driftMs: offset },
-        );
+        expect(
+          follow(clock, NOW, at(clock, offset, false), false, false, DEFAULT_TUNABLES),
+        ).toStrictEqual({ commands: [], driftMs: offset, settling: false });
       }),
     );
   });
@@ -53,7 +53,7 @@ describe("follow", () => {
   it("seeks only beyond the seek threshold and never during the cooldown", () => {
     fc.assert(
       fc.property(playing, players, fc.boolean(), (clock, player, recentlySought) => {
-        const decision = follow(clock, NOW, player, recentlySought, DEFAULT_TUNABLES);
+        const decision = follow(clock, NOW, player, recentlySought, false, DEFAULT_TUNABLES);
         const distance = Math.abs(player.positionMs - targetPosition(clock, NOW));
 
         if (decision.commands.some(isSeek)) {
@@ -72,7 +72,7 @@ describe("follow", () => {
         fc.boolean(),
         (clock, offset, recentlySought) => {
           const cast = { ...at(clock, offset, false), playbackRate: 1, fixedRate: true };
-          const { commands } = follow(clock, NOW, cast, recentlySought, DEFAULT_TUNABLES);
+          const { commands } = follow(clock, NOW, cast, recentlySought, false, DEFAULT_TUNABLES);
           const far = Math.abs(offset) >= DEFAULT_TUNABLES.fixedRateSeekMs;
 
           expect(commands.some(PlayerCommand.$is("SetRate"))).toBe(false);
@@ -84,10 +84,10 @@ describe("follow", () => {
 
   it("waits out a stall in a playing room", () => {
     fc.assert(
-      fc.property(playing, players, (clock, player) => {
+      fc.property(playing, players, fc.boolean(), (clock, player, settling) => {
         expect(
-          follow(clock, NOW, { ...player, buffering: true }, false, DEFAULT_TUNABLES),
-        ).toStrictEqual({ commands: [], driftMs: null });
+          follow(clock, NOW, { ...player, buffering: true }, false, settling, DEFAULT_TUNABLES),
+        ).toStrictEqual({ commands: [], driftMs: null, settling });
       }),
     );
   });
@@ -103,6 +103,7 @@ describe("follow", () => {
             clock,
             NOW,
             at(clock, ahead ? gap : -gap, false),
+            false,
             false,
             DEFAULT_TUNABLES,
           );
@@ -122,10 +123,75 @@ describe("follow", () => {
     );
   });
 
+  it("settles near the shared position after drifting out of sync or onto a new clock", () => {
+    fc.assert(
+      fc.property(
+        playing,
+        fc.integer({ min: DEFAULT_TUNABLES.settleMs + 1, max: DEFAULT_TUNABLES.seekMs - 1 }),
+        fc.boolean(),
+        fc.integer({ min: 1, max: 2 }),
+        (clock, gap, ahead, lateness) => {
+          // A player outside the band, or inside it right after its clock changed.
+          let settling = gap <= DEFAULT_TUNABLES.inSyncMs;
+          // Correction ticks, possibly late, until the player stops nudging.
+          const tickMs = DEFAULT_TUNABLES.correctionIntervalMs * lateness;
+          let offset = ahead ? gap : -gap;
+          let rate = clock.playbackRate;
+
+          for (let tick = 0; tick < 1_000; tick += 1) {
+            const player = { ...at(clock, offset, false), playbackRate: rate };
+            const decision = follow(clock, NOW, player, false, settling, DEFAULT_TUNABLES);
+
+            settling = decision.settling;
+
+            for (const command of decision.commands) {
+              if (PlayerCommand.$is("SetRate")(command)) rate = command.rate;
+            }
+
+            if (rate === clock.playbackRate) break;
+            offset += (rate - clock.playbackRate) * tickMs;
+          }
+
+          // One step past the settle band at most: the step the last nudge took.
+          const step = clock.playbackRate * DEFAULT_TUNABLES.nudgeRate * tickMs;
+
+          expect(rate).toBe(clock.playbackRate);
+          expect(settling).toBe(false);
+          expect(Math.abs(offset)).toBeLessThanOrEqual(DEFAULT_TUNABLES.settleMs + step);
+        },
+      ),
+    );
+  });
+
+  it("turns a running nudge around when a new clock puts the target behind it", () => {
+    fc.assert(
+      fc.property(
+        playing,
+        fc.integer({ min: DEFAULT_TUNABLES.settleMs + 1, max: DEFAULT_TUNABLES.inSyncMs }),
+        fc.boolean(),
+        (clock, gap, ahead) => {
+          // Nudging toward where the old clock was, which the new one leaves on the other side.
+          const away = clock.playbackRate * (1 + (ahead ? 1 : -1) * DEFAULT_TUNABLES.nudgeRate);
+          const player = { ...at(clock, ahead ? gap : -gap, false), playbackRate: away };
+          const decision = follow(clock, NOW, player, false, true, DEFAULT_TUNABLES);
+          const [command] = decision.commands;
+
+          expect(command !== undefined && PlayerCommand.$is("SetRate")(command)).toBe(true);
+
+          if (command !== undefined && PlayerCommand.$is("SetRate")(command)) {
+            expect(
+              ahead ? command.rate < clock.playbackRate : command.rate > clock.playbackRate,
+            ).toBe(true);
+          }
+        },
+      ),
+    );
+  });
+
   it("holds a stopped room's player paused at the anchor", () => {
     fc.assert(
       fc.property(stopped, players, (clock, player) => {
-        const { commands } = follow(clock, NOW, player, true, DEFAULT_TUNABLES);
+        const { commands } = follow(clock, NOW, player, true, false, DEFAULT_TUNABLES);
 
         expect(commands.some(PlayerCommand.$is("Play"))).toBe(false);
         expect(commands.some(PlayerCommand.$is("Pause"))).toBe(!player.paused);

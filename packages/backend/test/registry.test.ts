@@ -5,10 +5,12 @@
  * the registry; and constants duplicated across the seam are equal. Runs without a backend.
  */
 import {
+  HEARTBEAT_INTERVAL_MS,
   HOST_ABANDON_TIMEOUT_MS,
   HOST_PRESENCE_TIMEOUT_MS,
   HOST_REANCHOR_THRESHOLD_MS,
   MEMBER_PRESENCE_TIMEOUT_MS,
+  UNTIMED_HOST_REANCHOR_THRESHOLD_MS,
 } from "@movies/contracts/clock";
 import type { AnyCommand } from "@movies/contracts/command";
 import { commands } from "@movies/contracts/commands";
@@ -205,6 +207,8 @@ describe("constants shared across the seam", () => {
     expect(convexClock.MEMBER_PRESENCE_TIMEOUT_MS).toBe(MEMBER_PRESENCE_TIMEOUT_MS);
     expect(convexClock.HOST_ABANDON_TIMEOUT_MS).toBe(HOST_ABANDON_TIMEOUT_MS);
     expect(convexClock.HOST_REANCHOR_THRESHOLD_MS).toBe(HOST_REANCHOR_THRESHOLD_MS);
+    expect(convexClock.UNTIMED_HOST_REANCHOR_THRESHOLD_MS).toBe(UNTIMED_HOST_REANCHOR_THRESHOLD_MS);
+    expect(convexClock.HEARTBEAT_INTERVAL_MS).toBe(HEARTBEAT_INTERVAL_MS);
   });
 
   it("uses the same kids default and batch limits", () => {

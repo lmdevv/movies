@@ -7,7 +7,7 @@
  * a fixed offset from the test clock, delays every call and update by a one-way latency, and can
  * drop the connection. Everything runs on Effect's `Clock`, so `TestClock` drives it.
  */
-import { HOST_REANCHOR_THRESHOLD_MS, targetPosition } from "@movies/contracts/clock";
+import { hostReading, targetPosition } from "@movies/contracts/clock";
 import type { FunctionPath } from "@movies/contracts/command";
 import { commands } from "@movies/contracts/commands";
 import type { CommandError } from "@movies/contracts/errors";
@@ -156,15 +156,20 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
         args.positionMs === undefined ||
         args.deviceId !== room.hostDeviceId ||
         args.revision !== room.clock.revision ||
-        room.clock.status !== "playing" ||
-        Math.abs(args.positionMs - targetPosition(room.clock, now)) <= HOST_REANCHOR_THRESHOLD_MS
+        room.clock.status !== "playing"
       ) {
+        return room.clock;
+      }
+
+      const reading = hostReading(room.clock, args.positionMs, args.atServerTime, now);
+
+      if (Math.abs(reading.positionMs - targetPosition(room.clock, now)) <= reading.thresholdMs) {
         return room.clock;
       }
 
       const clock: RoomClock = {
         ...room.clock,
-        positionAtAnchorMs: args.positionMs,
+        positionAtAnchorMs: reading.positionMs,
         anchorServerTime: now,
         revision: room.clock.revision + 1,
       };

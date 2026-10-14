@@ -2226,6 +2226,58 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       ).toBe("conflict");
     });
 
+    it("re-anchors on a host heartbeat from when the host read its position", async () => {
+      const hostDevice = device("host3");
+
+      const room = await run(fixture.owner, "rooms.create", {
+        profileId: fixture.ownerProfile,
+        deviceId: hostDevice,
+        titleId: fixture.titles.allAges,
+        positionMs: ms(0),
+      });
+
+      const playing = await run(fixture.owner, "rooms.play", {
+        roomId: room.id,
+        deviceId: hostDevice,
+        revision: 0,
+        positionMs: ms(5_000),
+      });
+
+      const beat = (positionMs: number, atServerTime: number) =>
+        run(fixture.owner, "rooms.heartbeat", {
+          roomId: room.id,
+          deviceId: hostDevice,
+          positionMs: ms(positionMs),
+          atServerTime: EpochMillis.make(atServerTime),
+          revision: playing.revision,
+        });
+
+      // Read at the anchor and arriving well after it: on the clock, not drift.
+      await sleep(300);
+      expect(await beat(5_000, playing.anchorServerTime)).toStrictEqual(playing);
+
+      // Read 200 ms behind the clock: the clock moves back to where the host plays.
+      const anchored = await beat(5_000, playing.anchorServerTime + 200);
+
+      expect(anchored.revision).toBe(playing.revision + 1);
+      expect(anchored.positionAtAnchorMs).toBe(
+        5_000 + anchored.anchorServerTime - playing.anchorServerTime - 200,
+      );
+
+      // Without a time, travel time counts as drift, so 100 ms off is tolerated.
+      const live = anchored.positionAtAnchorMs + Date.now() - anchored.anchorServerTime;
+
+      expect(
+        await run(fixture.owner, "rooms.heartbeat", {
+          roomId: room.id,
+          deviceId: hostDevice,
+          positionMs: ms(live - 100),
+          revision: anchored.revision,
+        }),
+      ).toStrictEqual(anchored);
+      await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
+    });
+
     it("keeps kids profiles out of rooms for titles they cannot see", async () => {
       const room = await run(fixture.owner, "rooms.create", {
         profileId: fixture.ownerProfile,
