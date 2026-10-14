@@ -20,6 +20,11 @@ const BUFFERING = "BUFFERING";
 
 const IDLE = "IDLE";
 
+/** Why a receiver went idle: its media played to the end, or it failed to play on. */
+const FINISHED = "FINISHED";
+
+const ERROR = "ERROR";
+
 /** What the controls draw while casting. */
 export interface RemoteState {
   readonly positionSeconds: number;
@@ -36,7 +41,8 @@ export class CastPlayer implements PlayerPort {
   readonly #controller: RemotePlayerController;
   readonly #changeEvent: string;
   readonly #move: (positionMs: number, signal: AbortSignal) => Promise<void>;
-  readonly #finished: () => boolean;
+  readonly #idleReason: () => string | null;
+  readonly #failed: () => void;
   readonly #listeners = new Set<(event: PlayerEvent) => void>();
   readonly #watchers = new Set<() => void>();
   #pending: number | null = null;
@@ -50,18 +56,21 @@ export class CastPlayer implements PlayerPort {
 
   /**
    * @param move - Moves the receiver to a position, aborting when a newer seek replaces it.
-   * @param finished - Whether the receiver's media stopped because it played to its end.
+   * @param idleReason - Why the receiver's media last went idle, or null.
+   * @param failed - Hears that the receiver stopped because its media failed (a download error).
    */
   constructor(
     framework: CastFramework,
     move: (positionMs: number, signal: AbortSignal) => Promise<void>,
-    finished: () => boolean,
+    idleReason: () => string | null,
+    failed: () => void,
   ) {
     this.#remote = new framework.RemotePlayer();
     this.#controller = new framework.RemotePlayerController(this.#remote);
     this.#changeEvent = framework.RemotePlayerEventType.ANY_CHANGE;
     this.#move = move;
-    this.#finished = finished;
+    this.#idleReason = idleReason;
+    this.#failed = failed;
     this.#state = this.#read();
     this.#controller.addEventListener(this.#changeEvent, this.#onChange);
   }
@@ -136,10 +145,17 @@ export class CastPlayer implements PlayerPort {
     if (change.field === "playerState") {
       if (change.value === BUFFERING) this.#emit("waiting");
 
-      // The receiver also goes idle on a stop, an error, or a new load; only `FINISHED` ends.
-      if (change.value === IDLE && this.#pending === null && this.#finished()) {
-        this.#ended = true;
-        this.#emit("ended");
+      // The receiver also goes idle on a stop or a new load (`CANCELLED`, `INTERRUPTED`), which
+      // change nothing here: `FINISHED` ends, and `ERROR` means the media can no longer play.
+      if (change.value === IDLE && this.#pending === null) {
+        const reason = this.#idleReason();
+
+        if (reason === FINISHED) {
+          this.#ended = true;
+          this.#emit("ended");
+        }
+
+        if (reason === ERROR) this.#failed();
       }
     }
 

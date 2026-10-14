@@ -110,7 +110,10 @@ test.beforeAll(async ({ browser }) => {
     encodeClip(join(folder(REMUX), `${REMUX} (2022).mkv`), {
       seconds: 120,
       video: "h264",
-      audio: [{ codec: "aac", language: "eng" }],
+      audio: [
+        { codec: "aac", language: "eng" },
+        { codec: "aac", language: "fra" },
+      ],
     }),
     ...[DIRECT, REMUX].map((name) =>
       writeText(join(folder(name), "movie.nfo"), movieNfo(name, 2022)),
@@ -390,6 +393,61 @@ test("leaving the player while casting saves where the TV was", async () => {
   };
 
   await expect.poll(saved).toBeCloseTo(75, 0);
+});
+
+test("a TV whose media fails hands playback back to the page", async () => {
+  await page.goto(`/watch/${titleId(DIRECT)}?start=0`);
+  await expectPlayingPast(page, 1);
+  await castFake(page, "devicesAppear");
+  await castToTv(page);
+  await advanceReceiver(page, 20);
+
+  // The receiver goes idle with an error (a download failed); the cast session stays connected.
+  await castFake(page, "fail");
+  await expect(page.getByText("The TV stopped playing this. Continuing here.")).toBeVisible();
+  await expect(page.getByTestId("casting-state")).toBeHidden();
+  await expectPositionNear(page, 20, 1.5);
+  await expectPlayingPast(page, 20);
+});
+
+test("audio changes in quick succession leave the TV on the stream the media service keeps", async () => {
+  await page.goto(`/watch/${titleId(REMUX)}?start=0`);
+  await expectPlayingPast(page, 1);
+  await castFake(page, "devicesAppear");
+  await castToTv(page);
+
+  // The first change's negotiation reaches the media service after the second's: run side by
+  // side, the service would keep the first's stream and drop the one the TV plays.
+  let held = false;
+
+  await page.route(`**${MEDIA_ROUTES.negotiate}`, async (route) => {
+    if (!held) {
+      held = true;
+      await page.waitForTimeout(1_500);
+    }
+
+    await route.continue();
+  });
+
+  const before = (await receiver(page)).loads.length;
+
+  await revealControls(page);
+  await page.getByRole("button", { name: "Audio and subtitles" }).click();
+
+  const panel = page.getByRole("dialog", { name: "Audio and subtitles" });
+
+  await panel.getByRole("radio", { name: "French" }).click();
+  await panel.getByRole("radio", { name: "English" }).click();
+  await page.keyboard.press("Escape");
+
+  // Both changes reach the TV in order, and the stream it ends on is still served.
+  await expect
+    .poll(async () => (await receiver(page)).loads.length, { timeout: 15_000 })
+    .toBe(before + 2);
+  await page.unroute(`**${MEDIA_ROUTES.negotiate}`);
+  await castFake(page, "refetch");
+  expect((await receiver(page)).fetches.slice(-2).map(({ status }) => status)).toEqual([200, 200]);
+  await castFake(page, "disconnect");
 });
 
 test("a watch room follows the device its host casts to", async () => {

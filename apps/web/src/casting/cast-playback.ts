@@ -38,9 +38,6 @@ import type { CastSdk } from "./cast-sdk";
  */
 const CAST_CAPABILITIES = castCapabilities(undefined);
 
-/** The receiver's idle reason after media played to its end. */
-const FINISHED = "FINISHED";
-
 /** What a viewer reads when casting cannot start. */
 export type CastFailure =
   /** The media service has no stream this device plays. */
@@ -80,6 +77,7 @@ const mayPass = (failure: { readonly _tag: string }): boolean =>
 const LOST = {
   refused: "The TV couldn't play this. Continuing here.",
   ended: "This can no longer play on the TV. Continuing here.",
+  failed: "The TV stopped playing this. Continuing here.",
 } as const;
 
 /** The poster or still the TV shows for `started`'s item, as an absolute URL. */
@@ -150,8 +148,15 @@ export class CastPlayback {
   #plan: CastLoadPlan;
   #subtitleId: string | null;
   #audioStreamIndex: number | null;
-  /** Bumped by every stream change, so a seek or reload that returns late does nothing. */
-  #version = 0;
+  /**
+   * The stream changes asked for (reloads, and seeks the media service moves), run one at a time:
+   * the media service keeps only the newest stream of a session, so two at once could leave the
+   * receiver on one already replaced.
+   */
+  #changes: Promise<void> = Promise.resolve();
+  #changesPending = 0;
+  /** Counts the reloads asked for; one that a later reload will redo skips itself. */
+  #reloadTicket = 0;
   #renewTimer: ReturnType<typeof setTimeout> | undefined;
   #unsubscribe: () => void = () => undefined;
   #stopped = false;
@@ -182,7 +187,10 @@ export class CastPlayback {
     this.player = new CastPlayer(
       sdk.framework,
       (positionMs, signal) => this.#moveTo(positionMs, signal),
-      () => session.getMediaSession()?.idleReason === FINISHED,
+      () => session.getMediaSession()?.idleReason ?? null,
+      () => {
+        if (!this.#stopped) this.#onLost(LOST.failed);
+      },
     );
   }
 
@@ -284,7 +292,7 @@ export class CastPlayback {
 
     if (audioStreamIndex !== this.#audioStreamIndex) {
       this.#audioStreamIndex = audioStreamIndex;
-      void this.#reload(this.player.positionMs());
+      void this.#reload();
     }
   };
 
@@ -310,19 +318,44 @@ export class CastPlayback {
 
     this.#renewTimer = setTimeout(() => {
       if (!this.#stopped && !this.player.getState().ended) {
-        void this.#reload(this.player.receiverPositionMs());
+        void this.#reload();
       }
     }, due);
   }
 
+  /** Runs `change` after every stream change asked for before it. */
+  #serially(change: () => Promise<void>): Promise<void> {
+    this.#changesPending += 1;
+
+    const run = this.#changes.then(change).finally(() => {
+      this.#changesPending -= 1;
+    });
+
+    this.#changes = run.catch(() => undefined);
+
+    return run;
+  }
+
   /**
-   * Negotiates the receiver's stream again at `positionMs` (another audio track, a token about to
-   * expire, a stream the media service lost) and loads it, keeping play or pause. While the media
-   * service cannot answer it tries again every half minute; a session that can no longer play ends
-   * the cast.
+   * Negotiates the receiver's stream again where it is (another audio track, a token about to
+   * expire) and loads it, once the stream changes before it ran.
    */
-  async #reload(positionMs: number): Promise<void> {
-    const version = ++this.#version;
+  #reload(): Promise<void> {
+    const ticket = ++this.#reloadTicket;
+
+    return this.#serially(async () => {
+      if (!this.#stopped && ticket === this.#reloadTicket) {
+        await this.#renegotiate(this.player.positionMs());
+      }
+    });
+  }
+
+  /**
+   * Negotiates the receiver's stream again at `positionMs` and loads it, keeping play or pause.
+   * While the media service cannot answer it tries again every half minute; a session that can no
+   * longer play ends the cast. Runs as a stream change.
+   */
+  async #renegotiate(positionMs: number): Promise<void> {
     const previous = this.#playback;
 
     const renewed = await runSdk(
@@ -335,8 +368,8 @@ export class CastPlayback {
       ),
     );
 
-    if (this.#stopped || version !== this.#version) {
-      // Stopped or overtaken meanwhile: a stream just made is nobody's.
+    if (this.#stopped) {
+      // Stopped meanwhile: a stream just made is nobody's.
       if (renewed !== null && Result.isSuccess(renewed)) {
         void runSdk(this.#runtime, Playback.stop(renewed.success));
       }
@@ -353,7 +386,7 @@ export class CastPlayback {
 
       clearTimeout(this.#renewTimer);
       this.#renewTimer = setTimeout(() => {
-        if (!this.#stopped) void this.#reload(this.player.receiverPositionMs());
+        if (!this.#stopped) void this.#reload();
       }, RETRY_MS);
 
       return;
@@ -385,50 +418,68 @@ export class CastPlayback {
   }
 
   /**
-   * Moves the receiver to `positionMs`: on the receiver itself for a direct file or a produced
-   * position (from the generation's start to a little past where the TV is), else through the
-   * media service, which starts a new generation there for the receiver to load.
+   * Whether the receiver can seek to `positionMs` itself: a direct file, or a produced position
+   * (from the generation's start to a little past where the TV is).
    */
-  async #moveTo(positionMs: number, signal: AbortSignal): Promise<void> {
-    const playback = this.#playback;
-    const version = this.#version;
-
-    const produced =
-      positionMs >= this.#generationStartMs &&
-      positionMs <= this.player.receiverPositionMs() + IN_PLACE_AHEAD_MS;
-
-    if (playback.stream.streamId === undefined || produced) {
-      this.player.seekInPlace(positionMs);
-
-      return;
-    }
-
-    const moved = await runSdk(
-      this.#runtime,
-      Playback.seekStream(playback, Milliseconds.make(positionMs)),
+  #inPlace(positionMs: number): boolean {
+    return (
+      this.#playback.stream.streamId === undefined ||
+      (positionMs >= this.#generationStartMs &&
+        positionMs <= this.player.receiverPositionMs() + IN_PLACE_AHEAD_MS)
     );
+  }
 
-    // A newer seek, a reload, or the end of the cast took over meanwhile.
-    if (signal.aborted || this.#stopped || version !== this.#version) return;
-
-    if (moved === null || Result.isFailure(moved)) {
-      // The stream is gone (a restart, an idle timeout): negotiate a new one there.
-      await this.#reload(positionMs);
-
-      return;
-    }
-
-    const next = Option.getOrUndefined(moved.success);
-
-    if (next === undefined || next.generation === playback.stream.generation) {
+  /**
+   * Moves the receiver to `positionMs`: on the receiver itself where it can, else through the media
+   * service, which starts a new generation there for the receiver to load. A move waits for the
+   * stream changes asked for before it, and one a newer seek replaced does not start.
+   */
+  #moveTo(positionMs: number, signal: AbortSignal): Promise<void> {
+    if (this.#changesPending === 0 && this.#inPlace(positionMs)) {
       this.player.seekInPlace(positionMs);
 
-      return;
+      return Promise.resolve();
     }
 
-    this.#version += 1;
-    this.#playback = inGeneration(playback, next);
-    await this.#load(positionMs);
+    return this.#serially(async () => {
+      // A newer seek replaced this one, or the cast ended (which aborts every move).
+      if (signal.aborted) return;
+
+      if (this.#inPlace(positionMs)) {
+        this.player.seekInPlace(positionMs);
+
+        return;
+      }
+
+      const playback = this.#playback;
+
+      const moved = await runSdk(
+        this.#runtime,
+        Playback.seekStream(playback, Milliseconds.make(positionMs)),
+      );
+
+      // Once the media service moved the stream the receiver follows it, even for a seek replaced
+      // meanwhile: the old generation is gone, and the newer seek runs next.
+      if (this.#stopped) return;
+
+      if (moved === null || Result.isFailure(moved)) {
+        // The stream is gone (a restart, an idle timeout): negotiate a new one there.
+        await this.#renegotiate(positionMs);
+
+        return;
+      }
+
+      const next = Option.getOrUndefined(moved.success);
+
+      if (next === undefined || next.generation === playback.stream.generation) {
+        this.player.seekInPlace(positionMs);
+
+        return;
+      }
+
+      this.#playback = inGeneration(playback, next);
+      await this.#load(positionMs);
+    });
   }
 
   /**

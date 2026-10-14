@@ -310,6 +310,11 @@ const SDK = String.raw`
       fake.idleReason = "FINISHED";
       change("playerState", "IDLE");
     },
+    /** The receiver stops because its media failed, as a download error leaves it. */
+    fail: () => {
+      fake.idleReason = "ERROR";
+      change("playerState", "IDLE");
+    },
     /** Fetches what the receiver plays again, as it does while playing on. */
     refetch: () => (fake.current === null ? Promise.resolve() : fetchMedia(fake.current.url, fake.current.hls)),
     disconnect: () => {
@@ -344,6 +349,7 @@ export const castFake = (
     | "holdConnection"
     | "completeConnection"
     | "finish"
+    | "fail"
     | "disconnect"
     | "refetch",
 ): Promise<void> => page.evaluate(`window.__castFake.${action}()`);
