@@ -4,9 +4,13 @@ import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
+import { accountCommands } from "./account-commands";
+import { adminCommands } from "./admin-commands";
 import { registryEntries, shortcuts, visibleRegistryEntries } from "./catalog";
 import { ExitCode } from "./cli-errors";
+import { roomCommands } from "./room-commands";
 import { runInProcess } from "./testing/run-cli";
+import { watchCommands } from "./watch-commands";
 
 const home = mkdtempSync(join(tmpdir(), "movies-cli-test-"));
 
@@ -61,6 +65,18 @@ describe("the movies command", () => {
     const help = await movies("migration", "import", "--help");
 
     expect(help.stdout).toContain("--wait");
+  });
+
+  it("documents exactly the shortcuts it implements", () => {
+    const implemented = [...accountCommands, ...watchCommands, ...roomCommands, ...adminCommands];
+    // `call` and `commands` are routed before any shortcut.
+    const routed = new Set(["call", "commands"]);
+
+    expect(implemented.map((command) => command.path).toSorted()).toStrictEqual(
+      shortcuts
+        .flatMap((shortcut) => (routed.has(shortcut.path) ? [] : [shortcut.path]))
+        .toSorted(),
+    );
   });
 
   it("accepts camelCase registry words", async () => {

@@ -184,19 +184,19 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies keys create <name> --scopes <read|play|manage|admin,...> [--expires-in-days <int>]`: Create an API key; the secret is printed once.
 - `movies keys list`: List this account's API keys.
 - `movies keys revoke <api-key-id-or-name>`: Revoke an API key and end every session it signed in.
-- `movies search <query> [--limit <int>]`: Search titles on the default viewing profile.
+- `movies search <query> [--limit <int>] [--profile-id <id>]`: Search titles on the default viewing profile.
 - `movies play <title> [--episode-id <id>] [--from <seconds>] [--max-height <lines>] [--open]`: Start playback of a title ID or the best name match (a show resumes its next episode) and print the stream URL for mpv or VLC; --max-height caps the picture, such as 720 on a slow link (a taller source is transcoded down); --open launches mpv.
-- `movies progress [<title>]`: Show a title's progress, or the recent watch history.
-- `movies continue`: List what to resume and which episodes come next.
-- `movies rooms create <title> [--episode-id <id>] [--position <seconds>]`: Start a watch room hosted by this device, paused at the position.
-- `movies rooms join <room-id>`: Join a room on this device with the default viewing profile.
+- `movies progress [<title>] [--profile-id <id>]`: Show a title's progress, or the recent watch history.
+- `movies continue [--profile-id <id>]`: List what to resume and which episodes come next.
+- `movies rooms create <title> [--episode-id <id>] [--position <seconds>] [--profile-id <id>]`: Start a watch room hosted by this device, paused at the position.
+- `movies rooms join <room-id> [--profile-id <id>]`: Join a room on this device with the default viewing profile.
 - `movies rooms play [<room-id>] [--position <seconds>]`: Host: play the room from its current position or --position.
 - `movies rooms pause [<room-id>]`: Host: pause the room at its live position.
 - `movies rooms seek [<room-id>] --position <seconds>`: Host: move the room to a position.
 - `movies rooms leave [<room-id>]`: Leave the room; a host leaving ends it.
-- `movies rooms status [<room-id>] [--watch]`: Show the room's clock, live position, and members; --watch prints every change until the room ends.
+- `movies rooms status [<room-id>] [--watch] [--profile-id <id>]`: Show the room's clock, live position, and members; --watch prints every change until the room ends.
 - `movies scan [<library-id-or-name>] [--mode quick|full] [--wait [--timeout <seconds>]]`: Scan one library, or every library, for new, changed, and missing files.
-- `movies import jellyfin|plex --url <server-url> [--user <jellyfin-admin>] [--path-map <source-folder>=<local-folder>,...] [--map <source-user-id>=<profile-id>|skip,...] [--dry-run] [--wait]`: Migrate libraries, watch history, favorites, collections, and metadata overrides; the token (or --user's password) is read from stdin, MOVIES_IMPORT_TOKEN, or MOVIES_IMPORT_PASSWORD.
+- `movies import jellyfin|plex --url <server-url> [--user <jellyfin-admin>] [--path-map <source-folder>=<local-folder>,...] [--map <source-user-id>=<profile-id>|skip,...] [--dry-run] [--wait [--timeout <seconds>]]`: Migrate libraries, watch history, favorites, collections, and metadata overrides; the token (or --user's password) is read from stdin, MOVIES_IMPORT_TOKEN, or MOVIES_IMPORT_PASSWORD.
 - `movies backup [--wait [--timeout <seconds>]]`: Back up the database now.
 - `movies restore <backup-file-or-id>`: Restore the database from a backup; every session signs in again.
 - `movies commands [--markdown]`: List every command with its flags and argument JSON Schema.
