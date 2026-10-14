@@ -1,16 +1,19 @@
 import { targetPosition } from "@movies/contracts/clock";
 import { DeviceId } from "@movies/contracts/ids";
 import type { RoomClock } from "@movies/contracts/models/rooms";
-import { Room } from "@movies/contracts/models/rooms";
+import { Room, RoomClock as RoomClockSchema } from "@movies/contracts/models/rooms";
 import { EpochMillis, Milliseconds } from "@movies/contracts/units";
-import { Effect, Fiber, Layer, Schema } from "effect";
+import { Deferred, Effect, Fiber, Layer, Option, Schema } from "effect";
 import type { Scope } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
 
+import * as Movies from "../movies";
 import type * as MoviesClient from "../movies-client";
 import type { CallError } from "../sdk-errors";
 import { clientLayer } from "../testing/client-context";
+import * as FakeConvex from "../testing/fake-convex";
+import { Reply } from "../testing/fake-convex";
 import type { FakePlayer } from "../testing/fake-player";
 import { makeFakePlayer } from "../testing/fake-player";
 import type { MemoryRooms } from "../testing/memory-rooms";
@@ -18,6 +21,7 @@ import { makeMemoryRooms } from "../testing/memory-rooms";
 import type { RoomSync } from "./room-sync";
 import { hostControlsEnabled, run } from "./room-sync";
 import { DEFAULT_TUNABLES } from "./sync-policy";
+import * as TokenStorage from "../token-storage";
 
 const START = 1_760_000_000_000;
 
@@ -428,5 +432,79 @@ describe("room sync", () => {
         expect(controls).toStrictEqual([]);
         expect((yield* rooms.room).clock.revision).toBe(4);
       }),
+    ));
+});
+
+describe("room sync over HTTP", () => {
+  const encodeRoom = Schema.encodeSync(Schema.toCodecJson(Room));
+
+  const encodeClock = Schema.encodeSync(Schema.toCodecJson(RoomClockSchema));
+
+  it("sends a heartbeat that waited on a host command with the command's revision", () =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fake = yield* FakeConvex.make;
+          const room = roomWith({});
+          const playArrived = yield* Deferred.make<void>();
+          const releasePlay = yield* Deferred.make<void>();
+
+          const playing = encodeClock(
+            roomWith({
+              status: "playing",
+              anchorServerTime: EpochMillis.make(Date.now()),
+              revision: 1,
+            }).clock,
+          );
+
+          yield* fake.reply("rooms:get", Reply.Success({ value: encodeRoom(room) }));
+          yield* fake.handle("rooms:time", () =>
+            Effect.sync(() => Reply.Success({ value: { serverTime: Date.now() } })),
+          );
+          yield* fake.reply("rooms:heartbeat", Reply.Success({ value: playing }));
+          yield* fake.handle("rooms:play", () =>
+            Effect.gen(function* () {
+              yield* Deferred.succeed(playArrived, undefined);
+              yield* Deferred.await(releasePlay);
+
+              return Reply.Success({ value: playing });
+            }),
+          );
+
+          const sdk = yield* Layer.build(
+            Movies.layer({ convexUrl: fake.url, mediaUrl: Option.none(), connection: "http" }).pipe(
+              Layer.provide(TokenStorage.layerMemory),
+            ),
+          );
+
+          yield* Effect.gen(function* () {
+            const host = yield* makeFakePlayer(0);
+
+            yield* run({
+              roomId: room.id,
+              deviceId: HOST,
+              player: host,
+              tunables: { ...DEFAULT_TUNABLES, offsetSamples: 1, heartbeatIntervalMs: 20 },
+            });
+
+            host.userPlay();
+            yield* Deferred.await(playArrived);
+            // Heartbeats fall due while the play command holds the engine.
+            yield* Effect.sleep(100);
+            yield* Deferred.succeed(releasePlay, undefined);
+            yield* Effect.sleep(100);
+          }).pipe(Effect.provideContext(sdk));
+
+          const requests = yield* fake.requests;
+          const played = requests.findIndex((request) => request.path === "rooms:play");
+
+          const waited = requests
+            .slice(played + 1)
+            .find((request) => request.path === "rooms:heartbeat");
+
+          expect(played).toBeGreaterThanOrEqual(0);
+          expect(waited?.args).toMatchObject({ deviceId: HOST, revision: 1 });
+        }),
+      ),
     ));
 });

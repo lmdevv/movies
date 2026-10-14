@@ -18,9 +18,7 @@ import { layerProfileStorage } from "./config";
 /** What a signed-in command works with. */
 export interface Connection {
   readonly client: MoviesClient.Interface;
-  readonly auth: Auth.Interface;
   readonly target: Target;
-  readonly env: Environment;
   readonly convexUrl: string;
   /** This install's device on this server. */
   readonly deviceId: DeviceId;
@@ -87,9 +85,10 @@ export const connect = Effect.fn("Session.connect")(function* (
 
   const convexUrl = target.convexUrl.value;
 
-  const storage = target.apiKeyFromEnvironment
-    ? TokenStorage.layerMemory
-    : layerProfileStorage(env.configPath, target.name, Option.none());
+  const storage =
+    target.sessionStorage === "profile"
+      ? layerProfileStorage(env.configPath, target.name, Option.none())
+      : TokenStorage.layerMemory;
 
   const { client, auth } = yield* openSdk(convexUrl, target.mediaUrl, storage, env.configPath);
 
@@ -132,9 +131,7 @@ export const connect = Effect.fn("Session.connect")(function* (
 
   const connection: Connection = {
     client,
-    auth,
     target,
-    env,
     convexUrl,
     deviceId: deviceIdFor(target),
     viewingProfileId: Option.flatMap(stored, (profile) =>

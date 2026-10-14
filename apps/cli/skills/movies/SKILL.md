@@ -25,7 +25,8 @@ address (`MOVIES_PUBLIC_URL`, port 8080).
   Or set `MOVIES_CONVEX_URL`, `MOVIES_MEDIA_URL`, and `MOVIES_API_KEY` instead of logging in, so
   the key never touches the disk. Then choose the viewing profile once with
   `movies profiles list` and `movies profiles use <name>`; the config file keeps that choice and
-  the server URL, never the key.
+  the server URL, never the key. A stored profile for another server than `MOVIES_CONVEX_URL` is
+  left alone: its key and session are never sent to the other server.
 
 - **Device login (people):** `movies login --server <url>` prints a short code and an approval URL
   (and a QR code with `--human`), then waits until someone approves it in the web app. In JSON mode
@@ -53,8 +54,10 @@ selects another stored server. `movies logout` signs out and forgets the key and
 - Results print as JSON on stdout. Errors print on stderr as `{"error":{"code","message"}}`.
   `--human` (or `--format table`) prints tables and sentences instead.
 - Commands that queue a job (scans, metadata refreshes, backups, migrations) return a `jobId` at
-  once. Add `--wait` to follow it until it ends; progress goes to stderr and the output becomes
-  `{ "result", "job" }`. `--timeout <seconds>` (default 3600) bounds the wait.
+  once. Add `--wait` to follow it until it ends; progress goes to stderr. A registry command's
+  output then becomes `{ "result", "job" }`; the `scan`, `import`, and `backup` shortcuts keep
+  their `{ "jobIds" }` or `{ "jobId" }` output and add `"jobs"`, the finished jobs.
+  `--timeout <seconds>` (default 3600) bounds the whole wait, even when a scan queued several jobs.
 - `movies commands` lists every command with its flags and its arguments as JSON Schema;
   `movies <command> --help` shows one.
 - Scopes limit what a session may do: `read`, `play`, `account`, `manage` (libraries, scans,
@@ -81,7 +84,7 @@ movies rooms join <room-id>                  # guest, on another install or acco
 movies rooms play                            # host; acts on the room this device is in
 movies rooms pause
 movies rooms seek --position 1:02:30
-movies rooms status --watch                  # one JSON line per change
+movies rooms status --watch                  # one JSON line per change; exits when the room ends
 movies rooms leave                           # a host leaving ends the room
 ```
 
@@ -181,19 +184,19 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies keys create <name> --scopes <read|play|manage|admin,...> [--expires-in-days <int>]`: Create an API key; the secret is printed once.
 - `movies keys list`: List this account's API keys.
 - `movies keys revoke <api-key-id-or-name>`: Revoke an API key and end every session it signed in.
-- `movies search <query> [--limit <int>]`: Search titles on the default viewing profile.
+- `movies search <query> [--limit <int>] [--profile-id <id>]`: Search titles on the default viewing profile.
 - `movies play <title> [--episode-id <id>] [--from <seconds>] [--max-height <lines>] [--open]`: Start playback of a title ID or the best name match (a show resumes its next episode) and print the stream URL for mpv or VLC; --max-height caps the picture, such as 720 on a slow link (a taller source is transcoded down); --open launches mpv.
-- `movies progress [<title>]`: Show a title's progress, or the recent watch history.
-- `movies continue`: List what to resume and which episodes come next.
-- `movies rooms create <title> [--episode-id <id>] [--position <seconds>]`: Start a watch room hosted by this device, paused at the position.
-- `movies rooms join <room-id>`: Join a room on this device with the default viewing profile.
+- `movies progress [<title>] [--profile-id <id>]`: Show a title's progress, or the recent watch history.
+- `movies continue [--profile-id <id>]`: List what to resume and which episodes come next.
+- `movies rooms create <title> [--episode-id <id>] [--position <seconds>] [--profile-id <id>]`: Start a watch room hosted by this device, paused at the position.
+- `movies rooms join <room-id> [--profile-id <id>]`: Join a room on this device with the default viewing profile.
 - `movies rooms play [<room-id>] [--position <seconds>]`: Host: play the room from its current position or --position.
 - `movies rooms pause [<room-id>]`: Host: pause the room at its live position.
 - `movies rooms seek [<room-id>] --position <seconds>`: Host: move the room to a position.
 - `movies rooms leave [<room-id>]`: Leave the room; a host leaving ends it.
-- `movies rooms status [<room-id>] [--watch]`: Show the room's clock, live position, and members; --watch prints every change.
+- `movies rooms status [<room-id>] [--watch] [--profile-id <id>]`: Show the room's clock, live position, and members; --watch prints every change until the room ends.
 - `movies scan [<library-id-or-name>] [--mode quick|full] [--wait [--timeout <seconds>]]`: Scan one library, or every library, for new, changed, and missing files.
-- `movies import jellyfin|plex --url <server-url> [--user <jellyfin-admin>] [--path-map <source-folder>=<local-folder>,...] [--map <source-user-id>=<profile-id>|skip,...] [--dry-run] [--wait]`: Migrate libraries, watch history, favorites, collections, and metadata overrides; the token (or --user's password) is read from stdin, MOVIES_IMPORT_TOKEN, or MOVIES_IMPORT_PASSWORD.
+- `movies import jellyfin|plex --url <server-url> [--user <jellyfin-admin>] [--path-map <source-folder>=<local-folder>,...] [--map <source-user-id>=<profile-id>|skip,...] [--dry-run] [--wait [--timeout <seconds>]]`: Migrate libraries, watch history, favorites, collections, and metadata overrides; the token (or --user's password) is read from stdin, MOVIES_IMPORT_TOKEN, or MOVIES_IMPORT_PASSWORD.
 - `movies backup [--wait [--timeout <seconds>]]`: Back up the database now.
 - `movies restore <backup-file-or-id>`: Restore the database from a backup; every session signs in again.
 - `movies commands [--markdown]`: List every command with its flags and argument JSON Schema.
@@ -337,7 +340,7 @@ and newer [movies] progress is kept unless the source played the item more recen
 
 - `movies migration connect --source <jellyfin|plex> --url <text> --credentials <json> [--path-mappings <json>]`: Connect to a Jellyfin or Plex server to migrate from. (scope admin)
 - `movies migration dry-run <connection-id> [--users <json>]`: Preview what a migration would import without writing anything. (scope admin)
-- `movies migration import <connection-id> [--users <json>]`: Import libraries, watch history, favorites, collections, and metadata overrides. (scope admin)
+- `movies migration import <connection-id> [--users <json>] [--wait [--timeout <seconds>]]`: Import libraries, watch history, favorites, collections, and metadata overrides. (scope admin; job: add `--wait`)
 - `movies migration status`: Show migration jobs, their phase, and what they imported. (scope admin)
 
 <!-- END:commands -->

@@ -4,9 +4,13 @@ import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
+import { accountCommands } from "./account-commands";
+import { adminCommands } from "./admin-commands";
 import { registryEntries, shortcuts, visibleRegistryEntries } from "./catalog";
 import { ExitCode } from "./cli-errors";
+import { roomCommands } from "./room-commands";
 import { runInProcess } from "./testing/run-cli";
+import { watchCommands } from "./watch-commands";
 
 const home = mkdtempSync(join(tmpdir(), "movies-cli-test-"));
 
@@ -17,6 +21,29 @@ afterAll(() => {
 const env = { XDG_CONFIG_HOME: home, HOME: home };
 
 const movies = (...argv: ReadonlyArray<string>) => runInProcess(argv, env);
+
+/** A config home whose `home` profile is signed in to `convexUrl` with a key and a session. */
+const storedHome = (convexUrl = "https://home.example/convex") => {
+  const dir = mkdtempSync(join(tmpdir(), "movies-stored-home-"));
+  const path = join(dir, "movies", "config.json");
+
+  const stored = `${JSON.stringify({
+    defaultProfile: "home",
+    profiles: {
+      home: {
+        convexUrl,
+        deviceId: "cli-home",
+        apiKey: "mk_home",
+        session: { token: "jwt-home", refreshToken: "refresh-home" },
+      },
+    },
+  })}\n`;
+
+  mkdirSync(join(dir, "movies"));
+  writeFileSync(path, stored);
+
+  return { home: dir, path, stored };
+};
 
 describe("the movies command", () => {
   it("prints help and the version", async () => {
@@ -55,6 +82,24 @@ describe("the movies command", () => {
       expect(runs[index]?.code, shortcut.path).toBe(ExitCode.ok);
       expect(runs[index]?.stdout, shortcut.path).toContain(`Usage: movies ${shortcut.path}`);
     }
+  });
+
+  it("offers --wait on every command that can queue a job", async () => {
+    const help = await movies("migration", "import", "--help");
+
+    expect(help.stdout).toContain("--wait");
+  });
+
+  it("documents exactly the shortcuts it implements", () => {
+    const implemented = [...accountCommands, ...watchCommands, ...roomCommands, ...adminCommands];
+    // `call` and `commands` are routed before any shortcut.
+    const routed = new Set(["call", "commands"]);
+
+    expect(implemented.map((command) => command.path).toSorted()).toStrictEqual(
+      shortcuts
+        .flatMap((shortcut) => (routed.has(shortcut.path) ? [] : [shortcut.path]))
+        .toSorted(),
+    );
   });
 
   it("accepts camelCase registry words", async () => {
@@ -115,6 +160,41 @@ describe("the movies command", () => {
     rmSync(bad, { recursive: true, force: true });
     expect(run.code).toBe(ExitCode.failed);
     expect(JSON.parse(run.stderr)).toMatchObject({ error: { code: "config_error" } });
+  });
+
+  it("never sends a stored profile's credentials to another server in MOVIES_CONVEX_URL", async () => {
+    const { home: other, path, stored } = storedHome();
+    const overridden = { XDG_CONFIG_HOME: other, MOVIES_CONVEX_URL: "http://127.0.0.1:9" };
+    // Nothing listens on the discard port: any request at all fails as unavailable (exit 9).
+    const run = await runInProcess(["whoami"], overridden);
+    const use = await runInProcess(["profiles", "use", "Kids"], overridden);
+    const login = await runInProcess(["login", "--api-key", "mk_other"], overridden);
+    const logout = await runInProcess(["logout"], overridden);
+    const after = readFileSync(path, "utf8");
+
+    rmSync(other, { recursive: true, force: true });
+    expect(run.code).toBe(ExitCode.unauthenticated);
+    expect(JSON.parse(run.stderr)).toMatchObject({ error: { code: "not_logged_in" } });
+
+    for (const [name, refused] of Object.entries({ use, login, logout })) {
+      expect(refused.code, name).toBe(ExitCode.usage);
+      expect(refused.stderr, name).toContain("--profile <new-name>");
+    }
+
+    expect(after).toBe(stored);
+  });
+
+  it("logs out of an unreachable server by forgetting the stored session and key", async () => {
+    const { home: offline, path } = storedHome("http://127.0.0.1:9");
+    const run = await runInProcess(["logout"], { XDG_CONFIG_HOME: offline });
+    const after = readFileSync(path, "utf8");
+
+    rmSync(offline, { recursive: true, force: true });
+    expect(run.code, run.stderr).toBe(ExitCode.ok);
+    expect(JSON.parse(after)).toStrictEqual({
+      defaultProfile: "home",
+      profiles: { home: { convexUrl: "http://127.0.0.1:9", deviceId: "cli-home" } },
+    });
   });
 
   it("lists every command as JSON with argument schemas", async () => {

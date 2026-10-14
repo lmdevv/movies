@@ -17,6 +17,7 @@ import {
   Clock,
   Context,
   Data,
+  Duration,
   Effect,
   Layer,
   Option,
@@ -58,10 +59,32 @@ export type Credentials = Data.TaggedEnum<{
 /** Constructors and matchers for `Credentials`. */
 export const Credentials = Data.taggedEnum<Credentials>();
 
+/** Email and password sign-in or sign-up as plain values, for the Promise and React entry points. */
+export interface PasswordSignIn {
+  readonly flow: "signIn" | "signUp";
+  readonly email: string;
+  readonly password: string;
+  /** The new account's display name, for `signUp`. */
+  readonly name?: string;
+  /** The invite to redeem, for `signUp` after the owner exists. */
+  readonly inviteCode?: string;
+}
+
+/** The `Password` credentials for `input`, with the password redacted. */
+export const passwordCredentials = (input: PasswordSignIn): Credentials =>
+  Credentials.Password({
+    flow: input.flow,
+    email: input.email,
+    password: Redacted.make(input.password),
+    name: Option.fromNullishOr(input.name),
+    inviteCode: Option.fromNullishOr(input.inviteCode),
+  });
+
 /** Signs in and out and supplies the session's current token. */
 export interface Interface {
   /** The current status, then every change. */
   readonly status: Stream.Stream<AuthStatus>;
+  /** The status now, without waiting for a change. */
   readonly currentStatus: Effect.Effect<AuthStatus>;
   /**
    * Signs in and stores the session. Rejected credentials fail with `Unauthenticated`; a sign-up
@@ -99,7 +122,7 @@ const decodeClaims = Schema.decodeUnknownOption(Schema.fromJsonString(JwtClaims)
 const EXPIRY_MARGIN_MS = 60_000;
 
 /** When `token` expires in epoch milliseconds, or none when it carries no readable `exp`. */
-export const tokenExpiry = (token: string): Option.Option<number> => {
+const tokenExpiry = (token: string): Option.Option<number> => {
   const [, payload] = token.split(".");
 
   if (payload === undefined) return Option.none();
@@ -154,6 +177,35 @@ export interface Options {
   readonly convexUrl: string;
 }
 
+/** What a refresh request came back with. */
+type RefreshOutcome = Data.TaggedEnum<{
+  /** The server issued new tokens and spent the old refresh token. */
+  Renewed: { readonly session: StoredSession };
+  /** The server refused the refresh token: the session is over. */
+  Refused: {};
+  /** No usable answer, such as an unreachable server: keep the current token. */
+  Kept: {};
+}>;
+
+const RefreshOutcome = Data.taggedEnum<RefreshOutcome>();
+
+const refused = () => Effect.succeed(RefreshOutcome.Refused());
+
+const kept = () => Effect.succeed(RefreshOutcome.Kept());
+
+/**
+ * How long a refresh waits for the server. Every other refresh waits on the one in flight, so a
+ * hung request would stall every call. Giving up keeps the current token; if the server did spend
+ * the refresh token after all, the next refresh is refused and the client signs out.
+ */
+const REFRESH_TIMEOUT = Duration.seconds(30);
+
+/**
+ * How long sign-out tries to end the session on the server, renewing its token first if needed.
+ * The local session is already gone by then, so giving up only leaves the server session to expire.
+ */
+const SERVER_SIGN_OUT_TIMEOUT = Duration.seconds(10);
+
 /**
  * Builds the auth service: reads the stored session, then gives the Convex connection a token
  * source. Requires the connection and a token store.
@@ -162,10 +214,25 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
   const transport = yield* ConvexTransport.ConvexTransport;
   const storage = yield* TokenStorage.TokenStorage;
   const context = yield* Effect.context();
+  // Background work, such as ending an orphaned session on the server, stops with the service.
+  const scope = yield* Effect.scope;
   const gateway = new ConvexHttpClient(options.convexUrl, { logger: false });
   const status = yield* SubscriptionRef.make<AuthStatus>("loading");
   const session = yield* Ref.make(Option.none<StoredSession>());
+  // One refresh request at a time, so concurrent callers share it.
   const refreshing = yield* Semaphore.make(1);
+
+  // How many refresh requests have finished, and for which session. A caller that sees one finish
+  // for its session while it waited for `refreshing` takes that outcome instead of asking again.
+  const lastAttempt = yield* Ref.make<{
+    readonly finished: number;
+    readonly session: Option.Option<StoredSession>;
+    readonly forced: boolean;
+  }>({ finished: 0, session: Option.none(), forced: false });
+
+  // Session changes (sign-in, sign-out, a refresh's result) apply one at a time. Holders never wait
+  // on the network, so signing out is not held up by a refresh in flight.
+  const committing = yield* Semaphore.make(1);
 
   const callGateway = Effect.fn("Auth.callGateway")(function* (
     path: FunctionPath,
@@ -206,54 +273,167 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
     return Option.map(Option.fromNullishOr(result.tokens), toSession);
   });
 
-  const tokenSource: ConvexTransport.AuthTokenSource = (forceRefresh) =>
-    Effect.runPromiseWith(context)(
-      accessToken(forceRefresh).pipe(
-        Effect.map(Option.match({ onNone: () => null, onSome: Redacted.value })),
-        Effect.orElseSucceed(() => null),
+  const currentToken = Effect.map(
+    Ref.get(session),
+    Option.map((current) => current.token),
+  );
+
+  /**
+   * Falls back to the token in memory when storing a renewed session failed: the renewed session
+   * is held in memory before it is stored, so it stays usable for this process.
+   */
+  const orTokenInMemory = (
+    token: Effect.Effect<Option.Option<Redacted.Redacted>, TokenStorage.TokenStorageError>,
+  ): Effect.Effect<Option.Option<Redacted.Redacted>> =>
+    token.pipe(
+      Effect.catchTag("TokenStorageError", (error) =>
+        // Never the cause: a store's own error may quote the serialized tokens it was writing.
+        Effect.logWarning("Auth.tokenStorageFailed").pipe(
+          Effect.annotateLogs({ operation: error.operation, message: error.message }),
+          Effect.andThen(currentToken),
+        ),
       ),
     );
 
-  const adopt = Effect.fn("Auth.adopt")(function* (next: Option.Option<StoredSession>) {
-    yield* Ref.set(session, next);
-    yield* SubscriptionRef.set(status, Option.isSome(next) ? "signedIn" : "signedOut");
-    yield* transport.setAuth(Option.isSome(next) ? tokenSource : null);
-  });
-
-  const forget = Effect.fn("Auth.forget")(function* () {
-    yield* storage.clear;
-    yield* adopt(Option.none());
-  });
-
-  const signedOut = () => forget().pipe(Effect.as(Option.none<Redacted.Redacted>()));
-
-  const refresh = Effect.fn("Auth.refresh")(function* (seen: Option.Option<StoredSession>) {
-    const current = yield* Ref.get(session);
-
-    // Another caller refreshed while this one waited for the permit.
-    if (Option.isNone(current) || current !== seen) return Option.map(current, (s) => s.token);
-
-    const renewed = yield* requestTokens({
-      refreshToken: Redacted.value(current.value.refreshToken),
-    }).pipe(
-      Effect.asSome,
-      Effect.catchTag("TransportError", () => Effect.succeedNone),
+  const tokenSource: ConvexTransport.AuthTokenSource = (forceRefresh) =>
+    Effect.runPromiseWith(context)(
+      accessToken(forceRefresh).pipe(
+        orTokenInMemory,
+        Effect.map(Option.match({ onNone: () => null, onSome: Redacted.value })),
+      ),
     );
 
-    // Unreachable: keep the current token; the server rejects it if it really expired.
-    if (Option.isNone(renewed)) return Option.some(current.value.token);
+  /** Holds `next` and points the connection and the status at it. Callers hold `committing`. */
+  const adopt = Effect.fn("Auth.adopt")(function* (next: Option.Option<StoredSession>) {
+    yield* Ref.set(session, next);
+    // The connection has its token source before anyone hears of the change.
+    yield* transport.setAuth(Option.isSome(next) ? tokenSource : null);
+    yield* SubscriptionRef.set(status, Option.isSome(next) ? "signedIn" : "signedOut");
+  });
 
-    if (Option.isNone(renewed.value)) {
-      yield* forget();
+  /**
+   * Forgets the session in memory, then in storage. Memory goes first so a storage failure cannot
+   * keep a dead session in use. Callers hold `committing`.
+   */
+  const forget = Effect.fn("Auth.forget")(function* () {
+    yield* adopt(Option.none());
+    yield* storage.clear;
+  });
 
-      return Option.none();
+  /** Asks the server to renew `seen`. Failures become the outcome they call for. */
+  const requestRefresh = (seen: StoredSession): Effect.Effect<RefreshOutcome> =>
+    requestTokens({ refreshToken: Redacted.value(seen.refreshToken) }).pipe(
+      Effect.map(
+        Option.match({
+          onNone: () => RefreshOutcome.Refused(),
+          onSome: (renewed) => RefreshOutcome.Renewed({ session: renewed }),
+        }),
+      ),
+      Effect.timeoutOption(REFRESH_TIMEOUT),
+      Effect.map(Option.getOrElse(() => RefreshOutcome.Kept())),
+      Effect.catchTags({
+        Unauthenticated: refused,
+        Forbidden: refused,
+        Expired: refused,
+        // Any other failure keeps the token; the server rejects it if it really expired.
+        TransportError: kept,
+        NotFound: kept,
+        InvalidArgs: kept,
+        Conflict: kept,
+        StaleRevision: kept,
+        RateLimited: kept,
+        Internal: kept,
+        ProtocolError: kept,
+      }),
+    );
+
+  /**
+   * Ends `ended` on the server, best effort. The server ignores an expired token, so one about to
+   * expire is renewed first with the session's own refresh token; nothing here touches the local
+   * session, which is already gone.
+   */
+  const endOnServer = (ended: StoredSession): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
+
+      const token = isExpiring(Redacted.value(ended.token), now)
+        ? Option.map(
+            yield* requestTokens({ refreshToken: Redacted.value(ended.refreshToken) }),
+            (renewed) => renewed.token,
+          )
+        : Option.some(ended.token);
+
+      if (Option.isSome(token)) yield* callGateway(SIGN_OUT, {}, token);
+    }).pipe(Effect.timeoutOption(SERVER_SIGN_OUT_TIMEOUT), Effect.ignore);
+
+  /**
+   * Applies a refresh's outcome to the session it started from. When a sign-in or sign-out
+   * replaced that session while the request was in flight, the newer session stands; a session the
+   * server renewed meanwhile belongs to nobody, so it is ended on the server in the background.
+   */
+  const commitRefresh = Effect.fn("Auth.commitRefresh")(function* (
+    seen: StoredSession,
+    outcome: RefreshOutcome,
+  ) {
+    const current = yield* Ref.get(session);
+
+    if (Option.isNone(current) || current.value !== seen) {
+      if (RefreshOutcome.$is("Renewed")(outcome)) {
+        yield* Effect.forkIn(endOnServer(outcome.session), scope);
+      }
+
+      return Option.map(current, (held) => held.token);
     }
 
-    yield* storage.save(renewed.value.value);
-    yield* Ref.set(session, renewed.value);
+    return yield* RefreshOutcome.$match(outcome, {
+      Renewed: ({ session: renewed }) =>
+        // Memory first: the old refresh token is spent, so a failed save must not leave it held.
+        Ref.set(session, Option.some(renewed)).pipe(
+          Effect.andThen(storage.save(renewed)),
+          Effect.as(Option.some(renewed.token)),
+        ),
+      Refused: () => forget().pipe(Effect.as(Option.none<Redacted.Redacted>())),
+      Kept: () => Effect.succeedSome(seen.token),
+    });
+  }, committing.withPermits(1));
 
-    return Option.some(renewed.value.value.token);
-  });
+  /**
+   * Renews `seen`, unless another caller replaced it while this one waited for the permit.
+   * `generation` is the finished-attempt count the caller saw before waiting. An attempt for `seen`
+   * that finished since, with `seen` still standing, kept the token (the server was unreachable or
+   * slow); asking again would only wait as long, so this caller keeps the token too. A `forced`
+   * caller holds a token Convex rejected, so it only follows an attempt that was forced as well.
+   */
+  const refresh = Effect.fn("Auth.refresh")(function* (
+    seen: StoredSession,
+    generation: number,
+    forced: boolean,
+  ) {
+    const current = yield* Ref.get(session);
+
+    if (Option.isNone(current) || current.value !== seen) {
+      return Option.map(current, (held) => held.token);
+    }
+
+    const last = yield* Ref.get(lastAttempt);
+
+    const keptSince =
+      last.finished !== generation &&
+      Option.exists(last.session, (tried) => tried === seen) &&
+      (last.forced || !forced);
+
+    if (keptSince) return Option.some(seen.token);
+
+    const outcome = yield* requestRefresh(seen);
+
+    yield* Ref.update(lastAttempt, (previous) => ({
+      finished: previous.finished + 1,
+      session: Option.some(seen),
+      forced,
+    }));
+
+    return yield* commitRefresh(seen, outcome);
+  }, refreshing.withPermits(1));
 
   function accessToken(
     forceRefresh: boolean,
@@ -262,31 +442,14 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
       const current = yield* Ref.get(session);
 
       if (Option.isNone(current)) return Option.none();
+      const { finished: generation } = yield* Ref.get(lastAttempt);
       const now = yield* Clock.currentTimeMillis;
 
-      const keep = Effect.succeedSome(current.value.token);
+      if (!forceRefresh && !isExpiring(Redacted.value(current.value.token), now)) {
+        return Option.some(current.value.token);
+      }
 
-      if (!forceRefresh && !isExpiring(Redacted.value(current.value.token), now))
-        return yield* keep;
-
-      return yield* refreshing.withPermits(1)(
-        refresh(current).pipe(
-          Effect.catchTags({
-            // The refresh token was refused: the session is over.
-            Unauthenticated: signedOut,
-            Forbidden: signedOut,
-            Expired: signedOut,
-            // Any other failure keeps the token; the server rejects it if it really expired.
-            NotFound: () => keep,
-            InvalidArgs: () => keep,
-            Conflict: () => keep,
-            StaleRevision: () => keep,
-            RateLimited: () => keep,
-            Internal: () => keep,
-            ProtocolError: () => keep,
-          }),
-        ),
-      );
+      return yield* refresh(current.value, generation, forceRefresh);
     });
   }
 
@@ -299,19 +462,25 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
       });
     }
 
-    yield* storage.save(opened.value);
-
-    return yield* adopt(opened);
+    return yield* committing.withPermits(1)(
+      storage.save(opened.value).pipe(Effect.andThen(adopt(opened))),
+    );
   });
 
   const signOut = Effect.fn("Auth.signOut")(function* () {
-    const current = yield* Ref.get(session);
+    // Forget locally first, so signing out never waits on the server.
+    const { ended, cleared } = yield* committing.withPermits(1)(
+      Effect.gen(function* () {
+        const current = yield* Ref.get(session);
+        const exit = yield* Effect.exit(forget());
 
-    if (Option.isSome(current)) {
-      yield* callGateway(SIGN_OUT, {}, Option.some(current.value.token)).pipe(Effect.ignore);
-    }
+        return { ended: current, cleared: exit };
+      }),
+    );
 
-    yield* forget();
+    if (Option.isSome(ended)) yield* endOnServer(ended.value);
+
+    return yield* cleared;
   });
 
   const stored = yield* storage.load;

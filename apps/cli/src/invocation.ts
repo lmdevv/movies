@@ -9,12 +9,13 @@ import type { ProfileId } from "@movies/contracts/ids";
 import { ProfileId as ProfileIdSchema } from "@movies/contracts/ids";
 import { Milliseconds } from "@movies/contracts/units";
 import { ProtocolError } from "@movies/sdk/effect";
-import { Duration, Effect, Option, Predicate, Schema } from "effect";
+import { Config, Data, Duration, Effect, Option, Predicate, Redacted, Schema } from "effect";
 import type { Scope } from "effect";
 
 import type { CliError } from "./cli-errors";
-import { UsageError } from "./cli-errors";
-import type { Environment, StoredConfig, Target } from "./config";
+import { ConfigFileError, UsageError } from "./cli-errors";
+import type { Environment, Target } from "./config";
+import { readStdin } from "./files";
 import type { ParsedTokens } from "./flags";
 import type { Output } from "./output";
 import { renderResult } from "./render";
@@ -28,16 +29,20 @@ export interface Invocation {
   readonly path: string;
   readonly tokens: ParsedTokens;
   readonly env: Environment;
-  readonly config: StoredConfig;
   readonly target: Target;
   readonly format: Format;
 }
 
-/** What a command produced: its JSON value and how people read it. */
-export interface Outcome {
-  readonly json: Schema.Json;
-  readonly human: string;
-}
+/** What a command produced. */
+export type Outcome = Data.TaggedEnum<{
+  /** A result printed when the command finishes: its JSON value and how people read it. */
+  Result: { readonly json: Schema.Json; readonly human: string };
+  /** Nothing more to print: the command printed its output line by line as it ran. */
+  Printed: {};
+}>;
+
+/** Constructors and matchers for `Outcome`. */
+export const Outcome = Data.taggedEnum<Outcome>();
 
 /** A command the CLI implements itself. */
 export interface ShortcutCommand {
@@ -83,8 +88,54 @@ export const requirePositional = (
   );
 
 /**
+ * A secret from the environment variable `variable` or, when stdin is piped, from stdin. `what`
+ * names the secret in messages, such as `password`.
+ *
+ * @returns The secret, or a usage error when the variable is set but blank, stdin is a terminal,
+ * or the piped secret is empty. A blank variable never falls through to stdin: an inherited pipe
+ * that never closes would wait forever.
+ */
+export const readSecret = Effect.fn("Cli.readSecret")(function* (
+  invocation: Invocation,
+  variable: string,
+  what: string,
+) {
+  const fromEnv = yield* Config.option(Config.Redacted(variable)).pipe(
+    Effect.orElseSucceed(() => Option.none<Redacted.Redacted>()),
+  );
+
+  // Effect's environment provider reads an empty variable as unset; process.env tells them apart.
+  const blank = Option.match(fromEnv, {
+    onSome: (secret) => Redacted.value(secret).trim().length === 0,
+    onNone: () => process.env[variable] === "",
+  });
+
+  if (blank) {
+    return yield* usage(invocation, `${variable} is set but empty; unset it or set the ${what}`);
+  }
+
+  if (Option.isSome(fromEnv)) return fromEnv.value;
+
+  if (process.stdin.isTTY) {
+    return yield* usage(invocation, `Pipe the ${what} on stdin or set ${variable}`);
+  }
+
+  const text = yield* Effect.tryPromise({
+    try: readStdin,
+    catch: (cause) =>
+      new ConfigFileError({ path: "stdin", message: "Could not read stdin", cause }),
+  });
+
+  const secret = text.trim();
+
+  if (secret.length === 0) return yield* usage(invocation, `The ${what} on stdin is empty`);
+
+  return Redacted.make(secret);
+});
+
+/**
  * Parses a media position: seconds (`90`, `12.5`) or `h:mm:ss` / `m:ss`. Returns none when the
- * text is neither.
+ * text is neither, or names a position too large to be a finite number of milliseconds.
  */
 export const parsePosition = (text: string): Option.Option<Milliseconds> => {
   const parts = text.trim().split(":");
@@ -92,7 +143,7 @@ export const parsePosition = (text: string): Option.Option<Milliseconds> => {
   if (parts.length > 3 || parts.some((part) => !/^\d+(\.\d+)?$/u.test(part))) return Option.none();
   const seconds = parts.reduce((total, part) => total * 60 + Number(part), 0);
 
-  return Option.some(Milliseconds.make(Math.round(seconds * 1000)));
+  return Milliseconds.makeOption(Math.round(seconds * 1000));
 };
 
 /** A `--position`-style flag as milliseconds, or a usage error. */
@@ -123,19 +174,22 @@ export const timeoutFlag = (invocation: Invocation): Effect.Effect<Duration.Dura
     },
   });
 
-/** The viewing profile: `--profile-id`, else the stored default. */
+/** The viewing profile, if any: `--profile-id`, else the stored default. */
+export const viewingProfileIfAny = (
+  invocation: Invocation,
+  stored: Option.Option<ProfileId>,
+): Option.Option<ProfileId> =>
+  Option.orElse(
+    Option.map(stringFlag(invocation.tokens, "profile-id"), (value) => ProfileIdSchema.make(value)),
+    () => stored,
+  );
+
+/** The viewing profile: `--profile-id`, else the stored default, else a usage error. */
 export const viewingProfile = (
   invocation: Invocation,
   stored: Option.Option<ProfileId>,
 ): Effect.Effect<ProfileId, UsageError> =>
-  Effect.fromOption(
-    Option.orElse(
-      Option.map(stringFlag(invocation.tokens, "profile-id"), (value) =>
-        ProfileIdSchema.make(value),
-      ),
-      () => stored,
-    ),
-  ).pipe(
+  Effect.fromOption(viewingProfileIfAny(invocation, stored)).pipe(
     Effect.mapError(() =>
       usage(
         invocation,
@@ -162,10 +216,9 @@ export const encodeResult = <Command extends AnyCommand>(
   );
 
 /** An outcome printed with the command's result schema in table mode. */
-export const resultOutcome = (command: AnyCommand, json: Schema.Json): Outcome => ({
-  json,
-  human: renderResult(command.result, json),
-});
+export const resultOutcome = (command: AnyCommand, json: Schema.Json): Outcome =>
+  Outcome.Result({ json, human: renderResult(command.result, json) });
 
 /** An outcome whose human form is a line of text. */
-export const textOutcome = (json: Schema.Json, human: string): Outcome => ({ json, human });
+export const textOutcome = (json: Schema.Json, human: string): Outcome =>
+  Outcome.Result({ json, human });

@@ -22,14 +22,15 @@ export interface RegistryEntry {
   readonly job: boolean;
 }
 
-/** Whether a result schema carries a `jobId` to follow. */
-const returnsJob = (command: AnyCommand): boolean => {
-  const ast = SchemaAST.toEncoded(command.result.ast);
+/** Whether an encoded schema, or any member of a union such as `queued | failed`, has a `jobId`. */
+const hasJobId = (ast: SchemaAST.AST): boolean =>
+  (SchemaAST.isObjects(ast) &&
+    ast.propertySignatures.some((property) => property.name === "jobId")) ||
+  (SchemaAST.isUnion(ast) && ast.types.some(hasJobId));
 
-  return (
-    SchemaAST.isObjects(ast) && ast.propertySignatures.some((property) => property.name === "jobId")
-  );
-};
+/** Whether a result schema carries a `jobId` to follow. */
+const returnsJob = (command: AnyCommand): boolean =>
+  hasJobId(SchemaAST.toEncoded(command.result.ast));
 
 /** Every registry command in registry order. */
 export const registryEntries: ReadonlyArray<RegistryEntry> = Object.keys(commands)
@@ -98,7 +99,7 @@ export const shortcuts: ReadonlyArray<Shortcut> = [
   },
   {
     path: "search",
-    synopsis: "search <query> [--limit <int>]",
+    synopsis: "search <query> [--limit <int>] [--profile-id <id>]",
     summary: "Search titles on the default viewing profile",
     section: "Watching",
   },
@@ -111,25 +112,25 @@ export const shortcuts: ReadonlyArray<Shortcut> = [
   },
   {
     path: "progress",
-    synopsis: "progress [<title>]",
+    synopsis: "progress [<title>] [--profile-id <id>]",
     summary: "Show a title's progress, or the recent watch history",
     section: "Watching",
   },
   {
     path: "continue",
-    synopsis: "continue",
+    synopsis: "continue [--profile-id <id>]",
     summary: "List what to resume and which episodes come next",
     section: "Watching",
   },
   {
     path: "rooms create",
-    synopsis: "rooms create <title> [--episode-id <id>] [--position <seconds>]",
+    synopsis: "rooms create <title> [--episode-id <id>] [--position <seconds>] [--profile-id <id>]",
     summary: "Start a watch room hosted by this device, paused at the position",
     section: "Rooms",
   },
   {
     path: "rooms join",
-    synopsis: "rooms join <room-id>",
+    synopsis: "rooms join <room-id> [--profile-id <id>]",
     summary: "Join a room on this device with the default viewing profile",
     section: "Rooms",
   },
@@ -159,8 +160,9 @@ export const shortcuts: ReadonlyArray<Shortcut> = [
   },
   {
     path: "rooms status",
-    synopsis: "rooms status [<room-id>] [--watch]",
-    summary: "Show the room's clock, live position, and members; --watch prints every change",
+    synopsis: "rooms status [<room-id>] [--watch] [--profile-id <id>]",
+    summary:
+      "Show the room's clock, live position, and members; --watch prints every change until the room ends",
     section: "Rooms",
   },
   {
@@ -172,7 +174,7 @@ export const shortcuts: ReadonlyArray<Shortcut> = [
   {
     path: "import",
     synopsis:
-      "import jellyfin|plex --url <server-url> [--user <jellyfin-admin>] [--path-map <source-folder>=<local-folder>,...] [--map <source-user-id>=<profile-id>|skip,...] [--dry-run] [--wait]",
+      "import jellyfin|plex --url <server-url> [--user <jellyfin-admin>] [--path-map <source-folder>=<local-folder>,...] [--map <source-user-id>=<profile-id>|skip,...] [--dry-run] [--wait [--timeout <seconds>]]",
     summary:
       "Migrate libraries, watch history, favorites, collections, and metadata overrides; the token (or --user's password) is read from stdin, MOVIES_IMPORT_TOKEN, or MOVIES_IMPORT_PASSWORD",
     section: "Administration",
