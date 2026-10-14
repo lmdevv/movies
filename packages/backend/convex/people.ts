@@ -48,9 +48,10 @@ const seenBy = async (
   ctx: ReadCtx,
   audience: Audience,
   people: ReadonlyArray<Doc<"people">>,
+  creditBudget: number,
 ): Promise<ReadonlyArray<boolean>> => {
   const titles = new Map<Id<"titles">, Promise<boolean>>();
-  let budget = SEARCH_CREDIT_BUDGET;
+  let budget = creditBudget;
 
   const sees = (titleId: Id<"titles">) => {
     const known = titles.get(titleId);
@@ -188,7 +189,7 @@ export const search = query({
       .withSearchIndex("search_name", (q) => q.search("name", text.trim()))
       .take(SEARCH_SCAN);
 
-    const visible = await seenBy(ctx, audience, matches);
+    const visible = await seenBy(ctx, audience, matches, SEARCH_CREDIT_BUDGET);
 
     return matches
       .filter((_, index) => visible[index] === true)
@@ -216,9 +217,10 @@ export const requestDetails = mutation({
 
     if (person === null) return fail("not_found", "No such person");
 
-    if ((await visibleCredits(ctx, audience, personId, CREDIT_SCAN)).length === 0) {
-      return fail("not_found", "No such person");
-    }
+    // Only whether one credit is visible matters, so this stops at the first one.
+    const [seen] = await seenBy(ctx, audience, [person], CREDIT_SCAN);
+
+    if (seen !== true) return fail("not_found", "No such person");
 
     const now = Date.now();
 

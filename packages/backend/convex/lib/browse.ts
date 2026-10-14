@@ -434,14 +434,17 @@ export const listTitles = async (
     (scope.libraryId === undefined || title.libraryId === scope.libraryId) &&
     (!filtered || matchesFilter(scope.filter, title));
 
+  // The first batch reads one row past a full page, which a profile that sees everything fills
+  // while still telling whether more follow; later batches read more, as filtering is likely.
   const batchSize = Math.max(numItems * 2, 50);
 
   const step = async (
     after: string | null,
     items: ReadonlyArray<Doc<"titles">>,
     budget: number,
+    size: number,
   ): Promise<{ readonly items: Array<Doc<"titles">>; readonly nextCursor: string | null }> => {
-    const count = Math.min(batchSize, budget);
+    const count = Math.min(size, budget);
     const batch = await read(after, count);
     const found = [...items];
 
@@ -462,8 +465,10 @@ export const listTitles = async (
 
     return budget - batch.length <= 0
       ? { items: found, nextCursor: position }
-      : step(position, found, budget - batch.length);
+      : step(position, found, budget - batch.length, batchSize);
   };
 
-  return step(cursor, [], scope.filter.genre === undefined ? READ_BUDGET : READ_BUDGET / 2);
+  const budget = scope.filter.genre === undefined ? READ_BUDGET : READ_BUDGET / 2;
+
+  return step(cursor, [], budget, numItems + 1);
 };

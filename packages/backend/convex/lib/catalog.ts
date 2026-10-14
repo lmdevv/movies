@@ -239,12 +239,16 @@ const upsertTitle = async (
   // A manually matched title keeps its files and metadata across rescans.
   if (keep?.matchStatus === "manual") return keep;
 
-  const existing = await ctx.db
-    .query("titles")
-    .withIndex("by_library_match", (q) =>
-      q.eq("libraryId", libraryId).eq("matchKey", scanned.matchKey),
-    )
-    .unique();
+  // A rescan usually lands on the title the file was already on, which is in hand.
+  const existing =
+    keep?.libraryId === libraryId && keep.matchKey === scanned.matchKey
+      ? keep
+      : await ctx.db
+          .query("titles")
+          .withIndex("by_library_match", (q) =>
+            q.eq("libraryId", libraryId).eq("matchKey", scanned.matchKey),
+          )
+          .unique();
 
   const now = Date.now();
   const metadata = titleMetadata(scanned);
@@ -450,13 +454,15 @@ export const upsertScannedItem = async (
     });
 
     await adjustPresent(ctx, title._id, episodeId, 1);
-    await queueTrickplayFor(ctx, library, fileId);
+    await queueTrickplayFor(ctx, library, await ctx.db.get(fileId));
 
     return { path: item.file.path, fileId, ...landed };
   }
 
+  const { missingSince: _wasMissingSince, ...stillThere } = existingFile;
+
   await ctx.db.patch(existingFile._id, { ...fields, missingSince: undefined });
-  await queueTrickplayFor(ctx, library, existingFile._id);
+  await queueTrickplayFor(ctx, library, { ...stillThere, ...fields });
   const moved = existingFile.titleId !== title._id || existingFile.episodeId !== episodeId;
 
   if (!existingFile.missing && moved) {
@@ -472,11 +478,11 @@ export const upsertScannedItem = async (
 const queueTrickplayFor = async (
   ctx: MutationCtx,
   library: Doc<"libraries">,
-  fileId: Id<"mediaFiles">,
+  file: Doc<"mediaFiles"> | null,
 ): Promise<void> => {
-  const file = library.trickplay === false ? null : await ctx.db.get(fileId);
-
-  if (file !== null) await queueTrickplay(ctx, file, { retryFailed: false, requestedBy: null });
+  if (file !== null && library.trickplay !== false) {
+    await queueTrickplay(ctx, file, { retryFailed: false, requestedBy: null });
+  }
 };
 
 /**
