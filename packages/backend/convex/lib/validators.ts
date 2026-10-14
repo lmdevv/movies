@@ -492,6 +492,63 @@ export const mediaFile = v.object({
   trickplay: nullable(trickplayManifest),
 });
 
+/** Mirrors `DynamicRange` in `@movies/contracts/media-playback`. */
+const dynamicRange = v.union(
+  v.literal("sdr"),
+  v.literal("hdr10"),
+  v.literal("hlg"),
+  v.literal("dolby-vision"),
+);
+
+/** Mirrors `ClientCapabilities` in `@movies/contracts/media-playback`. */
+export const clientCapabilities = v.object({
+  containers: v.array(
+    v.union(
+      v.literal("mp4"),
+      v.literal("mov"),
+      v.literal("mkv"),
+      v.literal("webm"),
+      v.literal("avi"),
+      v.literal("ts"),
+      v.literal("other"),
+    ),
+  ),
+  videoCodecs: v.array(
+    v.object({
+      codec: v.string(),
+      profiles: v.optional(v.array(v.string())),
+      maxLevel: v.optional(v.number()),
+      maxBitDepth: v.optional(v.number()),
+      dynamicRanges: v.optional(v.array(dynamicRange)),
+    }),
+  ),
+  audioCodecs: v.array(v.object({ codec: v.string(), maxChannels: v.optional(v.number()) })),
+  maxWidth: v.number(),
+  maxHeight: v.number(),
+  hls: v.boolean(),
+  mse: v.boolean(),
+});
+
+/** Mirrors `MediaVersion` in `@movies/contracts`. */
+export const mediaVersion = v.object({
+  id: v.id("mediaFiles"),
+  versionName: nullable(v.string()),
+  width: nullable(v.number()),
+  height: nullable(v.number()),
+  hdr: hdrFormat,
+  videoCodec: nullable(v.string()),
+  videoProfile: nullable(v.string()),
+  videoLevel: nullable(v.number()),
+  videoBitDepth: nullable(v.number()),
+  audioCodec: nullable(v.string()),
+  audioChannels: nullable(v.number()),
+  audioTracks: v.number(),
+  container: v.string(),
+  sizeBytes: v.number(),
+  durationMs: v.number(),
+  lastPlayed: v.boolean(),
+});
+
 /** Mirrors `Progress` in `@movies/contracts`. */
 export const progress = v.object({
   positionMs: v.number(),
@@ -554,6 +611,7 @@ export const titleDetail = v.object({
   crew: v.array(credit),
   seasons: v.array(season),
   files: v.array(mediaFile),
+  versions: v.array(mediaVersion),
   progress: nullable(progress),
   nextEpisode: nullable(episode),
   inMyList: v.boolean(),

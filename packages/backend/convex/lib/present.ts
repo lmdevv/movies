@@ -15,6 +15,7 @@ import type {
   library,
   libraryDetail,
   mediaFile,
+  mediaVersion,
   playbackSession,
   profile,
   progress,
@@ -81,6 +82,34 @@ export const presentMediaFile = (doc: Doc<"mediaFiles">): Infer<typeof mediaFile
   missing: doc.missing,
   trickplay: currentManifest(doc),
 });
+
+/** A file on disk as a version to choose, `lastPlayed` when the profile's progress names it. */
+export const presentVersion = (
+  doc: Doc<"mediaFiles">,
+  lastPlayedId: Id<"mediaFiles"> | null,
+): Infer<typeof mediaVersion> => {
+  const video = doc.probe.video[0];
+  const audio = doc.probe.audio.find((track) => track.default) ?? doc.probe.audio[0];
+
+  return {
+    id: doc._id,
+    versionName: doc.versionName,
+    width: video?.width ?? null,
+    height: video?.height ?? null,
+    hdr: video?.hdr ?? "none",
+    videoCodec: video?.codec ?? null,
+    videoProfile: video?.profile ?? null,
+    videoLevel: video?.level ?? null,
+    videoBitDepth: video?.bitDepth ?? null,
+    audioCodec: audio?.codec ?? null,
+    audioChannels: audio?.channels ?? null,
+    audioTracks: doc.probe.audio.length,
+    container: doc.probe.container,
+    sizeBytes: doc.sizeBytes,
+    durationMs: doc.probe.durationMs,
+    lastPlayed: doc._id === lastPlayedId,
+  };
+};
 
 /** A profile's progress through one item. */
 export const presentProgress = (doc: Doc<"watchProgress">): Infer<typeof progress> => ({

@@ -6,8 +6,13 @@ import { CheckIcon } from "lucide-react";
 import { Fragment, useId } from "react";
 import type { ReactElement } from "react";
 
-/** One choice in the audio or subtitles column. */
-export type TrackOption = { readonly id: string; readonly label: string };
+/** One choice in a column, such as an audio track or a version of the film. */
+export type TrackOption = {
+  readonly id: string;
+  readonly label: string;
+  /** A muted line under the label, such as a version's `4K · HDR10 · HEVC`. */
+  readonly detail?: string | undefined;
+};
 
 function TrackColumn({
   label,
@@ -40,14 +45,31 @@ function TrackColumn({
           <Radio.Root
             key={option.id}
             value={option.id}
-            className="group/track flex h-10 cursor-pointer items-center gap-2.5 rounded-bar text-left font-sans text-body/label text-text-muted transition-colors hover:text-text data-checked:font-semibold data-checked:text-text"
+            className={cn(
+              "group/track flex cursor-pointer items-center gap-2.5 rounded-bar text-left font-sans text-body/label text-text-muted transition-colors hover:text-text data-checked:font-semibold data-checked:text-text",
+              option.detail === undefined ? "h-10" : "min-h-10 py-1.5",
+            )}
           >
-            <span className="flex size-4 shrink-0 items-center justify-center">
+            <span
+              className={cn(
+                "flex size-4 shrink-0 items-center justify-center",
+                option.detail !== undefined && "self-start pt-0.5",
+              )}
+            >
               <Radio.Indicator>
                 <CheckIcon className="size-4 text-accent" strokeWidth={2.5} aria-hidden />
               </Radio.Indicator>
             </span>
-            {option.label}
+            {option.detail === undefined ? (
+              option.label
+            ) : (
+              <span className="flex min-w-0 flex-col gap-0.5">
+                {option.label}
+                <span className="text-caption/caption font-regular text-text-muted">
+                  {option.detail}
+                </span>
+              </span>
+            )}
           </Radio.Root>
         ))}
       </RadioGroup>
@@ -70,11 +92,12 @@ export type TrackSelection = {
   readonly choices: ReadonlyArray<TrackChoice>;
 };
 
-/** Panel widths by column count: two columns as designed, a third column as wide again. */
-const PANEL_WIDTHS = ["w-60", "w-60", "w-115", "w-170"] as const;
+/** Panel widths by column count: two columns as designed, each further column as wide again. */
+const PANEL_WIDTHS = ["w-60", "w-60", "w-115", "w-170", "w-225"] as const;
 
 /**
- * The player's chooser: one column per choice (audio, subtitles, and quality in the player).
+ * The player's chooser: one column per choice (the version when a title has several, audio,
+ * subtitles, and quality in the player).
  * Each column is a radio group: arrow keys move the choice, Tab moves between columns.
  */
 export function TrackPanel({

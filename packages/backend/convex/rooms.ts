@@ -19,7 +19,7 @@ import {
 import { checkDeviceId, checkMilliseconds } from "./lib/bounds";
 import { endRoom, leaveRoom } from "./lib/endings";
 import { fail } from "./lib/errors";
-import { resolvePlayable } from "./lib/playable";
+import { BEST_QUALITY, resolveEpisode, resolvePlayable } from "./lib/playable";
 import { createdAt, presentEpisode, presentRoomClock, presentTitleCard } from "./lib/present";
 import { HOST_REANCHOR_THRESHOLD_MS, livePosition } from "./lib/roomClock";
 import { hostControlArgs, ok, room as roomResult, roomClock } from "./lib/validators";
@@ -210,7 +210,13 @@ export const create = mutation({
     const audience = await loadAudience(ctx, viewer, args.profileId);
     const title = await loadVisibleTitle(ctx, audience, args.titleId);
 
-    const playable = await resolvePlayable(ctx, title, args.episodeId ?? null, args.fileId ?? null);
+    const playable = await resolvePlayable(
+      ctx,
+      title,
+      await resolveEpisode(ctx, title, args.episodeId ?? null),
+      args.fileId ?? null,
+      BEST_QUALITY,
+    );
 
     const now = Date.now();
 
@@ -520,7 +526,13 @@ export const setMedia = mutation({
     const audience = await loadAudience(ctx, viewer, found.hostProfileId);
     const title = await loadVisibleTitle(ctx, audience, args.titleId);
 
-    const playable = await resolvePlayable(ctx, title, args.episodeId ?? null, args.fileId ?? null);
+    const playable = await resolvePlayable(
+      ctx,
+      title,
+      await resolveEpisode(ctx, title, args.episodeId ?? null),
+      args.fileId ?? null,
+      BEST_QUALITY,
+    );
 
     return hostCommand(ctx, args, (_room, now) => ({
       titleId: title._id,

@@ -6,6 +6,12 @@
  * an image subtitle (PGS, VobSub) to burn in always means an encode. Pure: it reads a probe, what
  * the client says it can decode, and what the encoders can do.
  */
+import {
+  canonicalCodec as canonical,
+  decodesAudio,
+  decodesVideo,
+  videoSupport,
+} from "@movies/contracts/direct-play";
 import type {
   ClientCapabilities,
   PlaybackQuality,
@@ -16,9 +22,6 @@ import { Data } from "effect";
 
 import type { AudioTrack, MediaProbe, VideoStream } from "../media/media-probe.ts";
 import type { HardwareEncoder } from "./hardware-acceleration.ts";
-
-/** A video codec the client decodes, with optional limits. */
-type VideoCodecSupport = ClientCapabilities["videoCodecs"][number];
 
 /** What happens to the video stream. */
 export type VideoPlan = Data.TaggedEnum<{
@@ -95,59 +98,6 @@ const HLS_AUDIO_CODECS: ReadonlySet<string> = new Set([
 ]);
 
 const SOFTWARE_MAX = { width: 1920, height: 1080 } as const;
-
-const CODEC_ALIASES: ReadonlyMap<string, string> = new Map([
-  ["h265", "hevc"],
-  ["avc", "h264"],
-  ["avc1", "h264"],
-  ["hev1", "hevc"],
-  ["hvc1", "hevc"],
-  ["vp09", "vp9"],
-  ["av01", "av1"],
-  ["mp4a", "aac"],
-  ["ec-3", "eac3"],
-  ["ac-3", "ac3"],
-]);
-
-const canonical = (codec: string): string => {
-  const lower = codec.toLowerCase();
-
-  return CODEC_ALIASES.get(lower) ?? lower;
-};
-
-const videoSupport = (client: ClientCapabilities, codec: string): VideoCodecSupport | undefined =>
-  client.videoCodecs.find((support) => canonical(support.codec) === canonical(codec));
-
-/** Whether the client decodes and displays `video` as stored. */
-const decodesVideo = (client: ClientCapabilities, video: VideoStream): boolean => {
-  const support = videoSupport(client, video.codec);
-
-  if (support === undefined) return false;
-
-  const profileOk =
-    support.profiles === undefined ||
-    video.profile === undefined ||
-    support.profiles.some((profile) => profile.toLowerCase() === video.profile?.toLowerCase());
-
-  const levelOk =
-    support.maxLevel === undefined || video.level === undefined || video.level <= support.maxLevel;
-
-  const depthOk = video.bitDepth <= (support.maxBitDepth ?? 8);
-
-  const rangeOk =
-    video.dynamicRange === "sdr" || (support.dynamicRanges ?? []).includes(video.dynamicRange);
-
-  const sizeOk = video.width <= client.maxWidth && video.height <= client.maxHeight;
-
-  return profileOk && levelOk && depthOk && rangeOk && sizeOk;
-};
-
-const decodesAudio = (client: ClientCapabilities, track: AudioTrack): boolean =>
-  client.audioCodecs.some(
-    (support) =>
-      canonical(support.codec) === canonical(track.codec) &&
-      track.channels <= (support.maxChannels ?? 8),
-  );
 
 /** Target bitrate in bits per second for an H.264 encode of `height` lines. */
 const bitrateFor = (height: number): number =>

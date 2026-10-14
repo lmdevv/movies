@@ -105,7 +105,7 @@ export const validatorFromSchema = (ast: SchemaAST.AST): ValidatorJson =>
           node.propertySignatures.map((property) => [
             String(property.name),
             {
-              fieldType: validatorFromSchema(property.type),
+              fieldType: optionalFieldType(property.type),
               optional: SchemaAST.isOptional(property.type),
             },
           ]),
@@ -127,6 +127,22 @@ export const validatorFromSchema = (ast: SchemaAST.AST): ValidatorJson =>
     Unknown: unsupported,
     Void: unsupported,
   });
+
+/**
+ * An optional field's validator. Convex drops fields set to `undefined` before they travel, so an
+ * optional field that also allows `undefined` (`Schema.optional`) carries what `v.optional` does.
+ */
+const optionalFieldType = (node: SchemaAST.AST): ValidatorJson => {
+  if (!SchemaAST.isOptional(node) || !SchemaAST.isUnion(node)) return validatorFromSchema(node);
+
+  const [only, ...others] = node.types.filter((member) => !SchemaAST.isUndefined(member));
+
+  if (only === undefined) return unsupported(node);
+
+  return others.length === 0
+    ? validatorFromSchema(only)
+    : { type: "union", value: [only, ...others].map(validatorFromSchema) };
+};
 
 /** A canonical form: nested unions flattened, members sorted and deduplicated, keys sorted. */
 export const normalizeValidator = (json: ValidatorJson): ValidatorJson => {

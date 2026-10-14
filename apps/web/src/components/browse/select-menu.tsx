@@ -17,7 +17,8 @@ export interface SelectOption<Value extends string> {
 }
 
 /**
- * A button that opens a short list of choices, as Paper draws the Sort and Season controls.
+ * A button that opens a short list of choices, as Paper draws the Sort and Season controls. Choosing
+ * one closes the list.
  *
  * @param children - The button's content, such as `Sort Recently added ⌄`.
  */
@@ -54,6 +55,7 @@ export function SelectMenu<Value extends string>({
             <DropdownMenuRadioItem
               key={option.value}
               value={option.value}
+              closeOnClick
               className="gap-2 rounded-inner py-2 pr-9 pl-3 text-label/label text-text focus:bg-text/8 [&_[data-slot=dropdown-menu-radio-item-indicator]]:right-3"
             >
               <span className="font-semibold">{option.label}</span>

@@ -12,7 +12,7 @@ import { loadAudience, loadVisibleTitle } from "./lib/access";
 import { checkDeviceId, checkDisplayName, checkMilliseconds } from "./lib/bounds";
 import { endPlaybackSession } from "./lib/endings";
 import { fail } from "./lib/errors";
-import { resolvePlayable } from "./lib/playable";
+import { resolveEpisode, resolvePlayable } from "./lib/playable";
 import {
   mediaBaseUrl,
   PLAYBACK_TOKEN_LIFETIME_MS,
@@ -26,6 +26,7 @@ import {
   presentPlaybackSession,
 } from "./lib/present";
 import {
+  clientCapabilities,
   episode,
   ok,
   playbackSession,
@@ -97,7 +98,9 @@ const roomFile = async (
 
 /**
  * Starts playback on a device and signs a playback token for the media service, resuming where the
- * profile left off unless it finished. Requires `play` scope. Ends this device's earlier session,
+ * profile left off unless it finished. Without `fileId` it plays the version the profile last
+ * played while that is on disk, else the best the device's `capabilities` play directly, else the
+ * best quality. Requires `play` scope. Ends this device's earlier session,
  * and past eight devices the account's quietest sessions. With `roomId` the room's file plays, and
  * the device must have joined the room with this profile.
  */
@@ -110,6 +113,7 @@ export const createSession = mutation({
     episodeId: v.optional(v.id("episodes")),
     fileId: v.optional(v.id("mediaFiles")),
     roomId: v.optional(v.id("rooms")),
+    capabilities: v.optional(clientCapabilities),
   },
   returns: startedPlayback,
   handler: async (ctx, args) => {
@@ -127,15 +131,20 @@ export const createSession = mutation({
       return fail("invalid_args", "The room is playing another title");
     }
 
+    const played = await resolveEpisode(ctx, title, room?.episodeId ?? args.episodeId ?? null);
+    const episodeId = played?._id ?? null;
+    const saved = await findProgress(ctx, args.profileId, title._id, episodeId);
+
     const playable = await resolvePlayable(
       ctx,
       title,
-      room?.episodeId ?? args.episodeId ?? null,
+      played,
       room?.fileId ?? args.fileId ?? null,
+      {
+        lastPlayed: saved?.fileId ?? null,
+        client: args.capabilities ?? null,
+      },
     );
-
-    const episodeId = playable.episode?._id ?? null;
-    const saved = await findProgress(ctx, args.profileId, title._id, episodeId);
 
     const resumePositionMs =
       saved === null || reachedEnd(saved.positionMs, saved.durationMs) ? 0 : saved.positionMs;

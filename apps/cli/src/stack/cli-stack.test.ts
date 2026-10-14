@@ -81,6 +81,14 @@ const Progress = parse(
 
 const SetupStatus = parse(Schema.Struct({ hasOwner: Schema.Boolean }));
 
+const Versions = parse(
+  Schema.Array(Schema.Struct({ id: Schema.String, versionName: Schema.NullOr(Schema.String) })),
+);
+
+const ActiveSessions = parse(
+  Schema.Array(Schema.Struct({ deviceId: Schema.String, fileId: Schema.String })),
+);
+
 /** One line of `rooms status --watch` in JSON mode. */
 const WatchLine = parse(
   Schema.Struct({ room: Schema.Struct({ clock: Schema.Struct({ status: Schema.String }) }) }),
@@ -344,6 +352,74 @@ describe.skipIf(stack === undefined)("the movies CLI against a real stack", () =
     const lines = (watched?.stdout ?? "").trimEnd().split("\n").map(WatchLine);
 
     expect(lines.at(-1)?.room.clock.status).toBe("ended");
+  }, 120_000);
+
+  it("plays the version a play names by its name or number, and says which ones exist", async () => {
+    const folder = await makeTempDir("movies-cli-versions-");
+
+    homes.push(folder);
+
+    const library = await runMovies(
+      [
+        "libraries",
+        "create",
+        "--name",
+        `CLI versions ${id}`,
+        "--kind",
+        "movies",
+        "--roots",
+        folder,
+      ],
+      owner,
+    );
+
+    const name = `CLI Versions Movie ${id}`;
+    const libraryId = Created(library.stdout).libraryId;
+
+    await Promise.all(
+      [
+        { name: "Theatrical", height: 1080 },
+        { name: "Director's Cut", height: 2160 },
+      ].map((version) =>
+        scanMovie(
+          url,
+          stack?.mediaServiceKey ?? "",
+          libraryId,
+          join(folder, `movie {edition-${version.name}}.mkv`),
+          name,
+          version,
+        ),
+      ),
+    );
+
+    const [found] = Titles((await runMovies(["search", name], owner)).stdout);
+    const titleId = found?.id ?? "";
+
+    const listed = Versions(
+      (await runMovies(["titles", "versions", "--title-id", titleId], owner)).stdout,
+    );
+
+    expect(listed.map((version) => version.versionName)).toStrictEqual([
+      "Director's Cut",
+      "Theatrical",
+    ]);
+
+    // No media service runs here, so negotiation fails after the session started on the file.
+    const sessionFile = async (choice: string): Promise<string | undefined> => {
+      await runMovies(["play", name, "--version", choice], owner);
+
+      const sessions = ActiveSessions((await runMovies(["playback", "active"], owner)).stdout);
+
+      return sessions.find((session) => session.deviceId.startsWith("cli-"))?.fileId;
+    };
+
+    expect(await sessionFile("theatrical")).toBe(listed[1]?.id);
+    expect(await sessionFile("1")).toBe(listed[0]?.id);
+
+    const unknown = await runMovies(["play", name, "--version", "extended"], owner);
+
+    expect(unknown.code).toBe(ExitCode.notFound);
+    expect(unknown.stderr).toContain("1. Director's Cut, 2. Theatrical");
   }, 120_000);
 
   it("reports an unknown viewing profile or API key as not found", async () => {

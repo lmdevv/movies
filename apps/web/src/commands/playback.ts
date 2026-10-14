@@ -1,5 +1,6 @@
 /**
- * Player commands in the menu: play or pause, skip, subtitles, audio, and quality as nested lists,
+ * Player commands in the menu: play or pause, skip, subtitles, audio, quality, and the version (when
+ * a title has several files) as nested lists,
  * stream info, full screen, and the next episode. They exist only while the player is open; the player
  * provides what they act on through `PlayerCommandsContext`.
  */
@@ -11,6 +12,7 @@ import {
   FastForwardIcon,
   GaugeIcon,
   InfoIcon,
+  LayersIcon,
   MaximizeIcon,
   PauseIcon,
   PlayIcon,
@@ -49,6 +51,10 @@ export interface PlayerCommands {
   readonly quality: ReadonlyArray<TrackOption>;
   readonly qualityId: string;
   readonly selectQuality: (id: string) => void;
+  /** Versions (files) to switch between; empty unless there are several and switching is allowed. */
+  readonly versions: ReadonlyArray<TrackOption>;
+  readonly versionId: string;
+  readonly selectVersion: (id: string) => void;
   /** Plays the next episode now; null for movies and the last episode. */
   readonly nextEpisode: (() => void) | null;
   /** Starts a room for this title; null while in one. */
@@ -80,6 +86,7 @@ const trackPage = (
         kind: "action",
         id: `${id}:${option.id}`,
         title: option.label,
+        detail: option.detail,
         leading: option.id === selected ? { kind: "check" } : undefined,
         perform: () => select(option.id),
       })),
@@ -177,6 +184,24 @@ export const usePlaybackCommands = (): CommandContribution => {
           player.selectQuality,
         ),
       },
+      ...(player.versions.length === 0
+        ? []
+        : [
+            {
+              kind: "submenu" as const,
+              id: "player:version",
+              title: "Version",
+              keywords: ["edition", "file", "cut", "copy"],
+              leading: { kind: "icon" as const, icon: LayersIcon },
+              page: trackPage(
+                "version",
+                "Version",
+                player.versions,
+                player.versionId,
+                player.selectVersion,
+              ),
+            },
+          ]),
       {
         kind: "action",
         id: "player:stream-info",

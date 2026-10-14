@@ -1,55 +1,13 @@
 /**
  * Technical badges and track lists for a playable file, from what ffprobe reported: `4K`,
- * `DOLBY VISION`, `HEVC`, `EAC3 5.1`, `CC`, and `English EAC3 5.1, Spanish · English CC`.
+ * `DOLBY VISION`, `HEVC`, `EAC3 5.1`, `CC`, and `English EAC3 5.1, Spanish · English CC`. The
+ * facts themselves are named by the SDK's `MediaLabels`.
  */
 import type { SubtitleTrack } from "@movies/contracts/media-playback";
-import type { AudioStream, HdrFormat, MediaFile } from "@movies/contracts/models/catalog";
-import { Match } from "effect";
+import type { AudioStream, MediaFile } from "@movies/contracts/models/catalog";
+import { MediaLabels } from "@movies/sdk/effect";
 
-const resolution = (width: number, height: number): string | null => {
-  if (width >= 3200 || height >= 2000) return "4K";
-
-  if (width >= 1800 || height >= 1000) return "1080p";
-
-  if (width >= 1200 || height >= 700) return "720p";
-
-  return null;
-};
-
-const hdrLabel = (hdr: HdrFormat): string | null =>
-  Match.value(hdr).pipe(
-    Match.when("none", () => null),
-    Match.when("hdr10", () => "HDR10"),
-    Match.when("hdr10plus", () => "HDR10+"),
-    Match.when("hlg", () => "HLG"),
-    Match.when("dolby_vision", () => "DOLBY VISION"),
-    Match.exhaustive,
-  );
-
-const CODECS: ReadonlyMap<string, string> = new Map([
-  ["hevc", "HEVC"],
-  ["h265", "HEVC"],
-  ["h264", "H.264"],
-  ["avc", "H.264"],
-  ["av1", "AV1"],
-  ["vp9", "VP9"],
-  ["mpeg2video", "MPEG-2"],
-]);
-
-/** `H.264`, `HEVC`, or the codec name upper-cased, such as `EAC3`. */
-export const codecLabel = (codec: string): string =>
-  CODECS.get(codec.toLowerCase()) ?? codec.toUpperCase();
-
-/** `5.1` for six channels, `7.1` for eight, `2.0` for stereo. */
-export const channelLabel = (channels: number): string | null => {
-  if (channels <= 0) return null;
-
-  if (channels === 1) return "1.0";
-
-  if (channels <= 2) return "2.0";
-
-  return `${channels - 1}.1`;
-};
+const { channelLabel, codecLabel, hdrLabel, resolutionLabel } = MediaLabels;
 
 const displayNames = new Intl.DisplayNames(["en"], { type: "language" });
 
@@ -95,7 +53,7 @@ export const fileBadges = (file: MediaFile): ReadonlyArray<string> => {
   const subtitled = file.probe.subtitles.length > 0 || file.externalSubtitles.length > 0;
 
   const badges = [
-    video === undefined ? null : resolution(video.width, video.height),
+    video === undefined ? null : resolutionLabel(video.width, video.height),
     video === undefined ? null : hdrLabel(video.hdr),
     video === undefined ? null : codecLabel(video.codec),
     audio === undefined

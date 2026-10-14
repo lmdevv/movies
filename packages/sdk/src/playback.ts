@@ -43,7 +43,10 @@ import { playerEvents } from "./room-sync/player-port";
 const mediaUrl = (started: StartedPlayback, path: string): string =>
   `${started.mediaBaseUrl.replace(/\/+$/u, "")}${path}`;
 
-/** What to play. Omitted options pick the best file and resume from saved progress. */
+/**
+ * What to play. Omitted options pick the version the profile last played, else the best the
+ * device's capabilities play directly, else the best quality, and resume from saved progress.
+ */
 export interface PlaybackRequest {
   readonly profileId: ProfileId;
   readonly deviceId: DeviceId;
@@ -298,6 +301,7 @@ export const start = Effect.fn("Playback.start")(function* (request: PlaybackReq
     }),
     ...Option.match(request.fileId, { onNone: () => ({}), onSome: (fileId) => ({ fileId }) }),
     ...Option.match(request.roomId, { onNone: () => ({}), onSome: (roomId) => ({ roomId }) }),
+    capabilities: request.capabilities,
   });
 
   const startAt = Option.getOrElse(request.startAtMs, () => started.resumePositionMs);
