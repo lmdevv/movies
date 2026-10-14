@@ -6,6 +6,7 @@
  * Skipped unless `MOVIES_STACK_TESTS=1`. Shares the owner accounts of the backend's stack suite.
  */
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -64,6 +65,11 @@ const RoomCreated = parse(Schema.Struct({ id: Schema.String }));
 const Clock = parse(Schema.Struct({ status: Schema.String, positionAtAnchorMs: Schema.Finite }));
 
 const SetupStatus = parse(Schema.Struct({ hasOwner: Schema.Boolean }));
+
+/** One line of `rooms status --watch` in JSON mode. */
+const WatchLine = parse(
+  Schema.Struct({ room: Schema.Struct({ clock: Schema.Struct({ status: Schema.String }) }) }),
+);
 
 let owner: Readonly<Record<string, string>>;
 
@@ -241,9 +247,27 @@ describe.skipIf(stack === undefined)("the movies CLI against a real stack", () =
     expect((await runMovies(["rooms", "status", roomId, "--human"], guest)).stdout).toContain(
       "paused",
     );
+
+    const watch = startMovies(["rooms", "status", roomId, "--watch"], guest);
+
     expect((await runMovies(["rooms", "leave"], guest)).code).toBe(ExitCode.ok);
     expect((await runMovies(["rooms", "leave"], owner)).code).toBe(ExitCode.ok);
-  });
+
+    const watched = await Promise.race([
+      watch.done,
+      delay(30_000).then(() => {
+        watch.child.kill();
+
+        return null;
+      }),
+    ]);
+
+    expect(watched?.code, "rooms status --watch exits once the room ends").toBe(ExitCode.ok);
+
+    const lines = (watched?.stdout ?? "").trimEnd().split("\n").map(WatchLine);
+
+    expect(lines.at(-1)?.room.clock.status).toBe("ended");
+  }, 120_000);
 
   it("reports an unknown viewing profile or API key as not found", async () => {
     const profile = await runMovies(["profiles", "use", `missing-${id}`], owner);

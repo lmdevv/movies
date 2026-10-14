@@ -9,7 +9,7 @@ import { commands } from "@movies/contracts/commands";
 import { NotFound } from "@movies/contracts/errors";
 import { EpisodeId, ProfileId, RoomId } from "@movies/contracts/ids";
 import type { Room, RoomClock } from "@movies/contracts/models/rooms";
-import type { EpochMillis, Milliseconds } from "@movies/contracts/units";
+import type { Milliseconds } from "@movies/contracts/units";
 import {
   EpochMillis as EpochMillisSchema,
   Milliseconds as MillisecondsSchema,
@@ -20,6 +20,7 @@ import type { Invocation, ShortcutCommand } from "./invocation";
 import {
   booleanFlag,
   encodeResult,
+  Outcome,
   positionalText,
   positionFlag,
   requirePositional,
@@ -78,15 +79,23 @@ const resolveRoom = Effect.fn("Rooms.resolve")(function* (
   return current;
 });
 
-/** The server's clock: `rooms.time` when this session may play, else this machine's clock. */
-const serverNow = (connection: Connection): Effect.Effect<EpochMillis> =>
+/**
+ * How far the server's clock runs ahead of this machine's, from `rooms.time` when this session may
+ * play; zero otherwise, trusting this machine's clock.
+ */
+const serverClockOffset = (connection: Connection): Effect.Effect<number> =>
   connection.client.mutate("rooms.time", {}).pipe(
-    Effect.map(({ serverTime }) => serverTime),
-    Effect.catch(() => Effect.map(Clock.currentTimeMillis, (now) => EpochMillisSchema.make(now))),
+    Effect.flatMap(({ serverTime }) =>
+      Effect.map(Clock.currentTimeMillis, (now) => serverTime - now),
+    ),
+    Effect.orElseSucceed(() => 0),
   );
 
-const livePosition = (connection: Connection, clock: RoomClock): Effect.Effect<Milliseconds> =>
-  Effect.map(serverNow(connection), (now) => targetPosition(clock, now));
+/** The room's live position now, by the server's clock. */
+const livePosition = (offset: number, clock: RoomClock): Effect.Effect<Milliseconds> =>
+  Effect.map(Clock.currentTimeMillis, (now) =>
+    targetPosition(clock, EpochMillisSchema.make(now + offset)),
+  );
 
 type HostCommand = "rooms.play" | "rooms.pause" | "rooms.seek";
 
@@ -137,7 +146,10 @@ const hostControl = (
 
       return yield* control(invocation, name, (connection, room) =>
         Option.match(flag, {
-          onNone: () => livePosition(connection, room.clock),
+          onNone: () =>
+            Effect.flatMap(serverClockOffset(connection), (offset) =>
+              livePosition(offset, room.clock),
+            ),
           onSome: Effect.succeed,
         }),
       );
@@ -241,25 +253,29 @@ const status: ShortcutCommand = {
       const connection = yield* connect(invocation.env, invocation.target, "required");
       const room = yield* resolveRoom(invocation, connection);
       const command = commands["rooms.get"];
+      // Measured once, so following changes needs no `rooms.time` call per change.
+      const offset = yield* serverClockOffset(connection);
 
-      const snapshot = (current: Room) =>
-        Effect.gen(function* () {
-          const live = yield* livePosition(connection, current.clock);
+      const snapshot = Effect.fn("Rooms.snapshot")(function* (current: Room) {
+        const live = yield* livePosition(offset, current.clock);
 
-          return {
-            json: {
-              room: yield* encodeResult("rooms.get", command, current),
-              livePositionMs: live,
-            },
-            human: describeRoom(current, live),
-          };
-        });
+        return {
+          json: { room: yield* encodeResult("rooms.get", command, current), livePositionMs: live },
+          human: describeRoom(current, live),
+        };
+      });
 
-      if (!booleanFlag(invocation.tokens, "watch")) return yield* snapshot(room);
+      if (!booleanFlag(invocation.tokens, "watch")) {
+        const shown = yield* snapshot(room);
+
+        return textOutcome(shown.json, shown.human);
+      }
 
       yield* connection.client
         .subscribe("rooms.get", roomQuery(invocation, connection, room.id))
         .pipe(
+          // An ended room stays readable with the status `ended`; it never changes again.
+          Stream.takeUntil((current) => current.clock.status === "ended"),
           Stream.mapEffect(snapshot),
           Stream.runForEach((next) =>
             output.out(
@@ -268,7 +284,10 @@ const status: ShortcutCommand = {
           ),
         );
 
-      return textOutcome({ ok: true }, "The room ended.");
+      // JSON mode stays one line per change; the last line shows the room ended.
+      if (invocation.format === "table") yield* output.out("The room ended.");
+
+      return Outcome.Printed();
     }),
 };
 

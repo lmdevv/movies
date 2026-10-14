@@ -81,7 +81,7 @@ movies rooms join <room-id>                  # guest, on another install or acco
 movies rooms play                            # host; acts on the room this device is in
 movies rooms pause
 movies rooms seek --position 1:02:30
-movies rooms status --watch                  # one JSON line per change
+movies rooms status --watch                  # one JSON line per change; exits when the room ends
 movies rooms leave                           # a host leaving ends the room
 ```
 
@@ -191,7 +191,7 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies rooms pause [<room-id>]`: Host: pause the room at its live position.
 - `movies rooms seek [<room-id>] --position <seconds>`: Host: move the room to a position.
 - `movies rooms leave [<room-id>]`: Leave the room; a host leaving ends it.
-- `movies rooms status [<room-id>] [--watch]`: Show the room's clock, live position, and members; --watch prints every change.
+- `movies rooms status [<room-id>] [--watch]`: Show the room's clock, live position, and members; --watch prints every change until the room ends.
 - `movies scan [<library-id-or-name>] [--mode quick|full] [--wait [--timeout <seconds>]]`: Scan one library, or every library, for new, changed, and missing files.
 - `movies import jellyfin|plex --url <server-url> [--user <jellyfin-admin>] [--path-map <source-folder>=<local-folder>,...] [--map <source-user-id>=<profile-id>|skip,...] [--dry-run] [--wait]`: Migrate libraries, watch history, favorites, collections, and metadata overrides; the token (or --user's password) is read from stdin, MOVIES_IMPORT_TOKEN, or MOVIES_IMPORT_PASSWORD.
 - `movies backup [--wait [--timeout <seconds>]]`: Back up the database now.

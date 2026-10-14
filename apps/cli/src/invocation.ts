@@ -9,7 +9,7 @@ import type { ProfileId } from "@movies/contracts/ids";
 import { ProfileId as ProfileIdSchema } from "@movies/contracts/ids";
 import { Milliseconds } from "@movies/contracts/units";
 import { ProtocolError } from "@movies/sdk/effect";
-import { Duration, Effect, Option, Predicate, Schema } from "effect";
+import { Data, Duration, Effect, Option, Predicate, Schema } from "effect";
 import type { Scope } from "effect";
 
 import type { CliError } from "./cli-errors";
@@ -33,11 +33,16 @@ export interface Invocation {
   readonly format: Format;
 }
 
-/** What a command produced: its JSON value and how people read it. */
-export interface Outcome {
-  readonly json: Schema.Json;
-  readonly human: string;
-}
+/** What a command produced. */
+export type Outcome = Data.TaggedEnum<{
+  /** A result printed when the command finishes: its JSON value and how people read it. */
+  Result: { readonly json: Schema.Json; readonly human: string };
+  /** Nothing more to print: the command printed its output line by line as it ran. */
+  Printed: {};
+}>;
+
+/** Constructors and matchers for `Outcome`. */
+export const Outcome = Data.taggedEnum<Outcome>();
 
 /** A command the CLI implements itself. */
 export interface ShortcutCommand {
@@ -162,10 +167,9 @@ export const encodeResult = <Command extends AnyCommand>(
   );
 
 /** An outcome printed with the command's result schema in table mode. */
-export const resultOutcome = (command: AnyCommand, json: Schema.Json): Outcome => ({
-  json,
-  human: renderResult(command.result, json),
-});
+export const resultOutcome = (command: AnyCommand, json: Schema.Json): Outcome =>
+  Outcome.Result({ json, human: renderResult(command.result, json) });
 
 /** An outcome whose human form is a line of text. */
-export const textOutcome = (json: Schema.Json, human: string): Outcome => ({ json, human });
+export const textOutcome = (json: Schema.Json, human: string): Outcome =>
+  Outcome.Result({ json, human });

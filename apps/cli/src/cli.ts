@@ -32,10 +32,11 @@ import { ConfigFileError, ExitCode, exitCodeOf, reportOf, UsageError } from "./c
 import { environment, loadConfig, resolveTarget } from "./config";
 import type { ParsedTokens, WireArgs } from "./flags";
 import { buildArgs, describeIssue, globalOptions, kebabCase, optionsFor, tokenize } from "./flags";
-import type { Format, Invocation, Outcome, ShortcutCommand } from "./invocation";
+import type { Format, Invocation, ShortcutCommand } from "./invocation";
 import {
   booleanFlag,
   encodeResult,
+  Outcome,
   resultOutcome,
   stringFlag,
   textOutcome,
@@ -202,7 +203,11 @@ const prepare = (path: string, tokens: ParsedTokens) =>
 
 const print = (format: Format, outcome: Outcome): Effect.Effect<void, never, Output> =>
   Effect.flatMap(Output, (output) =>
-    output.out(format === "json" ? JSON.stringify(outcome.json, null, 2) : outcome.human),
+    Outcome.$match(outcome, {
+      Result: ({ json, human }) =>
+        output.out(format === "json" ? JSON.stringify(json, null, 2) : human),
+      Printed: () => Effect.void,
+    }),
   );
 
 const decodeJobId = Schema.decodeUnknownOption(Schema.Struct({ jobId: JobId }));

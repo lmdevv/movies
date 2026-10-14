@@ -160,7 +160,8 @@ export const shortcuts: ReadonlyArray<Shortcut> = [
   {
     path: "rooms status",
     synopsis: "rooms status [<room-id>] [--watch]",
-    summary: "Show the room's clock, live position, and members; --watch prints every change",
+    summary:
+      "Show the room's clock, live position, and members; --watch prints every change until the room ends",
     section: "Rooms",
   },
   {
