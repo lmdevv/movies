@@ -77,12 +77,12 @@ function SearchPage() {
   ];
 
   return (
-    <div className="mx-auto box-content flex max-w-content flex-col gap-4 px-4 pt-[max(env(safe-area-inset-top),--spacing(4))] md:gap-7 md:px-16 md:pt-7">
+    <div className="mx-auto box-content flex max-w-content flex-col gap-4 px-4 pt-[max(env(safe-area-inset-top),var(--spacing-4))] md:gap-7 md:px-16 md:pt-7">
       <h1 className="px-1 pt-1.5 text-large-title/10 font-heavy tracking-display text-text md:sr-only">
         Search
       </h1>
       <div className="flex items-center gap-3">
-        <label className="flex h-11 min-w-0 grow items-center gap-2 rounded-xl bg-surface-raised px-3 md:h-18 md:gap-4 md:rounded-control md:border md:border-hairline md:pr-5 md:pl-5.5">
+        <label className="flex h-11 min-w-0 grow items-center gap-2 rounded-search bg-surface-raised px-3 md:h-18 md:gap-4 md:rounded-control md:border md:border-hairline md:pr-5 md:pl-5.5">
           <SearchIcon
             className="size-4.5 shrink-0 text-text-muted md:size-6"
             strokeWidth={1.75}
@@ -141,7 +141,7 @@ function SearchPage() {
               key={chip.kind}
               selected={kind === chip.kind}
               onClick={() => setKind(chip.kind)}
-              className="max-md:text-sm/4.5"
+              className="max-md:text-small/4.5"
             >
               {chip.label}
               <span className="max-md:hidden">&nbsp;{formatCount(counts[chip.kind])}</span>

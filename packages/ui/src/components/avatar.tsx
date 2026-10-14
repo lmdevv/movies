@@ -17,7 +17,7 @@ const SIZES = {
 const MONOGRAMS = {
   xs: "p-1 text-caption/4",
   sm: "p-1 text-caption/4",
-  md: "p-2.5 text-4xl/9",
+  md: "p-2.5 text-avatar/9",
   lg: "p-3 text-title/title",
   xl: "p-3.5 text-display/display",
 } as const;

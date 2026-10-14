@@ -491,7 +491,7 @@ function FileRow({
           <span
             aria-hidden
             className={cn(
-              "h-9 w-6 shrink-0 rounded-xs border border-dashed border-text-muted",
+              "h-9 w-6 shrink-0 rounded-bar border border-dashed border-text-muted",
               file.missing && "opacity-50",
             )}
           />
@@ -499,7 +499,7 @@ function FileRow({
           <Poster
             src={artworkUrl(file.title.poster, "thumb")}
             alt=""
-            className={cn("h-9 w-6 rounded-xs", file.missing && "opacity-50")}
+            className={cn("h-9 w-6 rounded-bar", file.missing && "opacity-50")}
           />
         )}
         <span className="flex min-w-0 flex-col gap-0.5">

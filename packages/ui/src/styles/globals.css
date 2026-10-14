@@ -100,6 +100,71 @@
   --shadow-overlay: 0 32px 80px var(--color-scrim);
   --shadow-glass: inset 0 1px 0 rgb(255 255 255 / 14%), 0 10px 30px rgb(0 0 0 / 45%);
   --radius-thumb: 10px;
+  /* Progress bars, slider tracks, skeleton lines, and focus rings on small links. */
+  --radius-bar: 2px;
+  /* Buttons and chips nested inside a panel or menu. */
+  --radius-inner: 6px;
+  /* The search field on phones. */
+  --radius-search: 12px;
+  /* Outlined controls: icon buttons, checkboxes, radios, invalid fields, dashed placeholders. */
+  --border-width-control: 1.5px;
+  /* A checked radio: the accent ring around the white dot. */
+  --border-width-radio-checked: 5px;
+  /* Chips, top-bar links, command rows, and the folder path field. */
+  --text-small: 14px;
+  /* Large and pill buttons. */
+  --text-button: 16px;
+  /* The command menu's input. */
+  --text-command: 18px;
+  /* The wordmark in the top bar. */
+  --text-logo: 24px;
+  /* An avatar's initial at medium size. */
+  --text-avatar: 36px;
+  /* Title-art headings: the hero and collection titles. */
+  --font-weight-hero: 900;
+  /* The spaced uppercase line under a hero title. */
+  --font-weight-tagline: 300;
+  /* Popover lists: the chapter list and the command menu's results. */
+  --spacing-chapter-list: 448px;
+  --spacing-command-list: 480px;
+  /* Paddings, gaps, margins, and offsets between the Paper spacing steps. The key is the step on
+     Tailwind's 4px grid (`gap-1.5` reads `--spacing-1_5`), so classes keep their usual names;
+     `apps/web/src/lib/design-tokens.test.ts` keeps every such class on this list or the Paper scale. */
+  --spacing-0_5: 2px;
+  --spacing-0_75: 3px;
+  --spacing-1_25: 5px;
+  --spacing-1_5: 6px;
+  --spacing-1_75: 7px;
+  --spacing-2_5: 10px;
+  --spacing-3_5: 14px;
+  --spacing-4_5: 18px;
+  --spacing-5: 20px;
+  --spacing-5_5: 22px;
+  --spacing-6_5: 26px;
+  --spacing-7: 28px;
+  --spacing-7_5: 30px;
+  --spacing-9: 36px;
+  --spacing-10_5: 42px;
+  --spacing-11: 44px;
+  --spacing-14: 56px;
+  --spacing-15: 60px;
+  --spacing-17: 68px;
+  --spacing-18: 72px;
+  --spacing-20: 80px;
+  --spacing-21: 84px;
+  --spacing-22: 88px;
+  --spacing-24: 96px;
+  --spacing-25: 100px;
+  --spacing-26: 104px;
+  --spacing-28: 112px;
+  --spacing-30: 120px;
+  --spacing-32: 128px;
+  --spacing-35: 140px;
+  --spacing-36: 144px;
+  --spacing-40: 160px;
+  --spacing-42: 168px;
+  --spacing-49: 196px;
+  --spacing-56: 224px;
   /* The page canvas: Paper draws light pages on bg, dark phone pages on dark-bg and dark desktop
      pages on dark-surface (see the .dark rules below). */
   --color-page: var(--color-bg);

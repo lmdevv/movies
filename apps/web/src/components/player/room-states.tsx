@@ -46,7 +46,7 @@ export function StartRoomDialog({
       {/* A null container renders nothing; undefined renders into the body. */}
       <DialogPrimitive.Portal container={container ?? undefined}>
         <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-scrim transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
-        <DialogPrimitive.Popup className="on-media fixed top-1/2 left-1/2 z-50 flex w-dialog max-w-[calc(100vw-2rem)] -translate-1/2 flex-col gap-7 rounded-card border border-hairline bg-dark-surface p-8 font-sans text-text shadow-overlay transition-[opacity,scale] duration-150 outline-none data-ending-style:scale-98 data-ending-style:opacity-0 data-starting-style:scale-98 data-starting-style:opacity-0">
+        <DialogPrimitive.Popup className="on-media fixed top-1/2 left-1/2 z-50 flex w-dialog max-w-[calc(100vw-var(--spacing-8))] -translate-1/2 flex-col gap-7 rounded-card border border-hairline bg-dark-surface p-8 font-sans text-text shadow-overlay transition-[opacity,scale] duration-150 outline-none data-ending-style:scale-98 data-ending-style:opacity-0 data-starting-style:scale-98 data-starting-style:opacity-0">
           <DialogPrimitive.Title className="text-title/title font-heavy tracking-tight">
             Watch together
           </DialogPrimitive.Title>
@@ -62,7 +62,7 @@ export function StartRoomDialog({
               type="button"
               disabled={link === null}
               onClick={onCopy}
-              className="flex h-9 cursor-pointer items-center gap-1.5 rounded-md bg-text/10 px-3 text-label/caption font-semibold transition-colors hover:bg-text/15 disabled:opacity-(--opacity-disabled)"
+              className="flex h-9 cursor-pointer items-center gap-1.5 rounded-inner bg-text/10 px-3 text-label/caption font-semibold transition-colors hover:bg-text/15 disabled:opacity-(--opacity-disabled)"
             >
               <CopyIcon className="size-3.5" strokeWidth={1.75} aria-hidden />
               Copy

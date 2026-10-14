@@ -56,14 +56,14 @@ export function AutoplayNext({
       </div>
       <section
         aria-label="Next episode"
-        className="pointer-events-auto absolute inset-x-6 bottom-8 flex flex-col gap-6 md:inset-x-auto md:top-49 md:right-16 md:bottom-auto md:left-[calc(50%+--spacing(32))]"
+        className="pointer-events-auto absolute inset-x-6 bottom-8 flex flex-col gap-6 md:inset-x-auto md:top-49 md:right-16 md:bottom-auto md:left-[calc(50%+var(--spacing-32))]"
       >
         <div
           className="relative hidden aspect-video items-end overflow-hidden rounded-card bg-dark-surface-raised bg-cover bg-center p-4 md:flex"
           style={still === undefined ? undefined : { backgroundImage: `url("${still}")` }}
         >
           {next.runtimeMs === null ? null : (
-            <span className="rounded-xs bg-dark-bg/55 px-1.5 py-0.5 font-mono text-caption/caption text-text">
+            <span className="rounded-bar bg-dark-bg/55 px-1.5 py-0.5 font-mono text-caption/caption text-text">
               {formatRuntime(next.runtimeMs)}
             </span>
           )}
@@ -83,7 +83,7 @@ export function AutoplayNext({
           <Button
             variant="inverse"
             size="lg"
-            className="h-13 gap-3 pr-6 pl-3.5 text-base/5"
+            className="h-13 gap-3 pr-6 pl-3.5 text-button/5"
             autoFocus
             onClick={onPlayNext}
           >
@@ -101,7 +101,7 @@ export function AutoplayNext({
           <Button
             variant="secondary"
             size="lg"
-            className="h-13 text-base/5"
+            className="h-13 text-button/5"
             onClick={onWatchCredits}
           >
             Watch credits

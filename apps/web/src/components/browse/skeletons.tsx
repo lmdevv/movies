@@ -32,7 +32,7 @@ function Block({
 export function HeroSkeleton({ inset = false }: { readonly inset?: boolean }) {
   const bars = (
     <>
-      <Block tone="bar" className="h-14 w-60 rounded-md md:w-90" />
+      <Block tone="bar" className="h-14 w-60 rounded-inner md:w-90" />
       <Block tone="bar" className="h-3.5 w-40 rounded-poster md:w-60" />
       <div className="flex gap-3 pt-1">
         <Block tone="bar" className="h-11 w-27.5 rounded-control" />
@@ -92,13 +92,13 @@ export function PosterGridSkeleton({ count = 14 }: { readonly count?: number }) 
   return (
     <div
       aria-hidden
-      className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-[repeat(auto-fill,minmax(--spacing(42),1fr))] md:gap-x-5.5 md:gap-y-8"
+      className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-[repeat(auto-fill,minmax(var(--spacing-42),1fr))] md:gap-x-5.5 md:gap-y-8"
     >
       {Array.from({ length: count }, (_, index) => (
         <div key={index} className="flex flex-col gap-1.5">
           <Block className="aspect-2/3 w-full rounded-poster" />
-          <Block tone="bar" className="mt-1 h-3.5 w-3/4 rounded-xs" />
-          <Block tone="bar" className="h-3 w-1/2 rounded-xs" />
+          <Block tone="bar" className="mt-1 h-3.5 w-3/4 rounded-bar" />
+          <Block tone="bar" className="h-3 w-1/2 rounded-bar" />
         </div>
       ))}
     </div>

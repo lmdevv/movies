@@ -74,9 +74,7 @@ function CollectionPage() {
           className="absolute inset-0 -z-10 bg-linear-to-b from-dark-bg/55 via-transparent via-20% to-page to-92%"
         />
         <div className="mx-auto flex w-full max-w-content flex-col gap-3">
-          <h1 className="text-display/display font-black tracking-display text-text">
-            {data.name}
-          </h1>
+          <h1 className="text-display/display font-hero tracking-display text-text">{data.name}</h1>
           <p className="text-label/label text-text-muted">
             {plural(data.titles.length, "title", "titles")}
           </p>

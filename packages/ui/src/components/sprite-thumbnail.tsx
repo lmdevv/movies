@@ -31,7 +31,7 @@ export function SpriteThumbnail({
     <span
       aria-hidden
       data-slot="sprite-thumbnail"
-      className={cn("block overflow-hidden rounded-xs bg-surface-raised bg-no-repeat", className)}
+      className={cn("block overflow-hidden rounded-bar bg-surface-raised bg-no-repeat", className)}
       style={{
         aspectRatio: `${String(tile.width)} / ${String(tile.height)}`,
         backgroundImage: `url("${tile.url}")`,

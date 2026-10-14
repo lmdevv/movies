@@ -45,7 +45,7 @@ export function AuthPage({
           phoneBrand ? "flex" : "hidden",
         )}
       >
-        <Link to="/" aria-label="[movies] home" className="rounded-xs">
+        <Link to="/" aria-label="[movies] home" className="rounded-bar">
           <Wordmark />
         </Link>
       </header>
@@ -56,7 +56,7 @@ export function AuthPage({
           offset === "lead" && "pt-10 md:pt-22",
           offset === "tight" && "pt-6",
           offset === "centered" &&
-            "pt-[max(env(safe-area-inset-top),--spacing(12))] md:justify-center md:pt-0 md:pb-24",
+            "pt-[max(env(safe-area-inset-top),var(--spacing-12))] md:justify-center md:pt-0 md:pb-24",
         )}
       >
         <div className={cn("flex max-w-full flex-col gap-8", WIDTHS[width])}>{children}</div>
@@ -121,7 +121,7 @@ export function PasswordField({
             type="button"
             onClick={() => setVisible((shown) => !shown)}
             aria-label={visible ? "Hide password" : "Show password"}
-            className="flex cursor-pointer items-center rounded-xs text-text-muted hover:text-text"
+            className="flex cursor-pointer items-center rounded-bar text-text-muted hover:text-text"
           >
             {visible ? (
               <EyeOffIcon className="size-4.5" strokeWidth={1.75} aria-hidden />

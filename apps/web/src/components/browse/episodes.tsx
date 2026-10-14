@@ -148,8 +148,8 @@ export function Episodes({
                   <span className="w-7" />
                   <span className="aspect-video w-44 rounded-poster bg-text/5" />
                   <span className="flex grow flex-col gap-2">
-                    <span className="h-4 w-48 rounded-xs bg-text/6" />
-                    <span className="h-3 w-96 rounded-xs bg-text/5" />
+                    <span className="h-4 w-48 rounded-bar bg-text/6" />
+                    <span className="h-3 w-96 rounded-bar bg-text/5" />
                   </span>
                 </li>
               ))

@@ -189,7 +189,7 @@ export function StreamInfo({
           type="button"
           aria-label="Close stream info"
           onClick={onClose}
-          className="flex size-6 cursor-pointer items-center justify-center rounded-xs text-text-muted transition-colors hover:text-text"
+          className="flex size-6 cursor-pointer items-center justify-center rounded-bar text-text-muted transition-colors hover:text-text"
         >
           <XIcon className="size-5" strokeWidth={1.75} aria-hidden />
         </button>
@@ -205,7 +205,7 @@ export function StreamInfo({
             role="listitem"
             aria-current={each.id === rung || undefined}
             className={cn(
-              "flex h-7.5 grow basis-0 items-center justify-center rounded-md font-mono text-caption/caption tracking-caps uppercase",
+              "flex h-7.5 grow basis-0 items-center justify-center rounded-inner font-mono text-caption/caption tracking-caps uppercase",
               each.id === rung
                 ? cn(
                     "border border-hairline bg-dark-surface-raised font-semibold",

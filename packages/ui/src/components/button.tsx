@@ -30,7 +30,7 @@ export const buttonVariants = cva(
         /** Frosted white fill over artwork on phones, such as My List on the hero card. */
         glass: "on-media bg-text/18 font-semibold hover:bg-text/25",
         /** A round outlined icon over artwork, such as Add to My List. */
-        icon: "on-media rounded-pill border-[1.5px] border-text/50 hover:border-text hover:bg-text/10",
+        icon: "on-media rounded-pill border-control border-text/50 hover:border-text hover:bg-text/10",
       },
       size: {
         /** A table row action, such as Fix match or Revoke. */
@@ -44,7 +44,7 @@ export const buttonVariants = cva(
         lg: "h-12 px-6 text-body/4.5 [&_svg]:size-4.5",
         icon: "size-11 [&_svg]:size-4.5",
         /** The full-width phone pill, such as Resume on the hero card. */
-        pill: "h-12 rounded-pill px-6 text-base/5 [&_svg]:size-4.5",
+        pill: "h-12 rounded-pill px-6 text-button/5 [&_svg]:size-4.5",
       },
     },
     compoundVariants: [

@@ -122,7 +122,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           overMedia={overMedia}
           className="mx-auto max-w-content"
           brand={
-            <Link to="/" aria-label="[movies] home" className="rounded-xs">
+            <Link to="/" aria-label="[movies] home" className="rounded-bar">
               <Wordmark />
             </Link>
           }
@@ -161,7 +161,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
         {title === "" || !phoneTitle ? null : (
           <LargeTitle
             title={title}
-            className="pt-[max(env(safe-area-inset-top),--spacing(4))] md:hidden"
+            className="pt-[max(env(safe-area-inset-top),var(--spacing-4))] md:hidden"
             trailing={profileButton("sm", true)}
           />
         )}
@@ -172,7 +172,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
 
       <TabBar
         minimized={scrolled}
-        className="fixed inset-x-4 bottom-[max(env(safe-area-inset-bottom),--spacing(6))] z-40 md:hidden"
+        className="fixed inset-x-4 bottom-[max(env(safe-area-inset-bottom),var(--spacing-6))] z-40 md:hidden"
         search={
           <TabBarSearch
             onClick={() => void navigate({ to: "/search" })}

@@ -186,7 +186,7 @@ export function GridHeader({
 /** The responsive poster grid: two columns on phones, 168px posters on desktops. */
 export function PosterGrid({ children }: { readonly children: ReactNode }) {
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-[repeat(auto-fill,minmax(--spacing(42),1fr))] md:gap-x-5.5 md:gap-y-8">
+    <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-[repeat(auto-fill,minmax(var(--spacing-42),1fr))] md:gap-x-5.5 md:gap-y-8">
       {children}
     </div>
   );

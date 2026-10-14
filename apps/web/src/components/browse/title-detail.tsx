@@ -211,7 +211,7 @@ export function TitleDetailView({
   const progress =
     target.fraction === null ? null : (
       <div className={cn("flex items-center gap-3", phone ? "px-1" : "w-105")}>
-        <div className="flex h-1 grow overflow-hidden rounded-xs bg-hairline">
+        <div className="flex h-1 grow overflow-hidden rounded-bar bg-hairline">
           <div
             className="h-1 bg-accent"
             style={{ width: `${Math.round(target.fraction * 100)}%` }}
@@ -235,7 +235,7 @@ export function TitleDetailView({
       {logo === undefined ? (
         <h1
           className={cn(
-            "font-black text-text",
+            "font-hero text-text",
             phone
               ? "text-hero-card/11 tracking-display"
               : title.name.length > LONG_NAME
@@ -253,7 +253,7 @@ export function TitleDetailView({
         />
       )}
       {title.tagline === null || phone ? null : (
-        <p className="text-heading/6 font-light tracking-spread text-text uppercase">
+        <p className="text-heading/6 font-tagline tracking-spread text-text uppercase">
           {title.tagline}
         </p>
       )}
@@ -439,7 +439,7 @@ function PhoneBackdrop({
 
   return (
     <div
-      className="on-media relative isolate flex h-75 flex-col justify-between bg-dark-surface-raised bg-cover bg-center pt-[max(env(safe-area-inset-top),--spacing(12))]"
+      className="on-media relative isolate flex h-75 flex-col justify-between bg-dark-surface-raised bg-cover bg-center pt-[max(env(safe-area-inset-top),var(--spacing-12))]"
       style={backdrop === undefined ? undefined : { backgroundImage: `url("${backdrop}")` }}
     >
       <div

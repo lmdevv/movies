@@ -7,7 +7,7 @@ export function Keycap({ className, ...props }: ComponentProps<"kbd">) {
     <kbd
       data-slot="keycap"
       className={cn(
-        "inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-sm bg-text/6 px-1.25 font-mono text-micro/3.5 text-text-muted",
+        "inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-poster bg-text/6 px-1.25 font-mono text-micro/3.5 text-text-muted",
         className,
       )}
       {...props}

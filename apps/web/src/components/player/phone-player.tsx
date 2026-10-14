@@ -102,8 +102,8 @@ function SideSlider({
         className="h-33"
       >
         <Slider.Control className="flex h-full w-9 cursor-pointer touch-none justify-center">
-          <Slider.Track className="relative h-full w-1 rounded-xs bg-text/30">
-            <Slider.Indicator className="w-1 rounded-xs bg-text" />
+          <Slider.Track className="relative h-full w-1 rounded-bar bg-text/30">
+            <Slider.Indicator className="w-1 rounded-bar bg-text" />
             <Slider.Thumb aria-label={label} className="size-4 rounded-pill opacity-0" />
           </Slider.Track>
         </Slider.Control>
@@ -281,9 +281,9 @@ export function PhoneControls({
               {...scrub}
             />
           ) : (
-            <div className="flex h-1 grow items-center rounded-xs bg-text/30">
+            <div className="flex h-1 grow items-center rounded-bar bg-text/30">
               <div
-                className="h-1 rounded-xs bg-accent"
+                className="h-1 rounded-bar bg-accent"
                 style={{ width: `${String(fraction * 100)}%` }}
               />
             </div>
@@ -368,12 +368,12 @@ export function PhoneRoomDetails({
           ))}
         </ul>
       </section>
-      <div className="mt-auto flex gap-3 px-5 pt-4 pb-[max(env(safe-area-inset-bottom),--spacing(5))]">
+      <div className="mt-auto flex gap-3 px-5 pt-4 pb-[max(env(safe-area-inset-bottom),var(--spacing-5))]">
         {subtitles}
         <button
           type="button"
           onClick={onLeave}
-          className="flex h-12 grow basis-0 cursor-pointer items-center justify-center gap-2 rounded-pill bg-text/18 text-base/5 font-semibold text-text [&_svg]:size-4.5"
+          className="flex h-12 grow basis-0 cursor-pointer items-center justify-center gap-2 rounded-pill bg-text/18 text-button/5 font-semibold text-text [&_svg]:size-4.5"
         >
           <LogOutIcon strokeWidth={1.75} aria-hidden />
           Leave room
@@ -388,7 +388,7 @@ export function PhoneSubtitlesButton(props: ComponentProps<"button">) {
   return (
     <button
       type="button"
-      className="flex h-12 grow basis-0 cursor-pointer items-center justify-center gap-2 rounded-pill bg-text/18 font-sans text-base/5 font-semibold text-text [&_svg]:size-4.5"
+      className="flex h-12 grow basis-0 cursor-pointer items-center justify-center gap-2 rounded-pill bg-text/18 font-sans text-button/5 font-semibold text-text [&_svg]:size-4.5"
       {...props}
     >
       <CaptionsIcon strokeWidth={1.75} aria-hidden />

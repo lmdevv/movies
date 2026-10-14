@@ -484,7 +484,12 @@ choices made while implementing them. Update it in the same PR that changes a de
   them to the SDK. Link-like components take the router's link through Base UI's `render` prop.
 - Components use Paper tokens only. Paper literals that are not tokens yet (such as the 11px
   keycap size, the hero title size, and the glass fill) live in a separate, labeled `@theme` block
-  in `globals.css` under role names. `--color-page` is the page canvas: `bg` in light, `dark-bg`
+  in `globals.css` under role names. Paddings, gaps, margins, and offsets between the Paper
+  spacing steps (`gap-1.5`, `p-5`) are listed there too, keyed by their step on Tailwind's 4px grid
+  so class names stay familiar. `apps/web/src/lib/design-tokens.test.ts` fails on a spacing step
+  outside both lists, on Tailwind's own text, radius, shadow, weight, leading, and tracking sizes,
+  and on a raw length inside an arbitrary value. Element sizes (`w-110`, `h-9`) still come from
+  the `--spacing` multiplier. `--color-page` is the page canvas: `bg` in light, `dark-bg`
   on dark phones, `dark-surface` on dark desktops, as Paper draws them.
 - Chrome over artwork (hero, player, phone glass) uses the `on-media` utility, which remaps the
   text and state roles to their dark twins so it stays white in both themes.

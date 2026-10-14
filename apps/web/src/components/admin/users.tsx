@@ -56,9 +56,6 @@ const EXPIRY_OPTIONS = [
 
 type ExpiryOption = (typeof EXPIRY_OPTIONS)[number]["value"];
 
-const menuClass =
-  "w-auto min-w-48 rounded-control border border-hairline bg-surface-raised p-1 font-sans shadow-overlay ring-0";
-
 const itemClass = "h-9 rounded-control px-2.5 text-label/label text-text focus:bg-text/8";
 
 /** Users and invites: accounts with their roles and library access, and invite links. */
@@ -182,7 +179,7 @@ function UserRow({
             >
               <EllipsisIcon className="size-4" strokeWidth={2.5} aria-hidden />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className={menuClass}>
+            <DropdownMenuContent align="end">
               <DropdownMenuItem className={itemClass} onClick={() => void roleChange.run()}>
                 {nextRole === "admin" ? "Make admin" : "Make member"}
               </DropdownMenuItem>

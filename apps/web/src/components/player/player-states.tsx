@@ -64,9 +64,9 @@ export function ResumePrompt({
           </h1>
         </div>
         <div className="flex w-full max-w-110 items-center gap-4">
-          <div className="flex h-1 grow rounded-xs bg-text/25">
+          <div className="flex h-1 grow rounded-bar bg-text/25">
             <div
-              className="h-1 rounded-xs bg-accent"
+              className="h-1 rounded-bar bg-accent"
               style={{ width: `${String(fraction * 100)}%` }}
             />
           </div>
@@ -75,11 +75,16 @@ export function ResumePrompt({
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Button size="lg" className="h-13 text-base/5" autoFocus onClick={onResume}>
+          <Button size="lg" className="h-13 text-button/5" autoFocus onClick={onResume}>
             <PlayGlyph />
             Resume from {timecode(positionMs)}
           </Button>
-          <Button variant="secondary" size="lg" className="h-13 text-base/5" onClick={onStartOver}>
+          <Button
+            variant="secondary"
+            size="lg"
+            className="h-13 text-button/5"
+            onClick={onStartOver}
+          >
             <RotateCcwIcon strokeWidth={1.75} aria-hidden />
             Start from beginning
           </Button>
@@ -116,10 +121,10 @@ export function PreparingStream({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(progress * 100)}
-          className="flex h-0.75 shrink-0 rounded-xs bg-text/15"
+          className="flex h-0.75 shrink-0 rounded-bar bg-text/15"
         >
           <div
-            className="h-0.75 rounded-xs bg-accent transition-[width] duration-700 ease-out"
+            className="h-0.75 rounded-bar bg-accent transition-[width] duration-700 ease-out"
             style={{ width: `${String(progress * 100)}%` }}
           />
         </div>

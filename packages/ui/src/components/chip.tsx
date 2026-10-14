@@ -47,7 +47,7 @@ export function NavChip({
     props: mergeProps<"a">(
       {
         className: cn(
-          "on-media inline-flex h-8 shrink-0 items-center gap-1.5 rounded-pill px-3.5 font-sans text-sm/4.5 font-semibold whitespace-nowrap",
+          "on-media inline-flex h-8 shrink-0 items-center gap-1.5 rounded-pill px-3.5 font-sans text-small/4.5 font-semibold whitespace-nowrap",
           live ? "border border-accent" : "bg-text/14",
           className,
         ),

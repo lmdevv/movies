@@ -107,7 +107,7 @@ function WhosWatchingPage() {
           onClick={() => setManaging((current) => !current)}
           className={cn(
             buttonVariants({ variant: "ghost" }),
-            "fixed inset-x-5 bottom-[max(env(safe-area-inset-bottom),--spacing(8))] h-12.5 rounded-card border-0 bg-text/12 text-lead/body md:static md:h-11 md:rounded-control md:border md:border-text-muted md:bg-transparent md:px-5.5 md:text-body/label md:tracking-caps md:text-text-muted",
+            "fixed inset-x-5 bottom-[max(env(safe-area-inset-bottom),var(--spacing-8))] h-12.5 rounded-card border-0 bg-text/12 text-lead/body md:static md:h-11 md:rounded-control md:border md:border-text-muted md:bg-transparent md:px-5.5 md:text-body/label md:tracking-caps md:text-text-muted",
           )}
         >
           <PencilIcon className="hidden md:block" strokeWidth={1.75} aria-hidden />

@@ -46,7 +46,7 @@ function MenuRow({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex cursor-pointer items-center gap-3 rounded-xs p-2 text-left font-sans text-body/label text-text transition-colors hover:bg-text/8 disabled:cursor-default disabled:opacity-(--opacity-disabled) [&_svg]:size-5 [&_svg]:shrink-0"
+      className="flex cursor-pointer items-center gap-3 rounded-bar p-2 text-left font-sans text-body/label text-text transition-colors hover:bg-text/8 disabled:cursor-default disabled:opacity-(--opacity-disabled) [&_svg]:size-5 [&_svg]:shrink-0"
     >
       {icon}
       <span className="flex min-w-0 grow flex-col gap-0.5">

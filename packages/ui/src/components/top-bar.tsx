@@ -68,7 +68,7 @@ export function TopBarLink({
       {
         "aria-current": active ? "page" : undefined,
         className: cn(
-          "rounded-xs text-sm/4.5 whitespace-nowrap transition-colors",
+          "rounded-bar text-small/4.5 whitespace-nowrap transition-colors",
           active ? "font-semibold text-text" : "font-medium text-text-muted hover:text-text",
           className,
         ),
