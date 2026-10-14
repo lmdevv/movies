@@ -4,18 +4,16 @@
  * Each control reads the room first and sends its current revision; a revision that moved on in
  * between is read again and retried once.
  */
-import { targetPosition } from "@movies/contracts/clock";
+import type { ClockOffset } from "@movies/contracts/clock";
+import { estimateClockOffset, targetPosition, toServerTime } from "@movies/contracts/clock";
 import { commands } from "@movies/contracts/commands";
 import { NotFound } from "@movies/contracts/errors";
 import type { ProfileId } from "@movies/contracts/ids";
 import { EpisodeId, RoomId } from "@movies/contracts/ids";
 import type { Room, RoomClock } from "@movies/contracts/models/rooms";
 import type { Milliseconds } from "@movies/contracts/units";
-import {
-  EpochMillis as EpochMillisSchema,
-  Milliseconds as MillisecondsSchema,
-} from "@movies/contracts/units";
-import { Clock, Effect, Option, Stream } from "effect";
+import { Milliseconds as MillisecondsSchema } from "@movies/contracts/units";
+import { Clock, Effect, Option, Ref, Stream } from "effect";
 
 import type { Invocation, ShortcutCommand } from "./invocation";
 import {
@@ -76,23 +74,34 @@ const resolveRoom = Effect.fn("Rooms.resolve")(function* (
   return current;
 });
 
+/** This machine's clock taken as the server's, when `rooms.time` is not available. */
+const LOCAL_CLOCK: ClockOffset = { offsetMs: 0, roundTripMs: 0 };
+
+/** How long `rooms status --watch` trusts a clock measurement before taking another. */
+const REMEASURE_AFTER_MS = 5 * 60_000;
+
 /**
- * How far the server's clock runs ahead of this machine's, from `rooms.time` when this session may
- * play; zero otherwise, trusting this machine's clock.
+ * How far the server's clock runs ahead of this machine's, from one `rooms.time` round trip,
+ * assuming the server read its clock halfway through it. When this session may not call
+ * `rooms.time`, trusts this machine's clock.
  */
-const serverClockOffset = (connection: Connection): Effect.Effect<number> =>
-  connection.client.mutate("rooms.time", {}).pipe(
+const measureClockOffset = Effect.fn("Rooms.measureClock")(function* (connection: Connection) {
+  const sentAt = yield* Clock.currentTimeMillis;
+
+  return yield* connection.client.mutate("rooms.time", {}).pipe(
     Effect.flatMap(({ serverTime }) =>
-      Effect.map(Clock.currentTimeMillis, (now) => serverTime - now),
+      Effect.map(
+        Clock.currentTimeMillis,
+        (receivedAt) => estimateClockOffset([{ sentAt, serverTime, receivedAt }]) ?? LOCAL_CLOCK,
+      ),
     ),
-    Effect.orElseSucceed(() => 0),
+    Effect.orElseSucceed(() => LOCAL_CLOCK),
   );
+});
 
 /** The room's live position now, by the server's clock. */
-const livePosition = (offset: number, clock: RoomClock): Effect.Effect<Milliseconds> =>
-  Effect.map(Clock.currentTimeMillis, (now) =>
-    targetPosition(clock, EpochMillisSchema.make(now + offset)),
-  );
+const livePosition = (offset: ClockOffset, clock: RoomClock): Effect.Effect<Milliseconds> =>
+  Effect.map(Clock.currentTimeMillis, (now) => targetPosition(clock, toServerTime(now, offset)));
 
 type HostCommand = "rooms.play" | "rooms.pause" | "rooms.seek";
 
@@ -143,7 +152,7 @@ const hostControl = (
       return yield* control(invocation, name, (connection, room) =>
         Option.match(flag, {
           onNone: () =>
-            Effect.flatMap(serverClockOffset(connection), (offset) =>
+            Effect.flatMap(measureClockOffset(connection), (offset) =>
               livePosition(offset, room.clock),
             ),
           onSome: Effect.succeed,
@@ -252,11 +261,27 @@ const status: ShortcutCommand = {
 
       const room = yield* resolveRoom(invocation, connection, profileId);
       const command = commands["rooms.get"];
-      // Measured once, so following changes needs no `rooms.time` call per change.
-      const offset = yield* serverClockOffset(connection);
+
+      const measured = yield* Ref.make({
+        offset: yield* measureClockOffset(connection),
+        at: yield* Clock.currentTimeMillis,
+      });
+
+      // Not a `rooms.time` call per change: a measurement serves for a few minutes of watching.
+      const currentOffset = Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis;
+        const last = yield* Ref.get(measured);
+
+        if (now - last.at < REMEASURE_AFTER_MS) return last.offset;
+        const offset = yield* measureClockOffset(connection);
+
+        yield* Ref.set(measured, { offset, at: now });
+
+        return offset;
+      });
 
       const snapshot = Effect.fn("Rooms.snapshot")(function* (current: Room) {
-        const live = yield* livePosition(offset, current.clock);
+        const live = yield* livePosition(yield* currentOffset, current.clock);
 
         return {
           json: { room: yield* encodeResult("rooms.get", command, current), livePositionMs: live },
