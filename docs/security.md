@@ -135,6 +135,11 @@ A review of `packages/backend` found these after the table above; each has a sta
 - **Segments behind the player stay until the stream closes,** so a stream watched to the end still
   holds about its file's size in `TRANSCODE_DIR`, and free space is checked only when a stream
   starts. Size `TRANSCODE_DIR` for the largest remux you play.
+- **The Cast SDK's scripts** come from `www.gstatic.com`, which the content security policy allows
+  for scripts, without a scheme: Google's loader fetches its framework over the page's own scheme,
+  so an install served over plain HTTP loads it over HTTP, open to anyone on the path to Google.
+  Serve [movies] over HTTPS (Tailscale Serve, a reverse proxy) to keep it on HTTPS; browsers other
+  than Chromium never load it.
 - **Artwork downloads** from `image.tmdb.org` have no size cap, interrupted downloads can leave
   `.part` files, and first-time subtitle conversions and keyframe scans are not de-duplicated.
 - **Check-then-open races in the library.** Paths are checked by their real path and then opened

@@ -151,6 +151,7 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     paused: player.isPaused(),
     buffering: player.isBuffering(),
     playbackRate: player.playbackRate(),
+    fixedRate: player.fixedRate === true,
   });
 
   const execute = (command: PlayerCommand): Effect.Effect<void> =>
