@@ -36,7 +36,11 @@ export const BACKUP_SYNC_LIMIT = 1000;
  */
 export const COLLECTION_BATCH_LIMIT = 10;
 
+/** Most members, across all collections, one `importCollections` call may carry. */
 export const COLLECTION_MEMBER_BATCH_LIMIT = 2000;
+
+/** Highest age rating; `AgeRating` runs from 0 to 21. */
+const AGE_RATING_MAX = 21;
 
 /** Trims `value` and requires 1 to `max` characters; `what` names the field in plural. */
 const checkText = (value: string, what: string, max: number): string => {
@@ -68,3 +72,24 @@ export const checkMilliseconds = (value: number, what: string): number =>
   Number.isFinite(value) && value >= 0
     ? value
     : fail("invalid_args", `${what} are zero or more milliseconds`);
+
+/** An age rating, a whole number of years from 0 to 21, or null for none; `AgeRating`. */
+export const checkAgeRating = (age: number | null): number | null =>
+  age !== null && (!Number.isInteger(age) || age < 0 || age > AGE_RATING_MAX)
+    ? fail("invalid_args", `Age ratings run from 0 to ${AGE_RATING_MAX}`)
+    : age;
+
+/** Overrides of a title's metadata with a whole-number year and an age rating in range. */
+export const checkOverrides = <
+  Overrides extends { readonly year?: number; readonly ageRating?: number },
+>(
+  overrides: Overrides,
+): Overrides => {
+  if (overrides.year !== undefined && !Number.isInteger(overrides.year)) {
+    return fail("invalid_args", "Years are whole numbers");
+  }
+
+  if (overrides.ageRating !== undefined) checkAgeRating(overrides.ageRating);
+
+  return overrides;
+};

@@ -8,8 +8,9 @@ import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { loadOwnProfile, loadUnlockedProfile } from "./lib/access";
-import { checkAvatar, checkDisplayName, KIDS_DEFAULT_MAX_AGE } from "./lib/bounds";
+import { checkAgeRating, checkAvatar, checkDisplayName, KIDS_DEFAULT_MAX_AGE } from "./lib/bounds";
 import { constantTimeEqual, hashPin, randomSecret } from "./lib/crypto";
+import { endProfilePlayback } from "./lib/endings";
 import { fail } from "./lib/errors";
 import { presentProfile } from "./lib/present";
 import { nullable, ok, profile, unlockResult } from "./lib/validators";
@@ -25,14 +26,6 @@ const MAX_PIN_FAILURES = 5;
 const PIN_LOCKOUT_MS = 5 * 60 * 1000;
 
 const PIN_PATTERN = /^\d{4,8}$/u;
-
-const checkAgeRating = (age: number | null): number | null => {
-  if (age !== null && (!Number.isInteger(age) || age < 0 || age > 21)) {
-    return fail("invalid_args", "Age ratings run from 0 to 21");
-  }
-
-  return age;
-};
 
 const checkName = (name: string): string => checkDisplayName(name, "Profile names");
 
@@ -153,7 +146,7 @@ export const remove = mutation({
   returns: ok,
   handler: async (ctx, { profileId }) => {
     const viewer = await authorize(ctx, "account");
-    await loadUnlockedProfile(ctx, viewer, profileId);
+    const removed = await loadUnlockedProfile(ctx, viewer, profileId);
 
     const siblings = await ctx.db
       .query("profiles")
@@ -172,6 +165,7 @@ export const remove = mutation({
       .withIndex("by_profile_added", (q) => q.eq("profileId", profileId))
       .collect();
 
+    await endProfilePlayback(ctx, removed, Date.now());
     await Promise.all([...progress, ...listed].map((doc) => ctx.db.delete(doc._id)));
     await ctx.db.delete(profileId);
 

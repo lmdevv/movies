@@ -1,7 +1,7 @@
 /**
- * Ending playback sessions and watch rooms. Every path that ends one (sign-out, idle sweeps, a new
- * session on the device, a removed library, the host leaving) goes through these, so the fields
- * an ended record carries stay the same everywhere.
+ * Ending playback sessions and watch rooms. Every path that ends one (stopping playback, sign-out,
+ * idle sweeps, a new session or room on the device, a removed library or profile, the host leaving)
+ * goes through these, so the fields an ended record carries stay the same everywhere.
  */
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
@@ -47,5 +47,39 @@ export const endTitlePlayback = async (
   await Promise.all([
     ...sessions.map((session) => endPlaybackSession(ctx, session, now)),
     ...rooms.flat().map((room) => endRoom(ctx, room, now)),
+  ]);
+};
+
+/**
+ * Ends what a profile that is going away is doing: its active playback sessions, so a device still
+ * playing records no progress for it, and its room memberships, ending the rooms it hosts.
+ */
+export const endProfilePlayback = async (
+  ctx: MutationCtx,
+  profile: Doc<"profiles">,
+  now: number,
+): Promise<void> => {
+  const sessions = await ctx.db
+    .query("playbackSessions")
+    .withIndex("by_user_status", (q) => q.eq("userId", profile.userId).eq("status", "active"))
+    .collect();
+
+  const memberships = await ctx.db
+    .query("roomMembers")
+    .withIndex("by_user_device", (q) => q.eq("userId", profile.userId))
+    .collect();
+
+  const own = memberships.filter((member) => member.profileId === profile._id);
+
+  await Promise.all([
+    ...sessions.flatMap((session) =>
+      session.profileId === profile._id ? [endPlaybackSession(ctx, session, now)] : [],
+    ),
+    ...own.map(async (member) => {
+      const room = member.role === "host" ? await ctx.db.get(member.roomId) : null;
+
+      if (room !== null && room.status !== "ended") await endRoom(ctx, room, now);
+      await ctx.db.delete(member._id);
+    }),
   ]);
 };

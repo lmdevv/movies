@@ -169,6 +169,34 @@ const hostCommand = async (
 
 const checkPosition = (positionMs: number): number => checkMilliseconds(positionMs, "Positions");
 
+/**
+ * Keeps a device in one room at a time: before it hosts or joins a room, it leaves every other room
+ * it is in, ending the ones it hosts.
+ */
+const leaveOtherRooms = async (
+  ctx: MutationCtx,
+  viewer: Viewer,
+  deviceId: string,
+  keep: Id<"rooms"> | null,
+  now: number,
+): Promise<void> => {
+  const memberships = await ctx.db
+    .query("roomMembers")
+    .withIndex("by_user_device", (q) => q.eq("userId", viewer.userId).eq("deviceId", deviceId))
+    .collect();
+
+  await Promise.all(
+    memberships.map(async (member) => {
+      if (member.roomId === keep) return;
+      const previous = member.role === "host" ? await ctx.db.get(member.roomId) : null;
+
+      if (previous !== null && previous.status !== "ended") await endRoom(ctx, previous, now);
+
+      await ctx.db.delete(member._id);
+    }),
+  );
+};
+
 export const create = mutation({
   args: {
     profileId: v.id("profiles"),
@@ -189,25 +217,7 @@ export const create = mutation({
 
     const now = Date.now();
 
-    const existing = await ctx.db
-      .query("roomMembers")
-      .withIndex("by_user_device", (q) =>
-        q.eq("userId", viewer.userId).eq("deviceId", args.deviceId),
-      )
-      .collect();
-
-    // A device is in one room at a time: hosting a new room ends rooms it hosted and leaves others.
-    await Promise.all(
-      existing.map(async (member) => {
-        const previous = await ctx.db.get(member.roomId);
-
-        if (previous !== null && member.role === "host" && previous.status !== "ended") {
-          await endRoom(ctx, previous, now);
-        }
-
-        await ctx.db.delete(member._id);
-      }),
-    );
+    await leaveOtherRooms(ctx, viewer, args.deviceId, null, now);
 
     const roomId = await ctx.db.insert("rooms", {
       titleId: title._id,
@@ -320,6 +330,8 @@ export const join = mutation({
     if (existing !== null && existing.userId !== viewer.userId) {
       return fail("conflict", "Another account is using this device ID in the room");
     }
+
+    await leaveOtherRooms(ctx, viewer, deviceId, roomId, now);
 
     if (existing === null) {
       await ctx.db.insert("roomMembers", {

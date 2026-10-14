@@ -19,6 +19,7 @@ import type {
   PersonId,
   PlaybackSessionId,
   ProfileId,
+  RoomId,
   TitleId,
   UserId,
 } from "@movies/contracts/ids";
@@ -3052,16 +3053,43 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       });
 
       await run(single, "myList.add", { profileId: spare.id, titleId: fixture.titles.allAges });
+
+      const playing = await run(single, "playback.createSession", {
+        profileId: spare.id,
+        deviceId: device("spare-tv"),
+        titleId: fixture.titles.allAges,
+      });
+
+      const hostDevice = device("spare-host");
+
+      await run(single, "rooms.create", {
+        profileId: spare.id,
+        deviceId: hostDevice,
+        titleId: fixture.titles.allAges,
+        positionMs: ms(0),
+      });
+
       await run(single, "profiles.remove", { profileId: spare.id });
       expect((await run(single, "profiles.list", {})).map((profile) => profile.id)).toStrictEqual([
         only,
       ]);
       expect(await outcome(run(single, "titles.home", { profileId: spare.id }))).toBe("not_found");
+
+      // Its playback and the rooms it hosted end, so a device still playing records nothing more.
+      expect(
+        await run(single, "playback.reportProgress", {
+          sessionId: playing.sessionId,
+          positionMs: ms(60_000),
+          event: "tick",
+        }),
+      ).toStrictEqual({ applied: false, watched: false });
+      expect(rowOf("rooms", hostDevice).status).toBe("ended");
+      expect(await run(single, "rooms.current", { deviceId: hostDevice })).toBeNull();
     });
   });
 
   describe("argument bounds", () => {
-    it("refuses names, avatars, device IDs, folders, and positions outside the contract", async () => {
+    it("refuses names, avatars, device IDs, folders, positions, and overrides outside the contract", async () => {
       const started = await run(fixture.member, "playback.createSession", {
         profileId: fixture.memberProfile,
         deviceId: device("bounds"),
@@ -3192,6 +3220,52 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
   });
 
   describe("room membership and PINs", () => {
+    it("moves a device that joins another room out of the one it was in", async () => {
+      const firstHost = device("first-host");
+      const secondHost = device("second-host");
+      const guestDevice = device("hopping-guest");
+
+      const first = await run(fixture.owner, "rooms.create", {
+        profileId: fixture.ownerProfile,
+        deviceId: firstHost,
+        titleId: fixture.titles.allAges,
+        positionMs: ms(0),
+      });
+
+      const second = await run(fixture.owner, "rooms.create", {
+        profileId: fixture.ownerProfile,
+        deviceId: secondHost,
+        titleId: fixture.titles.allAges,
+        positionMs: ms(0),
+      });
+
+      const joinWithGuest = (roomId: RoomId) =>
+        run(fixture.member, "rooms.join", {
+          roomId,
+          profileId: fixture.memberProfile,
+          deviceId: guestDevice,
+        });
+
+      await joinWithGuest(first.id);
+      await joinWithGuest(second.id);
+
+      expect((await run(fixture.member, "rooms.current", { deviceId: guestDevice }))?.id).toBe(
+        second.id,
+      );
+      expect((await run(fixture.owner, "rooms.get", { roomId: first.id })).members).toHaveLength(1);
+
+      // A host that joins another room ends the one it hosted, as hosting a new one does.
+      await run(fixture.owner, "rooms.join", {
+        roomId: second.id,
+        profileId: fixture.ownerProfile,
+        deviceId: firstHost,
+      });
+      expect(rowOf("rooms", firstHost).status).toBe("ended");
+
+      await run(fixture.member, "rooms.leave", { roomId: second.id, deviceId: guestDevice });
+      await run(fixture.owner, "rooms.end", { roomId: second.id, deviceId: secondHost });
+    });
+
     it("hides a room joined with a PIN profile from sessions that have not entered the PIN", async () => {
       const hostDevice = device("pin-host");
       const guestDevice = device("pin-guest");
