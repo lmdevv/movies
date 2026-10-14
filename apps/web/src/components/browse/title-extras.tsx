@@ -13,18 +13,25 @@ import type {
 import { useCommandQuery } from "@movies/sdk/react";
 import { Avatar } from "@movies/ui/components/avatar";
 import { buttonVariants } from "@movies/ui/components/button-variants";
-import { Dialog, DialogContent } from "@movies/ui/components/dialog";
 import { MediaRow } from "@movies/ui/components/media-row";
 import { cn } from "@movies/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import { ArrowUpRightIcon, ClapperboardIcon, StarIcon } from "lucide-react";
-import { Fragment, useState } from "react";
+import { Fragment, Suspense, lazy, useState } from "react";
 
 import { artworkUrl } from "@/lib/artwork";
 import type { ExternalLink } from "@/lib/metadata";
 import { creditLines, creditRole, scoresOf, trailerEmbedUrl } from "@/lib/metadata";
 
 import { TitleLandscapeCard, TitlePosterCard } from "./title-cards";
+
+const loadTrailerDialog = () => import("./trailer-dialog");
+
+const preloadTrailerDialog = (): void => {
+  void loadTrailerDialog();
+};
+
+const TrailerDialog = lazy(async () => ({ default: (await loadTrailerDialog()).TrailerDialog }));
 
 /** People the cast row shows: the billed cast, then the crew who made the title. */
 const CAST_ROW_LIMIT = 24;
@@ -225,15 +232,23 @@ export function TrailerButton({
   readonly phone: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  // The dialog loads on the first open (or as the pointer or focus reaches the button) and then
+  // stays mounted, so closing still animates.
+  const [opened, setOpened] = useState(false);
   const src = trailerEmbedUrl(trailer.key);
 
   if (src === undefined) return null;
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onPointerEnter={preloadTrailerDialog}
+        onFocus={preloadTrailerDialog}
+        onClick={() => {
+          setOpened(true);
+          setOpen(true);
+        }}
         className={
           phone
             ? "flex w-26 cursor-pointer flex-col items-center gap-1.5 text-caption/caption text-text-muted"
@@ -247,21 +262,18 @@ export function TrailerButton({
         />
         Trailer
       </button>
-      <DialogContent title={trailer.name ?? `${name} trailer`} className="w-content">
-        <div className="px-6 pt-2 pb-6">
-          {open ? (
-            <iframe
-              src={src}
-              title={`${name} trailer`}
-              allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-              allowFullScreen
-              referrerPolicy="strict-origin-when-cross-origin"
-              className="aspect-video w-full rounded-control bg-dark-bg"
-            />
-          ) : null}
-        </div>
-      </DialogContent>
-    </Dialog>
+      {opened ? (
+        <Suspense fallback={null}>
+          <TrailerDialog
+            open={open}
+            onOpenChange={setOpen}
+            title={trailer.name ?? `${name} trailer`}
+            frameTitle={`${name} trailer`}
+            src={src}
+          />
+        </Suspense>
+      ) : null}
+    </>
   );
 }
 

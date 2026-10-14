@@ -27,7 +27,13 @@ function Leading({
       {leading === undefined ? null : leading.kind === "icon" ? (
         <leading.icon className={cn("size-4", running ? "text-text" : "text-text-muted")} />
       ) : leading.kind === "poster" ? (
-        <img src={leading.src} alt="" className="h-5 w-3.5 rounded-bar object-cover" />
+        <img
+          src={leading.src}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          className="h-5 w-3.5 rounded-bar object-cover"
+        />
       ) : (
         <CheckIcon className="size-4 text-text" strokeWidth={1.75} />
       )}
