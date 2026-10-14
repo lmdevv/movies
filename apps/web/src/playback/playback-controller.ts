@@ -17,8 +17,7 @@ import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { Milliseconds } from "@movies/contracts/units";
 import type { CallError } from "@movies/sdk/effect";
 import { MoviesClient, Playback } from "@movies/sdk/effect";
-import type { useMoviesRuntime } from "@movies/sdk/react";
-import { Data, Effect, Exit, Option, Result, Scope, Struct } from "effect";
+import { Data, Effect, Exit, Option, Result, Scope } from "effect";
 
 import { withoutFailedPath } from "./capabilities";
 import { ELEMENT_SEEKER, MediaElementPlayer, isBuffered } from "./media-element-player";
@@ -34,8 +33,9 @@ import {
 } from "./playback-policy";
 import type { AttachedStream, StreamFailure } from "./stream-attachment";
 import { attachStream } from "./stream-attachment";
-
-type Runtime = ReturnType<typeof useMoviesRuntime>;
+import { RENEW_BEFORE_MS, inGeneration, runSdk } from "./sdk-calls";
+import type { Runtime } from "./sdk-calls";
+import { SwitchablePlayer } from "./switchable-player";
 
 /** Where playback starts. */
 export type StartChoice = Data.TaggedEnum<{
@@ -93,9 +93,6 @@ export interface PlaybackSnapshot {
   readonly needsGesture: boolean;
 }
 
-/** Renew the token and stream this long before the token expires. */
-const RENEW_BEFORE_MS = 5 * 60 * 1000;
-
 /** Recoveries in a row, without playback resuming between them, before playback gives up. */
 const MAX_RECOVERIES = 3;
 
@@ -113,25 +110,17 @@ const sleep = (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
-/**
- * Runs `effect` and returns its success or failure; defects, interruption, and an SDK that could
- * not open become `null`.
- */
-const run = async <A, E>(
-  runtime: Runtime,
-  effect: Effect.Effect<A, E, MoviesClient.MoviesClient>,
-): Promise<Result.Result<A, E> | null> => {
-  const exit = await runtime.runPromiseExit(Effect.result(effect));
-
-  return Exit.isSuccess(exit) ? exit.value : null;
-};
-
 const isPlaying = PlaybackPhase.$is("Playing");
 
 /** Plays one request in one element. Create it, `start` it, and `dispose` it. */
 export class PlaybackController {
-  /** The element as the SDK sees it, for the progress reporter and the room engine. */
+  /** The element as the SDK sees it. */
   readonly player: MediaElementPlayer;
+  /**
+   * The player the session plays on, for the progress reporter and the room engine: the element,
+   * or a cast device the viewer switched to (`casting/`).
+   */
+  readonly output: SwitchablePlayer;
   readonly #runtime: Runtime;
   readonly #element: HTMLVideoElement;
   readonly #request: PlaybackRequest;
@@ -156,6 +145,8 @@ export class PlaybackController {
   /** The playback the reporter was started with; it stops that stream when it closes. */
   #reported: Playback.Playback | null = null;
   #disposed = false;
+  /** Another device plays the session (`park`); the element holds no stream meanwhile. */
+  #parked = false;
 
   /**
    * @param hlsJs - Play HLS through hls.js rather than the element (`usesHlsJs`).
@@ -173,6 +164,7 @@ export class PlaybackController {
     this.#hlsJs = hlsJs;
     this.#request = request;
     this.player = new MediaElementPlayer(element);
+    this.output = new SwitchablePlayer(this.player);
     element.addEventListener("playing", this.#onPlaying);
     element.addEventListener("loadeddata", this.#onFirstFrame);
   }
@@ -236,7 +228,7 @@ export class PlaybackController {
   #createSession(): Promise<Result.Result<StartedPlayback, CallError> | null> {
     const request = this.#request;
 
-    return run(
+    return runSdk(
       this.#runtime,
       Effect.flatMap(MoviesClient.MoviesClient, (client) =>
         client.mutate("playback.createSession", {
@@ -266,10 +258,10 @@ export class PlaybackController {
     void this.#negotiate(started, from === "resume" ? phase.resumeAtMs : 0);
   }
 
-  async #negotiate(started: StartedPlayback, positionMs: number): Promise<void> {
+  async #negotiate(started: StartedPlayback, positionMs: number, play = true): Promise<void> {
     this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.35 }) });
 
-    const negotiated = await run(
+    const negotiated = await runSdk(
       this.#runtime,
       Playback.negotiate(
         started,
@@ -291,7 +283,7 @@ export class PlaybackController {
 
     this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.7 }) });
     this.#startReporting(playback);
-    await this.#load(playback, true);
+    await this.#load(playback, play);
   }
 
   /** Puts `playback`'s stream into the element, then plays it when `play` is set. */
@@ -360,7 +352,7 @@ export class PlaybackController {
 
         if (playback === null) return;
 
-        const moved = await run(
+        const moved = await runSdk(
           this.#runtime,
           Playback.seekStream(playback, Milliseconds.make(positionMs)),
         );
@@ -397,15 +389,7 @@ export class PlaybackController {
       return;
     }
 
-    const { generation, playlistUrl } = moved.value;
-
-    const next: Playback.Playback = {
-      started: playback.started,
-      stream: Struct.evolve(playback.stream, {
-        url: () => playlistUrl,
-        generation: () => generation,
-      }),
-    };
+    const next = inGeneration(playback, moved.value);
 
     const attached = this.#attached;
 
@@ -419,13 +403,58 @@ export class PlaybackController {
     await this.#play();
   }
 
+  /**
+   * Hands the session to another device, such as a Chromecast: the media service keeps one stream
+   * per playback session, so the element lets go of its stream and nothing here negotiates (no
+   * recovery, no token renewal, audio choices only noted) until `unpark`. The caller has switched
+   * `output` to the other device first, so the element emptying itself is not reported.
+   */
+  park(): void {
+    if (this.#parked || this.#disposed) return;
+    this.#parked = true;
+    clearTimeout(this.#renewTimer);
+    // Late callbacks of the released stream belong to an old generation and do nothing.
+    this.#generation += 1;
+    this.#detach();
+  }
+
+  /** Whether another device plays the session now (`park`). */
+  isParked(): boolean {
+    return this.#parked;
+  }
+
+  /**
+   * Takes the session back at `positionMs` after `park`: negotiates a new stream for this
+   * browser there (renewing the token first when the other device kept it to the end) and plays
+   * it when `play` is set.
+   */
+  unpark(positionMs: number, play: boolean): void {
+    if (!this.#parked || this.#disposed) return;
+    this.#parked = false;
+    this.#recoveries = 0;
+
+    const { started } = this.#snapshot;
+    const playback = this.#playback;
+
+    if (started === null) return;
+
+    if (playback === null) {
+      void this.#negotiate(started, positionMs, play);
+
+      return;
+    }
+
+    this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.5 }) });
+    void this.#renegotiate(playback, positionMs, this.#snapshot.audioStreamIndex, play);
+  }
+
   #onStreamFailure(failure: StreamFailure): void {
     void this.#follow(afterStreamFailure(failure), this.player.positionMs());
   }
 
   /** Carries out a recovery step at `positionMs`. */
   async #follow(step: PlaybackStep, positionMs: number): Promise<void> {
-    if (this.#disposed) return;
+    if (this.#disposed || this.#parked) return;
 
     if (PlaybackStep.$is("Stop")(step)) return this.#stop(step.stop);
 
@@ -473,7 +502,7 @@ export class PlaybackController {
 
   /** Loads the stream's current generation at `positionMs`, renegotiating if that fails. */
   async #reloadPlaylist(playback: Playback.Playback, positionMs: number): Promise<void> {
-    const moved = await run(
+    const moved = await runSdk(
       this.#runtime,
       Playback.seekStream(playback, Milliseconds.make(positionMs)),
     );
@@ -513,10 +542,12 @@ export class PlaybackController {
     playback: Playback.Playback,
     positionMs: number,
     audioStreamIndex: number | null,
+    play?: boolean,
   ): Promise<void> {
+    if (this.#parked) return;
     const wasPlaying = !this.#element.paused;
 
-    const renewed = await run(
+    const renewed = await runSdk(
       this.#runtime,
       Playback.renegotiate(
         playback,
@@ -526,7 +557,8 @@ export class PlaybackController {
       ),
     );
 
-    if (this.#disposed || playback !== this.#playback) return;
+    // A park while negotiating hands the session elsewhere; this stream is not wanted.
+    if (this.#disposed || this.isParked() || playback !== this.#playback) return;
 
     if (renewed === null) return this.#stop(STOPPED);
 
@@ -534,7 +566,7 @@ export class PlaybackController {
       return this.#follow(afterPlaybackFailure(renewed.failure), positionMs);
     }
 
-    await this.#load(renewed.success, wasPlaying || !isPlaying(this.#snapshot.phase));
+    await this.#load(renewed.success, play ?? (wasPlaying || !isPlaying(this.#snapshot.phase)));
   }
 
   #scheduleRenewal(stream: NegotiateResponse): void {
@@ -558,7 +590,9 @@ export class PlaybackController {
     if (playback === null || streamIndex === this.#snapshot.audioStreamIndex) return;
 
     this.#update({ audioStreamIndex: streamIndex });
-    void this.#renegotiate(playback, this.player.positionMs(), streamIndex);
+
+    // While parked, the device playing the session follows the choice (`casting/`).
+    if (!this.#parked) void this.#renegotiate(playback, this.player.positionMs(), streamIndex);
   }
 
   /** Shows the subtitle track `id`, or none. */
@@ -601,7 +635,7 @@ export class PlaybackController {
     this.#reporting = scope;
     this.#reported = playback;
     void this.#runtime.runPromiseExit(
-      Scope.provide(scope)(Playback.reportProgress(playback, this.player)),
+      Scope.provide(scope)(Playback.reportProgress(playback, this.output)),
     );
   }
 
@@ -627,7 +661,7 @@ export class PlaybackController {
     const current = this.#playback;
 
     if (current !== null && current.stream.streamId !== this.#reported?.stream.streamId) {
-      void run(this.#runtime, Playback.stop(current));
+      void runSdk(this.#runtime, Playback.stop(current));
     }
 
     // A session that never reached a stream has no reporter to end it.

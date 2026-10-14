@@ -37,6 +37,11 @@ export interface PlayerPort {
   readonly play: () => Promise<void>;
   readonly pause: () => void;
   readonly subscribe: (listener: (event: PlayerEvent) => void) => () => void;
+  /**
+   * The player plays at normal speed only, such as a cast device: rate changes do nothing, so the
+   * room engine corrects drift by seeking. Absent means the rate can change.
+   */
+  readonly fixedRate?: boolean;
 }
 
 /**

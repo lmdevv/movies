@@ -167,7 +167,7 @@ export function PhoneControls({
   onBrightness,
   onVolume,
   onRoom,
-  onAirPlay,
+  castMenu,
 }: {
   readonly title: string;
   readonly playing: boolean;
@@ -189,7 +189,8 @@ export function PhoneControls({
   readonly onBrightness: (value: number) => void;
   readonly onVolume: (value: number) => void;
   readonly onRoom?: (() => void) | undefined;
-  readonly onAirPlay?: (() => void) | undefined;
+  /** Wraps the cast button in the cast menu, where this browser can play elsewhere. */
+  readonly castMenu?: ((trigger: ReactElement) => ReactNode) | undefined;
 }) {
   const fraction = duration <= 0 ? 0 : Math.min(1, position / duration);
 
@@ -208,10 +209,10 @@ export function PhoneControls({
               <UsersIcon strokeWidth={1.75} aria-hidden />
             </GlassButton>
           )}
-          {onAirPlay === undefined ? null : (
-            <GlassButton aria-label="AirPlay" onClick={onAirPlay}>
+          {castMenu?.(
+            <GlassButton aria-label="Cast">
               <CastIcon strokeWidth={1.75} aria-hidden />
-            </GlassButton>
+            </GlassButton>,
           )}
         </div>
       </div>

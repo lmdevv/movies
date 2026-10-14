@@ -25,7 +25,13 @@ import { useKeymap } from "@movies/ui/lib/use-keymap";
 import { cn } from "@movies/ui/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
 import { Effect, Fiber, Result, Stream } from "effect";
-import { ArrowLeftIcon, InfoIcon, ListVideoIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  CastIcon,
+  InfoIcon,
+  ListVideoIcon,
+  PictureInPicture2Icon,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -42,13 +48,21 @@ import { audioTrackLabel, subtitleTrackLabel } from "@/lib/media-facts";
 import { volumeIsSettable } from "@/playback/browser-support";
 import { PlaybackPhase, StartChoice } from "@/playback/playback-controller";
 import type { PlaybackRequest } from "@/playback/playback-controller";
+import { castImage } from "@/casting/cast-playback";
+import { localOnly } from "@/casting/cast-profile";
+import type { CastItem } from "@/casting/cast-profile";
+import { useAirPlay, useRemotePlayback } from "@/casting/system-targets";
+import { useCast, useRemoteState } from "@/casting/use-cast";
 import { PlaybackStop } from "@/playback/playback-policy";
 import { chapterAt, useScrubbing } from "@/playback/scrubbing";
+import { useMediaSession } from "@/playback/use-media-session";
+import { usePictureInPicture } from "@/playback/use-picture-in-picture";
 import { useMediaState, usePlayback } from "@/playback/use-playback";
 import { useActiveProfile } from "@/session/guards";
 import { useScopes } from "@/session/viewer";
 
 import { AUTOPLAY_COUNTDOWN, AUTOPLAY_VIDEO_FRAME, AutoplayNext } from "./autoplay-next";
+import { CastMenu, CastingState } from "./cast-menu";
 import {
   PhoneControls,
   PhoneRoomDetails,
@@ -233,19 +247,54 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   const phase = snapshot?.phase ?? PlaybackPhase.Starting();
   const isPlaying = PlaybackPhase.$is("Playing")(phase);
   const player = controller?.player ?? null;
-  const media = useMediaState(video, player);
+  // Where the session plays: this element, or a cast device. Commands and the room go here.
+  const output = controller?.output ?? null;
+  const localMedia = useMediaState(video, player);
+  const stream = snapshot?.stream ?? null;
+  const started = snapshot?.started ?? null;
+  const episode = started?.episode ?? roomRecord?.episode ?? null;
+  const titleName = detail?.name ?? roomRecord?.title.name ?? "";
+  const artworkKey = episode?.still ?? detail?.artwork.poster ?? null;
+
+  const castItem = useMemo(
+    (): CastItem | null =>
+      started === null
+        ? null
+        : {
+            title: episode?.name ?? titleName,
+            episode:
+              episode === null
+                ? null
+                : {
+                    seriesTitle: titleName,
+                    season: episode.seasonNumber,
+                    episode: episode.episodeNumber,
+                  },
+            imageUrl: castImage(started, artworkKey),
+          },
+    [started, episode, titleName, artworkKey],
+  );
+
+  const chromecast = useCast(controller, isPlaying, castItem);
+  const casting = chromecast.playback;
+  const remote = useRemoteState(casting);
+  const airplay = useAirPlay(video);
+  const remotePlayback = useRemotePlayback(video);
+  const pip = usePictureInPicture(video);
+
+  // While a TV plays, the controls show its position and state.
+  const media =
+    remote === null ? localMedia : { ...localMedia, ...remote, bufferedAheadSeconds: 0 };
 
   // The room engine starts once the stream shows frames, so it never drives an empty element.
   const engine = useRoomSync(
-    isPlaying && joined ? player : null,
+    isPlaying && joined ? output : null,
     roomId === undefined || !joined ? null : { roomId, deviceId },
   );
 
   const sync = engine !== null && Result.isSuccess(engine) ? engine.success : null;
   const room = roomRecord;
 
-  const stream = snapshot?.stream ?? null;
-  const started = snapshot?.started ?? null;
   const duration = stream?.durationSeconds ?? (started?.file.probe.durationMs ?? 0) / 1000;
   const position = scrub ?? media.positionSeconds;
   const inRoom = roomId !== undefined && room !== null && joined;
@@ -253,9 +302,6 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   const guest = inRoom && !host;
   const controlsTimeline = !guest;
   const hostName = room?.hostProfileName ?? "The host";
-
-  const episode = started?.episode ?? room?.episode ?? null;
-  const titleName = detail?.name ?? room?.title.name ?? "";
 
   const heading =
     episode === null ? titleName : `${titleName} ${episodeCode(episode)} ${episode.name}`;
@@ -275,12 +321,12 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
 
   const seekTo = useCallback(
     (seconds: number) => {
-      if (player === null || !controlsTimeline) return;
+      if (output === null || !controlsTimeline) return;
 
       setScrub(null);
-      player.seek(Math.max(0, Math.min(duration, seconds)) * 1000);
+      output.seek(Math.max(0, Math.min(duration, seconds)) * 1000);
     },
-    [player, controlsTimeline, duration],
+    [output, controlsTimeline, duration],
   );
 
   const skip = useCallback(
@@ -312,26 +358,40 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   const currentChapter = chapterAt(scrubbing.chapters, media.positionSeconds);
 
   const togglePlay = useCallback(() => {
-    if (player === null || video === null || !controlsTimeline) return;
+    if (output === null || !controlsTimeline) return;
 
-    if (snapshot?.needsGesture === true) {
+    if (snapshot?.needsGesture === true && casting === null) {
       controller?.resumeWithGesture();
 
       return;
     }
 
-    if (video.paused) void player.play().catch(() => undefined);
-    else player.pause();
-  }, [player, video, controlsTimeline, snapshot?.needsGesture, controller]);
+    if (output.isPaused()) void output.play().catch(() => undefined);
+    else output.pause();
+  }, [output, controlsTimeline, snapshot?.needsGesture, controller, casting]);
 
   const setVolume = useCallback(
     (value: number) => {
+      if (casting !== null) {
+        casting.player.setVolume(value);
+
+        return;
+      }
+
       if (video === null) return;
 
       video.volume = Math.min(1, Math.max(0, value));
       video.muted = false;
     },
-    [video],
+    [video, casting],
+  );
+
+  const setMuted = useCallback(
+    (muted: boolean) => {
+      if (casting !== null) casting.player.setMuted(muted);
+      else if (video !== null) video.muted = muted;
+    },
+    [video, casting],
   );
 
   // Audio and subtitle choices from the file and the negotiated stream.
@@ -392,14 +452,17 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
     [controller],
   );
 
-  // Show the chosen subtitle track; the element keeps one text track per <track>.
+  // Show the chosen subtitle track; the element keeps one text track per <track>. While a TV
+  // plays, it shows the subtitles and the paused element shows none.
+  const shownSubtitle = casting === null ? subtitleId : null;
+
   useEffect(() => {
     if (video === null) return;
 
     for (const track of Array.from(video.textTracks)) {
-      track.mode = track.id === subtitleId ? "showing" : "disabled";
+      track.mode = track.id === shownSubtitle ? "showing" : "disabled";
     }
-  }, [video, subtitleId, stream]);
+  }, [video, shownSubtitle, stream]);
 
   // Rooms.
   const copyLink = useCallback((id: RoomId) => {
@@ -407,9 +470,9 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   }, []);
 
   const openStartRoom = useCallback(() => {
-    if (started === null || player === null) return;
+    if (started === null || output === null) return;
 
-    const positionMs = Milliseconds.make(Math.max(0, player.positionMs()));
+    const positionMs = Milliseconds.make(Math.max(0, output.positionMs()));
 
     const input = {
       profileId: profile.id,
@@ -429,7 +492,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
         toastFailure(cause);
       },
     );
-  }, [started, player, createRoom, profile.id, deviceId]);
+  }, [started, output, createRoom, profile.id, deviceId]);
 
   useEffect(() => {
     if (!wantsTogether || !isPlaying || roomId !== undefined) return;
@@ -506,6 +569,57 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
     });
   }, [navigate, nextEpisode, titleId]);
 
+  // The episode before this one in its season, for the system's previous-track button.
+  const seasonEpisodes = useCommandQuery(
+    "titles.episodes",
+    episode === null || inRoom
+      ? "skip"
+      : {
+          profileId: profile.id,
+          titleId: started?.titleId ?? titleId,
+          seasonNumber: episode.seasonNumber,
+        },
+  );
+
+  const previousEpisode = (() => {
+    if (seasonEpisodes.status !== "success" || episode === null) return null;
+    const at = seasonEpisodes.data.findIndex((candidate) => candidate.id === episode.id);
+
+    return at > 0 ? (seasonEpisodes.data[at - 1] ?? null) : null;
+  })();
+
+  const playPrevious = useCallback(() => {
+    if (previousEpisode === null) return;
+    void navigate({
+      to: "/watch/$titleId",
+      params: { titleId },
+      search: { episodeId: previousEpisode.id, start: "resume" },
+    });
+  }, [navigate, previousEpisode, titleId]);
+
+  useMediaSession(
+    !isPlaying || castItem === null
+      ? null
+      : {
+          title: castItem.title,
+          artist: episode === null ? "" : titleName,
+          album: episode === null ? "" : episodeCode(episode),
+          artwork: castItem.imageUrl,
+          durationSeconds: duration,
+          positionSeconds: media.positionSeconds,
+          paused: media.paused,
+          play: () => {
+            if (output?.isPaused() === true) togglePlay();
+          },
+          pause: () => {
+            if (output?.isPaused() === false) togglePlay();
+          },
+          seekTo,
+          previous: previousEpisode === null || inRoom ? null : playPrevious,
+          next: nextEpisode === null || inRoom ? null : playNext,
+        },
+  );
+
   useEffect(() => {
     if (!showNext) {
       setCountdown(null);
@@ -570,12 +684,10 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       "player.forward-10": () => skipByKey(10),
       "player.back-5": () => skipByKey(-5),
       "player.forward-5": () => skipByKey(5),
-      "player.volume-up": () => setVolume((video?.volume ?? 1) + VOLUME_STEP),
-      "player.volume-down": () => setVolume((video?.volume ?? 1) - VOLUME_STEP),
+      "player.volume-up": () => setVolume(media.volume + VOLUME_STEP),
+      "player.volume-down": () => setVolume(media.volume - VOLUME_STEP),
       "player.fullscreen": toggleFullscreen,
-      "player.mute": () => {
-        if (video !== null) video.muted = !video.muted;
-      },
+      "player.mute": () => setMuted(!media.muted),
       "player.subtitles": toggleSubtitles,
       "player.exit": () => {
         if (info) setInfo(false);
@@ -678,6 +790,40 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       currentId={currentChapter?.id ?? null}
       onSelect={(chapter) => seekTo(chapter.startSeconds)}
     />
+  );
+
+  // One menu for every way this browser plays elsewhere: Chromecast, AirPlay, its own picker.
+  const castTargets = {
+    chromecast: chromecast.available
+      ? {
+          connecting: chromecast.connecting,
+          starting: chromecast.starting,
+          deviceName: casting?.deviceName ?? null,
+          unreachable: started !== null && localOnly(started.mediaBaseUrl),
+          onConnect: chromecast.connect,
+          onDisconnect: chromecast.disconnect,
+        }
+      : null,
+    airplay:
+      airplay === null || !airplay.available
+        ? null
+        : { active: airplay.active, onChoose: airplay.choose },
+    otherDevices:
+      chromecast.available ||
+      airplay !== null ||
+      remotePlayback === null ||
+      !remotePlayback.available
+        ? null
+        : { active: remotePlayback.active, onChoose: remotePlayback.choose },
+  };
+
+  const canCast =
+    castTargets.chromecast !== null ||
+    castTargets.airplay !== null ||
+    castTargets.otherDevices !== null;
+
+  const castMenu = (trigger: React.ReactElement) => (
+    <CastMenu trigger={trigger} container={fullscreen ? frame : undefined} {...castTargets} />
   );
 
   const scrubProps = {
@@ -815,6 +961,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       data-testid="player-video"
       crossOrigin="anonymous"
       playsInline
+      x-webkit-airplay="allow"
       poster={backdrop}
       className="size-full bg-dark-bg object-contain"
       style={brightness < 1 ? { filter: `brightness(${String(brightness)})` } : undefined}
@@ -859,16 +1006,35 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
             <RoomChip paused={roomPaused} watching={hostGone(room) ? undefined : members.length} />
           ) : null}
         </div>
-        {isPlaying && stream !== null && started !== null ? (
-          <PlayerButton
-            aria-label="Stream info"
-            aria-pressed={info}
-            active={info}
-            onClick={() => setInfo((open) => !open)}
-          >
-            <InfoIcon strokeWidth={1.75} aria-hidden />
-          </PlayerButton>
-        ) : null}
+        <div className="flex items-center gap-6">
+          {isPlaying && pip !== null && casting === null ? (
+            <PlayerButton
+              aria-label="Picture in picture"
+              aria-pressed={pip.active}
+              active={pip.active}
+              onClick={pip.toggle}
+            >
+              <PictureInPicture2Icon strokeWidth={1.75} aria-hidden />
+            </PlayerButton>
+          ) : null}
+          {isPlaying && canCast
+            ? castMenu(
+                <PlayerButton aria-label="Cast" active={casting !== null}>
+                  <CastIcon strokeWidth={1.75} aria-hidden />
+                </PlayerButton>,
+              )
+            : null}
+          {isPlaying && stream !== null && started !== null ? (
+            <PlayerButton
+              aria-label="Stream info"
+              aria-pressed={info}
+              active={info}
+              onClick={() => setInfo((open) => !open)}
+            >
+              <InfoIcon strokeWidth={1.75} aria-hidden />
+            </PlayerButton>
+          ) : null}
+        </div>
       </header>
       {info && stream !== null && started !== null ? (
         <StreamInfo
@@ -910,9 +1076,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
           onPlayPause={togglePlay}
           onSeek={(seconds) => setScrub(seconds)}
           onSeekCommit={seekTo}
-          onMuteChange={(muted) => {
-            if (video !== null) video.muted = muted;
-          }}
+          onMuteChange={setMuted}
           onNext={nextEpisode === null || inRoom ? undefined : playNext}
           onRoom={inRoom ? () => setPanel((open) => !open) : openStartRoom}
           onFullscreen={toggleFullscreen}
@@ -973,11 +1137,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
           onBrightness={setBrightness}
           onVolume={setVolume}
           onRoom={inRoom ? undefined : openStartRoom}
-          onAirPlay={
-            video?.webkitShowPlaybackTargetPicker === undefined
-              ? undefined
-              : () => video.webkitShowPlaybackTargetPicker?.()
-          }
+          castMenu={canCast ? castMenu : undefined}
         />
       </div>
     ) : null;
@@ -1003,6 +1163,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
         >
           <div className={cn("absolute inset-0", showNext && AUTOPLAY_VIDEO_FRAME)}>
             {videoElement}
+            {casting === null ? null : <CastingState deviceName={casting.deviceName} />}
           </div>
           {portraitRoom ? (
             <PhoneRoomVideoChrome

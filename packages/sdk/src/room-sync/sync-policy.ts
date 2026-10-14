@@ -19,6 +19,11 @@ export interface RoomSyncTunables {
   readonly inSyncMs: number;
   /** Beyond this distance a follower seeks; between the two it nudges its rate. */
   readonly seekMs: number;
+  /**
+   * Beyond this distance a follower that cannot change its rate (a cast device) seeks; nudging
+   * would do nothing, and seeks there are slow, so it tolerates more than `inSyncMs`.
+   */
+  readonly fixedRateSeekMs: number;
   /** How far from the room's rate a nudging follower runs, as a fraction. */
   readonly nudgeRate: number;
   /** How often a follower measures drift between clock changes. */
@@ -45,6 +50,7 @@ export interface RoomSyncTunables {
 export const DEFAULT_TUNABLES: RoomSyncTunables = {
   inSyncMs: DRIFT_THRESHOLDS.inSyncMs,
   seekMs: DRIFT_THRESHOLDS.seekMs,
+  fixedRateSeekMs: 750,
   nudgeRate: DRIFT_THRESHOLDS.nudgeRate,
   correctionIntervalMs: 500,
   seekCooldownMs: 3_000,
@@ -64,6 +70,8 @@ export interface PlayerSnapshot {
   /** Stalled waiting for data while meant to play. */
   readonly buffering: boolean;
   readonly playbackRate: number;
+  /** The player cannot change its rate (`PlayerPort.fixedRate`). */
+  readonly fixedRate: boolean;
 }
 
 /** One change to make to a player. */
@@ -99,7 +107,7 @@ const holdAt = (
   const commands = [
     ...(player.paused ? [] : [PlayerCommand.Pause()]),
     ...(Math.abs(driftMs) > tunables.inSyncMs ? [PlayerCommand.Seek({ positionMs })] : []),
-    ...(rateDiffers(player.playbackRate, clock.playbackRate)
+    ...(!player.fixedRate && rateDiffers(player.playbackRate, clock.playbackRate)
       ? [PlayerCommand.SetRate({ rate: clock.playbackRate })]
       : []),
   ];
@@ -129,13 +137,19 @@ export const follow = (
   const distance = Math.abs(driftMs);
   const play = player.paused ? [PlayerCommand.Play()] : [];
 
-  if (distance >= tunables.seekMs && !recentlySought) {
-    const rate = rateDiffers(player.playbackRate, clock.playbackRate)
-      ? [PlayerCommand.SetRate({ rate: clock.playbackRate })]
-      : [];
+  const seekBeyond = player.fixedRate ? tunables.fixedRateSeekMs : tunables.seekMs;
+
+  if (distance >= seekBeyond && !recentlySought) {
+    const rate =
+      !player.fixedRate && rateDiffers(player.playbackRate, clock.playbackRate)
+        ? [PlayerCommand.SetRate({ rate: clock.playbackRate })]
+        : [];
 
     return { commands: [PlayerCommand.Seek({ positionMs: target }), ...rate, ...play], driftMs };
   }
+
+  // A player that cannot nudge its rate waits for drift to reach `fixedRateSeekMs`.
+  if (player.fixedRate) return { commands: play, driftMs };
 
   const wanted =
     distance <= tunables.inSyncMs
