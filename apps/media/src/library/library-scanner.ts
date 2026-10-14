@@ -647,14 +647,20 @@ const make = Effect.gen(function* () {
           }),
       });
 
+      // Whether a folder is one movie's own; it parses every name in the folder, so once per folder.
+      const ownFolders = yield* Cache.make({
+        capacity: 10_000,
+        lookup: (folder: string) =>
+          Effect.sync(() => folder !== "" && holdsOneMovie(folder, listing(folder).names)),
+      });
+
       const describeMovie = Effect.fn("LibraryScanner.describeMovie")(function* (
         relativePath: string,
         name: MovieName,
       ) {
         const folder = parentOf(relativePath);
         const stem = stemOf(relativePath);
-
-        const ownFolder = folder !== "" && holdsOneMovie(folder, listing(folder).names);
+        const ownFolder = yield* Cache.get(ownFolders, folder);
 
         const local = yield* readNfo(
           folder,
