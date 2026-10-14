@@ -96,8 +96,16 @@ let roomId: RoomId;
 
 const titles = new Map<string, TitleId>();
 
-/** Drift samples after settling, reported once the suite ends. */
-const drifts: Array<{ readonly when: string; readonly ms: number }> = [];
+/**
+ * Drift samples after settling, reported once the suite ends. `guestReportedMs` is the drift the
+ * guest's engine last reported against the room clock as it estimates it; a gap between the two
+ * is that estimate's error.
+ */
+const drifts: Array<{
+  readonly when: string;
+  readonly ms: number;
+  readonly guestReportedMs: number | null;
+}> = [];
 
 test.beforeAll(async ({ browser }) => {
   if (stack === null) return;
@@ -173,7 +181,12 @@ test.afterAll(async () => {
 
   test.info().annotations.push({
     type: "drift",
-    description: drifts.map(({ when, ms }) => `${when} ${String(ms)} ms`).join(", "),
+    description: drifts
+      .map(
+        ({ when, ms, guestReportedMs }) =>
+          `${when} ${String(ms)} ms (guest ${String(guestReportedMs)})`,
+      )
+      .join(", "),
   });
 
   // The numbers the milestone report quotes.
@@ -203,7 +216,12 @@ const expectSettled = async (when: string): Promise<void> => {
 
   const settled = await driftMs(host, guest);
 
-  drifts.push({ when, ms: settled });
+  const room = await owner.sdk.query("rooms.get", { roomId });
+
+  const guestReportedMs =
+    room.members.find((each) => each.profileName === GUEST.name)?.driftMs ?? null;
+
+  drifts.push({ when, ms: settled, guestReportedMs });
   expect(Math.abs(settled)).toBeLessThanOrEqual(SETTLED_MS);
 };
 
