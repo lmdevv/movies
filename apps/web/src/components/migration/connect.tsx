@@ -18,20 +18,7 @@ import { useAction } from "@/components/admin/action";
 import { PageHeader } from "@/components/admin/page-header";
 
 import { SOURCE_NAMES, failureLine } from "./migration-model";
-
-/**
- * What the admin typed on Connect. It stays in the page's memory only, so Review can reconnect
- * with new folder mappings and Back returns to a filled form.
- */
-export interface SourceForm {
-  readonly source: MigrationSource;
-  readonly url: string;
-  /** A Jellyfin API key or a Plex token. Never stored, logged, or put in the URL. */
-  readonly token: string;
-}
-
-/** An empty Connect form for Jellyfin. */
-export const EMPTY_FORM: SourceForm = { source: "jellyfin", url: "", token: "" };
+import type { SourceForm } from "./migration-model";
 
 /** A connected source and its dry run, or why the source could not be used. */
 export type Preview =

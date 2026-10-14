@@ -10,12 +10,8 @@ import { CollectionCard } from "@/components/browse/collection-card";
 import { HomeHero } from "@/components/browse/home-hero";
 import { EmptyLibrary, NothingToWatch, ScanningLibrary } from "@/components/browse/library-states";
 import { HeroSkeleton, RowSkeleton } from "@/components/browse/skeletons";
-import {
-  ContinueCard,
-  TitleLandscapeCard,
-  TitlePosterCard,
-  newBadge,
-} from "@/components/browse/title-cards";
+import { newBadge } from "@/components/browse/new-badge";
+import { ContinueCard, TitleLandscapeCard, TitlePosterCard } from "@/components/browse/title-cards";
 import { describeFailure } from "@/lib/failure";
 import { usePhone } from "@/lib/use-phone";
 import { useActiveProfile } from "@/session/guards";

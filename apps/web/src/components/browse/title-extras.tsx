@@ -12,7 +12,7 @@ import type {
 } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { Avatar } from "@movies/ui/components/avatar";
-import { buttonVariants } from "@movies/ui/components/button";
+import { buttonVariants } from "@movies/ui/components/button-variants";
 import { Dialog, DialogContent } from "@movies/ui/components/dialog";
 import { MediaRow } from "@movies/ui/components/media-row";
 import { cn } from "@movies/ui/lib/utils";

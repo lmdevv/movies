@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { describeFailure } from "@/lib/failure";
@@ -35,7 +35,10 @@ export const useAction = <Args extends ReadonlyArray<unknown>, Result>(
   const [error, setError] = useState<string | undefined>(undefined);
   const latest = useRef({ action, options });
 
-  latest.current = { action, options };
+  // After commit, not during render: a render React discards must not swap the action.
+  useLayoutEffect(() => {
+    latest.current = { action, options };
+  });
 
   const run = useCallback(async (...args: Args): Promise<Result | undefined> => {
     setPending(true);

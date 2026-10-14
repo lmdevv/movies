@@ -6,7 +6,8 @@ import type { ProfileId } from "@movies/contracts/ids";
 import type { TitleCard, TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { Badge } from "@movies/ui/components/badge";
-import { Button, buttonVariants } from "@movies/ui/components/button";
+import { Button } from "@movies/ui/components/button";
+import { buttonVariants } from "@movies/ui/components/button-variants";
 import { Hero, HeroCard } from "@movies/ui/components/hero";
 import { PlayGlyph } from "@movies/ui/components/icons";
 import { cn } from "@movies/ui/lib/utils";
@@ -19,7 +20,7 @@ import { facts, formatRuntime, plural } from "@/lib/format";
 import { fileBadges } from "@/lib/media-facts";
 
 import { playTarget, useMyListToggle, watchSearch } from "./play-target";
-import { newBadge } from "./title-cards";
+import { newBadge } from "./new-badge";
 
 /** The title's logo when it has one; without it the hero draws the name as heavy text. */
 const titleArt = (title: TitleCard, phone: boolean): ReactNode => {

@@ -24,13 +24,30 @@ export interface TitleSearch {
   readonly loading: boolean;
 }
 
+/** Results that belong to one query. */
+interface Settled {
+  readonly query: string;
+  readonly results: ReadonlyArray<TitleCard>;
+  readonly people: ReadonlyArray<PersonCard>;
+}
+
+// Shared empties keep a failed search's results the same object from render to render.
+const NO_TITLES: ReadonlyArray<TitleCard> = [];
+
+const NO_PEOPLE: ReadonlyArray<PersonCard> = [];
+
+const NOTHING: Settled = { query: "", results: NO_TITLES, people: NO_PEOPLE };
+
+const sameSettled = (a: Settled, b: Settled): boolean =>
+  a.query === b.query && a.results === b.results && a.people === b.people;
+
 /**
  * Searches the profile's titles and people as `text` changes, after a short pause, keeping the previous
  * results on screen until the next ones arrive so lists do not flicker. Kids profiles only get
  * titles they may see; the server filters them.
  */
 export const useTitleSearch = (profileId: ProfileId, text: string): TitleSearch => {
-  const [query, setQuery] = useState(text.trim());
+  const [query, setQuery] = useState(() => text.trim());
 
   useEffect(() => {
     const next = text.trim();
@@ -49,22 +66,25 @@ export const useTitleSearch = (profileId: ProfileId, text: string): TitleSearch 
     query === "" ? "skip" : { profileId, query, limit: PEOPLE_LIMIT },
   );
 
-  const [settled, setSettled] = useState<{
-    readonly query: string;
-    readonly results: ReadonlyArray<TitleCard>;
-    readonly people: ReadonlyArray<PersonCard>;
-  }>({ query: "", results: [], people: [] });
-
   // Titles lead: results settle when titles arrive, with whatever people have arrived by then
-  // (people found later join the same query's results).
-  useEffect(() => {
-    const found = people.status === "success" ? people.data : [];
+  // (people found later join the same query's results). While titles load, the last settled
+  // results stay on screen.
+  const found = people.status === "success" ? people.data : NO_PEOPLE;
 
-    if (query === "") setSettled({ query: "", results: [], people: [] });
-    else if (search.status === "success")
-      setSettled({ query, results: search.data, people: found });
-    else if (search.status === "error") setSettled({ query, results: [], people: found });
-  }, [query, search, people]);
+  const current: Settled | null =
+    query === ""
+      ? NOTHING
+      : search.status === "success"
+        ? { query, results: search.data, people: found }
+        : search.status === "error"
+          ? { query, results: NO_TITLES, people: found }
+          : null;
+
+  const [previous, setPrevious] = useState<Settled>(NOTHING);
+
+  if (current !== null && !sameSettled(current, previous)) setPrevious(current);
+
+  const settled = current ?? previous;
 
   return {
     query: settled.query,

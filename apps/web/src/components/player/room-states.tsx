@@ -4,7 +4,8 @@
  * pages a room link shows when it cannot be joined.
  */
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { Button, buttonVariants } from "@movies/ui/components/button";
+import { Button } from "@movies/ui/components/button";
+import { buttonVariants } from "@movies/ui/components/button-variants";
 import { PlayGlyph } from "@movies/ui/components/icons";
 import { ProgressRing } from "@movies/ui/components/progress-ring";
 import { Wordmark } from "@movies/ui/components/wordmark";

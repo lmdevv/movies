@@ -59,7 +59,7 @@ export function ProfileForm({
 
   const [avatar, setAvatar] = useState(profile?.avatar ?? freeAvatar);
   // A new profile's avatar follows the kids switch until someone picks one.
-  const [avatarPicked, setAvatarPicked] = useState(profile !== undefined);
+  const avatarPicked = useRef(profile !== undefined);
   const [kids, setKids] = useState(profile?.kids ?? false);
   const [maxAge, setMaxAge] = useState<AgeRating>(profile?.maxAgeRating ?? KIDS_DEFAULT_MAX_AGE);
   const [pinOn, setPinOn] = useState(profile?.hasPin ?? false);
@@ -144,7 +144,7 @@ export function ProfileForm({
           value={avatar}
           onChange={(key) => {
             setAvatar(key);
-            setAvatarPicked(true);
+            avatarPicked.current = true;
           }}
         />
         <TextField
@@ -167,7 +167,7 @@ export function ProfileForm({
               onCheckedChange={(on) => {
                 setKids(on);
 
-                if (!avatarPicked) setAvatar(on ? "kids" : freeAvatar);
+                if (!avatarPicked.current) setAvatar(on ? "kids" : freeAvatar);
               }}
               aria-label="Kids profile"
             />

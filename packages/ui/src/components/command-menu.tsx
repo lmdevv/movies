@@ -8,7 +8,7 @@ import {
 import type { CommandItem, CommandLeading, CommandPage } from "@movies/ui/lib/command-menu";
 import { cn } from "@movies/ui/lib/utils";
 import { CheckIcon } from "lucide-react";
-import { useEffect, useId, useReducer, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useId, useReducer, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 import { Keycaps } from "./keycap";
@@ -147,17 +147,15 @@ export function CommandMenu({
       document.getElementById(activeId)?.scrollIntoView({ block: "nearest" });
   }, [activeId]);
 
-  const latestRoot = useRef(root);
-
-  latestRoot.current = root;
-
   // Opening on a submenu reads the root of that moment; later rebuilds keep the opened options.
+  const findStart = useEffectEvent((id: string) =>
+    root.groups.flatMap((group) => group.items).find((candidate) => candidate.id === id),
+  );
+
   useEffect(() => {
     if (!open || start === undefined) return;
 
-    const item = latestRoot.current.groups
-      .flatMap((group) => group.items)
-      .find((candidate) => candidate.id === start);
+    const item = findStart(start);
 
     if (item?.kind !== "submenu") return;
 

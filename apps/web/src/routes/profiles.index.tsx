@@ -1,6 +1,6 @@
 import type { Profile } from "@movies/contracts/models/profiles";
 import { useCommandQuery } from "@movies/sdk/react";
-import { buttonVariants } from "@movies/ui/components/button";
+import { buttonVariants } from "@movies/ui/components/button-variants";
 import { AddProfileTile, ProfileTile } from "@movies/ui/components/profile-tile";
 import { cn } from "@movies/ui/lib/utils";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";

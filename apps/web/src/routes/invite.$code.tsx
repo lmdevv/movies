@@ -1,6 +1,7 @@
 import type { InviteLookup } from "@movies/contracts/models/account";
 import { useAuth, useCommandQuery } from "@movies/sdk/react";
-import { Button, buttonVariants } from "@movies/ui/components/button";
+import { Button } from "@movies/ui/components/button";
+import { buttonVariants } from "@movies/ui/components/button-variants";
 import { FieldError, TextField } from "@movies/ui/components/text-field";
 import { cn } from "@movies/ui/lib/utils";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";

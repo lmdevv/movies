@@ -32,7 +32,7 @@ import {
   ListVideoIcon,
   PictureInPicture2Icon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useCommandRoot } from "@/commands";
@@ -67,7 +67,8 @@ import { useMediaState, usePlayback } from "@/playback/use-playback";
 import { useActiveProfile } from "@/session/guards";
 import { useScopes } from "@/session/viewer";
 
-import { AUTOPLAY_COUNTDOWN, AUTOPLAY_VIDEO_FRAME, AutoplayNext } from "./autoplay-next";
+import { AUTOPLAY_COUNTDOWN, AUTOPLAY_VIDEO_FRAME } from "./autoplay";
+import { AutoplayNext } from "./autoplay-next";
 import { CastMenu, CastingState } from "./cast-menu";
 import {
   PhoneControls,
@@ -194,20 +195,25 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   const [menu, setMenu] = useState(false);
   const [info, setInfo] = useState(false);
   const [panel, setPanel] = useState(true);
-  const [creditsDismissed, setCreditsDismissed] = useState(false);
+
+  // Watching the credits holds for the episode it was chosen on (or the film), not the next one.
+  const [creditsDismissedFor, setCreditsDismissedFor] = useState<{
+    readonly episodeId: string | null;
+  } | null>(null);
+
   const [countdown, setCountdown] = useState<number | null>(null);
   const [brightness, setBrightness] = useState(1);
   const [scrub, setScrub] = useState<number | null>(null);
   const [keyPreview, setKeyPreview] = useState<number | null>(null);
   const [menuQuery, setMenuQuery] = useState("");
   const [startDialog, setStartDialog] = useState<{ readonly roomId: RoomId | null } | null>(null);
-  const [wantsTogether, setWantsTogether] = useState(together);
+  // Asked for with `?together`: start a room once playback begins, once.
+  const wantsTogether = useRef(together);
   const canSetVolume = useMemo(() => volumeIsSettable(), []);
 
   const watch = useWatchRoom(roomId ?? null, profile.id, deviceId);
+  // The room as the last commit saw it, for the start position, which is read after a render.
   const roomRef = useRef<Room | null>(null);
-
-  roomRef.current = watch?.room ?? null;
 
   // Leaving the room the stream belongs to drops it from the URL; the stream plays on alone.
   const leftRoom = openedRoom !== null && roomId === undefined;
@@ -215,10 +221,16 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   const roomReady = openedRoom === null || leftRoom || (joined && watch?.room !== null);
   const roomRecord = watch?.room ?? null;
 
+  useLayoutEffect(() => {
+    roomRef.current = roomRecord;
+  });
+
+  // A new room state builds a new request but does not restart playback: `usePlayback` reads the
+  // request only when `playbackKey` changes.
   const request = useMemo((): PlaybackRequest | null => {
     if (!roomReady) return null;
 
-    const room = roomRef.current;
+    const room = roomRecord;
 
     return {
       profileId: profile.id,
@@ -242,7 +254,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       // Read once per session; later changes go through `selectQuality`.
       quality: loadQualityChoice(),
     };
-  }, [roomReady, profile.id, deviceId, titleId, episodeId, openedRoom, start]);
+  }, [roomReady, roomRecord, profile.id, deviceId, titleId, episodeId, openedRoom, start]);
 
   const playbackKey = [
     request === null ? "waiting" : "ready",
@@ -264,6 +276,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   const stream = snapshot?.stream ?? null;
   const started = snapshot?.started ?? null;
   const episode = started?.episode ?? roomRecord?.episode ?? null;
+  const creditsDismissed = creditsDismissedFor?.episodeId === (episode?.id ?? null);
   const titleName = detail?.name ?? roomRecord?.title.name ?? "";
   const artworkKey = episode?.still ?? detail?.artwork.poster ?? null;
 
@@ -527,10 +540,10 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   }, [started, output, createRoom, profile.id, deviceId]);
 
   useEffect(() => {
-    if (!wantsTogether || !isPlaying || roomId !== undefined) return;
-    setWantsTogether(false);
+    if (!wantsTogether.current || !isPlaying || roomId !== undefined) return;
+    wantsTogether.current = false;
     openStartRoom();
-  }, [wantsTogether, isPlaying, roomId, openStartRoom]);
+  }, [isPlaying, roomId, openStartRoom]);
 
   const cancelStartRoom = useCallback(() => {
     const created = startDialog?.roomId ?? null;
@@ -670,10 +683,6 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       runtime.runFork(Fiber.interrupt(fiber));
     };
   }, [showNext, runtime, playNext]);
-
-  useEffect(() => {
-    setCreditsDismissed(false);
-  }, [episode?.id]);
 
   // Guests catching up.
   const guestSyncing =
@@ -1029,7 +1038,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
               <track
                 key={`${track.id}:${track.url}`}
                 id={track.id}
-                kind="subtitles"
+                kind={track.hearingImpaired ? "captions" : "subtitles"}
                 src={track.url}
                 label={subtitleTrackLabel(track, index)}
                 {...(track.language === undefined ? {} : { srcLang: track.language })}
@@ -1239,7 +1248,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
               next={nextEpisode}
               countdownMs={countdown ?? AUTOPLAY_COUNTDOWN.totalMs}
               onPlayNext={playNext}
-              onWatchCredits={() => setCreditsDismissed(true)}
+              onWatchCredits={() => setCreditsDismissedFor({ episodeId: episode?.id ?? null })}
             />
           ) : null}
         </div>

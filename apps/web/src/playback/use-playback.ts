@@ -3,7 +3,7 @@
  * element's own state (time, buffering, volume) for the controls.
  */
 import { useMoviesRuntime } from "@movies/sdk/react";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from "react";
 
 import { browserMediaSupport } from "./browser-support";
 import { detectCapabilities } from "./capabilities";
@@ -31,9 +31,13 @@ export const usePlayback = (
 ): PlaybackHandle | null => {
   const runtime = useMoviesRuntime();
   const [controller, setController] = useState<PlaybackController | null>(null);
+  // The request as of the render that changed `key`; later changes to it do not restart playback.
+  const currentRequest = useEffectEvent(() => request);
 
   useEffect(() => {
-    if (element === null || request === null) return undefined;
+    const started = currentRequest();
+
+    if (element === null || started === null) return undefined;
 
     const capabilities = detectCapabilities(browserMediaSupport());
 
@@ -42,7 +46,7 @@ export const usePlayback = (
       element,
       capabilities,
       usesHlsJs(capabilities.mse),
-      request,
+      started,
     );
 
     setController(created);
@@ -52,7 +56,6 @@ export const usePlayback = (
       created.dispose();
       setController(null);
     };
-    // The key stands for the request's identity; later changes to it do not restart playback.
   }, [runtime, element, key]);
 
   const snapshot = useSyncExternalStore(

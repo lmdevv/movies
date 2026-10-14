@@ -6,7 +6,8 @@ import type {
 } from "@movies/contracts/models/catalog";
 import type { Job } from "@movies/contracts/models/jobs";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
-import { Button, buttonVariants } from "@movies/ui/components/button";
+import { Button } from "@movies/ui/components/button";
+import { buttonVariants } from "@movies/ui/components/button-variants";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Chip } from "@movies/ui/components/chip";
 import {

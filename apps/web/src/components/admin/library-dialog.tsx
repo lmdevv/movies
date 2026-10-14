@@ -19,13 +19,7 @@ import { useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 
 import { useAction } from "./action";
-
-/** How each library kind reads in the admin screens. */
-export const KIND_LABELS: Readonly<Record<LibraryKind, string>> = {
-  movies: "Films",
-  shows: "Series",
-  mixed: "Mixed",
-};
+import { KIND_LABELS } from "./format";
 
 const ACCESS_LABELS: Readonly<Record<LibraryAccess, string>> = {
   everyone: "Everyone",

@@ -1,7 +1,8 @@
 import { JobId, LibraryId } from "@movies/contracts/ids";
 import type { Job } from "@movies/contracts/models/jobs";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
-import { Button, buttonVariants } from "@movies/ui/components/button";
+import { Button } from "@movies/ui/components/button";
+import { buttonVariants } from "@movies/ui/components/button-variants";
 import { Skeleton } from "@movies/ui/components/skeleton";
 import { cn } from "@movies/ui/lib/utils";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";

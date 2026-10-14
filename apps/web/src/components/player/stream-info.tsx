@@ -194,15 +194,10 @@ export function StreamInfo({
           <XIcon className="size-5" strokeWidth={1.75} aria-hidden />
         </button>
       </header>
-      <div
-        className="flex gap-0.5 rounded-control bg-dark-bg p-0.75"
-        role="list"
-        aria-label="Playback mode"
-      >
+      <ul className="flex gap-0.5 rounded-control bg-dark-bg p-0.75" aria-label="Playback mode">
         {RUNGS.map((each) => (
-          <span
+          <li
             key={each.id}
-            role="listitem"
             aria-current={each.id === rung || undefined}
             className={cn(
               "flex h-7.5 grow basis-0 items-center justify-center rounded-inner font-mono text-caption/caption tracking-caps uppercase",
@@ -215,9 +210,9 @@ export function StreamInfo({
             )}
           >
             {each.label}
-          </span>
+          </li>
         ))}
-      </div>
+      </ul>
       <dl className="flex flex-col gap-1">
         {streamInfoRows(file, stream, bufferedAheadSeconds).map((row) => (
           <div key={row.label} className="flex gap-4 py-2">

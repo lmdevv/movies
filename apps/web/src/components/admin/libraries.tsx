@@ -12,8 +12,8 @@ import { PlusIcon, RotateCwIcon } from "lucide-react";
 import { useNow } from "@/lib/use-now";
 
 import { useAction } from "./action";
-import { formatAgo, formatCount, formatPercent, formatSpan, plural } from "./format";
-import { KIND_LABELS, LibraryDialog } from "./library-dialog";
+import { KIND_LABELS, formatAgo, formatCount, formatPercent, formatSpan, plural } from "./format";
+import { LibraryDialog } from "./library-dialog";
 import { PageHeader } from "./page-header";
 import { isActive, useLatestScans } from "./scan-jobs";
 import { Cell, Column, StatusDot, Table, TableHead } from "./table";

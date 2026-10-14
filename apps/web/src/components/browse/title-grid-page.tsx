@@ -10,7 +10,7 @@ import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Chip } from "@movies/ui/components/chip";
 import { ChevronDownIcon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { describeFailure } from "@/lib/failure";
@@ -21,7 +21,8 @@ import { useActiveProfile } from "@/session/guards";
 import { PosterGridSkeleton } from "./skeletons";
 import { SelectMenu } from "./select-menu";
 import type { SelectOption } from "./select-menu";
-import { TitlePosterCard, newBadge } from "./title-cards";
+import { newBadge } from "./new-badge";
+import { TitlePosterCard } from "./title-cards";
 
 /** Titles per page; the grid asks for the next page as its end scrolls into view. */
 const PAGE_SIZE = 60;
@@ -141,7 +142,9 @@ const useNearViewport = (
 ): ((element: HTMLElement | null) => (() => void) | undefined) => {
   const latest = useRef(onChange);
 
-  latest.current = onChange;
+  useLayoutEffect(() => {
+    latest.current = onChange;
+  });
 
   return useCallback((element: HTMLElement | null) => {
     if (element === null) return undefined;
