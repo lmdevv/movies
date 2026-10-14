@@ -4,7 +4,8 @@
  * ID, the default viewing profile, an optional API key, and the cached session tokens.
  *
  * `MOVIES_CONVEX_URL`, `MOVIES_MEDIA_URL`, `MOVIES_API_KEY`, and `MOVIES_PROFILE` override the file;
- * `--profile` overrides `MOVIES_PROFILE`, which overrides the stored default.
+ * `--profile` overrides `MOVIES_PROFILE`, which overrides the stored default. A stored profile only
+ * serves its own server: when `MOVIES_CONVEX_URL` names another, its credentials stay unused.
  */
 import { join } from "node:path";
 
@@ -158,12 +159,21 @@ export const setDefaultProfile = Effect.fn("Config.setDefaultProfile")(function*
 export interface Target {
   /** The profile's name in the config file. */
   readonly name: string;
+  /**
+   * The stored profile, unless `MOVIES_CONVEX_URL` names another server: a profile's device,
+   * viewing profile, API key, and session belong to its own server and are never sent elsewhere.
+   */
   readonly stored: Option.Option<StoredProfile>;
   readonly convexUrl: Option.Option<string>;
   readonly mediaUrl: Option.Option<string>;
   readonly apiKey: Option.Option<Redacted.Redacted>;
   /** The API key came from `MOVIES_API_KEY`, so its session is not stored. */
   readonly apiKeyFromEnvironment: boolean;
+  /**
+   * Where the session's tokens live: in the stored profile, or only in memory when the API key
+   * comes from the environment or no stored profile is for this server.
+   */
+  readonly sessionStorage: "profile" | "memory";
 }
 
 /** Combines the flag, the environment, and the config file into the command's target. */
@@ -177,7 +187,13 @@ export const resolveTarget = (
     () => config.defaultProfile,
   );
 
-  const stored = Option.fromNullishOr(config.profiles[name]);
+  const stored = Option.filter(Option.fromNullishOr(config.profiles[name]), (profile) =>
+    Option.match(env.convexUrl, {
+      onNone: () => true,
+      onSome: (url) => url === normalizeUrl(profile.convexUrl),
+    }),
+  );
+
   const storedKey = Option.flatMap(stored, (profile) => Option.fromNullishOr(profile.apiKey));
 
   return {
@@ -191,6 +207,7 @@ export const resolveTarget = (
     ),
     apiKey: Option.orElse(env.apiKey, () => Option.map(storedKey, Redacted.make)),
     apiKeyFromEnvironment: Option.isSome(env.apiKey),
+    sessionStorage: Option.isSome(stored) && Option.isNone(env.apiKey) ? "profile" : "memory",
   };
 };
 

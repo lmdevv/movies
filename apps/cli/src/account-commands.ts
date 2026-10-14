@@ -239,7 +239,7 @@ const logout: ShortcutCommand = {
       const output = yield* Output;
       const { env, target } = invocation;
 
-      if (Option.isSome(target.convexUrl) && !target.apiKeyFromEnvironment) {
+      if (Option.isSome(target.convexUrl) && target.sessionStorage === "profile") {
         const { auth } = yield* openSdk(
           target.convexUrl.value,
           target.mediaUrl,
@@ -254,9 +254,12 @@ const logout: ShortcutCommand = {
         );
       }
 
-      yield* updateProfile(env.configPath, target.name, (profile) =>
-        Option.map(profile, ({ apiKey: _apiKey, session: _session, ...rest }) => rest),
-      );
+      // A stored profile for another server than MOVIES_CONVEX_URL keeps its own credentials.
+      if (Option.isSome(target.stored)) {
+        yield* updateProfile(env.configPath, target.name, (profile) =>
+          Option.map(profile, ({ apiKey: _apiKey, session: _session, ...rest }) => rest),
+        );
+      }
 
       if (target.apiKeyFromEnvironment) {
         yield* output.err("MOVIES_API_KEY is still set in the environment and keeps working.");
@@ -302,7 +305,18 @@ const profilesUse: ShortcutCommand = {
   run: (invocation) =>
     Effect.gen(function* () {
       const wanted = yield* requirePositional(invocation, "a profile ID or name");
-      const connection = yield* connect(invocation.env, invocation.target, "required");
+      const { target } = invocation;
+      const other = Option.fromNullishOr(invocation.config.profiles[target.name]);
+
+      // The stored profile is for another server than MOVIES_CONVEX_URL; never overwrite it.
+      if (Option.isNone(target.stored) && Option.isSome(other)) {
+        return yield* usage(
+          invocation,
+          `The stored profile "${target.name}" is for ${other.value.convexUrl}; pass --profile <new-name> to keep this choice for ${Option.getOrElse(target.convexUrl, () => "this server")}`,
+        );
+      }
+
+      const connection = yield* connect(invocation.env, target, "required");
       const profiles = yield* connection.withSession(connection.client.query("profiles.list", {}));
 
       const profile = profiles.find(

@@ -25,7 +25,8 @@ address (`MOVIES_PUBLIC_URL`, port 8080).
   Or set `MOVIES_CONVEX_URL`, `MOVIES_MEDIA_URL`, and `MOVIES_API_KEY` instead of logging in, so
   the key never touches the disk. Then choose the viewing profile once with
   `movies profiles list` and `movies profiles use <name>`; the config file keeps that choice and
-  the server URL, never the key.
+  the server URL, never the key. A stored profile for another server than `MOVIES_CONVEX_URL` is
+  left alone: its key and session are never sent to the other server.
 
 - **Device login (people):** `movies login --server <url>` prints a short code and an approval URL
   (and a QR code with `--human`), then waits until someone approves it in the web app. In JSON mode

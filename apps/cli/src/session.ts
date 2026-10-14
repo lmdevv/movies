@@ -87,9 +87,10 @@ export const connect = Effect.fn("Session.connect")(function* (
 
   const convexUrl = target.convexUrl.value;
 
-  const storage = target.apiKeyFromEnvironment
-    ? TokenStorage.layerMemory
-    : layerProfileStorage(env.configPath, target.name, Option.none());
+  const storage =
+    target.sessionStorage === "profile"
+      ? layerProfileStorage(env.configPath, target.name, Option.none())
+      : TokenStorage.layerMemory;
 
   const { client, auth } = yield* openSdk(convexUrl, target.mediaUrl, storage, env.configPath);
 

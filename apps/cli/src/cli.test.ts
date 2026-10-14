@@ -117,6 +117,39 @@ describe("the movies command", () => {
     expect(JSON.parse(run.stderr)).toMatchObject({ error: { code: "config_error" } });
   });
 
+  it("never sends a stored profile's credentials to another server in MOVIES_CONVEX_URL", async () => {
+    const other = mkdtempSync(join(tmpdir(), "movies-other-server-"));
+    const path = join(other, "movies", "config.json");
+
+    const stored = `${JSON.stringify({
+      defaultProfile: "home",
+      profiles: {
+        home: {
+          convexUrl: "https://home.example/convex",
+          deviceId: "cli-home",
+          apiKey: "mk_home",
+          session: { token: "jwt-home", refreshToken: "refresh-home" },
+        },
+      },
+    })}\n`;
+
+    mkdirSync(join(other, "movies"));
+    writeFileSync(path, stored);
+
+    const overridden = { XDG_CONFIG_HOME: other, MOVIES_CONVEX_URL: "http://127.0.0.1:9" };
+    // Nothing listens on the discard port: any request at all fails as unavailable (exit 9).
+    const run = await runInProcess(["whoami"], overridden);
+    const use = await runInProcess(["profiles", "use", "Kids"], overridden);
+    const after = readFileSync(path, "utf8");
+
+    rmSync(other, { recursive: true, force: true });
+    expect(run.code).toBe(ExitCode.unauthenticated);
+    expect(JSON.parse(run.stderr)).toMatchObject({ error: { code: "not_logged_in" } });
+    expect(use.code).toBe(ExitCode.usage);
+    expect(use.stderr).toContain("--profile <new-name>");
+    expect(after).toBe(stored);
+  });
+
   it("lists every command as JSON with argument schemas", async () => {
     const run = await movies("commands");
 

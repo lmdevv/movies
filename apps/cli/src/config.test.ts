@@ -54,6 +54,31 @@ describe("target resolution", () => {
     expect(Option.map(target.apiKey, Redacted.value)).toStrictEqual(Option.some("mk_env"));
     expect(target.apiKeyFromEnvironment).toBe(true);
   });
+
+  it("keeps the stored profile's credentials away from another server in MOVIES_CONVEX_URL", () => {
+    const target = resolveTarget(
+      config,
+      env({ convexUrl: Option.some("https://other.example/convex") }),
+      Option.none(),
+    );
+
+    expect(Option.getOrNull(target.convexUrl)).toBe("https://other.example/convex");
+    expect(target.stored).toStrictEqual(Option.none());
+    expect(target.apiKey).toStrictEqual(Option.none());
+    expect(target.sessionStorage).toBe("memory");
+  });
+
+  it("uses the stored profile when MOVIES_CONVEX_URL names its server", () => {
+    const target = resolveTarget(
+      config,
+      env({ convexUrl: Option.some("https://home.example/convex") }),
+      Option.none(),
+    );
+
+    expect(target.stored).toStrictEqual(Option.fromNullishOr(config.profiles["home"]));
+    expect(Option.map(target.apiKey, Redacted.value)).toStrictEqual(Option.some("mk_home"));
+    expect(target.sessionStorage).toBe("profile");
+  });
 });
 
 describe("the config file", () => {
