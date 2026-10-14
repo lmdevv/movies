@@ -11,7 +11,6 @@
 import { targetPosition } from "@movies/contracts/clock";
 import { DRIFT_THRESHOLDS } from "@movies/contracts/clock";
 import type { EpisodeId, RoomId, TitleId } from "@movies/contracts/ids";
-import type { Room } from "@movies/contracts/models/rooms";
 import { EpochMillis, Milliseconds } from "@movies/contracts/units";
 import { Playback } from "@movies/sdk/effect";
 import { useCommand, useCommandQuery, useMoviesRuntime, useRoomSync } from "@movies/sdk/react";
@@ -32,7 +31,7 @@ import {
   ListVideoIcon,
   PictureInPicture2Icon,
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useCommandRoot } from "@/commands";
@@ -50,6 +49,7 @@ import { copyText } from "@/lib/secure-context";
 import { episodeCode } from "@/lib/format";
 import { playerKeymap } from "@/lib/keymap";
 import { audioTrackLabel, subtitleTrackLabel } from "@/lib/media-facts";
+import { useLatest } from "@/lib/use-latest";
 import { volumeIsSettable } from "@/playback/browser-support";
 import { PlaybackPhase, StartChoice } from "@/playback/playback-controller";
 import type { PlaybackRequest } from "@/playback/playback-controller";
@@ -210,73 +210,50 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   const canSetVolume = useMemo(() => volumeIsSettable(), []);
 
   const watch = useWatchRoom(roomId ?? null, profile.id, deviceId);
-  // The room as the last commit saw it, for the start position, which is read after a render.
-  const roomRef = useRef<Room | null>(null);
 
   // Leaving the room the stream belongs to drops it from the URL; the stream plays on alone.
   const leftRoom = openedRoom !== null && roomId === undefined;
   const joined = openedRoom === null || leftRoom || watch?.join.status === "joined";
   const roomReady = openedRoom === null || leftRoom || (joined && watch?.room !== null);
   const roomRecord = watch?.room ?? null;
+  // The room as of the latest commit, for the start position, which is asked for later.
+  const latestRoom = useLatest(roomRecord);
 
-  useLayoutEffect(() => {
-    roomRef.current = roomRecord;
-  });
+  // Built only when a session starts (`playbackKey` changes), from that render's room and props.
+  const buildRequest = roomReady
+    ? (): PlaybackRequest => ({
+        profileId: profile.id,
+        deviceId,
+        deviceName: deviceName(),
+        titleId: roomRecord?.title.id ?? titleId,
+        episodeId: roomRecord === null ? (episodeId ?? null) : (roomRecord.episode?.id ?? null),
+        roomId: openedRoom,
+        start:
+          openedRoom === null
+            ? startChoice(start)
+            : StartChoice.At({
+                positionMs: () => {
+                  const current = latestRoom.current;
 
-  // What the room plays; the request follows these, not every clock or member update.
-  const roomTitleId = roomRecord?.title.id ?? null;
-  const roomEpisodeId = roomRecord?.episode?.id ?? null;
-  const inRoomRecord = roomRecord !== null;
-
-  // `usePlayback` reads the request only when `playbackKey` changes, so a rebuilt request never
-  // restarts playback by itself.
-  const request = useMemo((): PlaybackRequest | null => {
-    if (!roomReady) return null;
-
-    return {
-      profileId: profile.id,
-      deviceId,
-      deviceName: deviceName(),
-      titleId: roomTitleId ?? titleId,
-      episodeId: inRoomRecord ? roomEpisodeId : (episodeId ?? null),
-      roomId: openedRoom,
-      start:
-        openedRoom === null
-          ? startChoice(start)
-          : StartChoice.At({
-              positionMs: () => {
-                const current = roomRef.current;
-
-                return current === null
-                  ? 0
-                  : targetPosition(current.clock, EpochMillis.make(Date.now()));
-              },
-            }),
-      // Read once per session; later changes go through `selectQuality`.
-      quality: loadQualityChoice(),
-    };
-  }, [
-    roomReady,
-    roomTitleId,
-    roomEpisodeId,
-    inRoomRecord,
-    profile.id,
-    deviceId,
-    titleId,
-    episodeId,
-    openedRoom,
-    start,
-  ]);
+                  return current === null
+                    ? 0
+                    : targetPosition(current.clock, EpochMillis.make(Date.now()));
+                },
+              }),
+        // Read once per session; later changes go through `selectQuality`.
+        quality: loadQualityChoice(),
+      })
+    : null;
 
   const playbackKey = [
-    request === null ? "waiting" : "ready",
+    roomReady ? "ready" : "waiting",
     profile.id,
     titleId,
     episodeId ?? "",
     openedRoom ?? "",
   ].join(":");
 
-  const handle = usePlayback(video, request, playbackKey);
+  const handle = usePlayback(video, buildRequest, playbackKey);
   const controller = handle?.controller ?? null;
   const snapshot = handle?.snapshot ?? null;
   const phase = snapshot?.phase ?? PlaybackPhase.Starting();

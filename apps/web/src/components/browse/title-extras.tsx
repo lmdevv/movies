@@ -17,7 +17,7 @@ import { MediaRow } from "@movies/ui/components/media-row";
 import { cn } from "@movies/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import { ArrowUpRightIcon, ClapperboardIcon, StarIcon } from "lucide-react";
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 
 import { artworkUrl } from "@/lib/artwork";
 import { toastFailure } from "@/lib/failure";
@@ -28,11 +28,6 @@ import { TitleLandscapeCard, TitlePosterCard } from "./title-cards";
 import type { TrailerDialog as TrailerDialogComponent } from "./trailer-dialog";
 
 const loadTrailerDialog = () => import("./trailer-dialog");
-
-// Warming up only; a failure here shows when the button is pressed.
-const preloadTrailerDialog = (): void => {
-  void loadTrailerDialog().catch(() => undefined);
-};
 
 /** People the cast row shows: the billed cast, then the crew who made the title. */
 const CAST_ROW_LIMIT = 24;
@@ -233,27 +228,59 @@ export function TrailerButton({
   readonly phone: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  // The dialog loads on the first press (or as the pointer or focus reaches the button) and then
-  // stays mounted, so closing still animates. A failed load, such as after a redeploy, is a toast.
+  // The dialog's module loads as the pointer or focus reaches the button, so it is mounted, closed,
+  // before the press and opening it animates. It then stays mounted, so closing animates too.
   const [dialog, setDialog] = useState<typeof TrailerDialogComponent | null>(null);
+  // A press before the module arrived waits for the same load; a failed load, such as after a
+  // redeploy, is a toast, and the next press tries again.
+  const [pending, setPending] = useState(false);
+  const loading = useRef<Promise<typeof TrailerDialogComponent> | null>(null);
   const src = trailerEmbedUrl(trailer.key);
 
   if (src === undefined) return null;
 
-  const show = async (): Promise<void> => {
-    if (dialog === null) {
-      try {
-        const loaded = await loadTrailerDialog();
-
+  const load = (): Promise<typeof TrailerDialogComponent> => {
+    loading.current ??= loadTrailerDialog().then(
+      (loaded) => {
         setDialog(() => loaded.TrailerDialog);
-      } catch (cause) {
-        toastFailure(cause);
 
-        return;
-      }
+        return loaded.TrailerDialog;
+      },
+      (cause: unknown) => {
+        loading.current = null;
+
+        throw cause;
+      },
+    );
+
+    return loading.current;
+  };
+
+  // Warming up only; a failure shows when the button is pressed.
+  const prepare = (): void => {
+    load().catch(() => undefined);
+  };
+
+  const show = async (): Promise<void> => {
+    if (dialog !== null) {
+      setOpen(true);
+
+      return;
     }
 
-    setOpen(true);
+    if (pending) return;
+
+    setPending(true);
+
+    try {
+      await load();
+      // Mount closed first, then open on the next frame, so the first opening animates as well.
+      requestAnimationFrame(() => setOpen(true));
+    } catch (cause) {
+      toastFailure(cause);
+    } finally {
+      setPending(false);
+    }
   };
 
   const Dialog = dialog;
@@ -262,13 +289,14 @@ export function TrailerButton({
     <>
       <button
         type="button"
-        onPointerEnter={preloadTrailerDialog}
-        onFocus={preloadTrailerDialog}
+        aria-busy={pending || undefined}
+        onPointerEnter={prepare}
+        onFocus={prepare}
         onClick={() => void show()}
         className={
           phone
-            ? "flex w-26 cursor-pointer flex-col items-center gap-1.5 text-caption/caption text-text-muted"
-            : buttonVariants({ variant: "secondary", size: "lg" })
+            ? "flex w-26 cursor-pointer flex-col items-center gap-1.5 text-caption/caption text-text-muted aria-busy:cursor-progress"
+            : cn(buttonVariants({ variant: "secondary", size: "lg" }), "aria-busy:cursor-progress")
         }
       >
         <ClapperboardIcon

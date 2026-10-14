@@ -10,11 +10,12 @@ import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Chip } from "@movies/ui/components/chip";
 import { ChevronDownIcon } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { describeFailure } from "@/lib/failure";
 import { plural, titleFacts } from "@/lib/format";
+import { useLatest } from "@/lib/use-latest";
 import { decadesUntil } from "@/lib/metadata";
 import { useActiveProfile } from "@/session/guards";
 
@@ -144,31 +145,44 @@ function PageSubscription({
   return null;
 }
 
-/** Calls `onVisible` whenever the returned element scrolls near the viewport. */
-const useNearViewport = (
-  onChange: (near: boolean) => void,
-): ((element: HTMLElement | null) => (() => void) | undefined) => {
-  const latest = useRef(onChange);
+/** What {@link useNearViewport} returns. */
+interface NearViewport {
+  readonly near: { readonly current: boolean };
+  readonly ref: (element: HTMLElement | null) => (() => void) | undefined;
+}
 
-  useLayoutEffect(() => {
-    latest.current = onChange;
-  });
+/**
+ * Watches the returned element: `near` says whether it is within reach of the viewport, and
+ * `onNear` runs each time it comes near. Leaving, or the element going away, only clears `near`.
+ */
+const useNearViewport = (onNear: () => void): NearViewport => {
+  const latest = useLatest(onNear);
+  const near = useRef(false);
 
-  return useCallback((element: HTMLElement | null) => {
-    if (element === null) return undefined;
+  const ref = useCallback(
+    (element: HTMLElement | null) => {
+      if (element === null) return undefined;
 
-    const observer = new IntersectionObserver(
-      (entries) => latest.current(entries.some((entry) => entry.isIntersecting)),
-      { rootMargin: "600px 0px" },
-    );
+      const observer = new IntersectionObserver(
+        (entries) => {
+          near.current = entries.some((entry) => entry.isIntersecting);
 
-    observer.observe(element);
+          if (near.current) latest.current();
+        },
+        { rootMargin: "600px 0px" },
+      );
 
-    return () => {
-      observer.disconnect();
-      latest.current(false);
-    };
-  }, []);
+      observer.observe(element);
+
+      return () => {
+        observer.disconnect();
+        near.current = false;
+      };
+    },
+    [latest],
+  );
+
+  return { near, ref };
 };
 
 /** Page heading: a heavy title with a mono count, and controls on the right. */
@@ -295,7 +309,18 @@ export function TitleGridPage({
   const [failures, setFailures] = useState<ReadonlyMap<number, unknown>>(new Map());
   // Try again counts up; it is part of every page subscription's key, so they all subscribe anew.
   const [attempt, setAttempt] = useState(0);
-  const nearEnd = useRef(false);
+  const last = pages[cursors.length - 1];
+
+  // The grid's end coming into view asks for the page after the last one loaded.
+  const end = useNearViewport(() => {
+    if (last?.nextCursor !== undefined && last.nextCursor !== null) {
+      const cursor = last.nextCursor;
+
+      setCursors((current) => (current.includes(cursor) ? current : [...current, cursor]));
+    }
+  });
+
+  const nearEnd = end.near;
 
   // Any change of filter starts over from the first page.
   const changeFilters = (next: Partial<GridFilters>): void => {
@@ -307,25 +332,28 @@ export function TitleGridPage({
 
   // A page that lands while the grid's end is still in view asks for the next one, so filtered
   // pages that hold few titles keep loading until the grid fills or the list ends.
-  const onPage = useCallback((index: number, page: LoadedPage) => {
-    setPages((current) => {
-      const next = [...current];
+  const onPage = useCallback(
+    (index: number, page: LoadedPage) => {
+      setPages((current) => {
+        const next = [...current];
 
-      next[index] = page;
+        next[index] = page;
 
-      return next;
-    });
+        return next;
+      });
 
-    const { nextCursor } = page;
+      const { nextCursor } = page;
 
-    if (nearEnd.current && nextCursor !== null) {
-      setCursors((current) =>
-        current.length === index + 1 && !current.includes(nextCursor)
-          ? [...current, nextCursor]
-          : current,
-      );
-    }
-  }, []);
+      if (nearEnd.current && nextCursor !== null) {
+        setCursors((current) =>
+          current.length === index + 1 && !current.includes(nextCursor)
+            ? [...current, nextCursor]
+            : current,
+        );
+      }
+    },
+    [nearEnd],
+  );
 
   const onError = useCallback((index: number, cause: unknown) => {
     setFailures((current) => new Map(current).set(index, cause));
@@ -338,19 +366,8 @@ export function TitleGridPage({
 
   const failure = firstFailure(failures);
   const loaded = pages.flatMap((page) => page?.items ?? []);
-  const last = pages[cursors.length - 1];
   const complete = last !== undefined && last.nextCursor === null;
   const now = Date.now();
-
-  const sentinel = useNearViewport((near) => {
-    nearEnd.current = near;
-
-    if (near && last?.nextCursor !== undefined && last.nextCursor !== null) {
-      const cursor = last.nextCursor;
-
-      setCursors((current) => (current.includes(cursor) ? current : [...current, cursor]));
-    }
-  });
 
   const noun = kind === "show" ? ["show", "shows"] : ["title", "titles"];
 
@@ -413,7 +430,7 @@ export function TitleGridPage({
           isNarrowed(filters) ? `No ${noun[1] ?? ""} match` : `No ${heading.toLowerCase()} yet`
         }
         now={now}
-        sentinel={sentinel}
+        sentinel={end.ref}
       />
     </div>
   );

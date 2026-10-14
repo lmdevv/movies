@@ -21,18 +21,19 @@ export interface PlaybackHandle {
 const subscribeNothing = (): (() => void) => () => undefined;
 
 /**
- * Plays `request` in `element` while both stay the same, disposing the controller (and ending the
- * session) on change or unmount. `key` names the request: a new key starts a new session.
+ * Plays the request `buildRequest` makes in `element`, disposing the controller (and ending the
+ * session) when the element, the runtime, or `key` changes, or on unmount. `key` names the
+ * request: a new key starts a new session, and only then is the request built, from the latest
+ * render. Pass `null` while there is nothing to play yet.
  */
 export const usePlayback = (
   element: HTMLVideoElement | null,
-  request: PlaybackRequest | null,
+  buildRequest: (() => PlaybackRequest) | null,
   key: string,
 ): PlaybackHandle | null => {
   const runtime = useMoviesRuntime();
   const [controller, setController] = useState<PlaybackController | null>(null);
-  // The request as of the render that changed `key`; later changes to it do not restart playback.
-  const currentRequest = useEffectEvent(() => request);
+  const currentRequest = useEffectEvent(() => (buildRequest === null ? null : buildRequest()));
 
   useEffect(() => {
     const started = currentRequest();
