@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 
 import { commands } from "@movies/contracts/commands";
+import { NotFound } from "@movies/contracts/errors";
 import { ApiKeyScope } from "@movies/contracts/scopes";
 import { Auth, DeviceLogin, MoviesClient } from "@movies/sdk/effect";
 import { Config, Effect, Option, Redacted, Schema, Struct } from "effect";
@@ -310,10 +311,9 @@ const profilesUse: ShortcutCommand = {
       );
 
       if (profile === undefined) {
-        return yield* usage(
-          invocation,
-          `No profile "${wanted}"; choose one of ${profiles.map((p) => `${p.name} (${p.id})`).join(", ")}`,
-        );
+        return yield* new NotFound({
+          message: `No profile "${wanted}"; choose one of ${profiles.map((p) => `${p.name} (${p.id})`).join(", ")}`,
+        });
       }
 
       // An install that runs on environment variables alone has no stored profile yet; it gets
@@ -430,13 +430,14 @@ const keysRevoke: ShortcutCommand = {
 
       const [key] = matches;
 
-      if (key === undefined || matches.length > 1) {
-        return yield* usage(
-          invocation,
-          matches.length > 1
-            ? `Several keys are named "${wanted}"; revoke one by ID`
-            : `No active API key "${wanted}"; see movies keys list`,
-        );
+      if (key === undefined) {
+        return yield* new NotFound({
+          message: `No active API key "${wanted}"; see movies keys list`,
+        });
+      }
+
+      if (matches.length > 1) {
+        return yield* usage(invocation, `Several keys are named "${wanted}"; revoke one by ID`);
       }
 
       yield* connection.withSession(

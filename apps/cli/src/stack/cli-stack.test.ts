@@ -244,4 +244,16 @@ describe.skipIf(stack === undefined)("the movies CLI against a real stack", () =
     expect((await runMovies(["rooms", "leave"], guest)).code).toBe(ExitCode.ok);
     expect((await runMovies(["rooms", "leave"], owner)).code).toBe(ExitCode.ok);
   });
+
+  it("reports an unknown viewing profile or API key as not found", async () => {
+    const profile = await runMovies(["profiles", "use", `missing-${id}`], owner);
+
+    expect(profile.code).toBe(ExitCode.notFound);
+    expect(profile.stderr).toContain('"code":"not_found"');
+
+    const key = await runMovies(["keys", "revoke", `missing-${id}`], owner);
+
+    expect(key.code).toBe(ExitCode.notFound);
+    expect(key.stderr).toContain('"code":"not_found"');
+  });
 });
