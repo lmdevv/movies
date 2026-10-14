@@ -22,14 +22,15 @@ export interface RegistryEntry {
   readonly job: boolean;
 }
 
-/** Whether a result schema carries a `jobId` to follow. */
-const returnsJob = (command: AnyCommand): boolean => {
-  const ast = SchemaAST.toEncoded(command.result.ast);
+/** Whether an encoded schema, or any member of a union such as `queued | failed`, has a `jobId`. */
+const hasJobId = (ast: SchemaAST.AST): boolean =>
+  (SchemaAST.isObjects(ast) &&
+    ast.propertySignatures.some((property) => property.name === "jobId")) ||
+  (SchemaAST.isUnion(ast) && ast.types.some(hasJobId));
 
-  return (
-    SchemaAST.isObjects(ast) && ast.propertySignatures.some((property) => property.name === "jobId")
-  );
-};
+/** Whether a result schema carries a `jobId` to follow. */
+const returnsJob = (command: AnyCommand): boolean =>
+  hasJobId(SchemaAST.toEncoded(command.result.ast));
 
 /** Every registry command in registry order. */
 export const registryEntries: ReadonlyArray<RegistryEntry> = Object.keys(commands)

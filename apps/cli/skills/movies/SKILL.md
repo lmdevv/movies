@@ -338,7 +338,7 @@ and newer [movies] progress is kept unless the source played the item more recen
 
 - `movies migration connect --source <jellyfin|plex> --url <text> --credentials <json> [--path-mappings <json>]`: Connect to a Jellyfin or Plex server to migrate from. (scope admin)
 - `movies migration dry-run <connection-id> [--users <json>]`: Preview what a migration would import without writing anything. (scope admin)
-- `movies migration import <connection-id> [--users <json>]`: Import libraries, watch history, favorites, collections, and metadata overrides. (scope admin)
+- `movies migration import <connection-id> [--users <json>] [--wait [--timeout <seconds>]]`: Import libraries, watch history, favorites, collections, and metadata overrides. (scope admin; job: add `--wait`)
 - `movies migration status`: Show migration jobs, their phase, and what they imported. (scope admin)
 
 <!-- END:commands -->

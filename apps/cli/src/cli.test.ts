@@ -57,6 +57,12 @@ describe("the movies command", () => {
     }
   });
 
+  it("offers --wait on every command that can queue a job", async () => {
+    const help = await movies("migration", "import", "--help");
+
+    expect(help.stdout).toContain("--wait");
+  });
+
   it("accepts camelCase registry words", async () => {
     expect((await movies("apiKeys", "create", "--help")).stdout).toContain(
       "Registry command apiKeys.create",
