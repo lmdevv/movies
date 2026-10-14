@@ -4,8 +4,14 @@ import { Schema } from "effect";
 /** Arguments of a command that takes none. */
 export const NoArgs = Schema.Struct({});
 
+/** Arguments of a command that takes none. */
+export interface NoArgs extends Schema.Schema.Type<typeof NoArgs> {}
+
 /** The result of a command that only reports success. */
 export const Ok = Schema.Struct({ ok: Schema.Literal(true) });
+
+/** The result of a command that only succeeds. */
+export interface Ok extends Schema.Schema.Type<typeof Ok> {}
 
 /** A short human-entered name, trimmed, 1 to 80 characters. */
 export const DisplayName = Schema.Trimmed.check(Schema.isMinLength(1), Schema.isMaxLength(80));

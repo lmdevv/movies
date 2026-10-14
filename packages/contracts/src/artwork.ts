@@ -15,7 +15,7 @@ export const ArtworkWidth = Schema.Literals(ARTWORK_WIDTHS);
 /** A width the media service resizes artwork to. */
 export type ArtworkWidth = typeof ArtworkWidth.Type;
 
-/** An artwork key as titles carry it: a version prefix and a sealed reference. */
+/** An artwork key as the media service mints it: a version prefix and a sealed reference. */
 export const ArtworkKey = Schema.String.check(
   Schema.isPattern(/^a1\.[\w-]+$/u),
   Schema.isMaxLength(2048),

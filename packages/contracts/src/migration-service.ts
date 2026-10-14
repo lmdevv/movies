@@ -8,7 +8,7 @@ import { Schema } from "effect";
 import { mutation, query } from "./commands/command";
 import { LibraryId, ProfileId } from "./ids";
 import { NoArgs, Page, PageArgs } from "./models/common";
-import { LibraryKind, LibraryRoot } from "./models/catalog";
+import { LibraryKind, LibraryRoots } from "./models/catalog";
 import { JobProgress, QueuedJob } from "./models/jobs";
 import { MigrationImported } from "./models/migration";
 import {
@@ -25,10 +25,7 @@ import {
   WatchStateImport,
   WatchStateImported,
 } from "./models/migration-service";
-import { LeaseArgs, SCAN_BATCH_LIMIT } from "./models/scan";
-
-const Batch = <Item extends Schema.Top>(item: Item) =>
-  Schema.Array(item).check(Schema.isMaxLength(SCAN_BATCH_LIMIT));
+import { LeaseArgs, ScanBatch } from "./models/scan";
 
 /** Migration functions by name. */
 export const migrationServiceFunctions = {
@@ -93,7 +90,7 @@ export const migrationServiceFunctions = {
       ...LeaseArgs,
       name: Schema.String,
       kind: LibraryKind,
-      roots: Schema.Array(LibraryRoot).check(Schema.isMinLength(1), Schema.isMaxLength(20)),
+      roots: LibraryRoots,
     }),
     result: Schema.Struct({ libraryIds: Schema.Array(LibraryId), created: Schema.Boolean }),
     function: "migrationService:ensureLibrary",
@@ -110,7 +107,7 @@ export const migrationServiceFunctions = {
     summary: "Import up to 100 matched watched marks, positions, play counts, and favorites",
     group: "media-service",
     scope: "media-service",
-    args: Schema.Struct({ ...LeaseArgs, items: Batch(WatchStateImport) }),
+    args: Schema.Struct({ ...LeaseArgs, items: ScanBatch(WatchStateImport) }),
     result: WatchStateImported,
     function: "migrationService:importWatchState",
   }),
@@ -137,7 +134,7 @@ export const migrationServiceFunctions = {
     summary: "Apply up to 100 matched titles' locked source metadata as overrides",
     group: "media-service",
     scope: "media-service",
-    args: Schema.Struct({ ...LeaseArgs, items: Batch(OverrideImport) }),
+    args: Schema.Struct({ ...LeaseArgs, items: ScanBatch(OverrideImport) }),
     result: Schema.Struct({ imported: Schema.Int }),
     function: "migrationService:importOverrides",
   }),

@@ -136,8 +136,8 @@ const invalid = (reason: PlaybackTokenInvalid["reason"], message: string) =>
   new PlaybackTokenInvalid({ reason, message });
 
 /**
- * Signs a payload. Convex signs tokens itself; this exists for the media service's tests and for
- * the shared test vectors.
+ * Signs a payload. Production tokens come from Convex (`convex/lib/playbackToken.ts` in the
+ * backend); this signer checks that the two agree on the shared test vectors.
  */
 export const signPlaybackToken = Effect.fn("signPlaybackToken")(function* (
   key: PlaybackTokenKey,

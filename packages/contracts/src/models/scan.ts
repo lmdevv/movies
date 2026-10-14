@@ -19,6 +19,7 @@ import {
   ExternalIds,
   ExternalSubtitle,
   LibraryKind,
+  MatchStatus,
   Probe,
   Ratings,
   ShowStatus,
@@ -72,6 +73,9 @@ export const CREDIT_BATCH_LIMIT = 100;
 const Bounded = <Item extends Schema.Top>(item: Item, limit: number) =>
   Schema.Array(item).check(Schema.isMaxLength(limit));
 
+/** Items of one scan or import write: at most `SCAN_BATCH_LIMIT`. */
+export const ScanBatch = <Item extends Schema.Top>(item: Item) => Bounded(item, SCAN_BATCH_LIMIT);
+
 /**
  * A title as the scanner identified and matched it. `matchKey` identifies the title within its
  * library across scans, such as `tmdb:603` or `local:the matrix (1999)`.
@@ -90,7 +94,7 @@ export const ScannedTitle = Schema.Struct({
   runtimeMs: Schema.NullOr(Milliseconds),
   artwork: Artwork,
   externalIds: ExternalIds,
-  matchStatus: Schema.Literals(["matched", "unmatched"]),
+  matchStatus: MatchStatus.pick(["matched", "unmatched"]),
   originalName: Schema.optionalKey(Schema.NullOr(Schema.String)),
   releaseDate: Schema.optionalKey(Schema.NullOr(Schema.String)),
   status: Schema.optionalKey(Schema.NullOr(ShowStatus)),
@@ -179,6 +183,9 @@ export const IndexedFile = Schema.Struct({
   sidecarDigest: Schema.NullOr(Schema.String),
 });
 
+/** A file the scanner already knows, as it compares them. */
+export interface IndexedFile extends Schema.Schema.Type<typeof IndexedFile> {}
+
 /** Everything the media service needs to serve a file named in a playback token. */
 export const ResolvedFile = Schema.Struct({
   fileId: MediaFileId,
@@ -202,11 +209,17 @@ export const SessionStatus = Schema.Struct({
   endedAt: Schema.NullOr(EpochMillis),
 });
 
+/** Whether a playback session continues. */
+export interface SessionStatus extends Schema.Schema.Type<typeof SessionStatus> {}
+
 /** An ended playback session whose streams the media service should stop. */
 export const EndedSession = Schema.Struct({
   sessionId: PlaybackSessionId,
   endedAt: EpochMillis,
 });
+
+/** A playback session that ended. */
+export interface EndedSession extends Schema.Schema.Type<typeof EndedSession> {}
 
 /** A title for a metadata job: what to look up and which episodes exist. */
 export const MetadataTarget = Schema.Struct({
@@ -222,6 +235,9 @@ export const MetadataTarget = Schema.Struct({
     Schema.Struct({ episodeId: EpisodeId, seasonNumber: Schema.Int, episodeNumber: Schema.Int }),
   ),
 });
+
+/** A title a metadata job writes. */
+export interface MetadataTarget extends Schema.Schema.Type<typeof MetadataTarget> {}
 
 /** A person as a scan or metadata job found them on a credit. */
 export const ScannedPerson = Schema.Struct({
@@ -263,9 +279,7 @@ export interface ScannedCollection extends Schema.Schema.Type<typeof ScannedColl
 
 /** A person's details from the metadata provider. */
 export const ScannedPersonDetails = Schema.Struct({
-  name: Schema.Trimmed.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
-  externalIds: ExternalIds,
-  profile: Schema.NullOr(Schema.String),
+  ...ScannedPerson.fields,
   biography: Schema.NullOr(Schema.String),
   birthDate: Schema.NullOr(Schema.String),
   deathDate: Schema.NullOr(Schema.String),

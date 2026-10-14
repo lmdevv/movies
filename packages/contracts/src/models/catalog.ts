@@ -30,6 +30,12 @@ export type LibraryAccess = typeof LibraryAccess.Type;
 /** An absolute folder path on the media host. */
 export const LibraryRoot = Schema.String.check(Schema.isPattern(/^\//u), Schema.isMaxLength(1024));
 
+/** A library's folders: one to twenty. */
+export const LibraryRoots = Schema.Array(LibraryRoot).check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(20),
+);
+
 /** A library as viewers see it. Folder paths are visible only to `manage` sessions. */
 export const Library = Schema.Struct({
   id: LibraryId,
@@ -136,14 +142,6 @@ export const Ratings = Schema.Struct({
 
 /** Scores from rating sites. */
 export interface Ratings extends Schema.Schema.Type<typeof Ratings> {}
-
-/** Ratings of a title nobody has scored. */
-export const NO_RATINGS: Ratings = {
-  tmdb: null,
-  imdb: null,
-  rottenTomatoes: null,
-  metacritic: null,
-};
 
 /** The shape of a YouTube video ID; Convex checks the same pattern (`YOUTUBE_KEY` there). */
 export const YOUTUBE_KEY_PATTERN = /^[\w-]{6,20}$/u;
