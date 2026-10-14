@@ -2,7 +2,18 @@ import { NodeServices } from "@effect/platform-node";
 import { assert, describe, layer } from "@effect/vitest";
 import { MediaFileId } from "@movies/contracts/ids";
 import { TrickplayManifest, trickplayVersion } from "@movies/contracts/trickplay";
-import { Duration, Effect, Exit, FileSystem, Layer, Option, Path, Schema } from "effect";
+import {
+  Context,
+  Duration,
+  Effect,
+  Exit,
+  FileSystem,
+  Layer,
+  Option,
+  Path,
+  PlatformError,
+  Schema,
+} from "effect";
 
 import { probeFile } from "../media/media-probe.ts";
 import * as MediaTools from "../media/media-tools.ts";
@@ -362,6 +373,55 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
         }),
     );
 
+    it.effect("keeps a version's earlier set when its replacement cannot take its place", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const { root } = yield* FixtureWorkspace.Service;
+        const store = yield* TrickplayStore.Service;
+
+        yield* store.publish("file3", "a-1", built(2));
+
+        // The same store on a disk where moving a new set into place fails, as a full or
+        // unplugged one may; moving folders aside still works.
+        const intoPlaceFails = Layer.succeed(FileSystem.FileSystem, {
+          ...fs,
+          rename: (from: string, to: string) =>
+            path.basename(from).startsWith(".building-a-1-")
+              ? Effect.fail(
+                  PlatformError.systemError({
+                    _tag: "Unknown",
+                    module: "FileSystem",
+                    method: "rename",
+                    pathOrDescriptor: from,
+                  }),
+                )
+              : fs.rename(from, to),
+        });
+
+        // Fresh: the layer is memoized, and the store already built uses the working disk.
+        const failing = Context.get(
+          yield* Layer.build(
+            Layer.fresh(TrickplayStore.layer).pipe(
+              Layer.provide(
+                Layer.mergeAll(
+                  intoPlaceFails,
+                  testConfigLayer({ DATA_DIR: path.join(root, "data") }),
+                ),
+              ),
+            ),
+          ),
+          TrickplayStore.Service,
+        );
+
+        const exit = yield* Effect.exit(failing.publish("file3", "a-1", built(1)));
+
+        assert.isTrue(Exit.isFailure(exit));
+        assert.isTrue(Option.isSome(yield* store.find("file3", "a-1", "manifest.json")));
+        assert.isTrue(Option.isSome(yield* store.find("file3", "a-1", "1.jpg")));
+      }).pipe(Effect.scoped),
+    );
+
     it.effect("sweeps thumbnails the catalog no longer uses, sparing recent ones", () =>
       Effect.gen(function* () {
         const store = yield* TrickplayStore.Service;
@@ -409,6 +469,7 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
           "changing",
           "file1",
           "file2",
+          "file3",
           "fresh",
           "gone",
           "kept",

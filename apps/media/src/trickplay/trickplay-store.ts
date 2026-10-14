@@ -56,8 +56,8 @@ export interface Interface {
   ) => Effect.Effect<Option.Option<string>>;
   /**
    * Runs `build` in a fresh folder, writes the manifest it returns, and renames that folder into
-   * place as `version`. The file's other versions stay for the sweep. A failed build leaves the
-   * stored thumbnails as they were.
+   * place as `version`. The file's other versions stay for the sweep. A failed build or rename
+   * leaves the stored thumbnails as they were, including an earlier set of the same version.
    */
   readonly publish: <E, R>(
     fileId: string,
@@ -131,11 +131,29 @@ const make = Effect.fn("TrickplayStore.make")(function* (root: string) {
         Effect.onError(() => removeQuietly(building)),
       );
 
-      yield* removeQuietly(target);
+      // An earlier set of this version (a retry, an admin asking again) moves aside rather than
+      // going first, and comes back if the new set cannot take its place.
+      const retired = path.join(parent, `${BUILDING}retired-${version}-${suffix}`);
+      const replacing = yield* fs.exists(target).pipe(Effect.orElseSucceed(() => false));
+
+      if (replacing) {
+        yield* fs.rename(target, retired).pipe(
+          Effect.mapError(storageFailed),
+          Effect.onError(() => removeQuietly(building)),
+        );
+      }
+
       yield* fs.rename(building, target).pipe(
         Effect.mapError(storageFailed),
-        Effect.onError(() => removeQuietly(building)),
+        Effect.onError(() =>
+          Effect.andThen(
+            removeQuietly(building),
+            replacing ? fs.rename(retired, target).pipe(Effect.ignore) : Effect.void,
+          ),
+        ),
       );
+
+      if (replacing) yield* removeQuietly(retired);
 
       return manifest;
     }).pipe(Effect.withSpan("TrickplayStore.publish"));
