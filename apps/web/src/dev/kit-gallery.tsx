@@ -57,6 +57,12 @@ const SUBTITLES = [
   { id: "es", label: "Español" },
 ] as const;
 
+const VERSIONS = [
+  { id: "hdr", label: "HDR10 HEVC", detail: "4K · HDR10 · HEVC · EAC3 5.1 · 41.2 GB" },
+  { id: "direct", label: "Direct Play", detail: "1080p · H.264 · AAC 2.0 · 2.1 GB" },
+  { id: "sd", label: "SD Interlaced MPEG-2", detail: "SD · MPEG-2 · AC3 2.0 · 900 MB" },
+] as const;
+
 const LANGUAGES: ReadonlyArray<{
   readonly id: string;
   readonly title: string;
@@ -325,6 +331,8 @@ export function KitGallery() {
   const [audio, setAudio] = useState("en-51");
   const [subtitle, setSubtitle] = useState("en-cc");
 
+  const [version, setVersion] = useState("direct");
+
   const trackChoices = [
     { id: "audio", label: "Audio", options: AUDIO, value: audio, onValueChange: setAudio },
     {
@@ -556,6 +564,18 @@ export function KitGallery() {
               />
             </div>
             <TrackPanel choices={trackChoices} />
+            <TrackPanel
+              choices={[
+                {
+                  id: "version",
+                  label: "Version",
+                  options: VERSIONS,
+                  value: version,
+                  onValueChange: setVersion,
+                },
+                ...trackChoices,
+              ]}
+            />
           </div>
         </Section>
 

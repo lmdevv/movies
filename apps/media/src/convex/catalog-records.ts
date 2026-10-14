@@ -7,6 +7,7 @@
  */
 import type { ArtworkKey } from "@movies/contracts/artwork";
 import { ageRatingFromCertification } from "@movies/contracts/content-rating";
+import { dynamicRangeOf } from "@movies/contracts/direct-play";
 import { Container, type DynamicRange } from "@movies/contracts/media-playback";
 import type { ExternalSubtitle, HdrFormat, Probe } from "@movies/contracts/models/catalog";
 import { type Ratings, type Trailer, YOUTUBE_KEY_PATTERN } from "@movies/contracts/models/catalog";
@@ -48,14 +49,6 @@ const HDR_FORMATS: Readonly<Record<DynamicRange, HdrFormat>> = {
   hdr10: "hdr10",
   hlg: "hlg",
   "dolby-vision": "dolby_vision",
-};
-
-const DYNAMIC_RANGES: Readonly<Record<HdrFormat, DynamicRange>> = {
-  none: "sdr",
-  hdr10: "hdr10",
-  hdr10plus: "hdr10",
-  hlg: "hlg",
-  dolby_vision: "dolby-vision",
 };
 
 /** An optional field's value, for spreading it only when present. */
@@ -163,7 +156,7 @@ const toMediaProbe = (probe: Probe): MediaProbe => {
             width: video.width,
             height: video.height,
             frameRate: video.frameRate ?? undefined,
-            dynamicRange: DYNAMIC_RANGES[video.hdr],
+            dynamicRange: dynamicRangeOf(video.hdr),
           },
     audio: probe.audio.map((track) => ({
       index: track.index,
@@ -428,6 +421,20 @@ const toExternalSubtitle = (subtitle: ScannedFile["subtitles"][number]): Externa
 });
 
 /**
+ * What tells a movie's file from its others in the version picker: its edition, its part of a
+ * movie split across files, or both (`Director's Cut · Part 2`); null for episodes and plain
+ * files.
+ */
+export const versionNameOf = (name: MediaName): string | null => {
+  if (!MediaName.guards.Movie(name)) return null;
+
+  const part = name.part === undefined ? undefined : `Part ${String(name.part)}`;
+  const parts = [name.edition, part].filter((piece) => piece !== undefined);
+
+  return parts.length === 0 ? null : parts.join(" · ");
+};
+
+/**
  * The catalog item of a scanned file, or none for an extra (a trailer or featurette), which
  * belongs to no title.
  */
@@ -445,7 +452,7 @@ export const toScannedItem = Effect.fnUntraced(function* (
       mtimeMs: EpochMillis.make(Math.trunc(file.modifiedAtMs)),
       probe: toCatalogProbe(file.probe),
       externalSubtitles: file.subtitles.map(toExternalSubtitle),
-      versionName: MediaName.guards.Movie(file.name) ? (file.name.edition ?? null) : null,
+      versionName: versionNameOf(file.name),
       sidecarDigest: file.sidecarDigest,
     },
     title: yield* toScannedTitle(folder, file.title, seal),

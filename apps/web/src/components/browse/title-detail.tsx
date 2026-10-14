@@ -1,12 +1,19 @@
 /**
  * A movie's or show's page (05 Browse · 04, 05, 05b, and 09 iOS): the backdrop band with the title,
- * facts, scores, and technical badges, play and resume, the trailer, My List, the overview, who made
+ * facts, scores, and technical badges, play and resume with the version to play when there are
+ * several files, the trailer, My List, the overview, who made
  * it, genres, studio, dates, tracks, and provider links, the file missing warning, a show's
  * episodes, the cast and crew, the title's collection, and More like this.
  */
-import type { ProfileId } from "@movies/contracts/ids";
-import type { MediaFile, ShowStatus, TitleDetail } from "@movies/contracts/models/catalog";
-import { useCommand } from "@movies/sdk/react";
+import type { MediaFileId, ProfileId } from "@movies/contracts/ids";
+import type {
+  MediaFile,
+  MediaVersion,
+  ShowStatus,
+  TitleDetail,
+} from "@movies/contracts/models/catalog";
+import { MediaLabels, Versions } from "@movies/sdk/effect";
+import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Badge } from "@movies/ui/components/badge";
 import { Button } from "@movies/ui/components/button";
 import { buttonVariants } from "@movies/ui/lib/button-variants";
@@ -16,6 +23,7 @@ import { cn } from "@movies/ui/lib/utils";
 import { Link, useRouter } from "@tanstack/react-router";
 import {
   CheckIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   HardDriveIcon,
   PlusIcon,
@@ -32,10 +40,13 @@ import { toastFailure } from "@/lib/failure";
 import { facts, formatRemaining, formatRuntime, plural } from "@/lib/format";
 import { fileBadges, trackSummary } from "@/lib/media-facts";
 import { formatDate, languageName, titleLinks } from "@/lib/metadata";
+import { useVersionChoice } from "@/playback/use-version-choice";
+import type { VersionChoice } from "@/playback/use-version-choice";
 
 import { Episodes } from "./episodes";
 import { playTarget, useMyListToggle, watchSearch } from "./play-target";
 import type { MyListToggle, PlayTarget } from "./play-target";
+import { SelectMenu } from "./select-menu";
 import {
   CastAndCrew,
   CollectionRow,
@@ -107,12 +118,68 @@ function TitleRows({
   );
 }
 
-const sizeLabel = (bytes: number): string =>
-  bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`;
+/** The playable file the page describes: the chosen version, else the first present one. */
+const mainFile = (title: TitleDetail, chosen: MediaVersion | null): MediaFile | undefined =>
+  title.files.find((file) => file.id === chosen?.id) ??
+  title.files.find((file) => !file.missing) ??
+  title.files[0];
 
-/** The playable file the page describes: the first present one. */
-const mainFile = (title: TitleDetail): MediaFile | undefined =>
-  title.files.find((file) => !file.missing) ?? title.files[0];
+const NO_VERSIONS: ReadonlyArray<MediaVersion> = [];
+
+/**
+ * The versions of what Play plays: a movie's own, or those of a show's next episode, which the
+ * page reads as it needs them.
+ */
+const usePlayVersions = (title: TitleDetail, profileId: ProfileId): ReadonlyArray<MediaVersion> => {
+  const episodeId = title.kind === "show" ? title.nextEpisode?.id : undefined;
+
+  const episodeVersions = useCommandQuery(
+    "titles.versions",
+    episodeId === undefined ? "skip" : { profileId, titleId: title.id, episodeId },
+  );
+
+  if (title.kind === "movie") return title.versions;
+
+  return episodeVersions.status === "success" ? episodeVersions.data : NO_VERSIONS;
+};
+
+/** The Version select beside Play, when what Play plays has several files. */
+function VersionSelect({
+  versions,
+  choice,
+  phone,
+}: {
+  readonly versions: ReadonlyArray<MediaVersion>;
+  readonly choice: VersionChoice;
+  readonly phone: boolean;
+}) {
+  const { chosen, choose } = choice;
+
+  if (versions.length < 2 || chosen === null) return null;
+
+  return (
+    <SelectMenu<MediaFileId>
+      label="Version"
+      value={chosen.id}
+      options={versions.map((version) => ({
+        value: version.id,
+        label: Versions.label(version),
+        detail: Versions.detail(version),
+      }))}
+      onChange={choose}
+      className={cn(
+        "h-12 gap-2.5 border border-hairline bg-surface-raised pr-3.5 pl-4",
+        phone && "w-full",
+      )}
+    >
+      <span className="text-label/label text-text-muted">Version</span>
+      <span className={cn("truncate text-body/label font-semibold", phone && "grow text-left")}>
+        {Versions.label(chosen)}
+      </span>
+      <ChevronDownIcon className="size-4 shrink-0" strokeWidth={1.75} aria-hidden />
+    </SelectMenu>
+  );
+}
 
 /** What the phone and desktop layouts of a title's page share. */
 interface DetailParts {
@@ -121,6 +188,10 @@ interface DetailParts {
   readonly canManage: boolean;
   readonly target: PlayTarget;
   readonly myList: MyListToggle;
+  /** What Play plays: its versions, the one chosen, and the version links name, if any. */
+  readonly versions: ReadonlyArray<MediaVersion>;
+  readonly versionChoice: VersionChoice;
+  readonly version: MediaFileId | undefined;
   readonly file: MediaFile | undefined;
   readonly badges: ReadonlyArray<string>;
   readonly backdrop: string | undefined;
@@ -141,7 +212,9 @@ export function TitleDetailView({
   readonly phone: boolean;
 }) {
   const myList = useMyListToggle(profileId, title.id, title.inMyList, title.name);
-  const file = mainFile(title);
+  const versions = usePlayVersions(title, profileId);
+  const versionChoice = useVersionChoice(versions);
+  const file = mainFile(title, title.kind === "movie" ? versionChoice.chosen : null);
 
   const parts: DetailParts = {
     title,
@@ -149,6 +222,10 @@ export function TitleDetailView({
     canManage,
     target: playTarget(title),
     myList,
+    versions,
+    versionChoice,
+    // A link names the version only when there is a choice to make.
+    version: versions.length > 1 ? versionChoice.chosen?.id : undefined,
     file,
     badges: file === undefined ? [] : fileBadges(file),
     backdrop: artworkUrl(title.artwork.backdrop, "backdrop"),
@@ -191,15 +268,20 @@ const lengthFact = (title: TitleDetail): string | null =>
       ? null
       : formatRuntime(title.runtimeMs);
 
-/** Play or Resume, or Play from start with `start`; inert while the title's files are missing. */
+/**
+ * Play or Resume, or Play from start with `start`, in `version` when one was chosen; inert while
+ * the title's files are missing.
+ */
 function WatchLink({
   title,
   target,
+  version,
   start,
   phone,
 }: {
   readonly title: TitleDetail;
   readonly target: PlayTarget;
+  readonly version: MediaFileId | undefined;
   readonly start: boolean;
   readonly phone: boolean;
 }) {
@@ -209,7 +291,7 @@ function WatchLink({
     <Link
       to="/watch/$titleId"
       params={{ titleId: title.id }}
-      search={watchSearch(target.episodeId, start)}
+      search={watchSearch(target.episodeId, start, version)}
       aria-disabled={missing || undefined}
       tabIndex={missing ? -1 : undefined}
       onClick={(event) => {
@@ -325,6 +407,9 @@ function PhoneTitleDetail({
   canManage,
   target,
   myList,
+  versions,
+  versionChoice,
+  version,
   badges,
   backdrop,
   logo,
@@ -345,7 +430,8 @@ function PhoneTitleDetail({
             </Badge>
           ))}
         </p>
-        <WatchLink title={title} target={target} start={false} phone />
+        <WatchLink title={title} target={target} version={version} start={false} phone />
+        <VersionSelect versions={versions} choice={versionChoice} phone />
         <WatchProgress title={title} target={target} phone />
         <Scores ratings={title.ratings} className="px-1" />
         {title.overview === null ? null : (
@@ -357,7 +443,7 @@ function PhoneTitleDetail({
           className="px-1 text-label/label"
         />
       </div>
-      <PhoneActions title={title} target={target} myList={myList} />
+      <PhoneActions title={title} target={target} version={version} myList={myList} />
       {title.kind === "show" ? <Episodes show={title} profileId={profileId} phone /> : null}
       <TitleRows title={title} profileId={profileId} phone />
       {links.length === 0 ? null : (
@@ -373,10 +459,12 @@ function PhoneTitleDetail({
 function PhoneActions({
   title,
   target,
+  version,
   myList,
 }: {
   readonly title: TitleDetail;
   readonly target: PlayTarget;
+  readonly version: MediaFileId | undefined;
   readonly myList: MyListToggle;
 }) {
   return (
@@ -398,7 +486,7 @@ function PhoneActions({
         <Link
           to="/watch/$titleId"
           params={{ titleId: title.id }}
-          search={watchSearch(target.episodeId, true)}
+          search={watchSearch(target.episodeId, true, version)}
           className="flex w-26 flex-col items-center gap-1.5 text-caption/caption text-text-muted"
         >
           <RotateCcwIcon className="size-5.5 text-text" strokeWidth={1.75} aria-hidden />
@@ -419,6 +507,9 @@ function DesktopTitleDetail({
   canManage,
   target,
   myList,
+  versions,
+  versionChoice,
+  version,
   file,
   badges,
   backdrop,
@@ -451,10 +542,17 @@ function DesktopTitleDetail({
           <FactLine title={title} badges={badges} />
           <Scores ratings={title.ratings} />
           <div className="flex items-center gap-3">
-            <WatchLink title={title} target={target} start={false} phone={false} />
+            <WatchLink
+              title={title}
+              target={target}
+              version={version}
+              start={false}
+              phone={false}
+            />
             {target.resuming ? (
-              <WatchLink title={title} target={target} start phone={false} />
+              <WatchLink title={title} target={target} version={version} start phone={false} />
             ) : null}
+            <VersionSelect versions={versions} choice={versionChoice} phone={false} />
             {title.trailer === null ? null : (
               <TrailerButton trailer={title.trailer} name={title.name} phone={false} />
             )}
@@ -477,7 +575,7 @@ function DesktopTitleDetail({
           {file === undefined ? null : (
             <p className="flex items-center gap-2 pt-1 font-mono text-caption/caption text-text-muted">
               <HardDriveIcon className="size-3.5" strokeWidth={1.75} aria-hidden />
-              {facts(file.versionName, file.probe.container, sizeLabel(file.sizeBytes))}
+              {facts(file.versionName, file.probe.container, MediaLabels.sizeLabel(file.sizeBytes))}
             </p>
           )}
         </div>

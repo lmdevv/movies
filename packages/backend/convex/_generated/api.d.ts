@@ -26,6 +26,7 @@ import type * as lib_browse from "../lib/browse.js";
 import type * as lib_catalog from "../lib/catalog.js";
 import type * as lib_changes from "../lib/changes.js";
 import type * as lib_crypto from "../lib/crypto.js";
+import type * as lib_directPlay from "../lib/directPlay.js";
 import type * as lib_discovery from "../lib/discovery.js";
 import type * as lib_endings from "../lib/endings.js";
 import type * as lib_env from "../lib/env.js";
@@ -86,6 +87,7 @@ declare const fullApi: ApiFromModules<{
   "lib/catalog": typeof lib_catalog;
   "lib/changes": typeof lib_changes;
   "lib/crypto": typeof lib_crypto;
+  "lib/directPlay": typeof lib_directPlay;
   "lib/discovery": typeof lib_discovery;
   "lib/endings": typeof lib_endings;
   "lib/env": typeof lib_env;

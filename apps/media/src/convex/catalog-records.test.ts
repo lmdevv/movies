@@ -3,11 +3,13 @@ import { assert, describe, layer } from "@effect/vitest";
 import { LibraryId, MediaFileId } from "@movies/contracts/ids";
 import { ScannedItem } from "@movies/contracts/models/scan";
 import { Effect, Layer, Option, Path, Schema } from "effect";
+import { it as plain } from "vitest";
 import { FetchHttpClient } from "effect/http";
 
 import * as ArtworkKeys from "../artwork/artwork-keys.ts";
 import * as DiskCache from "../disk-cache.ts";
 import * as LibraryScanner from "../library/library-scanner.ts";
+import { parseMediaPath } from "../library/media-naming.ts";
 import * as MemoryLibrary from "../library/memory-library.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import * as MetadataResolver from "../metadata/title-metadata.ts";
@@ -21,6 +23,7 @@ import {
   toCatalogProbe,
   toResolvedMediaFile,
   toScannedItem,
+  versionNameOf,
 } from "./catalog-records.ts";
 
 const hasFfmpeg = await ffmpegAvailable();
@@ -51,6 +54,24 @@ const recordsLayer = Layer.unwrap(
 );
 
 const decodeItem = Schema.decodeUnknownEffect(ScannedItem);
+
+const named = (path: string) => versionNameOf(parseMediaPath(path));
+
+describe("version names", () => {
+  plain("names a movie file by its edition and its part, and an episode by neither", () => {
+    assert.strictEqual(
+      named("Heat (1995)/Heat (1995) {edition-Director's Cut}.mkv"),
+      "Director's Cut",
+    );
+    assert.strictEqual(named("Heat (1995)/Heat (1995) - cd2.avi"), "Part 2");
+    assert.strictEqual(
+      named("Heat (1995)/Heat (1995) {edition-Extended} - part1.mkv"),
+      "Extended · Part 1",
+    );
+    assert.isNull(named("Heat (1995)/Heat (1995).mkv"));
+    assert.isNull(named("Show (2020)/Season 01/Show - S01E01.mkv"));
+  });
+});
 
 describe.skipIf(!hasFfmpeg)("catalog records", () => {
   layer(recordsLayer, { excludeTestServices: true, timeout: "60 seconds" })((it) => {

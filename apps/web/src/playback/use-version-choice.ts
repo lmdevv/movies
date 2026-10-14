@@ -1,0 +1,41 @@
+/**
+ * Which version (file) of a movie or an episode this browser plays: the viewer's pick, else the
+ * one the profile last played, else the best this browser plays directly, else the best quality.
+ */
+import type { MediaFileId } from "@movies/contracts/ids";
+import type { MediaVersion } from "@movies/contracts/models/catalog";
+import { Versions } from "@movies/sdk/effect";
+import { Option } from "effect";
+import { useMemo, useState } from "react";
+
+import { browserMediaSupport } from "./browser-support";
+import { detectCapabilities } from "./capabilities";
+
+/** The version to offer first among `versions` in this browser, or null without versions. */
+const usePreferredVersion = (versions: ReadonlyArray<MediaVersion>): MediaVersion | null => {
+  const capabilities = useMemo(() => detectCapabilities(browserMediaSupport()), []);
+
+  return useMemo(
+    () => Option.getOrNull(Versions.preferredVersion(versions, capabilities)),
+    [versions, capabilities],
+  );
+};
+
+/** The version chosen among several, and the way to choose another. */
+export interface VersionChoice {
+  /** The version Play plays; null without versions. */
+  readonly chosen: MediaVersion | null;
+  readonly choose: (id: MediaFileId) => void;
+}
+
+/**
+ * The viewer's choice among `versions`, starting at the preferred one. A pick holds while its
+ * version is listed; the list updating (another version played elsewhere) moves only the default.
+ */
+export const useVersionChoice = (versions: ReadonlyArray<MediaVersion>): VersionChoice => {
+  const preferred = usePreferredVersion(versions);
+  const [picked, setPicked] = useState<MediaFileId | null>(null);
+  const chosen = versions.find((version) => version.id === picked) ?? preferred;
+
+  return { chosen, choose: setPicked };
+};

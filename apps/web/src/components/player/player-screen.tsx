@@ -10,9 +10,11 @@
  */
 import { targetPosition } from "@movies/contracts/clock";
 import { DRIFT_THRESHOLDS } from "@movies/contracts/clock";
-import type { EpisodeId, RoomId, TitleId } from "@movies/contracts/ids";
+import type { EpisodeId, MediaFileId, RoomId, TitleId } from "@movies/contracts/ids";
+import type { MediaVersion } from "@movies/contracts/models/catalog";
+import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { EpochMillis, Milliseconds } from "@movies/contracts/units";
-import { Playback } from "@movies/sdk/effect";
+import { Playback, Versions } from "@movies/sdk/effect";
 import { useCommand, useCommandQuery, useMoviesRuntime, useRoomSync } from "@movies/sdk/react";
 import { ChapterPopover } from "@movies/ui/components/chapter-popover";
 import { CommandMenu } from "@movies/ui/components/command-menu";
@@ -113,8 +115,10 @@ const VOLUME_STEP = 0.1;
 
 const OFF = "off";
 
-/** The tracks button and its popover: audio, subtitles, and quality. */
+/** The tracks button and its popover: the version when there are several, audio, subtitles, and quality. */
 const TRACKS_LABEL = "Audio, subtitles, and quality";
+
+const NO_VERSIONS: ReadonlyArray<MediaVersion> = [];
 
 /** Where the start of an episode's credits is assumed to be: its last tenth, at most 30 s. */
 const creditsSeconds = (duration: number): number => Math.min(30, duration * 0.1);
@@ -123,6 +127,8 @@ const creditsSeconds = (duration: number): number => Math.min(30, duration * 0.1
 export interface PlayerScreenProps {
   readonly titleId: TitleId;
   readonly episodeId: EpisodeId | undefined;
+  /** The version to play; the one the server picks for this browser when undefined. */
+  readonly version: MediaFileId | undefined;
   /** `0` starts at the beginning; `resume` resumes without asking. */
   readonly start: "0" | "resume" | undefined;
   /** The watch room to join, from the URL. */
@@ -175,7 +181,14 @@ const useSettled = (value: boolean, ms: number): boolean => {
 };
 
 /** The player screen. */
-export function PlayerScreen({ titleId, episodeId, start, roomId, together }: PlayerScreenProps) {
+export function PlayerScreen({
+  titleId,
+  episodeId,
+  version,
+  start,
+  roomId,
+  together,
+}: PlayerScreenProps) {
   const { profile, profiles } = useActiveProfile();
   const scopes = useScopes();
   const navigate = useNavigate();
@@ -219,6 +232,20 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
   // The room as of the latest commit, for the start position, which is asked for later.
   const latestRoom = useLatest(roomRecord);
 
+  // The versions of what plays, for switching outside rooms (a room plays the host's file). The
+  // session does not wait for them: without a version in the URL, the server picks the one this
+  // browser plays best from the capabilities it sends.
+  const versionList = useCommandQuery(
+    "titles.versions",
+    openedRoom !== null
+      ? "skip"
+      : episodeId === undefined
+        ? { profileId: profile.id, titleId }
+        : { profileId: profile.id, titleId, episodeId },
+  );
+
+  const versions = versionList.status === "success" ? versionList.data : NO_VERSIONS;
+
   // Built only when a session starts (`playbackKey` changes), from that render's room and props.
   const buildRequest = roomReady
     ? (): PlaybackRequest => ({
@@ -227,6 +254,7 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
         deviceName: deviceName(),
         titleId: roomRecord?.title.id ?? titleId,
         episodeId: roomRecord === null ? (episodeId ?? null) : (roomRecord.episode?.id ?? null),
+        fileId: openedRoom === null ? (version ?? null) : null,
         roomId: openedRoom,
         start:
           openedRoom === null
@@ -476,6 +504,60 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
     },
     [controller],
   );
+
+  // Another version of what plays, switched in place from where playback is. Not in a room, whose
+  // members play the file it started with, nor while a TV plays.
+  const versionOptions = useMemo(
+    (): ReadonlyArray<TrackOption> =>
+      versions.length < 2 || openedRoom !== null || roomId !== undefined || casting !== null
+        ? []
+        : versions.map((candidate) => ({
+            id: candidate.id,
+            label: Versions.label(candidate),
+            detail: Versions.detail(candidate),
+          })),
+    [versions, openedRoom, roomId, casting],
+  );
+
+  const versionId = started?.file.id ?? "";
+
+  // The version picked last and the session playing when it was picked, until a session starts.
+  const versionPick = useRef<{
+    readonly id: MediaFileId;
+    readonly before: StartedPlayback | null;
+  } | null>(null);
+
+  const selectVersion = useCallback(
+    (id: string) => {
+      const chosen = versions.find((candidate) => candidate.id === id);
+
+      if (chosen === undefined || controller?.selectVersion(chosen.id) !== true) return;
+      versionPick.current = { id: chosen.id, before: started };
+    },
+    [versions, controller, started],
+  );
+
+  // Once a session starts after a pick, the URL names its version, so reloading keeps it; a version
+  // that could not start gave way to the one before, and says so.
+  useEffect(() => {
+    const pick = versionPick.current;
+
+    if (pick === null || started === null || started === pick.before) return;
+    versionPick.current = null;
+
+    if (started.file.id !== pick.id) {
+      toast.error("This version couldn't play");
+
+      return;
+    }
+
+    void navigate({
+      to: "/watch/$titleId",
+      params: { titleId },
+      search: (previous) => ({ ...previous, version: pick.id }),
+      replace: true,
+    });
+  }, [started, navigate, titleId]);
 
   // Remember a quality once a stream negotiated with it has loaded, never a choice still being
   // negotiated or one the service refused.
@@ -744,6 +826,9 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       quality: QUALITY_OPTIONS,
       qualityId,
       selectQuality,
+      versions: versionOptions,
+      versionId,
+      selectVersion,
       nextEpisode: nextEpisode === null || inRoom ? null : playNext,
       startRoom: inRoom || started === null ? null : openStartRoom,
       room: !inRoom
@@ -768,6 +853,9 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       selectAudio,
       qualityId,
       selectQuality,
+      versionOptions,
+      versionId,
+      selectVersion,
       nextEpisode,
       inRoom,
       playNext,
@@ -809,6 +897,17 @@ export function PlayerScreen({ titleId, episodeId, start, roomId, together }: Pl
       container={fullscreen ? frame : undefined}
       label={TRACKS_LABEL}
       choices={[
+        ...(versionOptions.length === 0
+          ? []
+          : [
+              {
+                id: "version",
+                label: "Version",
+                options: versionOptions,
+                value: versionId,
+                onValueChange: selectVersion,
+              },
+            ]),
         {
           id: "audio",
           label: "Audio",

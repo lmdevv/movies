@@ -1,4 +1,4 @@
-import type { EpisodeId, ProfileId, TitleId } from "@movies/contracts/ids";
+import type { EpisodeId, MediaFileId, ProfileId, TitleId } from "@movies/contracts/ids";
 import type { TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommand } from "@movies/sdk/react";
 import { useCallback, useState } from "react";
@@ -20,14 +20,31 @@ export interface PlayTarget {
   readonly positionMs: number | null;
 }
 
-/** The `/watch` search for playing `episodeId` (or the movie), from the beginning when `start`. */
+/** The `/watch` search: what to play, in which version, and whether from the beginning. */
+interface WatchLinkSearch {
+  episodeId?: EpisodeId;
+  start?: "0";
+  version?: MediaFileId;
+}
+
+/**
+ * The `/watch` search for playing `episodeId` (or the movie), from the beginning when `start`, in
+ * `version` when the viewer chose one of several files.
+ */
 export const watchSearch = (
   episodeId: EpisodeId | undefined,
   start: boolean,
-): { readonly episodeId?: EpisodeId; readonly start?: "0" } => {
-  if (episodeId === undefined) return start ? { start: "0" } : {};
+  version?: MediaFileId,
+): Readonly<WatchLinkSearch> => {
+  const search: WatchLinkSearch = {};
 
-  return start ? { episodeId, start: "0" } : { episodeId };
+  if (episodeId !== undefined) search.episodeId = episodeId;
+
+  if (start) search.start = "0";
+
+  if (version !== undefined) search.version = version;
+
+  return search;
 };
 
 /** The main play action of a title page or billboard. */

@@ -4,8 +4,8 @@ import { NotFound } from "@movies/contracts/errors";
 import { EpisodeId, TitleId } from "@movies/contracts/ids";
 import type { ProfileId } from "@movies/contracts/ids";
 import { type ClientCapabilities, PlaybackApiError } from "@movies/contracts/media-playback";
-import type { TitleCard, TitleDetail } from "@movies/contracts/models/catalog";
-import { MoviesClient, Playback } from "@movies/sdk/effect";
+import type { MediaVersion, TitleCard, TitleDetail } from "@movies/contracts/models/catalog";
+import { MoviesClient, Playback, Versions } from "@movies/sdk/effect";
 import { Effect, Option, Result, Schema } from "effect";
 
 import { LaunchError, PlaybackRefused } from "./cli-errors";
@@ -35,6 +35,30 @@ const normalize = (text: string): string =>
     .toLowerCase()
     .replaceAll(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
+
+/**
+ * The version `choice` names among `versions`, in `titles.versions` order: a position counted
+ * from 1, else a version name ignoring case, spaces, and punctuation, exactly or by its start.
+ */
+export const pickVersion = (
+  choice: string,
+  versions: ReadonlyArray<MediaVersion>,
+): Option.Option<MediaVersion> => {
+  if (/^\d+$/u.test(choice)) return Option.fromNullishOr(versions[Number(choice) - 1]);
+
+  const wanted = squash(choice);
+  const named = (version: MediaVersion) => squash(version.versionName ?? "");
+
+  if (wanted === "") return Option.none();
+
+  return Option.fromNullishOr(
+    versions.find((version) => named(version) === wanted) ??
+      versions.find((version) => named(version).startsWith(wanted)),
+  );
+};
+
+/** `text` folded like `normalize`, without spaces, for matching version names. */
+const squash = (text: string): string => normalize(text).replaceAll(" ", "");
 
 /** What a Convex document ID looks like; such a query is tried as a title ID first. */
 const CONVEX_ID = /^[a-z0-9]{32}$/u;
@@ -136,6 +160,7 @@ const DESKTOP_PLAYER: ClientCapabilities = {
     "flac",
     "opus",
     "mp3",
+    "mp2",
     "vorbis",
     "pcm_s16le",
   ].map((codec) => ({ codec, maxChannels: 8 })),
@@ -186,12 +211,22 @@ const play: ShortcutCommand = {
     "max-height": { type: "string" },
     open: { type: "boolean" },
     "profile-id": { type: "string" },
+    version: { type: "string" },
   },
   positionals: true,
   run: (invocation) =>
     Effect.gen(function* () {
       const query = yield* requirePositional(invocation, "a title name or ID");
       const from = yield* positionFlag(invocation, "from");
+      const versionChoice = stringFlag(invocation.tokens, "version");
+
+      if (Option.isSome(versionChoice) && versionChoice.value.trim() === "") {
+        return yield* usage(
+          invocation,
+          "--version expects a version name or its number, such as 2",
+        );
+      }
+
       const maxHeight = Option.map(stringFlag(invocation.tokens, "max-height"), Number);
 
       if (
@@ -231,6 +266,37 @@ const play: ShortcutCommand = {
               });
             });
 
+      const fileId = yield* Option.match(versionChoice, {
+        onNone: () => Effect.succeedNone,
+        onSome: (choice) =>
+          Effect.gen(function* () {
+            const versions = yield* connection.withSession(
+              connection.client.query("titles.versions", {
+                profileId,
+                titleId: title.id,
+                ...Option.match(episode, {
+                  onNone: () => ({}),
+                  onSome: (chosen) => ({ episodeId: chosen.id }),
+                }),
+              }),
+            );
+
+            const picked = pickVersion(choice, versions);
+
+            if (Option.isNone(picked)) {
+              const listed = versions
+                .map((version, index) => `${String(index + 1)}. ${Versions.label(version)}`)
+                .join(", ");
+
+              return yield* new NotFound({
+                message: `${title.name} has no version "${choice}"; it has ${listed === "" ? "none on disk" : listed}`,
+              });
+            }
+
+            return Option.some(picked.value.id);
+          }),
+      });
+
       // Playback API failures pass through the session wrapper as values, so a refreshed sign-in
       // retries only the Convex calls, then become the CLI's playback error.
       const outcome = yield* connection.withSession(
@@ -240,7 +306,7 @@ const play: ShortcutCommand = {
           deviceName: Option.some("movies CLI"),
           titleId: title.id,
           episodeId: Option.map(episode, (chosen) => chosen.id),
-          fileId: Option.none(),
+          fileId,
           roomId: Option.none(),
           capabilities: DESKTOP_PLAYER,
           startAtMs: from,
@@ -269,6 +335,8 @@ const play: ShortcutCommand = {
         title: title.name,
         titleId: title.id,
         episode: Option.getOrNull(Option.map(episode, (chosen) => chosen.label)),
+        fileId: playback.started.file.id,
+        version: playback.started.file.versionName,
         mode: playback.stream.mode,
         url: playback.stream.url,
         startSeconds: playback.stream.startSeconds,
@@ -297,7 +365,7 @@ const play: ShortcutCommand = {
       return textOutcome(
         json,
         [
-          `${title.name}${Option.match(episode, { onNone: () => "", onSome: (chosen) => ` ${chosen.label}` })} (${playback.stream.mode}, from ${formatDuration(playback.stream.startSeconds * 1000)})`,
+          `${title.name}${Option.match(episode, { onNone: () => "", onSome: (chosen) => ` ${chosen.label}` })}${playback.started.file.versionName === null ? "" : ` · ${playback.started.file.versionName}`} (${playback.stream.mode}, from ${formatDuration(playback.stream.startSeconds * 1000)})`,
           playback.stream.url,
         ].join("\n"),
       );

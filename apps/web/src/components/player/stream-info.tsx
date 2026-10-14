@@ -5,10 +5,11 @@
  */
 import type { DynamicRange, NegotiateResponse } from "@movies/contracts/media-playback";
 import type { HdrFormat, MediaFile } from "@movies/contracts/models/catalog";
+import { MediaLabels } from "@movies/sdk/effect";
 import { cn } from "@movies/ui/lib/utils";
 import { XIcon } from "lucide-react";
 
-import { channelLabel, codecLabel } from "@/lib/media-facts";
+const { channelLabel, codecLabel } = MediaLabels;
 
 /** The three rungs the segmented control names. */
 const RUNGS = [
@@ -114,6 +115,7 @@ const streamInfoRows = (
     CONTAINER_LABELS.get(file.probe.container) ?? file.probe.container.toUpperCase();
 
   const rows = [
+    ...(file.versionName === null ? [] : [{ label: "Version", lines: [file.versionName] }]),
     {
       label: "Video",
       lines:

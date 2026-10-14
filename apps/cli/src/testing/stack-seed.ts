@@ -17,8 +17,14 @@ const open = (convexUrl: string) =>
 
 const UpsertArgs = mediaServiceFunctions["mediaService.upsertScanned"].args;
 
+/** A file's version label and picture height, for a movie with several files. */
+interface SeedVersion {
+  readonly name: string;
+  readonly height: number;
+}
+
 /** A scanned movie as the media service reports it. */
-const scannedMovie = (path: string, name: string) => ({
+const scannedMovie = (path: string, name: string, version: SeedVersion | null) => ({
   file: {
     path,
     sizeBytes: 1_000_000,
@@ -32,8 +38,8 @@ const scannedMovie = (path: string, name: string) => ({
           index: 0,
           codec: "h264",
           profile: "High",
-          width: 1920,
-          height: 1080,
+          width: Math.round(((version?.height ?? 1080) * 16) / 9),
+          height: version?.height ?? 1080,
           frameRate: 24,
           bitDepth: 8,
           pixelFormat: "yuv420p",
@@ -45,7 +51,7 @@ const scannedMovie = (path: string, name: string) => ({
       subtitles: [],
     },
     externalSubtitles: [],
-    versionName: null,
+    versionName: version?.name ?? null,
   },
   title: {
     kind: "movie",
@@ -66,13 +72,17 @@ const scannedMovie = (path: string, name: string) => ({
   episode: null,
 });
 
-/** Scans one movie named `name` at `path` into `libraryId`, as the media service would. */
+/**
+ * Scans one file of the movie named `name` at `path` into `libraryId`, as the media service
+ * would; `version` labels one of several files of the movie.
+ */
 export const scanMovie = (
   convexUrl: string,
   mediaServiceKey: string,
   libraryId: string,
   path: string,
   name: string,
+  version: SeedVersion | null = null,
 ): Promise<void> =>
   Effect.runPromise(
     Effect.scoped(
@@ -85,7 +95,7 @@ export const scanMovie = (
 
         const args = yield* Schema.decodeUnknownEffect(UpsertArgs)({
           libraryId,
-          items: [scannedMovie(path, name)],
+          items: [scannedMovie(path, name, version)],
         });
 
         const wire = yield* Schema.encodeEffect(Schema.toCodecJson(UpsertArgs))(args).pipe(

@@ -2,6 +2,7 @@
 import { Schema } from "effect";
 
 import { AgeRating } from "../content-rating";
+import { ClientCapabilities } from "../media-playback";
 import {
   CollectionId,
   DeviceId,
@@ -21,6 +22,7 @@ import {
   HistoryEntry,
   Home,
   Library,
+  MediaVersion,
   PersonCard,
   SeasonEpisode,
   TitleCard,
@@ -199,6 +201,19 @@ export const browseCommands = {
     result: TitleDetail,
     function: "titles:get",
   }),
+  "titles.versions": query({
+    summary: "List the versions (files) of a movie or an episode, best quality first",
+    group: "browse",
+    scope: "read",
+    args: Schema.Struct({
+      ...OnProfile,
+      titleId: TitleId,
+      /** The episode, for shows; omit for a movie. */
+      episodeId: Schema.optionalKey(EpisodeId),
+    }),
+    result: Schema.Array(MediaVersion),
+    function: "titles:versions",
+  }),
   "titles.episodes": query({
     summary: "List a season's episodes",
     group: "browse",
@@ -337,10 +352,18 @@ export const playbackCommands = {
       deviceName: Schema.optionalKey(DisplayName),
       titleId: TitleId,
       episodeId: Schema.optionalKey(EpisodeId),
-      /** A specific version; omit to pick the best present file. */
+      /**
+       * A specific version from `titles.versions`; omit for the one this profile last played, else
+       * the best quality on disk.
+       */
       fileId: Schema.optionalKey(MediaFileId),
       /** Join a room's stream: the file is the room's and `profileId` must be a member. */
       roomId: Schema.optionalKey(RoomId),
+      /**
+       * What this device plays. Without `fileId`, a version it plays directly comes before the best
+       * quality, after the one the profile last played.
+       */
+      capabilities: Schema.optionalKey(ClientCapabilities),
     }),
     result: StartedPlayback,
     function: "playback:createSession",

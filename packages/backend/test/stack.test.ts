@@ -120,6 +120,14 @@ type Encoded<Item> = Item extends { readonly Encoded: infer E } ? E : never;
 /** Rich fields a rescan adds to a fixture title or episode, and the file's size. */
 interface ScanExtras {
   readonly sizeBytes?: number;
+  /** The file's version label and its primary video stream, for files of one title. */
+  readonly version?: {
+    readonly name: string;
+    readonly codec: string;
+    readonly width: number;
+    readonly height: number;
+    readonly hdr: "none" | "hdr10";
+  };
   readonly title?: Partial<Encoded<typeof ScannedTitleSchema>>;
   readonly episode?: Partial<Encoded<typeof ScannedEpisodeSchema>>;
 }
@@ -147,14 +155,14 @@ const scanned = (
         video: [
           {
             index: 0,
-            codec: "h264",
+            codec: extras.version?.codec ?? "h264",
             profile: "High",
-            width: 1920,
-            height: 1080,
+            width: extras.version?.width ?? 1920,
+            height: extras.version?.height ?? 1080,
             frameRate: 23.976,
-            bitDepth: 8,
+            bitDepth: extras.version?.hdr === "hdr10" ? 10 : 8,
             pixelFormat: "yuv420p",
-            hdr: "none",
+            hdr: extras.version?.hdr ?? "none",
             bitRate: null,
           },
         ],
@@ -162,7 +170,7 @@ const scanned = (
         subtitles: [],
       },
       externalSubtitles: [],
-      versionName: null,
+      versionName: extras.version?.name ?? null,
     },
     title: {
       kind: title.kind,
@@ -541,6 +549,10 @@ const filteredPages = async (
 
   return read(null, []);
 };
+
+/** Where the versions tests put the file of their film's `edition`. */
+const filmPath = (edition: string): string =>
+  `/stack-${id}/open/versions/Versions {edition-${edition}}.mkv`;
 
 /** The names the genre paging test gives its movies, by letter. */
 const genreNames = (...letters: ReadonlyArray<string>): ReadonlyArray<string> =>
@@ -1917,6 +1929,211 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         episodeId: second.episodeId,
       });
       expect((await run(fixture.member, "titles.get", second)).nextEpisode?.episodeNumber).toBe(2);
+    });
+  });
+
+  describe("versions", () => {
+    /** A film with three versions, one of them gone from disk, in the open library. */
+    const film = { kind: "movie" as const, name: `Versions ${TOKEN}`, ageRating: 0 };
+
+    const scanFilm = async () => {
+      await service(fixture.mediaService, "mediaService.upsertScanned", {
+        libraryId: fixture.openLibrary,
+        items: [
+          scanned(filmPath("Theatrical"), film, null, {
+            version: { name: "Theatrical", codec: "h264", width: 1920, height: 1080, hdr: "none" },
+          }),
+          scanned(filmPath("Director's Cut"), film, null, {
+            version: {
+              name: "Director's Cut",
+              codec: "hevc",
+              width: 3840,
+              height: 2160,
+              hdr: "hdr10",
+            },
+          }),
+          scanned(filmPath("Workprint"), film, null, {
+            version: { name: "Workprint", codec: "h264", width: 3840, height: 2160, hdr: "none" },
+          }),
+        ],
+      });
+      await service(fixture.mediaService, "mediaService.markMissing", {
+        libraryId: fixture.openLibrary,
+        paths: [filmPath("Workprint")],
+      });
+
+      return (await titleNamed(fixture.member, fixture.memberProfile, film.name)).id;
+    };
+
+    it("lists a movie's files on disk best first and plays the one a profile last chose", async () => {
+      const titleId = await scanFilm();
+      const base = { profileId: fixture.memberProfile, titleId };
+      const listed = await run(fixture.member, "titles.versions", base);
+
+      expect(listed.map((version) => [version.versionName, version.height, version.hdr])).toEqual([
+        ["Director's Cut", 2160, "hdr10"],
+        ["Theatrical", 1080, "none"],
+      ]);
+      expect(listed.some((version) => version.lastPlayed)).toBe(false);
+      expect((await run(fixture.member, "titles.get", base)).versions).toStrictEqual(listed);
+
+      const [best, theatrical] = listed;
+
+      if (best === undefined || theatrical === undefined) return;
+
+      // Without a choice or a device the best quality plays; a chosen version plays and is
+      // remembered.
+      expect(
+        (
+          await run(fixture.member, "playback.createSession", {
+            ...base,
+            deviceId: device("versions-tv"),
+          })
+        ).file.id,
+      ).toBe(best.id);
+
+      // A device that takes only 8-bit H.264 gets the version it plays directly.
+      expect(
+        (
+          await run(fixture.member, "playback.createSession", {
+            ...base,
+            deviceId: device("versions-browser"),
+            capabilities: {
+              containers: ["mp4"],
+              videoCodecs: [{ codec: "h264", maxBitDepth: 8 }],
+              audioCodecs: [{ codec: "aac" }],
+              maxWidth: 3840,
+              maxHeight: 2160,
+              hls: false,
+              mse: true,
+            },
+          })
+        ).file.id,
+      ).toBe(theatrical.id);
+
+      const chosen = await run(fixture.member, "playback.createSession", {
+        ...base,
+        deviceId: device("versions-laptop"),
+        fileId: theatrical.id,
+      });
+
+      expect(chosen.file).toMatchObject({ id: theatrical.id, versionName: "Theatrical" });
+      await run(fixture.member, "playback.reportProgress", {
+        sessionId: chosen.sessionId,
+        positionMs: ms(90_000),
+        event: "tick",
+      });
+
+      const remembered = await run(fixture.member, "titles.versions", base);
+
+      expect(
+        remembered.filter((version) => version.lastPlayed).map((version) => version.id),
+      ).toEqual([theatrical.id]);
+
+      // Another device resumes the same title in the remembered version, at the title's position.
+      const resumed = await run(fixture.member, "playback.createSession", {
+        ...base,
+        deviceId: device("versions-phone"),
+      });
+
+      expect(resumed.file.id).toBe(theatrical.id);
+      expect(resumed.resumePositionMs).toBe(90_000);
+
+      // Switching versions keeps the position, which belongs to the title.
+      const switched = await run(fixture.member, "playback.createSession", {
+        ...base,
+        deviceId: device("versions-phone"),
+        fileId: best.id,
+      });
+
+      expect(switched.resumePositionMs).toBe(90_000);
+
+      // The choice is the member's profile's own.
+      expect(
+        (
+          await run(fixture.owner, "titles.versions", {
+            profileId: fixture.ownerProfile,
+            titleId,
+          })
+        ).some((version) => version.lastPlayed),
+      ).toBe(false);
+    });
+
+    it("refuses a version gone from disk or of another title", async () => {
+      const titleId = await scanFilm();
+      const base = { profileId: fixture.memberProfile, titleId, deviceId: device("versions-odd") };
+      const missing = await fileAt(fixture, filmPath("Workprint"));
+      const other = await fileAt(fixture, `/stack-${id}/open/all-ages.mp4`);
+
+      expect(
+        await outcome(
+          run(fixture.member, "playback.createSession", { ...base, fileId: missing.fileId }),
+        ),
+      ).toBe("conflict");
+      expect(
+        await outcome(
+          run(fixture.member, "playback.createSession", { ...base, fileId: other.fileId }),
+        ),
+      ).toBe("not_found");
+    });
+
+    it("lists an episode's versions and keeps versions behind grants and ratings", async () => {
+      const show = { kind: "show" as const, name: `Show ${TOKEN}`, ageRating: 7 };
+
+      await service(fixture.mediaService, "mediaService.upsertScanned", {
+        libraryId: fixture.openLibrary,
+        items: [
+          scanned(
+            `/stack-${id}/open/show/s01e01 - 720p.mp4`,
+            show,
+            { season: 1, episode: 1 },
+            {
+              version: { name: "720p", codec: "h264", width: 1280, height: 720, hdr: "none" },
+            },
+          ),
+        ],
+      });
+
+      const [first] = await run(fixture.member, "titles.episodes", {
+        profileId: fixture.memberProfile,
+        titleId: fixture.titles.show,
+        seasonNumber: 1,
+      });
+
+      if (first === undefined) throw new Error("The show has no episodes");
+
+      const episode = { profileId: fixture.memberProfile, titleId: fixture.titles.show };
+
+      expect(
+        (await run(fixture.member, "titles.versions", { ...episode, episodeId: first.id })).map(
+          (version) => [version.versionName, version.height],
+        ),
+      ).toEqual([
+        [null, 1080],
+        ["720p", 720],
+      ]);
+      expect(await outcome(run(fixture.member, "titles.versions", episode))).toBe("invalid_args");
+
+      // A kids profile may not see an adult film's versions; nobody sees a library they lack.
+      expect(
+        await outcome(
+          run(fixture.member, "titles.versions", {
+            profileId: fixture.kidsProfile,
+            titleId: fixture.titles.adult,
+          }),
+        ),
+      ).toBe("not_found");
+
+      const stranger = await inviteMember(fixture.owner, `versions-${id}@movies.test`);
+
+      expect(
+        await outcome(
+          run(stranger, "titles.versions", {
+            profileId: await firstProfile(stranger),
+            titleId: fixture.titles.hidden,
+          }),
+        ),
+      ).toBe("not_found");
     });
   });
 

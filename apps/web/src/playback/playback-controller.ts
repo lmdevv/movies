@@ -9,11 +9,20 @@
  * state. Tokens are renewed by renegotiating five minutes before they expire, so a six-hour token
  * never ends a long film. Audio tracks switch by renegotiating with the chosen track, and so do the
  * quality cap and picture subtitles (PGS, VobSub), which the media service burns into the video;
- * text subtitles are `<track>` elements and switch without a new stream.
+ * text subtitles are `<track>` elements and switch without a new stream. Another version (file) of
+ * the movie or episode plays in a new session from the same position, keeping the audio and text
+ * subtitle languages where the new file has them.
  *
  * Every SDK call runs on the app's SDK runtime and comes back as a value; nothing here throws.
  */
-import type { DeviceId, EpisodeId, ProfileId, RoomId, TitleId } from "@movies/contracts/ids";
+import type {
+  DeviceId,
+  EpisodeId,
+  MediaFileId,
+  ProfileId,
+  RoomId,
+  TitleId,
+} from "@movies/contracts/ids";
 import type { ClientCapabilities, NegotiateResponse } from "@movies/contracts/media-playback";
 import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { Milliseconds } from "@movies/contracts/units";
@@ -61,6 +70,8 @@ export interface PlaybackRequest {
   readonly deviceName: string;
   readonly titleId: TitleId;
   readonly episodeId: EpisodeId | null;
+  /** The version to play; null for the one the profile last played, else the best quality. */
+  readonly fileId: MediaFileId | null;
   /** Play a watch room's file as one of its members. */
   readonly roomId: RoomId | null;
   readonly start: StartChoice;
@@ -147,6 +158,25 @@ interface StreamChoice {
   readonly burnIn: string | null;
 }
 
+/** The languages a switch of version keeps when the new file has tracks in them. */
+interface CarriedLanguages {
+  readonly audio: string | null;
+  readonly subtitle: string | null;
+}
+
+/** A switch of version whose new stream has not loaded yet. */
+interface VersionSwitch {
+  /** Where the new version starts, and whether it plays: where the old one was. */
+  readonly positionMs: number;
+  readonly play: boolean;
+  /** The version that played before, which plays again if the new one cannot start. */
+  readonly from: MediaFileId;
+}
+
+/** Whether a session was refused because the file asked for is gone or not this title's. */
+const refusesFile = (failure: CallError): boolean =>
+  Predicate.isTagged(failure, "Conflict") || Predicate.isTagged(failure, "NotFound");
+
 /** Plays one request in one element. Create it, `start` it, and `dispose` it. */
 export class PlaybackController {
   /** The element as the SDK sees it. */
@@ -161,6 +191,11 @@ export class PlaybackController {
   readonly #request: PlaybackRequest;
   readonly #hlsJs: boolean;
   #capabilities: ClientCapabilities;
+  /** The file every new session plays: the requested one, then the one the last session played. */
+  #fileId: MediaFileId | null;
+  /** Languages to pick again once a switch of version has its new file and stream. */
+  #carried: CarriedLanguages | null = null;
+  #switching: VersionSwitch | null = null;
   /** The picture subtitle the stream should burn in, or null. */
   #burnIn: string | null = null;
   /** The picture subtitle the loaded stream burns in, or null. */
@@ -213,6 +248,7 @@ export class PlaybackController {
     this.#capabilities = capabilities;
     this.#hlsJs = hlsJs;
     this.#request = request;
+    this.#fileId = request.fileId;
     this.#snapshot = { ...this.#snapshot, quality: request.quality };
     this.player = new MediaElementPlayer(element);
     this.output = new SwitchablePlayer(this.player);
@@ -243,25 +279,40 @@ export class PlaybackController {
 
   #stop(stop: PlaybackStop): void {
     this.#negotiation += 1;
+    this.#switching = null;
     this.#detach();
     this.#update({ phase: PlaybackPhase.Stopped({ stop }) });
   }
 
-  /** Starts the session, then negotiates or asks where to start. */
+  /**
+   * Starts the session, then negotiates or asks where to start. A version the request names that
+   * is gone from disk gives way to the one the server picks.
+   */
   async start(): Promise<void> {
     performance.mark(PLAYBACK_MARKS.start);
     this.#update({ phase: PlaybackPhase.Starting() });
 
+    const ticket = ++this.#negotiation;
     const created = await this.#createSession();
 
-    if (this.#disposed) return;
+    // A version chosen at the resume prompt started another session meanwhile.
+    if (this.#disposed || ticket !== this.#negotiation) return;
 
     if (created === null) return this.#stop(STOPPED);
 
-    if (Result.isFailure(created)) return this.#follow(afterSessionFailure(created.failure), 0);
+    if (Result.isFailure(created)) {
+      if (this.#fileId !== null && refusesFile(created.failure)) {
+        this.#fileId = null;
+
+        return this.start();
+      }
+
+      return this.#follow(afterSessionFailure(created.failure), 0);
+    }
 
     const started = created.success;
 
+    this.#fileId = started.file.id;
     this.#update({ started });
 
     return StartChoice.$match(this.#request.start, {
@@ -281,6 +332,7 @@ export class PlaybackController {
   /** Creates the playback session, which ends this device's previous one. */
   #createSession(): Promise<Result.Result<StartedPlayback, CallError> | null> {
     const request = this.#request;
+    const fileId = this.#fileId;
 
     return runSdk(
       this.#runtime,
@@ -294,10 +346,16 @@ export class PlaybackController {
             onNone: () => ({}),
             onSome: (episodeId) => ({ episodeId }),
           }),
+          ...Option.match(Option.fromNullishOr(fileId), {
+            onNone: () => ({}),
+            onSome: (chosen) => ({ fileId: chosen }),
+          }),
           ...Option.match(Option.fromNullishOr(request.roomId), {
             onNone: () => ({}),
             onSome: (roomId) => ({ roomId }),
           }),
+          // Without a file, the server prefers a version this browser plays directly.
+          capabilities: this.#capabilities,
         }),
       ),
     );
@@ -349,6 +407,7 @@ export class PlaybackController {
 
     const playback: Playback.Playback = { started, stream: negotiated.success };
 
+    this.#pickCarriedSubtitle(negotiated.success);
     this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.7 }) });
     this.#startReporting(playback);
     await this.#load(playback, play, chosen);
@@ -395,6 +454,8 @@ export class PlaybackController {
     const { stream } = playback;
 
     this.#loading = { atMs: stream.startSeconds * 1000, play };
+    // From here the stream being attached says where playback is.
+    this.#switching = null;
     this.#playback = playback;
     this.#update({
       stream,
@@ -624,16 +685,33 @@ export class PlaybackController {
     return this.#renegotiate(playback, positionMs, this.#snapshot.audioStreamIndex);
   }
 
-  /** Starts a new session at `positionMs`, as when the previous one ended elsewhere. */
-  async #restart(positionMs: number): Promise<void> {
-    this.#negotiation += 1;
+  /**
+   * Starts a new session at `positionMs`, as when the previous one ended elsewhere or the viewer
+   * chose another version, and plays it unless `play` is false.
+   */
+  async #restart(positionMs: number, play = true): Promise<void> {
+    const ticket = ++this.#negotiation;
+
     this.#detach();
     this.#playback = null;
     await this.#closeReporting();
 
     const created = this.#disposed ? null : await this.#createSession();
 
-    if (this.#disposed) return;
+    // A later restart (another switch of version), a park, or a stop took over meanwhile.
+    if (this.#disposed || ticket !== this.#negotiation) return;
+
+    const switching = this.#switching;
+
+    // A version that cannot start gives way to the one that played before, from where it was.
+    if (switching !== null && (created === null || Result.isFailure(created))) {
+      this.#switching = null;
+      this.#fileId = switching.from;
+
+      return this.#restart(switching.positionMs, switching.play);
+    }
+
+    if (created === null || Result.isFailure(created)) this.#carried = null;
 
     if (created === null) return this.#stop(STOPPED);
 
@@ -641,9 +719,115 @@ export class PlaybackController {
       return this.#follow(afterSessionFailure(created.failure), positionMs);
     }
 
-    this.#update({ started: created.success });
+    const started = created.success;
+    const durationMs = started.file.probe.durationMs;
 
-    return this.#negotiate(created.success, positionMs);
+    this.#fileId = started.file.id;
+    this.#update(
+      this.#carried === null
+        ? { started }
+        : { started, audioStreamIndex: this.#carriedAudio(started) },
+    );
+
+    // Another version may be shorter than where the last one was.
+    return this.#negotiate(
+      started,
+      durationMs > 0 ? Math.min(positionMs, durationMs) : positionMs,
+      play,
+    );
+  }
+
+  /** The new file's audio track in the language a switch of version keeps, or its default. */
+  #carriedAudio(started: StartedPlayback): number | null {
+    const language = this.#carried?.audio ?? null;
+
+    if (language === null) return null;
+
+    return started.file.probe.audio.find((track) => track.language === language)?.index ?? null;
+  }
+
+  /** Shows the new stream's text subtitle in the language a switch of version keeps. */
+  #pickCarriedSubtitle(stream: NegotiateResponse): void {
+    const carried = this.#carried;
+
+    if (carried === null) return;
+    this.#carried = null;
+
+    const track = stream.subtitles.find(
+      (candidate) =>
+        candidate.kind === "text" &&
+        candidate.url !== undefined &&
+        carried.subtitle !== null &&
+        candidate.language === carried.subtitle,
+    );
+
+    this.#update({ subtitleId: track?.id ?? null });
+  }
+
+  /**
+   * Plays version `fileId` from where playback is, in a new session: the media service streams one
+   * file per session. Track choices name the old file's streams, so the audio and text subtitle
+   * languages carry over instead, and a burned-in subtitle is dropped. Another pick before the new
+   * stream loads starts from the same place with the same languages; a version that cannot start
+   * gives way to the one that played. At the resume prompt the new version's session asks again.
+   *
+   * @returns Whether a switch started; false in a watch room (the room decides the file), while
+   *   another device plays the session, before a session exists, or for the version already chosen.
+   */
+  selectVersion(fileId: MediaFileId): boolean {
+    const { started, stream, audioStreamIndex, subtitleId, phase } = this.#snapshot;
+
+    // `#fileId` is the version being switched to while an earlier switch is under way.
+    if (
+      started === null ||
+      this.#disposed ||
+      this.#parked ||
+      this.#request.roomId !== null ||
+      fileId === this.#fileId
+    ) {
+      return false;
+    }
+
+    if (PlaybackPhase.$is("Choosing")(phase) || PlaybackPhase.$is("Starting")(phase)) {
+      this.#fileId = fileId;
+      void this.start();
+
+      return true;
+    }
+
+    // Before a stream attaches the element reads 0 and paused; the pending start says where to be.
+    const pending = this.#switching;
+
+    const firstStream =
+      PlaybackPhase.$is("Preparing")(phase) && this.#attached === null && this.#loading === null
+        ? phase.startAtMs
+        : null;
+
+    const positionMs = pending?.positionMs ?? firstStream ?? this.positionMs();
+    const play = pending?.play ?? (firstStream === null ? this.playing() : true);
+
+    this.#carried ??= {
+      audio:
+        started.file.probe.audio.find((track) => track.index === audioStreamIndex)?.language ??
+        null,
+      subtitle:
+        stream?.subtitles.find((track) => track.id === subtitleId && track.kind === "text")
+          ?.language ?? null,
+    };
+    this.#switching = { positionMs, play, from: pending?.from ?? started.file.id };
+    this.#fileId = fileId;
+    this.#burnIn = null;
+    this.#loadedBurnIn = null;
+    this.#choicesVersion += 1;
+    this.#recoveries = 0;
+    this.#update({
+      audioStreamIndex: null,
+      subtitleId: null,
+      phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.2 }),
+    });
+    void this.#restart(positionMs, play);
+
+    return true;
   }
 
   /** Negotiates a new stream of the same session at `positionMs` and swaps it in. */
