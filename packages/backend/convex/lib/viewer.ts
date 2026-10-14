@@ -88,7 +88,7 @@ const keyAllows = async (
  * cuts off every token issued for it at once, and so does the session reaching its expiration
  * time or, for an API key session, its key being revoked, deleted, or expired.
  */
-export const loadViewer = async (ctx: ReadCtx): Promise<Viewer> => {
+const loadViewer = async (ctx: ReadCtx): Promise<Viewer> => {
   const userId = await getAuthUserId(ctx);
 
   if (userId === null) return fail("unauthenticated", "Sign in first");

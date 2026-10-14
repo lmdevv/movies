@@ -283,13 +283,8 @@ export const endSession = mutation({
     await recordPosition(ctx, session, positionMs, undefined, false);
     const now = Date.now();
 
-    await ctx.db.patch(sessionId, {
-      status: "ended",
-      state: "paused",
-      positionMs,
-      lastReportAt: now,
-      endedAt: now,
-    });
+    await ctx.db.patch(sessionId, { positionMs, lastReportAt: now });
+    await endPlaybackSession(ctx, session, now);
 
     return { ok: true as const };
   },

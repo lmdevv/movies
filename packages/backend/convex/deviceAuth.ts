@@ -15,6 +15,7 @@ import { checkDisplayName } from "./lib/bounds";
 import { normalizeUserCode, randomSecret, randomUserCode, sha256Hex } from "./lib/crypto";
 import { siteUrl } from "./lib/env";
 import { fail } from "./lib/errors";
+import { createdAt } from "./lib/present";
 import {
   deviceCodeLookup,
   deviceCodeRequest,
@@ -136,7 +137,7 @@ export const lookup = query({
       userCode: found.userCode,
       clientName: found.clientName,
       state: stateOf(found, Date.now()),
-      requestedAt: Math.floor(found._creationTime),
+      requestedAt: createdAt(found),
       expiresAt: found.expiresAt,
     };
   },

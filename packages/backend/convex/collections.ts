@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import { query } from "./_generated/server";
+import { resultLimit } from "./lib/bounds";
 import type { Audience } from "./lib/access";
 import { canSee, loadAudience } from "./lib/access";
 import { inSequence } from "./lib/catalog";
@@ -64,7 +65,7 @@ export const list = query({
   handler: async (ctx, { profileId, limit }) => {
     const viewer = await authorize(ctx, "read");
     const audience = await loadAudience(ctx, viewer, profileId);
-    const wanted = Math.min(Math.max(1, Math.floor(limit ?? LIST_LIMIT)), LIST_LIMIT);
+    const wanted = resultLimit(limit, LIST_LIMIT, LIST_LIMIT);
     const collections = await ctx.db.query("collections").withIndex("by_sort").take(LIST_LIMIT);
 
     let budget = MEMBER_BUDGET;

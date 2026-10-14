@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import { resultLimit } from "./lib/bounds";
 import { canSee, loadAudience, loadVisibleTitle } from "./lib/access";
 import type { Audience } from "./lib/access";
 import { fail } from "./lib/errors";
@@ -33,7 +34,7 @@ export const list = query({
       .withIndex("by_profile_played", (q) => q.eq("profileId", profileId))
       .order("desc")
       .paginate({
-        numItems: Math.min(Math.max(1, Math.floor(limit ?? 50)), 100),
+        numItems: resultLimit(limit, 50, 100),
         cursor: cursor ?? null,
       });
 

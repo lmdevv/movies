@@ -9,8 +9,8 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { visibleLibraryIds } from "./lib/access";
 import { inSequence } from "./lib/catalog";
 import { fail } from "./lib/errors";
-import { checkDisplayName } from "./lib/bounds";
-import { enqueueJob } from "./lib/jobs";
+import { checkDisplayName, resultLimit } from "./lib/bounds";
+import { enqueueJob, isLibraryScanning } from "./lib/jobs";
 import { checkRoots } from "./lib/roots";
 import { forgetTrickplay, queueTrickplay } from "./lib/trickplay";
 import { presentLibrary, presentLibraryDetail } from "./lib/present";
@@ -30,21 +30,6 @@ import {
 } from "./lib/validators";
 import { authorize } from "./lib/viewer";
 
-const isScanning = async (ctx: QueryCtx, libraryId: Id<"libraries">): Promise<boolean> => {
-  const statuses = ["pending", "running"] as const;
-
-  const active = await Promise.all(
-    statuses.map((status) =>
-      ctx.db
-        .query("jobs")
-        .withIndex("by_library_status", (q) => q.eq("libraryId", libraryId).eq("status", status))
-        .first(),
-    ),
-  );
-
-  return active.some((job) => job !== null);
-};
-
 const grantedUsers = async (ctx: QueryCtx, libraryId: Id<"libraries">) => {
   const grants = await ctx.db
     .query("libraryGrants")
@@ -55,7 +40,11 @@ const grantedUsers = async (ctx: QueryCtx, libraryId: Id<"libraries">) => {
 };
 
 const detail = async (ctx: QueryCtx, doc: Doc<"libraries">) =>
-  presentLibraryDetail(doc, await isScanning(ctx, doc._id), await grantedUsers(ctx, doc._id));
+  presentLibraryDetail(
+    doc,
+    await isLibraryScanning(ctx, doc._id),
+    await grantedUsers(ctx, doc._id),
+  );
 
 const checkName = (name: string): string => checkDisplayName(name, "Library names");
 
@@ -71,7 +60,7 @@ export const list = query({
     return Promise.all(
       libraries
         .filter((doc) => visible.has(doc._id))
-        .map(async (doc) => presentLibrary(doc, await isScanning(ctx, doc._id))),
+        .map(async (doc) => presentLibrary(doc, await isLibraryScanning(ctx, doc._id))),
     );
   },
 });
@@ -404,7 +393,7 @@ export const files = query({
   returns: page(libraryFile),
   handler: async (ctx, { libraryId, cursor, limit, filter, titleId }) => {
     await authorize(ctx, "manage");
-    const numItems = Math.min(Math.max(1, Math.floor(limit ?? DEFAULT_FILE_PAGE)), MAX_FILE_PAGE);
+    const numItems = resultLimit(limit, DEFAULT_FILE_PAGE, MAX_FILE_PAGE);
     const paging = { numItems, cursor: cursor ?? null };
 
     if (titleId !== undefined) {

@@ -14,14 +14,15 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import {
-  BATCH_LIMIT,
+  checkBatch,
   checkOverrides,
   COLLECTION_BATCH_LIMIT,
   COLLECTION_MEMBER_BATCH_LIMIT,
+  resultLimit,
 } from "./lib/bounds";
 import { inSequence, writeOverrides } from "./lib/catalog";
 import { fail } from "./lib/errors";
-import { enqueueJob, requireLeaseOf } from "./lib/jobs";
+import { enqueueJob, isLibraryScanning, requireLease, requireLeaseOf } from "./lib/jobs";
 import {
   catalogFile,
   collectionImport,
@@ -30,6 +31,7 @@ import {
   migrationImported,
   migrationState,
   migrationTarget,
+  NOTHING_IMPORTED,
   overrideImport,
   storedMigrationPlan,
   watchStateImport,
@@ -61,25 +63,7 @@ import { writeProgress } from "./lib/viewing";
 /** Most members one imported collection keeps. */
 const COLLECTION_LIMIT = 1000;
 
-const NOTHING_IMPORTED = {
-  librariesAdded: 0,
-  watched: 0,
-  inProgress: 0,
-  playCounts: 0,
-  favorites: 0,
-  collections: 0,
-  overrides: 0,
-  keptLocal: 0,
-  unmatched: 0,
-};
-
-const checkBatch = <Item>(items: ReadonlyArray<Item>): ReadonlyArray<Item> =>
-  items.length > BATCH_LIMIT
-    ? fail("invalid_args", `Send at most ${BATCH_LIMIT} items per call`)
-    : items;
-
-const pageSize = (limit: number | undefined): number =>
-  Math.min(Math.max(1, Math.floor(limit ?? 100)), 100);
+const pageSize = (limit: number | undefined): number => resultLimit(limit, 100, 100);
 
 const migrationOf = async (ctx: ReadCtx, jobId: Id<"jobs">): Promise<Doc<"migrations">> =>
   (await ctx.db
@@ -87,19 +71,13 @@ const migrationOf = async (ctx: ReadCtx, jobId: Id<"jobs">): Promise<Doc<"migrat
     .withIndex("by_job", (q) => q.eq("jobId", jobId))
     .unique()) ?? fail("not_found", "This job has no migration plan");
 
-/** Loads a held migration job's plan. Queries cannot use `requireLease`, so this checks the same. */
+/** Loads a held migration job's plan. */
 const heldMigration = async (
   ctx: ReadCtx,
   jobId: Id<"jobs">,
   workerId: string,
 ): Promise<Doc<"migrations">> => {
-  const job = await ctx.db.get(jobId);
-
-  if (job === null) return fail("not_found", "No such job");
-
-  if (job.status !== "running" || job.leaseOwner !== workerId) {
-    return fail("conflict", "This worker no longer holds the job's lease");
-  }
+  await requireLease(ctx, jobId, workerId);
 
   return migrationOf(ctx, jobId);
 };
@@ -416,20 +394,9 @@ export const scansPending = query({
   handler: async (ctx, { libraryIds }) => {
     await authorize(ctx, "media-service");
 
-    const counts = await inSequence(libraryIds, async (libraryId) => {
-      const active = await Promise.all(
-        (["pending", "running"] as const).map((status) =>
-          ctx.db
-            .query("jobs")
-            .withIndex("by_library_status", (q) =>
-              q.eq("libraryId", libraryId).eq("status", status),
-            )
-            .first(),
-        ),
-      );
-
-      return active.some((job) => job !== null) ? 1 : 0;
-    });
+    const counts = await inSequence(libraryIds, async (libraryId) =>
+      (await isLibraryScanning(ctx, libraryId)) ? 1 : 0,
+    );
 
     return { pending: counts.reduce<number>((total, count) => total + count, 0) };
   },

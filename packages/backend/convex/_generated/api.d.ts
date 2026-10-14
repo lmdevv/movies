@@ -31,6 +31,7 @@ import type * as lib_endings from "../lib/endings.js";
 import type * as lib_env from "../lib/env.js";
 import type * as lib_errors from "../lib/errors.js";
 import type * as lib_genres from "../lib/genres.js";
+import type * as lib_jobOutcomes from "../lib/jobOutcomes.js";
 import type * as lib_jobs from "../lib/jobs.js";
 import type * as lib_migrationValidators from "../lib/migrationValidators.js";
 import type * as lib_people from "../lib/people.js";
@@ -90,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   "lib/env": typeof lib_env;
   "lib/errors": typeof lib_errors;
   "lib/genres": typeof lib_genres;
+  "lib/jobOutcomes": typeof lib_jobOutcomes;
   "lib/jobs": typeof lib_jobs;
   "lib/migrationValidators": typeof lib_migrationValidators;
   "lib/people": typeof lib_people;

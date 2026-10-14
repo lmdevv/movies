@@ -99,7 +99,7 @@ export const sessionInfo = v.object({
 export const setupStatus = v.object({ hasOwner: v.boolean(), hasLibraries: v.boolean() });
 
 /** Mirrors `InviteState` in `@movies/contracts`. */
-export const inviteState = v.union(
+const inviteState = v.union(
   v.literal("open"),
   v.literal("used"),
   v.literal("expired"),
@@ -305,7 +305,7 @@ export const personCard = v.object({
 });
 
 /** Mirrors `CollectionRef` in `@movies/contracts`. */
-export const collectionRef = v.object({ id: v.id("collections"), name: v.string() });
+const collectionRef = v.object({ id: v.id("collections"), name: v.string() });
 
 /** Mirrors `GenreCount` in `@movies/contracts`. */
 export const genreCount = v.object({ name: v.string(), count: v.number() });
@@ -328,7 +328,7 @@ const titleCardFields = {
 export const titleCard = v.object(titleCardFields);
 
 /** Mirrors `HdrFormat` in `@movies/contracts`. */
-export const hdrFormat = v.union(
+const hdrFormat = v.union(
   v.literal("none"),
   v.literal("hdr10"),
   v.literal("hdr10plus"),
@@ -337,7 +337,7 @@ export const hdrFormat = v.union(
 );
 
 /** Mirrors `VideoStream` in `@movies/contracts`. */
-export const videoStream = v.object({
+const videoStream = v.object({
   index: v.number(),
   codec: v.string(),
   profile: nullable(v.string()),
@@ -389,7 +389,7 @@ export const libraryFileSummary = v.object({
 });
 
 /** Mirrors `AudioStream` in `@movies/contracts`. */
-export const audioStream = v.object({
+const audioStream = v.object({
   index: v.number(),
   codec: v.string(),
   profile: nullable(v.string()),
@@ -403,7 +403,7 @@ export const audioStream = v.object({
 });
 
 /** Mirrors `SubtitleStream` in `@movies/contracts`. */
-export const subtitleStream = v.object({
+const subtitleStream = v.object({
   index: v.number(),
   codec: v.string(),
   kind: v.union(v.literal("text"), v.literal("image")),
@@ -619,6 +619,12 @@ export const playbackMode = v.union(
   v.literal("transcode-software"),
 );
 
+/** Whether a device is playing or paused; `state` of `PlaybackSession` in `@movies/contracts`. */
+export const playbackState = v.union(v.literal("playing"), v.literal("paused"));
+
+/** Whether playback continues; `status` of `SessionStatus` in `@movies/contracts`. */
+export const playbackSessionStatus = v.union(v.literal("active"), v.literal("ended"));
+
 /** Mirrors `PlaybackSession` in `@movies/contracts`. */
 export const playbackSession = v.object({
   id: v.id("playbackSessions"),
@@ -630,7 +636,7 @@ export const playbackSession = v.object({
   fileId: v.id("mediaFiles"),
   mode: nullable(playbackMode),
   positionMs: v.number(),
-  state: v.union(v.literal("playing"), v.literal("paused")),
+  state: playbackState,
   startedAt: v.number(),
   lastReportAt: v.number(),
 });
@@ -682,14 +688,17 @@ export const roomClock = v.object({
   revision: v.number(),
 });
 
+/** Who a room member is: the host, who controls playback, or a guest; `role` of `RoomMember`. */
+export const roomRole = v.union(v.literal("host"), v.literal("guest"));
+
 /** Mirrors `RoomMember` in `@movies/contracts`. */
-export const roomMember = v.object({
+const roomMember = v.object({
   userId: v.id("users"),
   profileId: v.id("profiles"),
   profileName: v.string(),
   avatar: v.string(),
   deviceId: v.string(),
-  role: v.union(v.literal("host"), v.literal("guest")),
+  role: roomRole,
   joinedAt: v.number(),
   lastSeenAt: v.number(),
   driftMs: nullable(v.number()),
@@ -874,7 +883,7 @@ export const scannedEpisode = v.object({
 });
 
 /** Mirrors `ScannedFile` in `@movies/contracts`. */
-export const scannedFile = v.object({
+const scannedFile = v.object({
   path: v.string(),
   sizeBytes: v.number(),
   mtimeMs: v.number(),
@@ -925,7 +934,7 @@ export const resolvedFile = v.object({
 /** Mirrors `SessionStatus` in `@movies/contracts`. */
 export const sessionStatus = v.object({
   sessionId: v.id("playbackSessions"),
-  status: v.union(v.literal("active"), v.literal("ended")),
+  status: playbackSessionStatus,
   fileId: v.id("mediaFiles"),
   endedAt: nullable(v.number()),
 });

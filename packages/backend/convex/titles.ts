@@ -8,6 +8,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
+import { resultLimit } from "./lib/bounds";
 import { listTitles } from "./lib/browse";
 import type { Audience } from "./lib/access";
 import { canSee, loadAudience, loadVisibleTitle } from "./lib/access";
@@ -128,7 +129,7 @@ export const list = query({
   handler: async (ctx, { profileId, cursor, limit, kind, libraryId, sort, ...filter }) => {
     const viewer = await authorize(ctx, "read");
     const audience = await loadAudience(ctx, viewer, profileId);
-    const numItems = Math.min(Math.max(1, Math.floor(limit ?? DEFAULT_PAGE)), MAX_PAGE);
+    const numItems = resultLimit(limit, DEFAULT_PAGE, MAX_PAGE);
 
     const result = await listTitles(
       ctx,
@@ -149,7 +150,7 @@ export const search = query({
   handler: async (ctx, { profileId, query: text, limit }) => {
     const viewer = await authorize(ctx, "read");
     const audience = await loadAudience(ctx, viewer, profileId);
-    const wanted = Math.min(Math.max(1, Math.floor(limit ?? 20)), 50);
+    const wanted = resultLimit(limit, 20, 50);
 
     if (text.trim().length === 0) return [];
 
@@ -343,7 +344,7 @@ export const similar = query({
     const viewer = await authorize(ctx, "read");
     const audience = await loadAudience(ctx, viewer, profileId);
     const title = await loadVisibleTitle(ctx, audience, titleId);
-    const wanted = Math.min(Math.max(1, Math.floor(limit ?? ROW_LIMIT)), 50);
+    const wanted = resultLimit(limit, ROW_LIMIT, 50);
 
     const recommended = await Promise.all(
       (title.recommendations ?? []).map(async (tmdb) => {

@@ -13,7 +13,7 @@ import type { continueWatchingItem } from "./validators";
 import type { ReadCtx } from "./viewer";
 
 /** Progress at or beyond this share of the duration marks an item watched. */
-export const WATCHED_FRACTION = 0.9;
+const WATCHED_FRACTION = 0.9;
 
 /** Whether a position counts as finished. Unknown durations never finish by position. */
 export const reachedEnd = (positionMs: number, durationMs: number): boolean =>
@@ -119,7 +119,7 @@ export const nextEpisodeAfter = async (
 };
 
 /** A show's first regular episode (season 1 or later), or its first special when it has none. */
-export const firstEpisode = async (
+const firstEpisode = async (
   ctx: ReadCtx,
   titleId: Id<"titles">,
 ): Promise<Doc<"episodes"> | null> => {
@@ -236,7 +236,7 @@ const scanUnwatched = async (
 };
 
 /** The first episode after `episode` the profile has not watched, or null when none remains. */
-export const nextUnwatchedAfter = async (
+const nextUnwatchedAfter = async (
   ctx: ReadCtx,
   profileId: Id<"profiles">,
   episode: Doc<"episodes">,

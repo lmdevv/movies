@@ -31,13 +31,17 @@ export const librariesOverlapping = (
     library.roots.some((known) => overlaps(folder, normalizeRoot(known))),
   );
 
+/** Whether a path has a `.` or `..` segment, which could lead out of the folder it names. */
+const hasDotSegment = (path: string): boolean =>
+  path.split("/").some((segment) => segment === "." || segment === "..");
+
+/** Whether a scanned path lies in one of a library's folders, with no segment leading out. */
+export const isInLibrary = (path: string, library: Doc<"libraries">): boolean =>
+  !hasDotSegment(path) && library.roots.some((root) => isInside(path, root));
+
 /** Requires normalized folders to be absolute, without `.` or `..` segments. */
 export const checkAbsolute = (folders: ReadonlyArray<string>): void => {
-  const invalid = folders.find((root) => {
-    const segments = root.split("/");
-
-    return !root.startsWith("/") || segments.includes("..") || segments.includes(".");
-  });
+  const invalid = folders.find((root) => !root.startsWith("/") || hasDotSegment(root));
 
   if (invalid !== undefined) fail("invalid_args", `Folders must be absolute paths: ${invalid}`);
 };

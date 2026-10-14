@@ -20,7 +20,7 @@ import { checkDeviceId, checkMilliseconds } from "./lib/bounds";
 import { endRoom } from "./lib/endings";
 import { fail } from "./lib/errors";
 import { resolvePlayable } from "./lib/playable";
-import { presentEpisode, presentRoomClock, presentTitleCard } from "./lib/present";
+import { createdAt, presentEpisode, presentRoomClock, presentTitleCard } from "./lib/present";
 import { HOST_REANCHOR_THRESHOLD_MS, livePosition } from "./lib/roomClock";
 import { hostControlArgs, ok, room as roomResult, roomClock } from "./lib/validators";
 import type { Viewer } from "./lib/viewer";
@@ -79,7 +79,7 @@ const presentRoom = async (ctx: QueryCtx, doc: Doc<"rooms">): Promise<Infer<type
       lastSeenAt: member.lastSeenAt,
       driftMs: member.role === "guest" ? (member.driftMs ?? null) : null,
     })),
-    createdAt: Math.floor(doc._creationTime),
+    createdAt: createdAt(doc),
   };
 };
 

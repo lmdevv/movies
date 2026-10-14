@@ -93,3 +93,13 @@ export const checkOverrides = <
 
   return overrides;
 };
+
+/** At most `BATCH_LIMIT` items, as one scan or import write may carry. */
+export const checkBatch = <Item>(items: ReadonlyArray<Item>): ReadonlyArray<Item> =>
+  items.length > BATCH_LIMIT
+    ? fail("invalid_args", `Send at most ${BATCH_LIMIT} items per call`)
+    : items;
+
+/** How many results to return: `fallback` unless asked, then a whole number from 1 to `max`. */
+export const resultLimit = (limit: number | undefined, fallback: number, max: number): number =>
+  Math.min(Math.max(1, Math.floor(limit ?? fallback)), max);

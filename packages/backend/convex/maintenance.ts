@@ -4,11 +4,12 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { endPlaybackSession, endRoom, endTitlePlayback } from "./lib/endings";
-import { enqueueJob, MAX_JOB_ATTEMPTS } from "./lib/jobs";
+import { enqueueJob } from "./lib/jobs";
+import { failAttempt } from "./lib/jobOutcomes";
 import { removeTitleGenres, syncTitleGenres } from "./lib/genres";
 import { removeTitleCredits } from "./lib/people";
 import { overlappingLibraries as findOverlaps } from "./lib/roots";
-import { forgetTrickplay, settleTrickplay } from "./lib/trickplay";
+import { forgetTrickplay } from "./lib/trickplay";
 import { endAuthSession } from "./lib/viewer";
 import {
   HOST_ABANDON_TIMEOUT_MS,
@@ -125,19 +126,9 @@ export const releaseExpiredLeases = internalMutation({
     const expired = running.filter((job) => (job.leaseExpiresAt ?? 0) <= now);
 
     await Promise.all(
-      expired.map(async (job) => {
-        const failed = job.attempts >= MAX_JOB_ATTEMPTS;
-
-        await ctx.db.patch(job._id, {
-          status: failed ? "failed" : "pending",
-          error: "The worker stopped responding",
-          leaseOwner: undefined,
-          leaseExpiresAt: undefined,
-          finishedAt: failed ? now : null,
-        });
-
-        if (failed) await settleTrickplay(ctx, job, "failed");
-      }),
+      expired.map((job) =>
+        failAttempt(ctx, job, { error: "The worker stopped responding", retry: true }),
+      ),
     );
 
     return null;

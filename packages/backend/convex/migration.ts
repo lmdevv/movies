@@ -1,21 +1,9 @@
 import { v } from "convex/values";
 
 import { query } from "./_generated/server";
-import { migrationRun } from "./lib/migrationValidators";
+import { migrationRun, NOTHING_IMPORTED } from "./lib/migrationValidators";
 import { presentJob } from "./lib/present";
 import { authorize } from "./lib/viewer";
-
-const NOTHING_IMPORTED = {
-  librariesAdded: 0,
-  watched: 0,
-  inProgress: 0,
-  playCounts: 0,
-  favorites: 0,
-  collections: 0,
-  overrides: 0,
-  keptLocal: 0,
-  unmatched: 0,
-};
 
 /** Migration jobs, newest first, with their phase and what they imported so far. */
 export const status = query({

@@ -6,6 +6,7 @@ import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
+import { resultLimit } from "./lib/bounds";
 import type { Audience } from "./lib/access";
 import { canSee, loadAudience } from "./lib/access";
 import { fail } from "./lib/errors";
@@ -180,7 +181,7 @@ export const search = query({
   handler: async (ctx, { profileId, query: text, limit }) => {
     const viewer = await authorize(ctx, "read");
     const audience = await loadAudience(ctx, viewer, profileId);
-    const wanted = Math.min(Math.max(1, Math.floor(limit ?? 10)), 50);
+    const wanted = resultLimit(limit, 10, 50);
 
     if (text.trim().length === 0) return [];
 

@@ -8,7 +8,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { BACKUP_SYNC_LIMIT, BATCH_LIMIT } from "./lib/bounds";
+import { BACKUP_SYNC_LIMIT, checkBatch, resultLimit } from "./lib/bounds";
 import {
   inSequence,
   markFileMissing,
@@ -17,11 +17,13 @@ import {
   upsertScannedItem,
 } from "./lib/catalog";
 import { fail } from "./lib/errors";
-import { MAX_JOB_ATTEMPTS, requireLease, requireLeaseOf } from "./lib/jobs";
+import { failAttempt } from "./lib/jobOutcomes";
+import { requireLease, requireLeaseOf } from "./lib/jobs";
 import { syncTitleGenres } from "./lib/genres";
 import { CREDIT_LIMIT, creditsOf, personKeyOf, replaceCredits } from "./lib/people";
 import { presentJob } from "./lib/present";
-import { currentManifest, settleTrickplay } from "./lib/trickplay";
+import { isInLibrary } from "./lib/roots";
+import { currentManifest } from "./lib/trickplay";
 import {
   backupArchive,
   claimedJob,
@@ -55,11 +57,6 @@ import { authorize } from "./lib/viewer";
 const MIN_LEASE_MS = 5_000;
 
 const MAX_LEASE_MS = 600_000;
-
-const checkBatch = <Item>(items: ReadonlyArray<Item>): ReadonlyArray<Item> =>
-  items.length > BATCH_LIMIT
-    ? fail("invalid_args", `Send at most ${BATCH_LIMIT} items per call`)
-    : items;
 
 const checkLease = (leaseMs: number): number =>
   Number.isInteger(leaseMs) && leaseMs >= MIN_LEASE_MS && leaseMs <= MAX_LEASE_MS
@@ -210,18 +207,7 @@ export const failJob = mutation({
   returns: ok,
   handler: async (ctx, { jobId, workerId, error, retry }) => {
     await authorize(ctx, "media-service");
-    const doc = await requireLease(ctx, jobId, workerId);
-    const again = retry && doc.attempts < MAX_JOB_ATTEMPTS;
-
-    await ctx.db.patch(jobId, {
-      status: again ? "pending" : "failed",
-      error,
-      leaseOwner: undefined,
-      leaseExpiresAt: undefined,
-      finishedAt: again ? null : Date.now(),
-    });
-
-    if (!again) await settleTrickplay(ctx, doc, "failed");
+    await failAttempt(ctx, await requireLease(ctx, jobId, workerId), { error, retry });
 
     return { ok: true as const };
   },
@@ -248,7 +234,7 @@ export const fileIndex = query({
       .query("mediaFiles")
       .withIndex("by_library_path", (q) => q.eq("libraryId", libraryId))
       .paginate({
-        numItems: Math.min(Math.max(1, Math.floor(limit ?? 100)), 100),
+        numItems: resultLimit(limit, 100, 100),
         cursor: cursor ?? null,
       });
 
@@ -272,13 +258,7 @@ export const upsertScanned = mutation({
     await authorize(ctx, "media-service");
     const library = await requireLibrary(ctx, libraryId);
 
-    const inside = (path: string) =>
-      !path.split("/").some((segment) => segment === ".." || segment === ".") &&
-      library.roots.some(
-        (root) => path === root || path.startsWith(root === "/" ? root : `${root}/`),
-      );
-
-    const outside = checkBatch(items).find((item) => !inside(item.file.path));
+    const outside = checkBatch(items).find((item) => !isInLibrary(item.file.path, library));
 
     if (outside !== undefined) {
       return fail("invalid_args", `${outside.file.path} is outside the library's folders`);
@@ -351,7 +331,7 @@ export const endedSessions = query({
   returns: v.array(endedSession),
   handler: async (ctx, { after, limit }) => {
     await authorize(ctx, "media-service");
-    const wanted = Math.min(Math.max(1, Math.floor(limit ?? 100)), 200);
+    const wanted = resultLimit(limit, 100, 200);
 
     const ended = await ctx.db
       .query("playbackSessions")
@@ -482,6 +462,13 @@ const mayWriteMetadata = async (
 
 const optionalLease = v.optional(v.object(leaseArgs));
 
+/** A credited person as `applyCredits` reports them, with whether a person job should run. */
+const creditedPerson = (person: Doc<"people">) => ({
+  personId: person._id,
+  tmdbId: person.externalIds.tmdb,
+  needsDetails: person.detailsFetchedAt === null && person.externalIds.tmdb !== null,
+});
+
 export const applyCredits = mutation({
   args: {
     titleId: v.id("titles"),
@@ -532,18 +519,7 @@ export const applyCredits = mutation({
 
         return {
           written: false,
-          people: people.flatMap((person) =>
-            person === null
-              ? []
-              : [
-                  {
-                    personId: person._id,
-                    tmdbId: person.externalIds.tmdb,
-                    needsDetails:
-                      person.detailsFetchedAt === null && person.externalIds.tmdb !== null,
-                  },
-                ],
-          ),
+          people: people.flatMap((person) => (person === null ? [] : [creditedPerson(person)])),
         };
       }
     }
@@ -555,11 +531,7 @@ export const applyCredits = mutation({
 
     return {
       written: true,
-      people: people.map((person) => ({
-        personId: person._id,
-        tmdbId: person.externalIds.tmdb,
-        needsDetails: person.detailsFetchedAt === null && person.externalIds.tmdb !== null,
-      })),
+      people: people.map(creditedPerson),
     };
   },
 });
