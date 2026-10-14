@@ -3160,6 +3160,17 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       );
 
       expect(Object.entries(codes).filter(([, code]) => code !== "invalid_args")).toStrictEqual([]);
+
+      // A blank folder is refused as one, not taken for `/`, which an empty server would accept.
+      await expect(
+        direct(fixture.owner, "mutation", "libraries:create", {
+          name: `Bounds ${id}`,
+          kind: "movies",
+          roots: ["   "],
+        }),
+      ).rejects.toMatchObject({
+        data: { code: "invalid_args", message: "Folders must be absolute paths: " },
+      });
       await run(fixture.member, "playback.endSession", {
         sessionId: started.sessionId,
         positionMs: ms(0),

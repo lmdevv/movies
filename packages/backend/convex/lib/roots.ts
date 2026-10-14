@@ -4,12 +4,15 @@ import { LIBRARY_ROOT_MAX, LIBRARY_ROOTS_MAX } from "./bounds";
 import { fail } from "./errors";
 import type { ReadCtx } from "./viewer";
 
-/** A folder trimmed, with repeated and trailing slashes removed (`/` stays `/`). */
+/**
+ * A folder trimmed, with repeated and trailing slashes removed (`/` stays `/`). A blank folder
+ * stays blank, so `checkAbsolute` refuses it rather than taking it for `/`.
+ */
 export const normalizeRoot = (root: string): string =>
   root
     .trim()
     .replace(/\/{2,}/gu, "/")
-    .replace(/\/+$/u, "") || "/";
+    .replace(/(?<=.)\/$/u, "");
 
 /** Whether `path` is `root` or lies inside it; both normalized. */
 export const isInside = (path: string, root: string): boolean =>
