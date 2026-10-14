@@ -2,8 +2,9 @@
  * Scrub thumbnails on disk, under `DATA_DIR/trickplay/<fileId>/<version>/`: the sprite sheets
  * (`0.jpg`, `1.jpg`, …) and `manifest.json`. Media files stay read-only; nothing is written next
  * to them. A new version is built in a hidden folder and renamed into place, so a reader never
- * sees half a set, and publishing it removes the file's other versions. The sweep removes what the
- * catalog no longer uses: thumbnails of files that are gone or missing, or of older contents.
+ * sees half a set. Publishing keeps the file's other versions: two jobs for one file may both
+ * publish, and only the catalog knows which one it accepted. The sweep removes what the catalog no
+ * longer uses: thumbnails of files that are gone or missing, or of other contents.
  */
 import { type TrickplayManifest, TrickplayVersion } from "@movies/contracts/trickplay";
 import { Clock, Context, Duration, Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
@@ -54,8 +55,9 @@ export interface Interface {
     name: string,
   ) => Effect.Effect<Option.Option<string>>;
   /**
-   * Runs `build` in a fresh folder, writes the manifest it returns, and makes that folder the
-   * file's only version. A failed build leaves the stored thumbnails as they were.
+   * Runs `build` in a fresh folder, writes the manifest it returns, and renames that folder into
+   * place as `version`. The file's other versions stay for the sweep. A failed build leaves the
+   * stored thumbnails as they were.
    */
   readonly publish: <E, R>(
     fileId: string,
@@ -134,14 +136,6 @@ const make = Effect.fn("TrickplayStore.make")(function* (root: string) {
         Effect.mapError(storageFailed),
         Effect.onError(() => removeQuietly(building)),
       );
-
-      const others = (yield* listing(parent)).filter(
-        (name) => name !== version && !name.startsWith(BUILDING),
-      );
-
-      yield* Effect.forEach(others, (name) => removeQuietly(path.join(parent, name)), {
-        discard: true,
-      });
 
       return manifest;
     }).pipe(Effect.withSpan("TrickplayStore.publish"));

@@ -269,9 +269,12 @@ choices made while implementing them. Update it in the same PR that changes a de
   kind on its own, so thousands of queued thumbnails never hold up a scan or a backup.
 - Sheets live in `DATA_DIR/trickplay/<fileId>/<version>/` with `manifest.json`; the version is the
   file's size and modification time in base 36, so a replaced file never shows old frames. A new
-  version is built in a hidden folder and renamed into place, and replaces the file's others. A
-  sweep a minute after startup and every `LIBRARY_RECONCILE_MINUTES` deletes folders the catalog
-  no longer names (`mediaService:trickplayVersions`), sparing ones younger than an hour.
+  version is built in a hidden folder and renamed into place. A job reads the file's size and time
+  again after ffmpeg and drops its sheets if they changed. Publishing leaves the file's other
+  versions alone, because two jobs for one file may both publish and only the catalog knows which
+  it accepted. A sweep a minute after startup and every `LIBRARY_RECONCILE_MINUTES` deletes
+  folders the catalog no longer names (`mediaService:trickplayVersions`), sparing ones younger
+  than an hour.
 - Players read the manifest from `MediaFile.trickplay` and load
   `/media/trickplay/<fileId>/<version>/<n>.jpg?token=` with the session's playback token. Frames
   are content, not artwork: a sealed key like artwork's would let anyone holding a URL see frames

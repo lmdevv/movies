@@ -11,6 +11,7 @@ import { ffmpegAvailable } from "../testing/fixture-library.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
 import { testConfigLayer } from "../testing/test-config.ts";
 import { generate } from "./trickplay-generator.ts";
+import * as TrickplayJob from "./trickplay-job.ts";
 import * as TrickplayStore from "./trickplay-store.ts";
 
 const hasFfmpeg = await ffmpegAvailable();
@@ -285,8 +286,47 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
       }).pipe(Effect.scoped),
     );
 
+    it.effect("discards thumbnails of a file that changed while they were made", () =>
+      Effect.gen(function* () {
+        const store = yield* TrickplayStore.Service;
+        const fs = yield* FileSystem.FileSystem;
+
+        const clip = yield* encode("changing.mkv", [
+          "-f",
+          "lavfi",
+          "-i",
+          "testsrc2=size=320x180:rate=24:duration=12",
+          "-c:v",
+          "libx264",
+          "-preset",
+          "ultrafast",
+        ]);
+
+        const file = yield* resolved(clip);
+        const info = yield* fs.stat(clip);
+        const mtime = Option.getOrThrow(info.mtime);
+        const version = trickplayVersion(Number(info.size), mtime.getTime());
+
+        yield* store.publish("changing", version, TrickplayJob.build(file, version, INTERVAL));
+        assert.isTrue(Option.isSome(yield* store.find("changing", version, "manifest.json")));
+
+        // Replaced after a job read its size and time: ffmpeg read other contents than `version`.
+        const later = new Date(mtime.getTime() + 60_000);
+
+        yield* fs.utimes(clip, later, later);
+
+        const exit = yield* Effect.exit(
+          store.publish("changed", version, TrickplayJob.build(file, version, INTERVAL)),
+        );
+
+        assert.isTrue(Exit.isFailure(exit));
+        assert.include(String(Exit.isFailure(exit) ? exit.cause : ""), "changed while");
+        assert.isTrue(Option.isNone(yield* store.find("changed", version, "manifest.json")));
+      }),
+    );
+
     it.effect(
-      "replaces older versions, keeps them after a failed build, and stays inside its folder",
+      "keeps other versions for the sweep, keeps them after a failed build, and stays inside its folder",
       () =>
         Effect.gen(function* () {
           const store = yield* TrickplayStore.Service;
@@ -294,7 +334,9 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
           yield* store.publish("file2", "a-1", built(1));
           yield* store.publish("file2", "b-2", built(2));
 
-          assert.isTrue(Option.isNone(yield* store.find("file2", "a-1", "0.jpg")));
+          // Two jobs for one file may both publish; the catalog says which one it took, and the
+          // sweep removes the other, so the one it took is never deleted under it.
+          assert.isTrue(Option.isSome(yield* store.find("file2", "a-1", "0.jpg")));
           assert.isTrue(Option.isSome(yield* store.find("file2", "b-2", "1.jpg")));
 
           const failed = yield* Effect.exit(
@@ -363,6 +405,8 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
 
         assert.strictEqual(removed, 3);
         assert.deepStrictEqual(asked.toSorted(), [
+          "changed",
+          "changing",
           "file1",
           "file2",
           "fresh",
