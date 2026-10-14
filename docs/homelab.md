@@ -16,7 +16,9 @@ at startup, backups and restores, and telemetry in more depth.
 ## Docker Compose
 
 ```sh
-git clone https://github.com/lmdevv/movies && cd movies/deploy/compose
+git clone https://github.com/lmdevv/movies && cd movies
+git checkout "$(git describe --tags --abbrev=0)"   # the latest release, matching :latest
+cd deploy/compose
 cp .env.example .env
 ```
 
@@ -46,7 +48,7 @@ Open `MOVIES_PUBLIC_URL`, create the owner account (the first account is the own
 service's `volumes:` (`- /mnt/nas/shows:/media/shows:ro`) and add `/media/shows` as a library.
 
 - **Image.** `MOVIES_IMAGE` defaults to `ghcr.io/lmdevv/movies:latest`, the newest release. Best
-  is the release your checkout is at (`git checkout v0.1.0` with `:0.1.0`), or `main` with
+  is the release your checkout is at (`git checkout vX.Y.Z` with `:X.Y.Z`), or `main` with
   `:main` to follow development, since `compose.yaml` pins the Convex backend for its release.
   `docker compose build` builds the image from your checkout instead. Images exist for amd64 and
   arm64; Quick Sync drivers are amd64 only.

@@ -105,6 +105,17 @@ for ref in "${jellyfin_refs[@]}"; do
 done
 ((${#jellyfin_refs[@]} <= 1)) || fail "the Jellyfin test image is referenced as: ${jellyfin_refs[*]}"
 
+# --- Versions ------------------------------------------------------------------------------------
+
+# A release tag is checked against packages/backend/package.json; every other package (the CLI
+# reports its own) must carry the same version.
+release_version="$(node -p 'require("./packages/backend/package.json").version')"
+while IFS= read -r manifest; do
+  version="$(node -p "require('./$manifest').version")"
+  [[ "$version" == "$release_version" ]] ||
+    fail "$manifest is version $version; packages/backend/package.json is $release_version"
+done < <(git ls-files -- 'apps/*/package.json' 'packages/*/package.json')
+
 if ((failures > 0)); then
   exit 1
 fi

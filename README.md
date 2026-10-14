@@ -23,7 +23,9 @@ Tailscale and a Caddy reverse proxy, GPU passthrough, where data lives, backups,
 ### Docker Compose
 
 ```sh
-git clone https://github.com/lmdevv/movies && cd movies/deploy/compose
+git clone https://github.com/lmdevv/movies && cd movies
+git checkout "$(git describe --tags --abbrev=0)"   # the latest release, matching :latest
+cd deploy/compose
 cp .env.example .env    # set MOVIES_LIBRARY, the two public URLs, and PUID/PGID
 docker compose up -d
 ```
