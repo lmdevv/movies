@@ -262,6 +262,51 @@ describe("room sync", () => {
       }),
     ));
 
+  it("re-anchors on a host that starts behind its clock, and the guest settles near the host", () =>
+    scenario({}, ({ rooms }) =>
+      Effect.gen(function* () {
+        const host = yield* makeFakePlayer(0);
+        const guest = yield* makeFakePlayer(0);
+
+        yield* start(rooms, HOST, host);
+        yield* start(rooms, GUEST, guest);
+        host.userPlay();
+        yield* advance(2_000);
+
+        // A real player starts a little after the command that anchored the room.
+        host.userSeek(host.positionMs() - 100);
+        yield* advance(2 * DEFAULT_TUNABLES.heartbeatIntervalMs + 5_000);
+
+        expect(Math.abs(yield* driftOf(rooms, host))).toBeLessThanOrEqual(5);
+        expect(Math.abs(guest.positionMs() - host.positionMs())).toBeLessThanOrEqual(
+          DEFAULT_TUNABLES.settleMs,
+        );
+      }),
+    ));
+
+  it("settles a guest whose player starts a little after its seek lands", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        const guest = yield* makeFakePlayer(0);
+
+        // Joining seeks to the live position, and the guest is in sync once the seek lands.
+        yield* start(rooms, GUEST, guest);
+        expect(Math.abs(yield* driftOf(rooms, guest))).toBeLessThanOrEqual(
+          DEFAULT_TUNABLES.settleMs,
+        );
+
+        // A real player only starts advancing a moment later.
+        guest.stall();
+        yield* advance(100);
+        guest.recover();
+        yield* advance(5_000);
+
+        expect(Math.abs(yield* driftOf(rooms, guest))).toBeLessThanOrEqual(
+          DEFAULT_TUNABLES.settleMs,
+        );
+      }),
+    ));
+
   it("lets a stalled guest buffer locally, then catch up", () =>
     scenario(playingForAMinute, ({ rooms }) =>
       Effect.gen(function* () {

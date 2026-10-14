@@ -1,7 +1,16 @@
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { estimateClockOffset, isNewerRevision, targetPosition, toServerTime } from "./clock";
+import {
+  estimateClockOffset,
+  HEARTBEAT_INTERVAL_MS,
+  HOST_REANCHOR_THRESHOLD_MS,
+  hostReading,
+  isNewerRevision,
+  targetPosition,
+  toServerTime,
+  UNTIMED_HOST_REANCHOR_THRESHOLD_MS,
+} from "./clock";
 import type { RoomClock } from "./models/rooms";
 import { EpochMillis, Milliseconds } from "./units";
 
@@ -49,6 +58,54 @@ describe("targetPosition", () => {
 
   it("never moves backwards when the server reading predates the anchor", () => {
     expect(targetPosition(anchored("playing", 1), at(500_000))).toBe(60_000);
+  });
+});
+
+describe("hostReading", () => {
+  const timed = { thresholdMs: HOST_REANCHOR_THRESHOLD_MS };
+  const untimed = { thresholdMs: UNTIMED_HOST_REANCHOR_THRESHOLD_MS };
+
+  it("carries a playing host's timed reading forward, at the room's rate", () => {
+    expect(hostReading(anchored("playing", 1.5), ms(10_000), at(1_000), at(1_200))).toStrictEqual({
+      positionMs: 10_300,
+      ...timed,
+    });
+  });
+
+  it("leaves a stopped room's timed reading where it was", () => {
+    fc.assert(
+      fc.property(
+        statuses.filter((status) => status !== "playing"),
+        fc.integer({ min: 0, max: HEARTBEAT_INTERVAL_MS }),
+        (status, age) => {
+          expect(
+            hostReading(anchored(status, 1), ms(10_000), at(1_000_000), at(1_000_000 + age)),
+          ).toStrictEqual({ positionMs: 10_000, ...timed });
+        },
+      ),
+    );
+  });
+
+  it("counts a reading slightly ahead of the server as read now", () => {
+    expect(hostReading(anchored("playing", 1), ms(10_000), at(1_230), at(1_200))).toStrictEqual({
+      positionMs: 10_000,
+      ...timed,
+    });
+  });
+
+  it("treats a reading without a time, or with one that cannot be right, as untimed", () => {
+    const now = at(1_000_000);
+
+    for (const atServerTime of [
+      undefined,
+      at(now + HOST_REANCHOR_THRESHOLD_MS + 1),
+      at(now - HEARTBEAT_INTERVAL_MS - 1),
+    ]) {
+      expect(hostReading(anchored("playing", 1), ms(10_000), atServerTime, now)).toStrictEqual({
+        positionMs: 10_000,
+        ...untimed,
+      });
+    }
   });
 });
 

@@ -21,7 +21,7 @@ import { endRoom, leaveRoom } from "./lib/endings";
 import { fail } from "./lib/errors";
 import { BEST_QUALITY, resolveEpisode, resolvePlayable } from "./lib/playable";
 import { createdAt, presentEpisode, presentRoomClock, presentTitleCard } from "./lib/present";
-import { HOST_REANCHOR_THRESHOLD_MS, livePosition } from "./lib/roomClock";
+import { hostReading, livePosition } from "./lib/roomClock";
 import { hostControlArgs, ok, room as roomResult, roomClock } from "./lib/validators";
 import type { Viewer } from "./lib/viewer";
 import { authorize } from "./lib/viewer";
@@ -445,18 +445,19 @@ export const buffering = mutation({
  * Keeps the device's membership alive. A guest's heartbeat records its reported drift for the room
  * to show. The host's heartbeat also clears `hostAway` and, when the host's player drifted from
  * the computed position and the host saw the current revision, re-anchors the clock at the host's
- * position.
+ * position, carried forward from when the host read it.
  */
 export const heartbeat = mutation({
   args: {
     roomId: v.id("rooms"),
     deviceId: v.string(),
     positionMs: v.optional(v.number()),
+    atServerTime: v.optional(v.number()),
     revision: v.optional(v.number()),
     driftMs: v.optional(v.number()),
   },
   returns: roomClock,
-  handler: async (ctx, { roomId, deviceId, positionMs, revision, driftMs }) => {
+  handler: async (ctx, { roomId, deviceId, positionMs, atServerTime, revision, driftMs }) => {
     const viewer = await authorize(ctx, "play");
     const found = await loadRoom(ctx, roomId);
 
@@ -481,11 +482,17 @@ export const heartbeat = mutation({
 
     if (member.role !== "host" || found.status === "ended") return presentRoomClock(found);
 
+    const readAt =
+      atServerTime === undefined ? undefined : checkMilliseconds(atServerTime, "Server times");
+
+    const reading =
+      positionMs === undefined || revision !== found.revision || found.status !== "playing"
+        ? undefined
+        : hostReading(found, positionMs, readAt, now);
+
     const drifted =
-      positionMs !== undefined &&
-      revision === found.revision &&
-      found.status === "playing" &&
-      Math.abs(positionMs - livePosition(found, now)) > HOST_REANCHOR_THRESHOLD_MS;
+      reading !== undefined &&
+      Math.abs(reading.positionMs - livePosition(found, now)) > reading.thresholdMs;
 
     await ctx.db.patch(
       found._id,
@@ -493,7 +500,7 @@ export const heartbeat = mutation({
         ? {
             hostLastSeenAt: now,
             hostAway: false,
-            positionAtAnchorMs: checkPosition(positionMs),
+            positionAtAnchorMs: checkPosition(reading.positionMs),
             anchorServerTime: now,
             revision: found.revision + 1,
           }

@@ -114,6 +114,12 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
   const window = Math.max(1, tunables.offsetSamples * 2);
   const samples = yield* Ref.make<ReadonlyArray<ClockSample>>([]);
   const lastSeekAt = yield* Ref.make(Option.none<number>());
+  /**
+   * The clock revision the follower last acted on, if any. Joining and every clock change give it a
+   * fresh target, which `follow` settles onto from `settleMs`; keyed by revision, a clock applied
+   * while a decision was made for an older one still counts as fresh.
+   */
+  const settledOn = yield* Ref.make<number | null>(null);
   const pauseEchoes = yield* Ref.make(0);
   const serial = yield* Semaphore.make(1);
 
@@ -200,8 +206,16 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
       onSome: (at) => clientNow - at < tunables.seekCooldownMs,
     });
 
-    const decision = follow(current.clock, now.value, snapshot(), recentlySought, tunables);
+    const decision = follow(
+      current.clock,
+      now.value,
+      snapshot(),
+      recentlySought,
+      (yield* Ref.get(settledOn)) !== current.clock.revision,
+      tunables,
+    );
 
+    yield* Ref.set(settledOn, decision.settling ? null : current.clock.revision);
     yield* update((latest) => ({ ...latest, driftMs: decision.driftMs }));
 
     if (decision.commands.length > 0) {
@@ -346,13 +360,20 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
       if (event === "playing" || event === "seeked") yield* correct;
     });
 
-  /** The host reports its position; a following guest reports its drift. */
-  const heartbeatArgs = (current: RoomSyncState): CommandArgs<"rooms.heartbeat"> => {
+  /**
+   * The host reports its position and when it read it, by the server clock as it estimates it; a
+   * following guest reports its drift.
+   */
+  const heartbeatArgs = (
+    current: RoomSyncState,
+    now: Option.Option<EpochMillis>,
+  ): CommandArgs<"rooms.heartbeat"> => {
     if (current.role === "host") {
       return {
         roomId,
         deviceId,
         positionMs: Milliseconds.make(Math.max(0, player.positionMs())),
+        ...Option.match(now, { onNone: () => ({}), onSome: (atServerTime) => ({ atServerTime }) }),
         revision: current.clock.revision,
       };
     }
@@ -366,14 +387,19 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
 
   /**
    * Sends one heartbeat, reading the state only once it holds `serial`: a host command that held
-   * it may have moved the revision meanwhile.
+   * it may have moved the revision meanwhile. The answer is applied before the permit goes, so a
+   * host command that waited for it never sends the revision a re-anchor just replaced.
    */
   const beat = serial.withPermits(1)(
     Effect.gen(function* () {
       const current = yield* SubscriptionRef.get(state);
-      const clock = yield* client.mutate("rooms.heartbeat", heartbeatArgs(current));
+      const now = yield* serverNow;
+      const clock = yield* client.mutate("rooms.heartbeat", heartbeatArgs(current, now));
 
-      return { clock, wasReconnecting: current.connection === "reconnecting" };
+      return {
+        newer: yield* applyClock(clock),
+        wasReconnecting: current.connection === "reconnecting",
+      };
     }),
   );
 
@@ -393,10 +419,9 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
       return;
     }
 
-    const { wasReconnecting } = answered.value;
+    const { newer, wasReconnecting } = answered.value;
 
     yield* update((latest) => ({ ...latest, connection: "connected" }));
-    const newer = yield* applyClock(answered.value.clock);
 
     if (wasReconnecting) {
       yield* resync.pipe(Effect.catch(() => markReconnecting));
