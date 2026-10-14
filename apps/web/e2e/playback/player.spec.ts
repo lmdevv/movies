@@ -273,6 +273,24 @@ test("a direct file plays, answers the keyboard, and lands in Continue watching"
   await player.press("ArrowLeft");
   await expectPositionNear(page, at, 1.5);
 
+  // Presses quicker than a render add up: the second counts from where the first landed.
+  // Read in the same task, before playback moves on.
+  const quick = await page.getByTestId("player-video").evaluate((element) => {
+    if (!(element instanceof HTMLVideoElement)) throw new Error("The player is not a video");
+
+    const before = element.currentTime;
+
+    for (const key of ["l", "l"]) window.dispatchEvent(new KeyboardEvent("keydown", { key }));
+
+    return element.currentTime - before;
+  });
+
+  expect(quick).toBeCloseTo(20, 1);
+  await player.press("j");
+  await expectPositionNear(page, at + 10, 1.5);
+  await player.press("j");
+  await expectPositionNear(page, at, 1.5);
+
   // k and Space pause and play.
   await player.press("k");
   await expect.poll(async () => (await videoState(page)).paused).toBe(true);

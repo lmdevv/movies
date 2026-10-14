@@ -68,7 +68,8 @@ interface PlayerPort {
 
 It estimates the server clock offset from `rooms.time` round trips (best of a window, by round
 trip), applies committed clocks in revision order, nudges the rate for small drift and seeks for
-large drift, lets a stalled guest buffer and catch up, publishes the host's play, pause, seek, and
+large drift, settles a guest close to the shared position after a nudge or a clock change rather
+than anywhere inside the in-sync band, lets a stalled guest buffer and catch up, publishes the host's play, pause, seek, and
 buffering as room commands at the current revision, reverts the host to the committed clock when
 a command is stale or after a reconnect, and disables host controls while heartbeats go
 unanswered. Tunables live in `RoomSyncPolicy.DEFAULT_TUNABLES`.

@@ -21,9 +21,17 @@ export const HOST_ABANDON_TIMEOUT_MS = 30 * 60_000;
 
 /**
  * A host heartbeat re-anchors the shared timeline only when the host's player is further than
- * this from the computed position, so small jitter does not churn revisions.
+ * this from the computed position, so small jitter does not churn revisions. Guests follow the
+ * timeline, not the host, so it bounds how far they can sit from the host: a host's player starts
+ * a little after the command that anchored it.
  */
-export const HOST_REANCHOR_THRESHOLD_MS = 250;
+export const HOST_REANCHOR_THRESHOLD_MS = 50;
+
+/**
+ * The threshold for a heartbeat that does not say when the host read its position: the request's
+ * travel time counts as drift there, so a tight threshold would re-anchor on every slow request.
+ */
+export const UNTIMED_HOST_REANCHOR_THRESHOLD_MS = 250;
 
 /** Drift correction thresholds for a following player. */
 export const DRIFT_THRESHOLDS = {
@@ -50,6 +58,42 @@ export const targetPosition = (clock: ClockAnchor, serverNow: EpochMillis): Mill
   const elapsed = Math.max(0, serverNow - clock.anchorServerTime);
 
   return Milliseconds.make(clock.positionAtAnchorMs + elapsed * clock.playbackRate);
+};
+
+/** A host heartbeat's position as the server compares it with the shared position. */
+export interface HostReading {
+  /** Where the host's player is at the server's now. */
+  readonly positionMs: Milliseconds;
+  /** How far from the shared position it may be before the clock re-anchors on it. */
+  readonly thresholdMs: number;
+}
+
+/**
+ * Reads a host heartbeat's `positionMs` at `serverNow`. A reading timed by `atServerTime`, when the
+ * host read it by its estimate of the server clock, is carried forward to `serverNow` in a playing
+ * room, so the request's travel time is not drift, and gets `HOST_REANCHOR_THRESHOLD_MS`. A reading
+ * without a time, or with one that cannot be right (more than `HOST_REANCHOR_THRESHOLD_MS` ahead,
+ * or older than a heartbeat interval, as after the host's clock stepped), counts as read at
+ * `serverNow` and gets `UNTIMED_HOST_REANCHOR_THRESHOLD_MS`.
+ */
+export const hostReading = (
+  clock: ClockAnchor,
+  positionMs: Milliseconds,
+  atServerTime: EpochMillis | undefined,
+  serverNow: EpochMillis,
+): HostReading => {
+  const ageMs = atServerTime === undefined ? null : serverNow - atServerTime;
+
+  if (ageMs === null || ageMs < -HOST_REANCHOR_THRESHOLD_MS || ageMs > HEARTBEAT_INTERVAL_MS) {
+    return { positionMs, thresholdMs: UNTIMED_HOST_REANCHOR_THRESHOLD_MS };
+  }
+
+  const carriedMs = clock.status === "playing" ? Math.max(0, ageMs) * clock.playbackRate : 0;
+
+  return {
+    positionMs: Milliseconds.make(positionMs + carriedMs),
+    thresholdMs: HOST_REANCHOR_THRESHOLD_MS,
+  };
 };
 
 /**
