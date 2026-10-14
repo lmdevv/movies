@@ -84,10 +84,22 @@ export const subtitleTrackLabels = (
       : label;
   });
 
-  return titled.map((label, index) =>
-    repeated(titled, label) ? `${label} · ${String(index + 1)}` : label,
-  );
+  return distinct(titled);
 };
+
+/**
+ * `labels` with a repeated label followed by its position, repeated until no two are the same:
+ * a suffix can match another track's own title (`English · 1`), so one pass isn't enough. Each
+ * round lengthens only the labels that still collide, so it ends.
+ */
+const distinct = (labels: ReadonlyArray<string>): ReadonlyArray<string> =>
+  labels.some((label) => repeated(labels, label))
+    ? distinct(
+        labels.map((label, index) =>
+          repeated(labels, label) ? `${label} · ${String(index + 1)}` : label,
+        ),
+      )
+    : labels;
 
 /** The badges Paper draws after a title's facts, in order: resolution, HDR, codec, audio, CC. */
 export const fileBadges = (file: MediaFile): ReadonlyArray<string> => {

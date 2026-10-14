@@ -48,4 +48,14 @@ describe("subtitleTrackLabels", () => {
     ]);
     expect(subtitleTrackLabels([english, english])).toStrictEqual(["English · 1", "English · 2"]);
   });
+
+  it("never returns two equal labels, even when a title looks like a suffix", () => {
+    const labels = subtitleTrackLabels([
+      english,
+      english,
+      { ...english, language: undefined, title: "English · 1" },
+    ]);
+
+    expect(new Set(labels).size).toBe(labels.length);
+  });
 });
