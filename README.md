@@ -168,6 +168,7 @@ service.
 ```sh
 pnpm install && pnpm --filter @movies/cli build    # puts apps/cli/dist/movies.js in place
 alias movies="node $PWD/apps/cli/dist/movies.js"
+# or with Nix: nix run github:lmdevv/movies#cli -- --help (packages.<system>.cli for systemPackages)
 
 movies login --server http://nas.tailnet.ts.net:3210 --media-url http://nas.tailnet.ts.net:8080
 movies search alien

@@ -40,14 +40,36 @@
 
       formatter = forAllSystems (pkgs: pkgs.nixfmt);
 
-      packages = forLinux (pkgs: rec {
-        movies = pkgs.callPackage ./nix/package.nix { };
-        default = movies;
+      # The server is Linux only; the CLI also builds on macOS.
+      packages = forAllSystems (
+        pkgs:
+        let
+          cli = pkgs.callPackage ./nix/cli.nix { };
+        in
+        {
+          inherit cli;
+          default = cli;
+        }
+        // nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux rec {
+          movies = pkgs.callPackage ./nix/package.nix { };
+          default = movies;
+        }
+      );
+
+      # `nix run github:lmdevv/movies#cli -- whoami`
+      apps = forAllSystems (pkgs: {
+        cli = {
+          type = "app";
+          program = nixpkgs.lib.getExe self.packages.${pkgs.stdenv.hostPlatform.system}.cli;
+          meta.description = "The [movies] command line";
+        };
       });
 
-      # `pkgs.movies` for configurations that apply it; the module builds the same package.
+      # `pkgs.movies` and `pkgs.movies-cli` for configurations that apply it; the module builds the
+      # same server package.
       overlays.default = final: _prev: {
         movies = final.callPackage ./nix/package.nix { };
+        movies-cli = final.callPackage ./nix/cli.nix { };
       };
 
       nixosModules = {
@@ -99,6 +121,8 @@
         in
         {
           package = self.packages.${pkgs.stdenv.hostPlatform.system}.movies;
+          # Builds the CLI, so a stale pnpm dependency hash fails `nix flake check`.
+          inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) cli;
           module = evaluate { };
           module-qsv = evaluate {
             hardwareAcceleration = "qsv";
