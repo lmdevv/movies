@@ -1,7 +1,8 @@
 /**
  * Who is in a room and how each person stands, as the room panel lists them: the host first, then
  * this device, then the other guests. Members in step show nothing; a guest more than a second off
- * shows its drift, a joining viewer shows `syncing`, and the host shows `buffering` or `left`.
+ * shows its drift, a joining viewer shows `syncing`, a member browsing elsewhere in the app shows
+ * `away`, and the host shows `buffering` or `left`.
  */
 import type { DeviceId } from "@movies/contracts/ids";
 import type { Room } from "@movies/contracts/models/rooms";
@@ -20,10 +21,16 @@ export const driftLabel = (driftMs: number): string =>
 export const hostGone = (room: Pick<Room, "hostAway" | "clock">): boolean =>
   room.hostAway || room.clock.status === "ended";
 
-const hostStatus = (room: Room): RoomMemberStatus | undefined => {
+/** How many members are playing the room; members browsing elsewhere are not watching. */
+export const watchingCount = (room: Pick<Room, "members">): number =>
+  room.members.filter((member) => member.presence === "watching").length;
+
+const hostStatus = (room: Room, member: Room["members"][number]): RoomMemberStatus | undefined => {
   if (hostGone(room)) return { kind: "left" };
 
-  return room.clock.status === "buffering" ? { kind: "buffering" } : undefined;
+  if (room.clock.status === "buffering") return { kind: "buffering" };
+
+  return member.presence === "away" ? { kind: "away" } : undefined;
 };
 
 const guestStatus = (
@@ -32,6 +39,8 @@ const guestStatus = (
   syncing: boolean,
   ownDriftMs: number | null,
 ): RoomMemberStatus | undefined => {
+  if (member.presence === "away") return { kind: "away" };
+
   if (self && syncing) return { kind: "syncing" };
 
   const drift = self ? ownDriftMs : member.driftMs;
@@ -67,7 +76,7 @@ export const roomMembers = (
       name: member.profileName,
       detail: host ? "Host" : self ? "You" : undefined,
       avatar: avatarImage(member.avatar),
-      status: host ? hostStatus(room) : guestStatus(member, self, syncing, ownDriftMs),
+      status: host ? hostStatus(room, member) : guestStatus(member, self, syncing, ownDriftMs),
     };
   });
 

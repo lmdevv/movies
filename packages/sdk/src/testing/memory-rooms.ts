@@ -2,7 +2,9 @@
  * An in-memory Convex backend for one watch room, at the `ConvexTransport` seam. It follows the
  * room rules of `packages/backend/convex/rooms.ts` (host-only controls at the current revision,
  * seek keeping the status, host heartbeats re-anchoring drift beyond the contracts' threshold,
- * guest heartbeats recording the drift they report),
+ * guest heartbeats recording the drift they report, heartbeats recording presence, and an away
+ * host's heartbeat pausing a buffering room; it knows no file length, so a room never plays past
+ * one),
  * decodes arguments and encodes results with the registry schemas, keeps its own server clock at
  * a fixed offset from the test clock, delays every call and update by a one-way latency, and can
  * drop the connection. Everything runs on Effect's `Clock`, so `TestClock` drives it.
@@ -132,24 +134,57 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
 
   const heartbeat = (
     args: (typeof commands)["rooms.heartbeat"]["args"]["Type"],
-  ): Effect.Effect<RoomClock> =>
+  ): Effect.Effect<RoomClock, CommandError> =>
     Effect.gen(function* () {
       const now = yield* serverNow;
-      const room = yield* Ref.get(committed);
+      const before = yield* Ref.get(committed);
 
-      if (args.deviceId !== room.hostDeviceId) {
-        yield* commit(
-          Struct.evolve(room, {
-            members: (members) =>
-              members.map((member) =>
-                member.deviceId === args.deviceId
-                  ? { ...member, driftMs: args.driftMs ?? null }
-                  : member,
-              ),
-          }),
-        );
+      if (before.id !== args.roomId) return yield* new NotFound({ message: "No such room" });
 
-        return room.clock;
+      const joined =
+        args.deviceId === before.hostDeviceId ||
+        before.members.some((each) => each.deviceId === args.deviceId);
+
+      if (!joined) {
+        return yield* new Forbidden({ message: "Join the room on this device first" });
+      }
+
+      const presence = args.presence ?? "watching";
+      const guest = args.deviceId !== before.hostDeviceId;
+      const driftMs = guest && presence === "watching" ? (args.driftMs ?? null) : null;
+
+      const changed = before.members.some(
+        (member) =>
+          member.deviceId === args.deviceId &&
+          (member.presence !== presence || member.driftMs !== driftMs),
+      );
+
+      const room = Struct.evolve(before, {
+        members: (members) =>
+          members.map((member) =>
+            member.deviceId === args.deviceId ? { ...member, presence, driftMs } : member,
+          ),
+      });
+
+      // Guests always publish, as the backend's row write does; a host only on a change.
+      if (guest || changed) yield* commit(room);
+
+      if (guest) return room.clock;
+
+      if (presence === "away") {
+        if (room.clock.status !== "buffering") return room.clock;
+
+        // An away host is not buffering any more: the frozen room pauses where it froze.
+        const clock: RoomClock = {
+          ...room.clock,
+          status: "paused",
+          anchorServerTime: now,
+          revision: room.clock.revision + 1,
+        };
+
+        yield* commit(withClock(room, clock));
+
+        return clock;
       }
 
       if (

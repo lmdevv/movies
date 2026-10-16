@@ -21,8 +21,8 @@ import { endRoom, leaveRoom } from "./lib/endings";
 import { fail } from "./lib/errors";
 import { BEST_QUALITY, resolveEpisode, resolvePlayable } from "./lib/playable";
 import { createdAt, presentEpisode, presentRoomClock, presentTitleCard } from "./lib/present";
-import { hostReading, livePosition } from "./lib/roomClock";
-import { hostControlArgs, ok, room as roomResult, roomClock } from "./lib/validators";
+import { awayHostClock, hostReading, livePosition } from "./lib/roomClock";
+import { hostControlArgs, ok, room as roomResult, roomClock, roomPresence } from "./lib/validators";
 import type { Viewer } from "./lib/viewer";
 import { authorize } from "./lib/viewer";
 
@@ -77,7 +77,10 @@ const presentRoom = async (ctx: QueryCtx, doc: Doc<"rooms">): Promise<Infer<type
       role: member.role,
       joinedAt: member.joinedAt,
       lastSeenAt: member.lastSeenAt,
-      driftMs: member.role === "guest" ? (member.driftMs ?? null) : null,
+      presence: member.presence ?? "watching",
+      // A device browsing elsewhere plays nothing, so whatever it last reported is no drift.
+      driftMs:
+        member.role === "guest" && member.presence !== "away" ? (member.driftMs ?? null) : null,
     })),
     createdAt: createdAt(doc),
   };
@@ -246,6 +249,7 @@ export const create = mutation({
       role: "host",
       joinedAt: now,
       lastSeenAt: now,
+      presence: "watching",
     });
 
     return presentRoom(ctx, await loadRoom(ctx, roomId));
@@ -354,9 +358,11 @@ export const join = mutation({
         role: "guest",
         joinedAt: now,
         lastSeenAt: now,
+        presence: "watching",
       });
     } else {
-      await ctx.db.patch(existing._id, { profileId, lastSeenAt: now });
+      // Joining is opening the room's player, so a device that was browsing is watching again.
+      await ctx.db.patch(existing._id, { profileId, lastSeenAt: now, presence: "watching" });
     }
 
     return presentRoom(ctx, await loadRoom(ctx, roomId));
@@ -442,10 +448,15 @@ export const buffering = mutation({
 });
 
 /**
- * Keeps the device's membership alive. A guest's heartbeat records its reported drift for the room
- * to show. The host's heartbeat also clears `hostAway` and, when the host's player drifted from
- * the computed position and the host saw the current revision, re-anchors the clock at the host's
- * position, carried forward from when the host read it.
+ * Keeps the device's membership alive and records its `presence`: `watching` (the default) from
+ * the room's player, `away` from a device browsing elsewhere in the app, which keeps its place
+ * without counting as watching. A watching guest's heartbeat records its reported drift for the
+ * room to show; an away one clears it. The host's heartbeat also clears `hostAway`, as an away
+ * host is still there. A watching host's heartbeat re-anchors the clock at the host's position,
+ * carried forward from when the host read it, when the host's player drifted from the computed
+ * position and the host saw the current revision. An away host has no player to drift: the room
+ * plays on, except that one frozen for the host's buffering, or played past the end of its file,
+ * pauses (`awayHostClock`).
  */
 export const heartbeat = mutation({
   args: {
@@ -455,9 +466,13 @@ export const heartbeat = mutation({
     atServerTime: v.optional(v.number()),
     revision: v.optional(v.number()),
     driftMs: v.optional(v.number()),
+    presence: v.optional(roomPresence),
   },
   returns: roomClock,
-  handler: async (ctx, { roomId, deviceId, positionMs, atServerTime, revision, driftMs }) => {
+  handler: async (
+    ctx,
+    { roomId, deviceId, positionMs, atServerTime, revision, driftMs, presence = "watching" },
+  ) => {
     const viewer = await authorize(ctx, "play");
     const found = await loadRoom(ctx, roomId);
 
@@ -471,16 +486,31 @@ export const heartbeat = mutation({
     const now = Date.now();
 
     if (member.role === "guest") {
-      // A guest that stopped reporting drift (buffering) clears the last value it reported.
+      // A guest that stopped reporting drift (buffering, or away) clears the last value it reported.
       await ctx.db.patch(member._id, {
         lastSeenAt: now,
-        driftMs: Number.isFinite(driftMs) ? driftMs : undefined,
+        presence,
+        driftMs: presence === "watching" && Number.isFinite(driftMs) ? driftMs : undefined,
       });
     } else {
-      await ctx.db.patch(member._id, { lastSeenAt: now });
+      await ctx.db.patch(member._id, { lastSeenAt: now, presence });
     }
 
     if (member.role !== "host" || found.status === "ended") return presentRoomClock(found);
+
+    if (presence === "away") {
+      const file = await ctx.db.get(found.fileId);
+      const paused = awayHostClock(found, file?.probe.durationMs ?? 0, now);
+
+      await ctx.db.patch(
+        found._id,
+        paused === null
+          ? { hostLastSeenAt: now, hostAway: false }
+          : { ...paused, revision: found.revision + 1, hostLastSeenAt: now, hostAway: false },
+      );
+
+      return presentRoomClock(await loadRoom(ctx, roomId));
+    }
 
     const readAt =
       atServerTime === undefined ? undefined : checkMilliseconds(atServerTime, "Server times");

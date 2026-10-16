@@ -45,6 +45,7 @@ import * as Playback from "./playback";
 import * as QueryWatch from "./query-watch";
 import type { QueryState } from "./query-watch";
 import type { PlayerPort } from "./room-sync/player-port";
+import * as RoomPresence from "./room-sync/room-presence";
 import * as RoomSync from "./room-sync/room-sync";
 import type { RoomSyncState } from "./room-sync/room-sync";
 import type { RoomSyncTunables } from "./room-sync/sync-policy";
@@ -295,6 +296,27 @@ const useScoped = <A, E>(
   }, [runtime, key]);
 
   return outcome;
+};
+
+/**
+ * Keeps this device's place in a room while mounted, outside the room's player: heartbeats that
+ * say the device is away, browsing, so the server neither drops it nor counts it as watching.
+ * Null sends nothing. It stops on unmount, or by itself once the device is no longer in the room.
+ */
+export const useRoomPresence = (input: RoomPresence.RoomPresenceOptions | null): void => {
+  const key = input === null ? null : `${input.roomId}:${input.deviceId}`;
+
+  useScoped(key, () =>
+    input === null
+      ? Effect.void
+      : RoomPresence.keepAway(input).pipe(
+          Effect.catch((error) =>
+            Effect.logInfo("RoomPresence.stopped", error).pipe(
+              Effect.annotateLogs({ roomId: input.roomId }),
+            ),
+          ),
+        ),
+  );
 };
 
 /** What `useRoomSync` needs. */

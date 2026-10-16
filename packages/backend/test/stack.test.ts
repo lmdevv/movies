@@ -104,6 +104,11 @@ const decodeId = Schema.decodeUnknownSync(
   Schema.fromJsonString(Schema.Struct({ _id: Schema.String })),
 );
 
+/** A room row's status and whether its host is away, from a line of `tableLines`. */
+const decodeHostPresence = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Struct({ status: Schema.String, hostAway: Schema.Boolean })),
+);
+
 /** The `_id` of a row printed as JSON by `tableLines`. */
 const idOf = (line: string): string => decodeId(line)._id;
 
@@ -2275,6 +2280,165 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           revision: anchored.revision,
         }),
       ).toStrictEqual(anchored);
+      await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
+    });
+
+    it("keeps the place of members browsing elsewhere, away, past the presence timeouts", async () => {
+      const hostDevice = device("browsing-host");
+      const awayGuest = device("browsing-guest");
+      const silentGuest = device("silent-guest");
+      const owner = await run(fixture.owner, "account.viewer", {});
+      const member = await run(fixture.member, "account.viewer", {});
+      const longAgo = Date.now() - 2 * 60_000;
+      // Inside the one-minute member timeout, so the backend's own sweep keeps them for now.
+      const lastHeard = Date.now() - 45_000;
+
+      const room = await run(fixture.owner, "rooms.create", {
+        profileId: fixture.ownerProfile,
+        deviceId: hostDevice,
+        titleId: fixture.titles.allAges,
+        positionMs: ms(0),
+      });
+
+      const playing = await run(fixture.owner, "rooms.play", {
+        roomId: room.id,
+        deviceId: hostDevice,
+        revision: 0,
+        positionMs: ms(5_000),
+      });
+
+      // Two guests the server last heard from 45 seconds ago.
+      const guestRow = (deviceId: DeviceId) =>
+        JSON.stringify({
+          roomId: room.id,
+          userId: member.user.id,
+          profileId: fixture.memberProfile,
+          deviceId,
+          role: "guest",
+          joinedAt: lastHeard,
+          lastSeenAt: lastHeard,
+          presence: "watching",
+          driftMs: 2_400,
+        });
+
+      importDocuments("roomMembers", [guestRow(awayGuest), guestRow(silentGuest)]);
+
+      // A host that went quiet past the host timeout, in a room still playing.
+      importDocuments("rooms", [
+        JSON.stringify({
+          titleId: fixture.titles.allAges,
+          episodeId: null,
+          fileId: room.fileId,
+          hostUserId: owner.user.id,
+          hostProfileId: fixture.ownerProfile,
+          hostDeviceId: `quiet-host-${id}`,
+          status: "playing",
+          positionAtAnchorMs: 0,
+          anchorServerTime: longAgo,
+          playbackRate: 1,
+          revision: 2,
+          hostLastSeenAt: longAgo,
+          hostAway: false,
+        }),
+      ]);
+
+      // The host browsing reports a position far from the clock: an away host's is not read.
+      const kept = await run(fixture.owner, "rooms.heartbeat", {
+        roomId: room.id,
+        deviceId: hostDevice,
+        positionMs: ms(0),
+        revision: playing.revision,
+        presence: "away",
+      });
+
+      expect(kept).toStrictEqual(playing);
+      await run(fixture.member, "rooms.heartbeat", {
+        roomId: room.id,
+        deviceId: awayGuest,
+        driftMs: 9_000,
+        presence: "away",
+      });
+      // Past the member timeout for the guest that sent nothing.
+      await sleep(Math.max(0, lastHeard + 61_000 - Date.now()));
+      runInternal("maintenance:sweepRooms");
+
+      const swept = await run(fixture.owner, "rooms.get", { roomId: room.id });
+
+      expect(swept.clock).toStrictEqual(playing);
+      expect(swept.hostAway).toBe(false);
+      expect(
+        swept.members
+          .map((each) => [each.deviceId, each.role, each.presence, each.driftMs] as const)
+          .toSorted(([left], [right]) => left.localeCompare(right)),
+      ).toStrictEqual([
+        [awayGuest, "guest", "away", null],
+        [hostDevice, "host", "away", null],
+      ]);
+      // The quiet host's room, with no heartbeat at all, paused as before.
+      expect(
+        decodeHostPresence(
+          tableLines("rooms").find((line) => line.includes(`quiet-host-${id}`)) ?? "{}",
+        ),
+      ).toStrictEqual({ status: "paused", hostAway: true });
+
+      // Back in the player: joining makes the guest a watching member again.
+      const rejoined = await run(fixture.member, "rooms.join", {
+        roomId: room.id,
+        profileId: fixture.memberProfile,
+        deviceId: awayGuest,
+      });
+
+      expect(rejoined.members.find((each) => each.deviceId === awayGuest)?.presence).toBe(
+        "watching",
+      );
+      await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
+    }, 90_000);
+
+    it("pauses a room once its host browses away from a stall or past the end", async () => {
+      const hostDevice = device("stalled-host");
+
+      const room = await run(fixture.owner, "rooms.create", {
+        profileId: fixture.ownerProfile,
+        deviceId: hostDevice,
+        titleId: fixture.titles.allAges,
+        positionMs: ms(0),
+      });
+
+      const away = (revision: number) =>
+        run(fixture.owner, "rooms.heartbeat", {
+          roomId: room.id,
+          deviceId: hostDevice,
+          revision,
+          presence: "away",
+        });
+
+      const stalled = await run(fixture.owner, "rooms.buffering", {
+        roomId: room.id,
+        deviceId: hostDevice,
+        revision: 0,
+        positionMs: ms(30_000),
+      });
+
+      expect(await away(stalled.revision)).toMatchObject({
+        status: "paused",
+        positionAtAnchorMs: 30_000,
+        revision: stalled.revision + 1,
+      });
+
+      // Playing from just before the end of the file, with no player to pause at the end.
+      const ending = await run(fixture.owner, "rooms.play", {
+        roomId: room.id,
+        deviceId: hostDevice,
+        revision: stalled.revision + 1,
+        positionMs: ms(DURATION_MS - 100),
+      });
+
+      await sleep(300);
+      expect(await away(ending.revision)).toMatchObject({
+        status: "paused",
+        positionAtAnchorMs: DURATION_MS,
+        revision: ending.revision + 1,
+      });
       await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
     });
 

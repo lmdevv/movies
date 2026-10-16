@@ -26,6 +26,16 @@ export const RoomClock = Schema.Struct({
 /** The committed shared timeline. */
 export interface RoomClock extends Schema.Schema.Type<typeof RoomClock> {}
 
+/**
+ * What a member's device is doing: `watching` plays the room; `away` browses elsewhere in the app
+ * and keeps its place, sending heartbeats without playing. Away members are not watching and
+ * report no drift.
+ */
+export const RoomPresence = Schema.Literals(["watching", "away"]);
+
+/** What a member's device is doing. */
+export type RoomPresence = typeof RoomPresence.Type;
+
 /** A room member: one profile on one device. */
 export const RoomMember = Schema.Struct({
   userId: UserId,
@@ -36,9 +46,10 @@ export const RoomMember = Schema.Struct({
   role: Schema.Literals(["host", "guest"]),
   joinedAt: EpochMillis,
   lastSeenAt: EpochMillis,
+  presence: RoomPresence,
   /**
    * A guest's last reported distance from the shared position, in milliseconds; positive means
-   * ahead. Null for the host, and for a guest that is buffering or has not reported yet.
+   * ahead. Null for the host, and for a guest that is buffering, away, or has not reported yet.
    */
   driftMs: Schema.NullOr(Schema.Finite),
 });
@@ -57,7 +68,10 @@ export const Room = Schema.Struct({
   hostDeviceId: DeviceId,
   /** The host profile's name, also once the host has left the room. */
   hostProfileName: Schema.String,
-  /** The host stopped sending heartbeats; the server paused the room until the host returns. */
+  /**
+   * The host stopped sending heartbeats; the server paused the room until the host returns. A host
+   * browsing elsewhere in the app still sends them, so it is not away here: its member is `away`.
+   */
   hostAway: Schema.Boolean,
   clock: RoomClock,
   members: Schema.Array(RoomMember),

@@ -34,6 +34,7 @@ import {
   probe,
   ratings,
   role,
+  roomPresence,
   roomRole,
   roomStatus,
   scope,
@@ -419,6 +420,8 @@ export default defineSchema({
     role: roomRole,
     joinedAt: v.number(),
     lastSeenAt: v.number(),
+    /** What the device's last heartbeat said it is doing; absent on rows from before it was kept. */
+    presence: v.optional(roomPresence),
     /** A guest's last reported distance from the shared position; absent until it reports one. */
     driftMs: v.optional(v.number()),
   })

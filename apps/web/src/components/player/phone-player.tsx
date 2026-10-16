@@ -361,7 +361,12 @@ export function PhoneRoomDetails({
                 )}
               </span>
               {member.status === undefined ? null : (
-                <span className="w-16 shrink-0 text-right font-mono text-caption/caption text-warning">
+                <span
+                  className={cn(
+                    "w-16 shrink-0 text-right font-mono text-caption/caption",
+                    member.status.kind === "away" ? "text-text-muted" : "text-warning",
+                  )}
+                >
                   {member.status.kind === "drift" ? member.status.label : member.status.kind}
                 </span>
               )}

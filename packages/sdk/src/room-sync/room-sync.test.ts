@@ -1,9 +1,9 @@
-import { targetPosition } from "@movies/contracts/clock";
+import { MEMBER_PRESENCE_TIMEOUT_MS, targetPosition } from "@movies/contracts/clock";
 import { DeviceId } from "@movies/contracts/ids";
 import type { RoomClock } from "@movies/contracts/models/rooms";
 import { Room, RoomClock as RoomClockSchema } from "@movies/contracts/models/rooms";
 import { EpochMillis, Milliseconds } from "@movies/contracts/units";
-import { Deferred, Effect, Fiber, Layer, Option, Schema } from "effect";
+import { Deferred, Effect, Exit, Fiber, Layer, Option, Schema } from "effect";
 import type { Scope } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
@@ -18,6 +18,7 @@ import type { FakePlayer } from "../testing/fake-player";
 import { makeFakePlayer } from "../testing/fake-player";
 import type { MemoryRooms } from "../testing/memory-rooms";
 import { makeMemoryRooms } from "../testing/memory-rooms";
+import { keepAway } from "./room-presence";
 import type { RoomSync } from "./room-sync";
 import { hostControlsEnabled, run } from "./room-sync";
 import { DEFAULT_TUNABLES } from "./sync-policy";
@@ -77,6 +78,7 @@ const roomWith = (clock: Partial<RoomClock>): Room =>
         role: "guest",
         joinedAt: START,
         lastSeenAt: START,
+        presence: "watching",
         driftMs: null,
       },
     ],
@@ -551,5 +553,127 @@ describe("room sync over HTTP", () => {
           expect(waited?.args).toMatchObject({ deviceId: HOST, revision: 1 });
         }),
       ),
+    ));
+});
+
+/** How many heartbeats the backend has received. */
+const heartbeats = (rooms: MemoryRooms) =>
+  Effect.map(rooms.calls, (calls) => calls.filter((path) => path === "rooms:heartbeat").length);
+
+describe("room presence while browsing", () => {
+  it("keeps a guest's place for longer than the member timeout, marked away", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        const player = yield* makeFakePlayer(0);
+
+        const watching = yield* Effect.forkChild(
+          Effect.gen(function* () {
+            yield* start(rooms, GUEST, player);
+
+            return yield* Effect.never;
+          }),
+        );
+
+        yield* advance(DEFAULT_TUNABLES.heartbeatIntervalMs + 1_000);
+        expect((yield* rooms.room).members[0]?.driftMs).toBeTypeOf("number");
+
+        // The viewer leaves the player for the rest of the app.
+        yield* Fiber.interrupt(watching);
+        const before = yield* heartbeats(rooms);
+
+        yield* Effect.forkChild(keepAway({ roomId: (yield* rooms.room).id, deviceId: GUEST }));
+        yield* advance(MEMBER_PRESENCE_TIMEOUT_MS + 5_000);
+
+        const sent = (yield* heartbeats(rooms)) - before;
+
+        // No silence ever reaches the timeout: one heartbeat now, then one per interval.
+        expect(sent).toBeGreaterThanOrEqual(
+          Math.floor((MEMBER_PRESENCE_TIMEOUT_MS + 5_000) / DEFAULT_TUNABLES.heartbeatIntervalMs),
+        );
+        expect((yield* rooms.room).members[0]).toMatchObject({ presence: "away", driftMs: null });
+      }),
+    ));
+
+  it("keeps a room playing for its guests while the host browses", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        const before = (yield* rooms.room).clock;
+
+        yield* Effect.forkChild(keepAway({ roomId: (yield* rooms.room).id, deviceId: HOST }));
+        yield* advance(30_000);
+
+        expect((yield* rooms.room).clock).toStrictEqual(before);
+      }),
+    ));
+
+  it("pauses a room frozen for the host's buffering once the host browses away", () =>
+    scenario({ ...playingForAMinute, status: "buffering" }, ({ rooms }) =>
+      Effect.gen(function* () {
+        const frozen = (yield* rooms.room).clock;
+
+        yield* Effect.forkChild(keepAway({ roomId: (yield* rooms.room).id, deviceId: HOST }));
+        yield* advance(1_000);
+
+        expect((yield* rooms.room).clock).toMatchObject({
+          status: "paused",
+          positionAtAnchorMs: frozen.positionAtAnchorMs,
+          revision: frozen.revision + 1,
+        });
+      }),
+    ));
+
+  it("keeps sending through a dropped connection", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        yield* rooms.setConnected(false);
+
+        const fiber = yield* Effect.forkChild(
+          keepAway({ roomId: (yield* rooms.room).id, deviceId: GUEST }),
+        );
+
+        yield* advance(3 * DEFAULT_TUNABLES.heartbeatIntervalMs);
+        yield* rooms.setConnected(true);
+        yield* advance(DEFAULT_TUNABLES.heartbeatIntervalMs + 1_000);
+
+        expect(fiber.pollUnsafe()).toBeUndefined();
+        expect((yield* rooms.room).members[0]?.presence).toBe("away");
+      }),
+    ));
+
+  it("stops once the device is no longer in the room", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        const fiber = yield* Effect.forkChild(
+          keepAway({ roomId: (yield* rooms.room).id, deviceId: DeviceId.make("left-device") }),
+        );
+
+        yield* advance(1_000);
+        const exit = yield* Fiber.await(fiber);
+
+        expect(Exit.isFailure(exit)).toBe(true);
+        yield* advance(3 * DEFAULT_TUNABLES.heartbeatIntervalMs);
+        expect(yield* heartbeats(rooms)).toBe(1);
+      }),
+    ));
+});
+
+describe("a host coming back to a playing room", () => {
+  it("joins the live position instead of pulling the room back to where its stream started", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        const before = (yield* rooms.room).clock;
+        // The host's stream starts seconds behind the live position, as a negotiated stream does.
+        const live = yield* sharedPosition(rooms);
+        const host = yield* makeFakePlayer(live - 4_000);
+
+        host.userPlay();
+        yield* start(rooms, HOST, host);
+        yield* advance(2 * DEFAULT_TUNABLES.heartbeatIntervalMs + 1_000);
+
+        expect((yield* rooms.room).clock.revision).toBe(before.revision);
+        expect(Math.abs(yield* driftOf(rooms, host))).toBeLessThanOrEqual(
+          DEFAULT_TUNABLES.hostSeekMs,
+        );
+      }),
     ));
 });

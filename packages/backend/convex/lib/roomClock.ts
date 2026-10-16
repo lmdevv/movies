@@ -22,8 +22,14 @@ export const HOST_REANCHOR_THRESHOLD_MS = 50;
 /** The threshold for a heartbeat without `atServerTime`, whose travel time counts as drift. */
 export const UNTIMED_HOST_REANCHOR_THRESHOLD_MS = 250;
 
+/** The fields of a room that determine its live position. */
+export type ClockAnchor = Pick<
+  Doc<"rooms">,
+  "status" | "positionAtAnchorMs" | "anchorServerTime" | "playbackRate"
+>;
+
 /** The shared position at `now`; matches `targetPosition` in contracts. */
-export const livePosition = (room: Doc<"rooms">, now: number): number =>
+export const livePosition = (room: ClockAnchor, now: number): number =>
   room.status === "playing"
     ? room.positionAtAnchorMs + Math.max(0, now - room.anchorServerTime) * room.playbackRate
     : room.positionAtAnchorMs;
@@ -57,4 +63,36 @@ export const hostReading = (
   const carriedMs = room.status === "playing" ? Math.max(0, ageMs) * room.playbackRate : 0;
 
   return { positionMs: positionMs + carriedMs, thresholdMs: HOST_REANCHOR_THRESHOLD_MS };
+};
+
+/** A paused clock at `positionAtAnchorMs`, anchored at the heartbeat that paused it. */
+export interface PausedClock {
+  readonly status: "paused";
+  readonly positionAtAnchorMs: number;
+  readonly anchorServerTime: number;
+}
+
+/**
+ * What a heartbeat from a host browsing outside the player does to the room's clock, at `now`: null
+ * keeps it. The clock is an anchor the server advances by itself, so a playing room plays on for
+ * its guests without the host's player, whose heartbeats only correct that player's own drift. Two
+ * states would otherwise last only as long as the host's player: a room frozen while the host
+ * buffered pauses where it froze, and a playing room that ran past the end of its file
+ * (`durationMs`) pauses at the end, as the host's player pauses there. A file whose length is
+ * unknown (not positive) never ends this way.
+ */
+export const awayHostClock = (
+  room: ClockAnchor,
+  durationMs: number,
+  now: number,
+): PausedClock | null => {
+  if (room.status === "buffering") {
+    return { status: "paused", positionAtAnchorMs: room.positionAtAnchorMs, anchorServerTime: now };
+  }
+
+  if (room.status !== "playing" || !(durationMs > 0) || livePosition(room, now) < durationMs) {
+    return null;
+  }
+
+  return { status: "paused", positionAtAnchorMs: durationMs, anchorServerTime: now };
 };

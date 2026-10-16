@@ -9,8 +9,9 @@
  *   player is left alone until they play again. Guest player events never become room commands.
  * - **The host's** player is compared with the committed clock after each player event; a
  *   difference becomes `rooms.play`, `pause`, `seek`, or `buffering` at the revision the host last
- *   saw. A stall freezes the room, and recovery publishes a fresh playing anchor. Only a command
- *   rejected as stale, or a reconnect, moves the host's player onto the committed clock.
+ *   saw. A stall freezes the room, and recovery publishes a fresh playing anchor. Only starting in
+ *   a playing room far from its live position, a command rejected as stale, or a reconnect moves
+ *   the host's player onto the committed clock.
  * - **Presence.** Heartbeats every few seconds; the host's carry its position so the server can
  *   re-anchor drift, and a following guest's carry its measured drift so the room can show it. An unanswered heartbeat marks the connection lost and disables host controls
  *   until the room has been read again.
@@ -20,7 +21,12 @@
  */
 import type { ClockOffset, ClockSample } from "@movies/contracts/clock";
 import type { CommandArgs } from "@movies/contracts/commands";
-import { estimateClockOffset, isNewerRevision, toServerTime } from "@movies/contracts/clock";
+import {
+  estimateClockOffset,
+  isNewerRevision,
+  targetPosition,
+  toServerTime,
+} from "@movies/contracts/clock";
 import type { DeviceId, RoomId } from "@movies/contracts/ids";
 import type { Room, RoomClock } from "@movies/contracts/models/rooms";
 import type { EpochMillis } from "@movies/contracts/units";
@@ -323,6 +329,25 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
       }),
     );
 
+  /**
+   * Moves a starting host's player onto a playing room's live position when it is further than
+   * `hostSeekMs` off. The host's stream starts wherever it was negotiated, seconds before frames
+   * show; publishing from there would pull the room back for every guest. A host coming back to
+   * the room, or reloading, joins the time its guests are watching instead.
+   */
+  const joinLiveClock = serial.withPermits(1)(
+    Effect.gen(function* () {
+      const { clock } = yield* SubscriptionRef.get(state);
+      const now = yield* serverNow;
+
+      if (Option.isNone(now) || clock.status !== "playing") return;
+      const target = targetPosition(clock, now.value);
+
+      if (Math.abs(player.positionMs() - target) <= tunables.hostSeekMs) return;
+      yield* execute(PlayerCommand.Seek({ positionMs: target }));
+    }),
+  );
+
   const onPlayerEvent = (event: PlayerEvent): Effect.Effect<void> =>
     Effect.gen(function* () {
       const current = yield* SubscriptionRef.get(state);
@@ -487,6 +512,7 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
       correct.pipe(Effect.repeat(Schedule.spaced(Duration.millis(tunables.correctionIntervalMs)))),
     );
   } else {
+    yield* joinLiveClock;
     yield* publish(false);
   }
 

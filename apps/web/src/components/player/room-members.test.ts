@@ -3,7 +3,7 @@ import { Room } from "@movies/contracts/models/rooms";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { driftLabel, roomMembers } from "./room-members";
+import { driftLabel, roomMembers, watchingCount } from "./room-members";
 
 const HOST = DeviceId.make("host-device");
 
@@ -14,6 +14,7 @@ const member = (
   name: string,
   role: "host" | "guest",
   driftMs: number | null,
+  presence: "watching" | "away" = "watching",
 ) => ({
   userId: `user-${name}`,
   profileId: `profile-${name}`,
@@ -23,6 +24,7 @@ const member = (
   role,
   joinedAt: role === "host" ? 1 : 2,
   lastSeenAt: 3,
+  presence,
   driftMs,
 });
 
@@ -132,6 +134,37 @@ describe("roomMembers", () => {
       ["Alex", { kind: "left" }],
       ["Maya", undefined],
     ]);
+  });
+});
+
+describe("members browsing elsewhere", () => {
+  const browsing = room(
+    [
+      member(HOST, "Alex", "host", null, "away"),
+      member(ME, "Maya", "guest", null),
+      member("sam-device", "Sam", "guest", null, "away"),
+    ],
+    { status: "playing" },
+  );
+
+  it("shows them away instead of in step or drifting", () => {
+    expect(roomMembers(browsing, ME, false, 20).map((row) => [row.name, row.status])).toStrictEqual(
+      [
+        ["Alex", { kind: "away" }],
+        ["Maya", undefined],
+        ["Sam", { kind: "away" }],
+      ],
+    );
+  });
+
+  it("does not count them as watching", () => {
+    expect(watchingCount(browsing)).toBe(1);
+  });
+
+  it("still shows a host who stopped sending heartbeats as left", () => {
+    const silent = room([member(HOST, "Alex", "host", null, "away")], { status: "paused" }, true);
+
+    expect(roomMembers(silent, ME, false, null)[0]?.status).toStrictEqual({ kind: "left" });
   });
 });
 
