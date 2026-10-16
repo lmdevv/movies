@@ -1,6 +1,6 @@
 /** Handlers of the media HttpApi. */
 import { MediaApi } from "@movies/contracts/media-api";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 
 import * as BackendHealth from "../backend-health.ts";
@@ -49,6 +49,7 @@ const systemHandlers = HttpApiBuilder.group(
   MediaApi,
   "system",
   Effect.fn(function* (handlers) {
+    const config = yield* MediaConfig.Service;
     const sessions = yield* StreamSessions.Service;
     const hardware = yield* HardwareAcceleration.Service;
     const backend = yield* BackendHealth.Service;
@@ -62,6 +63,7 @@ const systemHandlers = HttpApiBuilder.group(
           backend: yield* backend.status,
         };
       }),
+      clientConfig: () => Effect.succeed({ convexUrl: Option.getOrNull(config.convexPublicUrl) }),
     });
   }),
 );

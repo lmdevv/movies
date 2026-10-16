@@ -1,7 +1,8 @@
 /**
- * The media service's Effect HttpApi: playback negotiation, HLS stream control, and health. The
- * media service implements it; clients that may use Effect's unstable HTTP modules can derive an
- * `HttpApiClient` from it, and others decode the same schemas from `@movies/contracts/media-playback`.
+ * The media service's Effect HttpApi: playback negotiation, HLS stream control, health, and client
+ * configuration. The media service implements it; clients that may use Effect's unstable HTTP
+ * modules can derive an `HttpApiClient` from it, and others decode the same schemas from
+ * `@movies/contracts/media-playback`.
  *
  * Media bytes (direct files, HLS playlists and segments, WebVTT, artwork) are plain routes on the
  * media service, because `<video>`, `<img>`, and HLS players fetch them by URL. Registry `media`
@@ -11,6 +12,7 @@
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/http-api";
 
 import {
+  ClientConfigResponse,
   HealthResponse,
   MEDIA_ROUTES,
   NegotiateErrors,
@@ -42,10 +44,14 @@ export class PlaybackGroup extends HttpApiGroup.make("playback").add(
   }),
 ) {}
 
-/** Liveness and capability summary. */
-export class SystemGroup extends HttpApiGroup.make("system").add(
-  HttpApiEndpoint.get("health", MEDIA_ROUTES.health, { success: HealthResponse }),
-) {}
+/** Liveness and capability summary, and the configuration clients read before signing in. */
+export class SystemGroup extends HttpApiGroup.make("system")
+  .add(HttpApiEndpoint.get("health", MEDIA_ROUTES.health, { success: HealthResponse }))
+  .add(
+    HttpApiEndpoint.get("clientConfig", MEDIA_ROUTES.clientConfig, {
+      success: ClientConfigResponse,
+    }),
+  ) {}
 
 /** The media service API. */
 export class MediaApi extends HttpApi.make("media").add(PlaybackGroup).add(SystemGroup) {}

@@ -20,6 +20,7 @@ export const MEDIA_ROUTES = {
   seek: "/api/playback/seek",
   stop: "/api/playback/stop",
   health: "/api/health",
+  clientConfig: "/api/client-config",
 } as const;
 
 /**
@@ -219,6 +220,21 @@ export const HealthResponse = Schema.Struct({
 
 /** Service health. */
 export interface HealthResponse extends Schema.Schema.Type<typeof HealthResponse> {}
+
+/**
+ * What a client that knows only the media service's address needs before signing in, such as the
+ * iPhone app after someone types the server's address.
+ */
+export const ClientConfigResponse = Schema.Struct({
+  /**
+   * The Convex deployment URL clients connect to (`CONVEX_PUBLIC_URL`); null when the install has
+   * not set one, so a client cannot sign in through this server.
+   */
+  convexUrl: Schema.NullOr(Schema.String),
+});
+
+/** What a client needs before signing in. */
+export interface ClientConfigResponse extends Schema.Schema.Type<typeof ClientConfigResponse> {}
 
 /** Why no rung of the playback ladder fits the client. */
 export const UnsupportedReason = Schema.Literals([

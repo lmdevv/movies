@@ -5,6 +5,7 @@ import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/h
 import { artworkUrl } from "@movies/contracts/artwork";
 import {
   type ClientCapabilities,
+  ClientConfigResponse,
   HealthResponse,
   NegotiateResponse,
   type PlaybackQuality,
@@ -68,6 +69,8 @@ const smallScreen: ClientCapabilities = {
 };
 
 const decodeHealth = Schema.decodeUnknownEffect(HealthResponse);
+
+const decodeClientConfig = Schema.decodeUnknownEffect(ClientConfigResponse);
 
 /** A JSON request body sent to the control API. */
 interface RequestBody {
@@ -207,6 +210,16 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           hardwareAcceleration: "none",
           backend: "standalone",
         });
+      }),
+    );
+
+    it.effect("tells clients there is no Convex URL when none is configured", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const response = yield* get(`${server.baseUrl}/api/client-config`);
+
+        assert.strictEqual(response.status, 200);
+        assert.deepStrictEqual(yield* json(response), { convexUrl: null });
       }),
     );
 
@@ -730,6 +743,21 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const status = yield* decodeHealth(yield* json(health)).pipe(Effect.orDie);
 
         assert.strictEqual(status.hardwareAcceleration, "none");
+      }),
+    );
+  });
+
+  layer(MediaTestServer.layer({ CONVEX_PUBLIC_URL: "http://nas.tailnet.example:3210/" }), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })("with a public Convex URL", (it) => {
+    it.effect("gives clients the Convex URL to sign in with", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const response = yield* get(`${server.baseUrl}/api/client-config`);
+        const config = yield* decodeClientConfig(yield* json(response)).pipe(Effect.orDie);
+
+        assert.deepStrictEqual(config, { convexUrl: "http://nas.tailnet.example:3210" });
       }),
     );
   });

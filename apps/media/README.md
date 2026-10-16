@@ -27,6 +27,7 @@ playback events are logged. `CONVEX_URL` without the key refuses to start.
 | `POST /api/playback/seek`                                | Move an HLS stream; returns the generation and playlist URL to load |
 | `POST /api/playback/stop`                                | End an HLS stream and delete its output (204)                       |
 | `GET /api/health`                                        | Status, active streams, hardware acceleration                       |
+| `GET /api/client-config`                                 | `{ convexUrl }` from `CONVEX_PUBLIC_URL`, for apps                  |
 | `GET, HEAD /media/direct/:fileId?token=`                 | Original file with single byte ranges                               |
 | `GET /media/hls/:streamId/:generation/index.m3u8?token=` | VOD playlist of one generation                                      |
 | `GET /media/hls/:streamId/:generation/init.mp4?token=`   | fMP4 init segment                                                   |
@@ -39,8 +40,8 @@ playback events are logged. `CONVEX_URL` without the key refuses to start.
 | `POST /api/migration/import`                             | `migration.import` command (bearer Convex token, `admin`)           |
 | `GET /*`                                                 | Built web app from `WEB_DIST_DIR`, with SPA fallback                |
 
-The playback API (`/api/playback/*`, `/api/health`) is the Effect HttpApi in
-`@movies/contracts/media-api`, built from the schemas and tagged errors in
+The playback API (`/api/playback/*`, `/api/health`, `/api/client-config`) is the Effect
+HttpApi in `@movies/contracts/media-api`, built from the schemas and tagged errors in
 `@movies/contracts/media-playback`. Its errors are JSON bodies encoded with their schema, such as
 `{"_tag":"StreamGenerationGone","streamId":"…","generation":1,"currentGeneration":2}` (410).
 Registry `media` commands answer `{ code, message }` like Convex.
@@ -65,8 +66,9 @@ subtitles, and artwork under `DATA_DIR`, pruned hourly, least recently used firs
 (`on` or `off`: scrub thumbnail jobs), `TRICKPLAY_INTERVAL_SECONDS` (10, from 1 to 600),
 `TRICKPLAY_CONCURRENCY` (1: files given thumbnails at once, besides other jobs), `FFMPEG_PATH`,
 `FFPROBE_PATH`,
-`OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVEX_URL`, `CONVEX_PUBLIC_URL` (the Convex URL browsers use; it
-narrows the web app's content security policy), `MEDIA_SERVICE_API_KEY`,
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVEX_URL`, `CONVEX_PUBLIC_URL` (the Convex URL browsers and
+apps use; it narrows the web app's content security policy, and `/api/client-config` hands it to
+apps), `MEDIA_SERVICE_API_KEY`,
 `CONVEX_SELF_HOSTED_ADMIN_KEY` and `CONVEX_BACKEND_DIR` (backups), `BACKUP_RETENTION_DAYS` (14). The dev stack sets
 `LIBRARY_ROOTS` to its own `library` folder unless `MOVIES_LIBRARY_ROOTS` says otherwise.
 
