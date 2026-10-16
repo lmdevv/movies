@@ -168,13 +168,17 @@ service.
 ```sh
 pnpm install && pnpm --filter @movies/cli build    # puts apps/cli/dist/movies.js in place
 alias movies="node $PWD/apps/cli/dist/movies.js"
-# or with Nix: nix run github:lmdevv/movies#cli -- --help (packages.<system>.cli for systemPackages)
+# or with Nix: nix run github:lmdevv/movies -- --help
 
 movies login --server http://nas.tailnet.ts.net:3210 --media-url http://nas.tailnet.ts.net:8080
 movies search alien
 movies play "Alien" --open        # mpv; without --open, prints the stream URL
 movies libraries list --human
 ```
+
+On NixOS, `services.movies` installs the CLI too, with `MOVIES_CONVEX_URL` and `MOVIES_MEDIA_URL`
+set to the server, so `movies login` needs no `--server`. Another machine imports the same module
+and sets only `programs.movies.enable = true` plus `programs.movies.convexUrl` and `mediaUrl`.
 
 Output is JSON by default. Agents get an API key from Settings → API keys and follow
 [apps/cli/skills/movies/SKILL.md](apps/cli/skills/movies/SKILL.md).
