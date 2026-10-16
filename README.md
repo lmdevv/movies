@@ -200,7 +200,7 @@ See `AGENTS.md` for the layout, rules, and checks, and `docs/` for decisions and
 
 ## License
 
-[movies] is MIT-licensed. The self-hosted Convex backend it runs (`ghcr.io/get-convex/convex-backend`)
+[movies] is MIT-licensed. The self-hosted Convex backend it runs (`ghcr.io/convex/convex-backend`)
 is FSL-1.1-Apache-2.0: each release converts to Apache-2.0 two years after it ships. The image
 includes Debian's ffmpeg (LGPL/GPL) and the non-free build of Intel's media driver, whose
 encoding kernels are proprietary; the NixOS module uses nixpkgs `ffmpeg-full`.
