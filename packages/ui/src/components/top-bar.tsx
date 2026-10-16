@@ -1,7 +1,7 @@
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { cn } from "@movies/ui/lib/utils";
-import { SearchIcon } from "lucide-react";
+import { SearchIcon, UsersIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 
 import { Wordmark } from "./wordmark";
@@ -109,27 +109,47 @@ export function SearchTrigger({
   );
 }
 
-/** The "Room · N" pill, shown only while a watch room is active. `count` is how many are watching. */
+/**
+ * The "Room · N" pill, shown only while a watch room is active; `count` is how many are in the
+ * room. It renders a button; pass the router's link through `render` when it navigates. `compact`
+ * is the phone bar's form, an icon and the count, beside the avatar; give it an `aria-label`, as
+ * the icon alone names nothing.
+ */
 export function RoomPill({
   count,
+  compact = false,
   className,
-  type = "button",
+  render,
   ...props
-}: ComponentProps<"button"> & { readonly count: number }) {
-  return (
-    <button
-      data-slot="room-pill"
-      type={type}
-      className={cn(
-        "flex h-7 shrink-0 cursor-pointer items-center gap-2 rounded-pill border border-accent px-2.5 transition-colors hover:bg-accent/15",
-        className,
-      )}
-      {...props}
-    >
-      <span aria-hidden className="size-1.75 shrink-0 rounded-pill bg-accent" />
-      <span className="font-sans text-caption/4 font-semibold whitespace-nowrap text-text">
-        Room · {count}
-      </span>
-    </button>
-  );
+}: useRender.ComponentProps<"button"> & {
+  readonly count: number;
+  readonly compact?: boolean;
+}) {
+  return useRender({
+    defaultTagName: "button",
+    render,
+    props: mergeProps<"button">(
+      {
+        className: cn(
+          "flex h-7 shrink-0 cursor-pointer items-center rounded-pill border border-accent font-sans transition-colors hover:bg-accent/15",
+          compact ? "gap-1.5 px-2" : "gap-2 px-2.5",
+          className,
+        ),
+        children: compact ? (
+          <>
+            <UsersIcon aria-hidden className="size-3.5 shrink-0 text-accent" strokeWidth={1.75} />
+            <span className="text-caption/4 font-semibold text-text tabular-nums">{count}</span>
+          </>
+        ) : (
+          <>
+            <span aria-hidden className="size-1.75 shrink-0 rounded-pill bg-accent" />
+            <span className="text-caption/4 font-semibold whitespace-nowrap text-text">
+              Room · {count}
+            </span>
+          </>
+        ),
+      },
+      props,
+    ),
+  });
 }

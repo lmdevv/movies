@@ -2,18 +2,21 @@ import { Avatar } from "@movies/ui/components/avatar";
 import { CommandMenu } from "@movies/ui/components/command-menu";
 import { CompactTopBar, LargeTitle } from "@movies/ui/components/phone-title";
 import { TabBar, TabBarItem, TabBarSearch } from "@movies/ui/components/tab-bar";
-import { SearchTrigger, TopBar, TopBarLink } from "@movies/ui/components/top-bar";
+import { useRoomPresence } from "@movies/sdk/react";
+import { RoomPill, SearchTrigger, TopBar, TopBarLink } from "@movies/ui/components/top-bar";
 import { Wordmark } from "@movies/ui/components/wordmark";
 import { moveRowFocus } from "@movies/ui/lib/row-focus";
 import { useKeymap } from "@movies/ui/lib/use-keymap";
 import { cn } from "@movies/ui/lib/utils";
 import { Link, useLocation, useMatches, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import { SWITCH_PROFILE_COMMAND, useCommandRoot } from "@/commands";
 import { TitlePrefetchProvider } from "@/components/browse/prefetch";
 import { profileArt } from "@/components/profiles/profile-art";
+import { returnTarget, useCurrentRoom } from "@/lib/current-room";
+import { loadDeviceId } from "@/lib/device-storage";
 import { keymap, shortcutLabel } from "@/lib/keymap";
 import { useActiveProfile } from "@/session/guards";
 import { useScopes } from "@/session/viewer";
@@ -50,6 +53,10 @@ type MenuState = { readonly open: false } | { readonly open: true; readonly star
  * and the floating glass tab bar with its search circle. It hosts the command menu, the global
  * keyboard shortcuts, and the scanning toast. Must sit inside `RequireProfile`.
  *
+ * While this device is in a watch room with the active profile, the bars show the room pill (at
+ * `md` and up "Room · N", on phones the compact form beside the avatar), a link back into the
+ * room, and the shell keeps the device's place in the room with heartbeats that say it is away.
+ *
  * A route opts into the transparent bar over its billboard with `staticData: { hero: true }`, and
  * out of the phone large title with `staticData: { phoneTitle: false }`.
  */
@@ -70,6 +77,11 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   });
 
   const scrolled = useScrolledPast(SCROLL_THRESHOLD_PX);
+  const deviceId = useMemo(() => loadDeviceId(), []);
+  const watchRoom = useCurrentRoom({ deviceId, profileId: profile.id });
+
+  // The player sends this device's heartbeats while it plays the room; out here they say away.
+  useRoomPresence(watchRoom === null ? null : { roomId: watchRoom.room.id, deviceId });
   const current = sectionOf(pathname);
   const art = profileArt(profile);
 
@@ -110,6 +122,29 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     </button>
   );
 
+  const roomPill = (compact: boolean) => {
+    if (watchRoom === null || !watchRoom.returnable) return null;
+    const { room } = watchRoom;
+    const count = room.members.length;
+
+    return (
+      <RoomPill
+        count={count}
+        compact={compact}
+        aria-label={`Room · ${String(count)}: return to ${room.title.name}`}
+        render={<Link {...returnTarget(room)} />}
+      />
+    );
+  };
+
+  /** The avatar, after the room pill when there is one. */
+  const trailing = (size: "xs" | "sm") => (
+    <span className="flex items-center gap-3">
+      {roomPill(true)}
+      {profileButton(size, true)}
+    </span>
+  );
+
   return (
     <div className="min-h-svh bg-page text-text">
       <div
@@ -142,6 +177,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
                 aria-keyshortcuts="Meta+K Control+K"
                 onClick={() => openMenu()}
               />
+              {roomPill(false)}
               {profileButton("sm", false)}
             </>
           }
@@ -153,7 +189,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           title={title}
           visible={scrolled}
           className="fixed inset-x-0 top-0 z-40 md:hidden"
-          trailing={profileButton("xs", true)}
+          trailing={trailing("xs")}
         />
       ) : null}
 
@@ -162,7 +198,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           <LargeTitle
             title={title}
             className="pt-[max(env(safe-area-inset-top),var(--spacing-4))] md:hidden"
-            trailing={profileButton("sm", true)}
+            trailing={trailing("sm")}
           />
         )}
         <TitlePrefetchProvider profileId={profile.id}>

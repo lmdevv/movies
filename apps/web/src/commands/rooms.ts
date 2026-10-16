@@ -5,11 +5,12 @@
  */
 import { RoomId } from "@movies/contracts/ids";
 import type { CommandItem } from "@movies/ui/lib/command-menu";
-import { useCommand, useCommandQuery } from "@movies/sdk/react";
+import { useCommand } from "@movies/sdk/react";
 import { LinkIcon, LogOutIcon, SquareXIcon, UsersIcon } from "lucide-react";
 import { Option, Schema } from "effect";
 import { useMemo } from "react";
 
+import { returnTarget, useCurrentRoom } from "@/lib/current-room";
 import { loadDeviceId } from "@/lib/device-storage";
 import { toastFailure } from "@/lib/failure";
 
@@ -26,11 +27,11 @@ const typedRoomId = (query: string): Option.Option<RoomId> => {
 
 /** Room actions for the menu. */
 export const useRoomCommands = (context: CommandContext): CommandContribution => {
-  const { navigate, query, player } = context;
+  const { navigate, query, player, profile } = context;
   const deviceId = useMemo(() => loadDeviceId(), []);
   const leave = useCommand("rooms.leave");
-  const current = useCommandQuery("rooms.current", player === null ? { deviceId } : "skip");
-  const room = current.status === "success" ? current.data : null;
+
+  const current = useCurrentRoom(player === null ? { deviceId, profileId: profile.id } : "skip");
 
   return useMemo((): CommandContribution => {
     const typed = typedRoomId(query);
@@ -93,8 +94,10 @@ export const useRoomCommands = (context: CommandContext): CommandContribution =>
       return { groups: [{ id: "room", label: "Room", items: inPlayer }], fallback: join };
     }
 
-    const elsewhere: ReadonlyArray<CommandItem> =
-      room === null
+    const room = current?.room ?? null;
+
+    const back: ReadonlyArray<CommandItem> =
+      room === null || current?.returnable !== true
         ? []
         : [
             {
@@ -103,16 +106,15 @@ export const useRoomCommands = (context: CommandContext): CommandContribution =>
               title: "Return to room",
               detail: room.title.name,
               leading: { kind: "icon", icon: UsersIcon },
-              perform: () =>
-                navigate({
-                  to: "/watch/$titleId",
-                  params: { titleId: room.title.id },
-                  search:
-                    room.episode === null
-                      ? { room: room.id }
-                      : { room: room.id, episodeId: room.episode.id },
-                }),
+              perform: () => navigate(returnTarget(room)),
             },
+          ];
+
+    const elsewhere: ReadonlyArray<CommandItem> =
+      room === null
+        ? []
+        : [
+            ...back,
             {
               kind: "action",
               id: "room:leave",
@@ -125,5 +127,5 @@ export const useRoomCommands = (context: CommandContext): CommandContribution =>
           ];
 
     return { groups: [{ id: "room", label: "Room", items: elsewhere }], fallback: join };
-  }, [navigate, query, player, room, leave, deviceId]);
+  }, [navigate, query, player, current, leave, deviceId]);
 };

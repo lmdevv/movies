@@ -2,13 +2,15 @@
  * Join watching with two browsers: the owner hosts and an invited member follows with a stream of
  * their own. A late guest lands on the live position; the host's pause and seek reach the guest;
  * the guest's controls are locked and the server refuses their commands; the host's stall holds
- * the guest; a guest who stalls catches up without moving the host; the host going away pauses
- * the room; and room links say why they cannot be joined. The film remuxes to HLS, so the suite
+ * the guest; a guest who stalls catches up without moving the host; host and guest browse away
+ * and come back through the navbar's room pill, also after the room moved to another film, and
+ * the pill shows only on the device and profile in the room; the host going away pauses the room;
+ * room links say why they cannot be joined; and an ended room takes the pill away. The film remuxes to HLS, so the suite
  * can hold segment requests to stall a player. Settled drift goes to the test's annotations.
  */
 import { join } from "node:path";
 
-import { HEARTBEAT_INTERVAL_MS } from "@movies/contracts/clock";
+import { HEARTBEAT_INTERVAL_MS, HOST_PRESENCE_TIMEOUT_MS } from "@movies/contracts/clock";
 import { DeviceId, RoomId } from "@movies/contracts/ids";
 import type { TitleId } from "@movies/contracts/ids";
 import { Milliseconds } from "@movies/contracts/units";
@@ -56,6 +58,9 @@ const run = Date.now().toString(36);
 const SHARED = "Harbor Lights";
 
 const PRIVATE = "Quiet Hours";
+
+/** The film the host moves the room to while everyone browses. */
+const NEXT = "Night Ferry";
 
 /** How long the shared film runs; long enough that seeks land far outside what is buffered. */
 const FILM_SECONDS = 360;
@@ -119,6 +124,7 @@ test.beforeAll(async ({ browser }) => {
   const shared = join(workspace, "Shared");
   const restricted = join(workspace, "Private");
   const sharedFolder = join(shared, `${SHARED} (2020)`);
+  const nextFolder = join(shared, `${NEXT} (2021)`);
   const privateFolder = join(restricted, `${PRIVATE} (2019)`);
 
   await Promise.all([
@@ -128,6 +134,12 @@ test.beforeAll(async ({ browser }) => {
       audio: [{ codec: "aac", language: "eng" }],
     }),
     writeText(join(sharedFolder, "movie.nfo"), movieNfo(SHARED, 2020)),
+    encodeClip(join(nextFolder, `${NEXT} (2021).mp4`), {
+      seconds: 240,
+      video: "h264",
+      audio: [{ codec: "aac", language: "eng" }],
+    }),
+    writeText(join(nextFolder, "movie.nfo"), movieNfo(NEXT, 2021)),
     encodeClip(join(privateFolder, `${PRIVATE} (2019).mp4`), {
       seconds: 20,
       video: "h264",
@@ -270,6 +282,26 @@ const startRoom = async (page: Page): Promise<RoomId> => {
   if (id === null) throw new Error("The player did not join the room it started");
 
   return Schema.decodeSync(RoomId)(id);
+};
+
+/** The navbar's room pill, in whichever form the viewport shows. */
+const roomPill = (page: Page) => page.getByRole("link", { name: /^Room · \d+: return to /u });
+
+/** Leaves the player for the title's page in the app, as the player's back button does. */
+const browseAway = async (page: Page): Promise<void> => {
+  await revealControls(page);
+  await page.getByRole("button", { name: "Back to details" }).click();
+  await expect(page).toHaveURL(/\/title\//u);
+};
+
+/** The room's member for `profileName`, as the server has it now. */
+const memberNamed = async (profileName: string) => {
+  const room = await owner.sdk.query("rooms.get", { roomId });
+  const found = room.members.find((each) => each.profileName === profileName);
+
+  if (found === undefined) throw new Error(`${profileName} is not in the room`);
+
+  return found;
 };
 
 const guestDeviceId = async () => {
@@ -482,6 +514,144 @@ test("a guest who stalls catches up without moving the host", async () => {
   await expectSettled("after guest stall");
 });
 
+test("a guest who browses away keeps their place, and the navbar pill takes them back", async () => {
+  await browseAway(guest);
+  await expect(roomPill(guest)).toHaveText("Room · 2");
+  await expect(roomPill(guest)).toHaveAccessibleName(`Room · 2: return to ${SHARED}`);
+
+  // Away, not watching: the host sees one watching and the guest marked away, with no drift.
+  await expect.poll(async () => (await memberNamed(GUEST.name)).presence).toBe("away");
+  expect((await memberNamed(GUEST.name)).driftMs).toBeNull();
+  await expect(host.getByText("Live · 1 watching")).toBeVisible();
+  await expect(
+    host.getByRole("region", { name: "Watching together" }).getByText("away", { exact: true }),
+  ).toBeVisible();
+
+  // The app's own heartbeats keep the place, so the member timeout never passes.
+  const heard = (await memberNamed(GUEST.name)).lastSeenAt;
+
+  await expect
+    .poll(async () => (await memberNamed(GUEST.name)).lastSeenAt, {
+      timeout: 3 * HEARTBEAT_INTERVAL_MS,
+    })
+    .toBeGreaterThan(heard);
+
+  await guest.getByRole("link", { name: "[movies] home" }).click();
+  await expect(roomPill(guest)).toBeVisible();
+  await capture(guest, "08-09-room-pill");
+
+  // On a phone the pill is an icon and the count beside the avatar.
+  await guest.setViewportSize({ width: 390, height: 844 });
+  await expect(roomPill(guest)).toHaveText("2");
+  await capture(guest, "08-10-room-pill-phone");
+  await guest.setViewportSize({ width: 1440, height: 900 });
+
+  // A refresh while browsing keeps it too.
+  await guest.reload();
+  await roomPill(guest).click();
+  await expect(guest).toHaveURL(new RegExp(`/watch/${titleId(SHARED)}\\?room=${roomId}`, "u"));
+  await expectSettled("after a guest came back");
+  await expect(host.getByText("Live · 2 watching")).toBeVisible();
+  expect((await memberNamed(GUEST.name)).presence).toBe("watching");
+});
+
+test("the host browses away, the guest keeps watching, and the host comes back to the live position", async () => {
+  test.setTimeout(90_000);
+  await browseAway(host);
+  await expect(roomPill(host)).toBeVisible();
+
+  const before = await videoState(guest);
+
+  // Past the host timeout: a host browsing in the app is still there, so the room plays on.
+  await guest.waitForTimeout(HOST_PRESENCE_TIMEOUT_MS + 5_000);
+
+  const during = await videoState(guest);
+  const room = await owner.sdk.query("rooms.get", { roomId });
+
+  expect(during.paused).toBe(false);
+  expect(during.currentTime - before.currentTime).toBeGreaterThan(HOST_PRESENCE_TIMEOUT_MS / 1000);
+  expect(room.hostAway).toBe(false);
+  expect(room.clock.status).toBe("playing");
+  expect((await memberNamed(OWNER.name)).presence).toBe("away");
+  await expect(guest.getByText("Live · 1 watching")).toBeVisible();
+  await expect(guest.getByRole("heading", { name: `${OWNER.name} left the room` })).toBeHidden();
+
+  // Back by keyboard; the host joins the time the guest is watching instead of pulling it back.
+  await roomPill(host).focus();
+  await host.keyboard.press("Enter");
+  await expect(host).toHaveURL(new RegExp(`/watch/${titleId(SHARED)}\\?room=${roomId}`, "u"));
+  await expectPlayingPast(host, during.currentTime);
+  await expectSettled("after the host came back");
+  expect((await videoState(guest)).currentTime).toBeGreaterThan(during.currentTime);
+});
+
+test("a room that moved to another film while everyone browsed returns to the new one", async () => {
+  await browseAway(host);
+  await browseAway(guest);
+  await expect(roomPill(guest)).toHaveAccessibleName(`Room · 2: return to ${SHARED}`);
+
+  const room = await owner.sdk.query("rooms.get", { roomId });
+
+  await owner.sdk.mutate("rooms.setMedia", {
+    roomId,
+    deviceId: room.hostDeviceId,
+    revision: room.clock.revision,
+    titleId: titleId(NEXT),
+  });
+  await expect(roomPill(guest)).toHaveAccessibleName(`Room · 2: return to ${NEXT}`);
+  await expect(roomPill(host)).toHaveAccessibleName(`Room · 2: return to ${NEXT}`);
+
+  const into = new RegExp(`/watch/${titleId(NEXT)}\\?room=${roomId}`, "u");
+
+  await roomPill(guest).click();
+  await expect(guest).toHaveURL(into);
+  await roomPill(host).click();
+  await expect(host).toHaveURL(into);
+  await expectPlayingPast(host, 2);
+  await expectPlayingPast(guest, 2);
+  await expectSettled("after the room moved to another film");
+});
+
+test("the pill shows only on the device and profile in the room", async ({
+  browser,
+}: {
+  readonly browser: Browser;
+}) => {
+  // The owner's account on another device is in no room.
+  const elsewhere = await browser.newContext();
+  const other = await elsewhere.newPage();
+
+  await useSession(other, owner);
+  await other.goto("/");
+  await expect(other.getByRole("button", { name: /switch profile$/u })).toBeVisible();
+  await other.waitForTimeout(2_000);
+  await expect(roomPill(other)).toHaveCount(0);
+  await elsewhere.close();
+
+  // Another profile on the host's device is not in the room either.
+  const spare = await owner.sdk.mutate("profiles.create", {
+    name: `Spare ${run}`,
+    avatar: "green",
+    kids: false,
+  });
+
+  await browseAway(host);
+  await expect(roomPill(host)).toBeVisible();
+  await host.goto("/profiles");
+  await host.getByRole("button", { name: spare.name }).click();
+  await expect(host).toHaveURL(/\/$/u);
+  await host.waitForTimeout(2_000);
+  await expect(roomPill(host)).toHaveCount(0);
+
+  // Back on the room's profile, well inside the host timeout, the pill is back.
+  await host.goto("/profiles");
+  await host.getByRole("button", { name: (await adultProfile(owner.sdk)).name }).click();
+  await roomPill(host).click();
+  await expect(host).toHaveURL(new RegExp(`\\?room=${roomId}`, "u"));
+  await expectSettled("after switching profiles");
+  await owner.sdk.mutate("profiles.remove", { profileId: spare.id });
+});
+
 test("the host going away pauses the room for the guest, who can keep watching alone", async () => {
   test.setTimeout(90_000);
   await host.close();
@@ -550,4 +720,22 @@ test("an ended room and another household's room deny their links", async ({
   ).toBeVisible();
   await capture(visitor, "08-07b-join-denied-household");
   await stranger.close();
+});
+
+test("ending the room takes the pill away from a guest who browsed off", async () => {
+  const last = await startRoom(host);
+
+  await guest.goto(`/r/${last}`);
+  await expectPlayingPast(guest, 1);
+  await browseAway(guest);
+  await expect(roomPill(guest)).toBeVisible();
+
+  await host.getByRole("button", { name: "End room" }).click();
+  await expect(roomPill(guest)).toHaveCount(0);
+
+  // The command menu offers no way back either.
+  await guest.keyboard.press("ControlOrMeta+k");
+  await expect(guest.getByRole("combobox")).toBeVisible();
+  await expect(guest.getByRole("option", { name: /Return to room/u })).toHaveCount(0);
+  await guest.keyboard.press("Escape");
 });
