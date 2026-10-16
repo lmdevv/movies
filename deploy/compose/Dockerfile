@@ -19,7 +19,10 @@ ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=1
 RUN corepack enable
 WORKDIR /src
 COPY . .
-RUN pnpm install --frozen-lockfile --ignore-scripts --os=linux --cpu=x64 --cpu=arm64 --libc=glibc
+# Only the workspaces the image ships, like nix/package.nix: the iPhone app's Expo and React Native
+# dependencies stay out.
+RUN pnpm install --frozen-lockfile --ignore-scripts --os=linux --cpu=x64 --cpu=arm64 --libc=glibc \
+      --filter "web..." --filter "@movies/media..." --filter "@movies/backend..."
 # The web app is built once with a placeholder Convex URL; startup writes the real one into a copy
 # (apps/media/scripts/configure-web.ts).
 RUN VITE_CONVEX_URL=__MOVIES_CONVEX_URL__ pnpm --config.verify-deps-before-run=false --filter web build \

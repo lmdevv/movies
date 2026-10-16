@@ -1,0 +1,12 @@
+{
+  "extends": "@movies/config/tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ESNext", "DOM"],
+    "customConditions": ["react-native"],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "app.config.ts", "metro.config.mts", ".expo/types/**/*.ts", "expo-env.d.ts"]
+}

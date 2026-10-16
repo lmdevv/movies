@@ -1,0 +1,9 @@
+# Expo
+.expo/
+expo-env.d.ts
+dist/
+web-build/
+
+# Native folders from `expo prebuild`; the app runs in Expo Go.
+ios/
+android/

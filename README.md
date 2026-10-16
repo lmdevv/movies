@@ -4,7 +4,8 @@ Self-hosted movies and TV for people and agents. Stream your own folders or NAS 
 with profiles, Netflix-style browsing, watching together at the same second, migration from
 Jellyfin and Plex, and a CLI that can do everything the app can.
 
-Early development: the MVP (media service, web app, SDK, CLI) is in place; native apps come later.
+Early development: the MVP (media service, web app, SDK, CLI) is in place; the iPhone app
+(`apps/mobile`, Expo) is being built.
 
 ## Stack
 
@@ -12,6 +13,7 @@ Early development: the MVP (media service, web app, SDK, CLI) is in place; nativ
 - A Node + Effect HttpApi media service for scanning, direct play, HLS remux, and Intel QSV
   transcoding with ffmpeg; it also serves the web app
 - A Vite + React + TanStack Router web app
+- An Expo iPhone app on the same SDK ([apps/mobile/README.md](apps/mobile/README.md))
 - An Effect SDK and CLI with an agent skill
 - Docker Compose or a NixOS module
 
@@ -80,7 +82,7 @@ default. The NixOS options are in brackets.
 | ----------------------------- | ------------------------------------------------------------------------- |
 | `MOVIES_LIBRARY`              | Host folder mounted read-only at `/media/library` (`libraryDirs`)         |
 | `MOVIES_PUBLIC_URL`           | URL of the web app and streams (`publicUrl`)                              |
-| `CONVEX_PUBLIC_URL`           | URL browsers and the CLI use for Convex (`convexPublicUrl`)               |
+| `CONVEX_PUBLIC_URL`           | Convex URL for browsers, the CLI, and apps (`convexPublicUrl`)            |
 | `MOVIES_BIND`                 | Address both ports listen on, `127.0.0.1` by default (`listenAddress`)    |
 | `MOVIES_PORT`, `CONVEX_PORT`  | Ports, 8080 and 3210 (`port`, `convexPort`)                               |
 | `PUID`, `PGID`                | User and group of the media service, 1000 (`user`, `group`)               |

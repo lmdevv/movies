@@ -6,7 +6,8 @@ product name is `[movies]`, brackets included; the repo and packages use `movies
 
 - Plan: [Linear project](https://linear.app/adsfsd/project/movies-b7a377940443). It holds the
   overview, stack, architecture, and design summary.
-- MVP: media service, web app, SDK, and CLI with an agent skill. Native mobile and TV apps are V1.
+- MVP: media service, web app, SDK, and CLI with an agent skill. Native mobile and TV apps are V1;
+  the iPhone app (`apps/mobile`) is being built.
 
 ## Rules
 
@@ -36,6 +37,7 @@ product name is `[movies]`, brackets included; the repo and packages use `movies
 | `apps/web`           | Vite + React + TanStack Router SPA                                |
 | `apps/media`         | Node + Effect HttpApi media service; serves the built SPA         |
 | `apps/cli`           | Effect CLI with JSON output; agent skill in `skills/movies/`      |
+| `apps/mobile`        | Expo + Expo Router iPhone app on the SDK; runs in Expo Go         |
 | `packages/backend`   | Convex schema, functions, and Convex Auth                         |
 | `packages/contracts` | Effect Schema DTOs, errors, media HttpApi, plugin role interfaces |
 | `packages/sdk`       | Effect core with `/effect`, `/react`, `/promise` entry points     |
