@@ -5,8 +5,48 @@
  */
 import type { Profile } from "@movies/contracts/models/profiles";
 import type { Scope } from "@movies/contracts/scopes";
+import type { TrackOption } from "@movies/ui/components/track-popover";
 import type { CommandGroup, CommandItem } from "@movies/ui/lib/command-menu";
 import type { useNavigate } from "@tanstack/react-router";
+
+/** Room actions the player offers while it is in a room. */
+interface PlayerRoomCommands {
+  readonly copyLink: () => void;
+  /** Leaves the room and the player; null for the host, who ends the room instead. */
+  readonly leave: (() => void) | null;
+  /** Ends the room for everyone; null for guests. */
+  readonly end: (() => void) | null;
+}
+
+/** What the open player lets the menu do. */
+export interface PlayerCommands {
+  readonly playing: boolean;
+  /** Solo viewers and room hosts move the timeline; guests follow it. */
+  readonly controlsTimeline: boolean;
+  readonly togglePlay: () => void;
+  readonly skip: (seconds: number) => void;
+  readonly toggleFullscreen: () => void;
+  readonly showStreamInfo: () => void;
+  readonly subtitles: ReadonlyArray<TrackOption>;
+  readonly subtitleId: string;
+  readonly selectSubtitle: (id: string) => void;
+  readonly audio: ReadonlyArray<TrackOption>;
+  readonly audioId: string;
+  readonly selectAudio: (id: string) => void;
+  readonly quality: ReadonlyArray<TrackOption>;
+  readonly qualityId: string;
+  readonly selectQuality: (id: string) => void;
+  /** Versions (files) to switch between; empty unless there are several and switching is allowed. */
+  readonly versions: ReadonlyArray<TrackOption>;
+  readonly versionId: string;
+  readonly selectVersion: (id: string) => void;
+  /** Plays the next episode now; null for movies and the last episode. */
+  readonly nextEpisode: (() => void) | null;
+  /** Starts a room for this title; null while in one. */
+  readonly startRoom: (() => void) | null;
+  /** The room the player is in, or null. */
+  readonly room: PlayerRoomCommands | null;
+}
 
 /** What every contribution can read and do. */
 export interface CommandContext {
@@ -20,6 +60,11 @@ export interface CommandContext {
   readonly profiles: ReadonlyArray<Profile>;
   /** What this session may do; gate `manage` and `admin` commands on it. */
   readonly scopes: ReadonlySet<Scope>;
+  /**
+   * The open player's commands, passed by the player screen that owns them; null everywhere else,
+   * so the player's commands leave the menu with the player.
+   */
+  readonly player: PlayerCommands | null;
 }
 
 /** One feature's part of the menu. */

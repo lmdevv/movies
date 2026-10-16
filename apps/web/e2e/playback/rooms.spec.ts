@@ -25,9 +25,12 @@ import {
   adultProfile,
   capture,
   clickScrubber,
+  commandMenu,
   driftMs,
   encodeClip,
   expectPlayingPast,
+  leaveDialog,
+  leaveWithEscape,
   makeWorkspace,
   movieNfo,
   offline,
@@ -349,6 +352,79 @@ test("a guest's controls are locked, and the server refuses a guest's command", 
       positionMs: Milliseconds.make(0),
     }),
   ).rejects.toHaveProperty("_tag", "Forbidden");
+});
+
+test("⌘K and Escape in a room: each side gets its own commands, and asking never pauses the room", async () => {
+  const onRoom = new RegExp(`[?&]room=${roomId}`, "u");
+
+  // The guest follows the timeline, so their menu has tracks but no transport, and no End room.
+  const ofGuest = commandMenu(guest);
+
+  await guest.keyboard.press("ControlOrMeta+k");
+
+  await Promise.all(
+    [/^Subtitles/u, /^Audio/u, /^Quality/u, /^Stream info/u, /^Full screen/u].map((name) =>
+      expect(ofGuest.playback.getByRole("option", { name })).toBeVisible(),
+    ),
+  );
+
+  await expect(ofGuest.playback.getByRole("option", { name: /^(Pause|Play)\b/u })).toHaveCount(0);
+  await expect(ofGuest.playback.getByRole("option", { name: /^Back 10 seconds/u })).toHaveCount(0);
+
+  const guestRoom = ofGuest.menu.getByRole("group", { name: "Room" });
+
+  await expect(guestRoom.getByRole("option", { name: /^Copy room link/u })).toBeVisible();
+  await expect(guestRoom.getByRole("option", { name: /^Leave room/u })).toBeVisible();
+  await expect(guestRoom.getByRole("option", { name: /^End room/u })).toHaveCount(0);
+  await capture(guest, "08-08-guest-command-menu");
+  await guest.keyboard.press("Escape");
+  await expect(ofGuest.menu).toBeHidden();
+
+  // The host moves the timeline and ends the room; leaving it is the guest's command.
+  const ofHost = commandMenu(host);
+
+  await host.keyboard.press("ControlOrMeta+k");
+
+  await Promise.all(
+    [/^Pause/u, /^Back 10 seconds/u, /^Subtitles/u, /^Audio/u, /^Quality/u].map((name) =>
+      expect(ofHost.playback.getByRole("option", { name })).toBeVisible(),
+    ),
+  );
+
+  const hostRoom = ofHost.menu.getByRole("group", { name: "Room" });
+
+  await expect(hostRoom.getByRole("option", { name: /^Copy room link/u })).toBeVisible();
+  await expect(hostRoom.getByRole("option", { name: /^End room/u })).toBeVisible();
+  await expect(hostRoom.getByRole("option", { name: /^Leave room/u })).toHaveCount(0);
+  await host.keyboard.press("Escape");
+  await expect(ofHost.menu).toBeHidden();
+
+  // Escape asks on both sides without pausing anyone, and Stay keeps everyone in the room.
+  const askThenStay = async (page: Page, other: Page): Promise<void> => {
+    await page.getByTestId("player").press("Escape");
+    await expect(leaveDialog(page)).toBeVisible();
+    await page.waitForTimeout(1_000);
+    expect((await videoState(page)).paused).toBe(false);
+    expect((await videoState(other)).paused).toBe(false);
+    expect((await owner.sdk.query("rooms.get", { roomId })).clock.status).toBe("playing");
+    await leaveDialog(page).getByRole("button", { name: "Stay" }).click();
+    await expect(leaveDialog(page)).toBeHidden();
+    await expect(page).toHaveURL(onRoom);
+  };
+
+  await askThenStay(guest, host);
+  await askThenStay(host, guest);
+
+  // A guest who leaves playback leaves the room playing for the host, and can come back.
+  await leaveWithEscape(guest);
+  await expect(guest).toHaveURL(new RegExp(`/title/${titleId(SHARED)}$`, "u"));
+  await host.waitForTimeout(1_000);
+  expect((await videoState(host)).paused).toBe(false);
+  await expect(host).toHaveURL(onRoom);
+  expect((await owner.sdk.query("rooms.get", { roomId })).clock.status).toBe("playing");
+  await guest.goto(`/r/${roomId}`);
+  await expect(guest).toHaveURL(onRoom);
+  await expectSettled("after the guest came back");
 });
 
 test("the host's stall holds the guest until the host plays again", async () => {

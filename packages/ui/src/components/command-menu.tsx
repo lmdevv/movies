@@ -45,6 +45,7 @@ function CommandRow({
   item,
   id,
   active,
+  checked,
   busy,
   onPoint,
   onChoose,
@@ -52,6 +53,8 @@ function CommandRow({
   readonly item: CommandItem;
   readonly id: string;
   readonly active: boolean;
+  /** Whether the row is the current choice of a list of choices; undefined in other lists. */
+  readonly checked: boolean | undefined;
   readonly busy: boolean;
   readonly onPoint: () => void;
   readonly onChoose: () => void;
@@ -64,6 +67,7 @@ function CommandRow({
       id={id}
       role="option"
       aria-selected={active}
+      aria-checked={checked}
       aria-busy={busy || undefined}
       data-active={active || undefined}
       onPointerMove={active ? undefined : onPoint}
@@ -122,6 +126,8 @@ function CommandRow({
  *   supply `search`-scoped groups (such as title results) for it.
  * @param start - The id of a submenu in `root` to show when the menu opens, such as a "Switch
  *   profile" list opened by its own shortcut. Going back reaches the root list.
+ * @param container - Where the menu renders, such as the player while it is full screen, where
+ *   nothing outside the full-screen element shows; the body when undefined.
  */
 export function CommandMenu({
   open,
@@ -129,15 +135,31 @@ export function CommandMenu({
   root,
   onQueryChange,
   start,
+  container,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly root: CommandPage;
   readonly onQueryChange?: (query: string, page: CommandPage) => void;
   readonly start?: string | undefined;
+  readonly container?: HTMLElement | undefined;
 }) {
   const [state, dispatch] = useReducer(commandMenuReducer, initialCommandMenuState);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Opening starts from the root list, even when the menu opens again before its closing
+  // animation ended (and the reset after it ran), which would show the list it closed on.
+  const [wasOpen, setWasOpen] = useState(open);
+
+  if (open !== wasOpen) {
+    setWasOpen(open);
+
+    if (open) {
+      dispatch({ type: "reset" });
+      setBusyId(null);
+    }
+  }
+
   const inputRef = useRef<HTMLInputElement>(null);
   const listboxId = useId();
   const frame = currentFrame(state);
@@ -147,6 +169,14 @@ export function CommandMenu({
   const count = visible.items.length;
   const active = count === 0 ? -1 : Math.min(frame.active, count - 1);
   const activeId = active === -1 ? undefined : `${listboxId}-${active}`;
+
+  // A group with a checked row is a list of choices, where every row is checked or not, even while
+  // typing hides the checked one.
+  const choiceGroups = new Set(
+    page.groups
+      .filter((group) => group.items.some((item) => item.leading?.kind === "check"))
+      .map((group) => group.id),
+  );
 
   useEffect(() => {
     if (activeId !== undefined)
@@ -251,7 +281,7 @@ export function CommandMenu({
         setBusyId(null);
       }}
     >
-      <Dialog.Portal>
+      <Dialog.Portal container={container}>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-scrim transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
         <Dialog.Popup
           initialFocus={inputRef}
@@ -297,6 +327,7 @@ export function CommandMenu({
             ) : null}
             {visible.groups.map((group) => {
               const labelId = `${listboxId}-${group.id}`;
+              const choices = choiceGroups.has(group.id);
 
               return (
                 <div
@@ -324,6 +355,7 @@ export function CommandMenu({
                         id={`${listboxId}-${position}`}
                         item={item}
                         active={position === active}
+                        checked={choices ? item.leading?.kind === "check" : undefined}
                         busy={busyId === item.id}
                         onPoint={() => dispatch({ type: "point", index: position })}
                         onChoose={() => choose(item)}

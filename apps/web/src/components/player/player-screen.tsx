@@ -37,8 +37,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useCommandRoot } from "@/commands";
-import type { PlayerCommands } from "@/commands/playback";
-import { PlayerCommandsContext } from "@/commands/playback";
+import type { PlayerCommands } from "@/commands";
 import { artworkUrl } from "@/lib/artwork";
 import {
   deviceName,
@@ -72,6 +71,7 @@ import { useScopes } from "@/session/viewer";
 import { AUTOPLAY_COUNTDOWN, AUTOPLAY_VIDEO_FRAME } from "./autoplay";
 import { AutoplayNext } from "./autoplay-next";
 import { CastMenu, CastingState } from "./cast-menu";
+import { LeaveDialog } from "./leave-dialog";
 import {
   PhoneControls,
   PhoneRoomDetails,
@@ -218,6 +218,12 @@ export function PlayerScreen({
   const [keyPreview, setKeyPreview] = useState<number | null>(null);
   const [menuQuery, setMenuQuery] = useState("");
   const [startDialog, setStartDialog] = useState<{ readonly roomId: RoomId | null } | null>(null);
+
+  // "Leave playback?" while open: whether Stay plays again. Where focus was when it opened outlives
+  // the dialog, which returns focus after it has closed.
+  const [leaving, setLeaving] = useState<{ readonly resume: boolean } | null>(null);
+  const focusBeforeLeaving = useRef<HTMLElement | null>(null);
+
   // Asked for with `?together`: start a room once playback begins, once.
   const wantsTogether = useRef(together);
   const canSetVolume = useMemo(() => volumeIsSettable(), []);
@@ -357,7 +363,7 @@ export function PlayerScreen({
     void navigate({ to: "/title/$titleId", params: { titleId } });
   }, [navigate, titleId]);
 
-  const { fullscreen, toggle: toggleFullscreen } = useFullscreen(frame, video);
+  const { fullscreen, toggle: toggleFullscreen, takeEscape } = useFullscreen(frame, video);
 
   const seekTo = useCallback(
     (seconds: number) => {
@@ -674,6 +680,40 @@ export function PlayerScreen({
     dropRoomFromUrl();
   }, [roomId, endRoom, deviceId, dropRoomFromUrl]);
 
+  // Escape with nothing else to close asks before leaving. Solo playback pauses while it asks; a room
+  // plays on, since its clock is everyone's.
+  const askToLeave = useCallback(() => {
+    const pause = roomId === undefined && output !== null && !output.isPaused();
+
+    if (pause) output.pause();
+    focusBeforeLeaving.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setLeaving({ resume: pause });
+  }, [roomId, output]);
+
+  const stay = useCallback(() => {
+    if (leaving?.resume === true) void output?.play().catch(() => undefined);
+    setLeaving(null);
+  }, [leaving, output]);
+
+  // Back to where focus was in the player, or to the player itself. The dialog would move focus
+  // from the frame, which only script can focus, to its first button, so the frame is focused here.
+  const focusAfterLeaving = useCallback((): HTMLElement | false => {
+    const previous = focusBeforeLeaving.current;
+
+    if (
+      previous !== null &&
+      previous !== frame &&
+      previous.isConnected &&
+      frame?.contains(previous) === true
+    )
+      return previous;
+
+    frame?.focus({ preventScroll: true });
+
+    return false;
+  }, [frame]);
+
   // Autoplay next: near the end of an episode, outside rooms.
   const remaining = Math.max(0, duration - media.positionSeconds);
 
@@ -789,6 +829,7 @@ export function PlayerScreen({
     info ||
     menu ||
     startDialog !== null ||
+    leaving !== null ||
     showNext ||
     scrub !== null;
 
@@ -810,12 +851,16 @@ export function PlayerScreen({
       "player.fullscreen": toggleFullscreen,
       "player.mute": () => setMuted(!media.muted),
       "player.subtitles": toggleSubtitles,
+      // One press does one thing: leaves full screen, closes Stream info, or asks to leave. Menus,
+      // popovers, and dialogs take Escape before it gets here.
       "player.exit": () => {
+        if (takeEscape()) return;
+
         if (info) setInfo(false);
-        else backToDetails();
+        else askToLeave();
       },
     },
-    !menu && startDialog === null,
+    !menu && startDialog === null && leaving === null,
   );
 
   // Commands the menu offers while the player is open.
@@ -845,7 +890,7 @@ export function PlayerScreen({
         ? null
         : {
             copyLink: () => copyLink(roomId),
-            leave: host ? endAndStay : leaveAndExit,
+            leave: host ? null : leaveAndExit,
             end: host ? endAndStay : null,
           },
     }),
@@ -879,7 +924,14 @@ export function PlayerScreen({
     ],
   );
 
-  const root = useCommandRoot({ navigate, query: menuQuery, profile, profiles, scopes });
+  const root = useCommandRoot({
+    navigate,
+    query: menuQuery,
+    profile,
+    profiles,
+    scopes,
+    player: commands,
+  });
 
   // A room link this profile cannot use shows its own page instead of the player.
   if (watch !== null && watch.join.status === "denied") {
@@ -1304,99 +1356,104 @@ export function PlayerScreen({
     ) : null;
 
   return (
-    <PlayerCommandsContext.Provider value={commands}>
+    <div
+      ref={setFrame}
+      data-testid="player"
+      // Focusable from script only, so focus can return to the player after a dialog.
+      tabIndex={-1}
+      className={cn(
+        "fixed inset-0 flex bg-dark-bg text-text outline-none select-none",
+        portraitRoom ? "flex-col" : "flex-row",
+        !controlsVisible && "cursor-none",
+      )}
+    >
       <div
-        ref={setFrame}
-        data-testid="player"
         className={cn(
-          "fixed inset-0 flex bg-dark-bg text-text select-none",
-          portraitRoom ? "flex-col" : "flex-row",
-          !controlsVisible && "cursor-none",
+          "relative",
+          portraitRoom
+            ? "mt-[env(safe-area-inset-top)] aspect-video w-full shrink-0"
+            : "min-w-0 grow",
         )}
       >
-        <div
-          className={cn(
-            "relative",
-            portraitRoom
-              ? "mt-[env(safe-area-inset-top)] aspect-video w-full shrink-0"
-              : "min-w-0 grow",
-          )}
-        >
-          <div className={cn("absolute inset-0", showNext && AUTOPLAY_VIDEO_FRAME)}>
-            {videoElement}
-            {casting === null ? null : <CastingState deviceName={casting.deviceName} />}
-          </div>
-          {portraitRoom ? (
-            <PhoneRoomVideoChrome
-              hostName={hostName}
-              fraction={duration <= 0 ? 0 : Math.min(1, position / duration)}
-              onFullscreen={toggleFullscreen}
-            />
-          ) : layout === "desktop" ? (
-            desktopControls
-          ) : (
-            phoneControls
-          )}
-          {center}
-          {showNext ? (
-            <AutoplayNext
-              current={heading}
-              remainingSeconds={remaining}
-              next={nextEpisode}
-              countdownMs={countdown ?? AUTOPLAY_COUNTDOWN.totalMs}
-              onPlayNext={playNext}
-              onWatchCredits={() => setCreditsDismissed(true)}
-            />
-          ) : null}
+        <div className={cn("absolute inset-0", showNext && AUTOPLAY_VIDEO_FRAME)}>
+          {videoElement}
+          {casting === null ? null : <CastingState deviceName={casting.deviceName} />}
         </div>
         {portraitRoom ? (
-          <PhoneRoomDetails
-            live={!roomPaused}
-            position={position}
-            duration={duration}
-            title={titleName}
-            members={members}
-            subtitles={tracks(<PhoneSubtitlesButton />)}
-            onLeave={host ? endAndStay : leaveAndExit}
+          <PhoneRoomVideoChrome
+            hostName={hostName}
+            fraction={duration <= 0 ? 0 : Math.min(1, position / duration)}
+            onFullscreen={toggleFullscreen}
+          />
+        ) : layout === "desktop" ? (
+          desktopControls
+        ) : (
+          phoneControls
+        )}
+        {center}
+        {showNext ? (
+          <AutoplayNext
+            current={heading}
+            remainingSeconds={remaining}
+            next={nextEpisode}
+            countdownMs={countdown ?? AUTOPLAY_COUNTDOWN.totalMs}
+            onPlayNext={playNext}
+            onWatchCredits={() => setCreditsDismissed(true)}
           />
         ) : null}
-        {sidePanel ? (
-          <RoomPanel
-            className="shrink-0"
-            members={members}
-            paused={roomPaused}
-            onCopyLink={host ? () => copyLink(roomId) : undefined}
-            onEnd={host ? endAndStay : undefined}
-            onLeave={host || hostGone(room) ? undefined : leaveAndExit}
-          />
-        ) : null}
-        <StartRoomDialog
-          open={startDialog !== null}
-          link={
-            startDialog?.roomId === null || startDialog === null
-              ? null
-              : roomLink(startDialog.roomId)
-          }
-          container={fullscreen ? frame : null}
-          onCopy={() => {
-            if (startDialog?.roomId != null) copyLink(startDialog.roomId);
-          }}
-          onCancel={cancelStartRoom}
-          onStart={confirmStartRoom}
-        />
-        <CommandMenu
-          open={menu}
-          onOpenChange={(open) => {
-            setMenu(open);
-
-            if (!open) setMenuQuery("");
-          }}
-          onQueryChange={(text, page) => {
-            if (page.id === "root") setMenuQuery(text);
-          }}
-          root={root}
-        />
       </div>
-    </PlayerCommandsContext.Provider>
+      {portraitRoom ? (
+        <PhoneRoomDetails
+          live={!roomPaused}
+          position={position}
+          duration={duration}
+          title={titleName}
+          members={members}
+          subtitles={tracks(<PhoneSubtitlesButton />)}
+          onLeave={host ? endAndStay : leaveAndExit}
+        />
+      ) : null}
+      {sidePanel ? (
+        <RoomPanel
+          className="shrink-0"
+          members={members}
+          paused={roomPaused}
+          onCopyLink={host ? () => copyLink(roomId) : undefined}
+          onEnd={host ? endAndStay : undefined}
+          onLeave={host || hostGone(room) ? undefined : leaveAndExit}
+        />
+      ) : null}
+      <StartRoomDialog
+        open={startDialog !== null}
+        link={
+          startDialog?.roomId === null || startDialog === null ? null : roomLink(startDialog.roomId)
+        }
+        container={fullscreen ? frame : null}
+        onCopy={() => {
+          if (startDialog?.roomId != null) copyLink(startDialog.roomId);
+        }}
+        onCancel={cancelStartRoom}
+        onStart={confirmStartRoom}
+      />
+      <LeaveDialog
+        open={leaving !== null}
+        returnFocus={focusAfterLeaving}
+        onStay={stay}
+        onLeave={backToDetails}
+      />
+      <CommandMenu
+        open={menu}
+        container={fullscreen && frame !== null ? frame : undefined}
+        onOpenChange={(open) => {
+          setMenu(open);
+
+          if (!open) setMenuQuery("");
+        }}
+        onQueryChange={(text, page) => {
+          if (page.id === "root") setMenuQuery(text);
+        }}
+        root={root}
+      />
+    </div>
   );
 }
