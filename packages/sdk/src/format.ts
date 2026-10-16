@@ -71,14 +71,24 @@ const DAY_MS = 86_400_000;
 
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 
-const relative = new Intl.RelativeTimeFormat("en-US", { numeric: "auto" });
-
 /** `Oct 9`, a short calendar date. */
 export const formatShortDate = (epochMs: number): string => shortDate.format(epochMs);
 
-/** `2 days ago`, `today`, or `in 3 days`, relative to `now` in whole days. */
-export const formatDaysFrom = (epochMs: number, now: number): string =>
-  relative.format(Math.round((epochMs - now) / DAY_MS), "day");
+/**
+ * `2 days ago`, `today`, or `in 3 days`, relative to `now` in whole days. Written out rather than
+ * with `Intl.RelativeTimeFormat`, which Hermes (the iPhone app's engine) does not provide.
+ */
+export const formatDaysFrom = (epochMs: number, now: number): string => {
+  const days = Math.round((epochMs - now) / DAY_MS);
+
+  if (days === 0) return "today";
+
+  if (days === -1) return "yesterday";
+
+  if (days === 1) return "tomorrow";
+
+  return days < 0 ? `${plural(-days, "day", "days")} ago` : `in ${plural(days, "day", "days")}`;
+};
 
 /** Titles added this recently carry the red `New` flag. */
 const NEW_FOR_MS = 7 * DAY_MS;

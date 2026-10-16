@@ -87,66 +87,70 @@ function SignInForm() {
           </Glass>
         </Pressable>
       </View>
+      {/* The padding goes on an inner view: with behavior "padding", KeyboardAvoidingView
+          replaces its own paddingBottom, which dropped the safe-area gap on iOS. */}
       <KeyboardAvoidingView
-        style={styles.content}
+        style={styles.avoider}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <Text variant="largeTitle" accessibilityRole="header" style={styles.title}>
-          Welcome back.
-        </Text>
-        <View style={styles.fields}>
-          <Field
-            label="Email"
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoComplete="email"
-            keyboardType="email-address"
-            textContentType="username"
-            returnKeyType="next"
-            submitBehavior="submit"
-            onSubmitEditing={() => password.current?.focus()}
-          />
-          <Field
-            label="Password"
-            inputRef={password}
-            value={secret}
-            onChangeText={(text) => {
-              setSecret(text);
-              setError(null);
-            }}
-            error={error}
-            secureTextEntry={!revealed}
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoComplete="current-password"
-            textContentType="password"
-            returnKeyType="go"
-            onSubmitEditing={() => void submit()}
-            accessory={
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={revealed ? "Hide password" : "Show password"}
-                onPress={() => setRevealed((shown) => !shown)}
-                style={styles.eye}
-              >
-                {revealed ? (
-                  <EyeOffIcon size={20} color={system.glyph} strokeWidth={ICON_STROKE} />
-                ) : (
-                  <EyeIcon size={20} color={system.glyph} strokeWidth={ICON_STROKE} />
-                )}
-              </Pressable>
-            }
-          />
-        </View>
-        <View style={styles.actions}>
-          <PrimaryButton label="Sign in" pending={pending} onPress={() => void submit()} />
-          <SecondaryButton
-            label="Use a code from another device"
-            icon={<SmartphoneIcon size={18} color={colors.text} strokeWidth={ICON_STROKE} />}
-            onPress={() => router.push("/sign-in/code")}
-          />
+        <View style={styles.content}>
+          <Text variant="largeTitle" accessibilityRole="header" style={styles.title}>
+            Welcome back.
+          </Text>
+          <View style={styles.fields}>
+            <Field
+              label="Email"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="email"
+              keyboardType="email-address"
+              textContentType="username"
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => password.current?.focus()}
+            />
+            <Field
+              label="Password"
+              inputRef={password}
+              value={secret}
+              onChangeText={(text) => {
+                setSecret(text);
+                setError(null);
+              }}
+              error={error}
+              secureTextEntry={!revealed}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="current-password"
+              textContentType="password"
+              returnKeyType="go"
+              onSubmitEditing={() => void submit()}
+              accessory={
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={revealed ? "Hide password" : "Show password"}
+                  onPress={() => setRevealed((shown) => !shown)}
+                  style={styles.eye}
+                >
+                  {revealed ? (
+                    <EyeOffIcon size={20} color={system.glyph} strokeWidth={ICON_STROKE} />
+                  ) : (
+                    <EyeIcon size={20} color={system.glyph} strokeWidth={ICON_STROKE} />
+                  )}
+                </Pressable>
+              }
+            />
+          </View>
+          <View style={styles.actions}>
+            <PrimaryButton label="Sign in" pending={pending} onPress={() => void submit()} />
+            <SecondaryButton
+              label="Use a code from another device"
+              icon={<SmartphoneIcon size={18} color={colors.text} strokeWidth={ICON_STROKE} />}
+              onPress={() => router.push("/sign-in/code")}
+            />
+          </View>
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -175,6 +179,7 @@ const styles = StyleSheet.create({
   },
   online: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.success },
   pressed: { opacity: opacity.pressed },
+  avoider: { flex: 1 },
   content: {
     flex: 1,
     justifyContent: "flex-end",

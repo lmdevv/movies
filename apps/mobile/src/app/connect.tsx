@@ -73,38 +73,42 @@ export default function Connect() {
         style={styles.scrim}
         pointerEvents="none"
       />
+      {/* The padding goes on an inner view: with behavior "padding", KeyboardAvoidingView
+          replaces its own paddingBottom, which dropped the safe-area gap on iOS. */}
       <KeyboardAvoidingView
-        style={styles.content}
+        style={styles.avoider}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={styles.heading}>
-          <Text variant="brand" color={colors.accent}>
-            [movies]
-          </Text>
-          <Text variant="largeTitle" accessibilityRole="header">
-            Find your server.
-          </Text>
-        </View>
-        <View style={styles.form}>
-          <Field
-            label="Server address"
-            font="mono"
-            placeholder="movies.home.lan"
-            value={address}
-            onChangeText={(text) => {
-              setAddress(text);
-              setError(null);
-            }}
-            error={error}
-            icon={<ServerIcon size={18} color={system.glyph} strokeWidth={ICON_STROKE} />}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-            textContentType="URL"
-            returnKeyType="go"
-            onSubmitEditing={() => void submit()}
-          />
-          <PrimaryButton label="Continue" pending={pending} onPress={() => void submit()} />
+        <View style={styles.content}>
+          <View style={styles.heading}>
+            <Text variant="brand" color={colors.accent}>
+              [movies]
+            </Text>
+            <Text variant="largeTitle" accessibilityRole="header">
+              Find your server.
+            </Text>
+          </View>
+          <View style={styles.form}>
+            <Field
+              label="Server address"
+              font="mono"
+              placeholder="movies.home.lan"
+              value={address}
+              onChangeText={(text) => {
+                setAddress(text);
+                setError(null);
+              }}
+              error={error}
+              icon={<ServerIcon size={18} color={system.glyph} strokeWidth={ICON_STROKE} />}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              textContentType="URL"
+              returnKeyType="go"
+              onSubmitEditing={() => void submit()}
+            />
+            <PrimaryButton label="Continue" pending={pending} onPress={() => void submit()} />
+          </View>
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -145,6 +149,7 @@ const styles = StyleSheet.create({
   column: { gap: 10 },
   poster: { ...POSTER, borderRadius: radius.art },
   scrim: { position: "absolute", top: 0, left: 0, right: 0, height: 520 },
+  avoider: { flex: 1 },
   content: {
     flex: 1,
     justifyContent: "flex-end",

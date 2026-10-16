@@ -48,5 +48,9 @@ describe("dates", () => {
 
     expect(formatDaysFrom(now - 2 * 86_400_000, now)).toBe("2 days ago");
     expect(formatDaysFrom(now, now)).toBe("today");
+    expect(formatDaysFrom(now - 86_400_000, now)).toBe("yesterday");
+    expect(formatDaysFrom(now + 86_400_000, now)).toBe("tomorrow");
+    expect(formatDaysFrom(now + 3 * 86_400_000, now)).toBe("in 3 days");
+    expect(formatDaysFrom(now - 1200 * 86_400_000, now)).toBe("1,200 days ago");
   });
 });

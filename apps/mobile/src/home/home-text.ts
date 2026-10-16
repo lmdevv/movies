@@ -14,9 +14,12 @@ const HERO_PAGES = 5;
  * backdrop to show, without repeats.
  */
 export const heroTitles = (home: Home): ReadonlyArray<TitleCard> => {
-  const newest = [...home.recentlyAddedMovies, ...home.recentlyAddedShows]
-    .filter((title) => title.artwork.backdrop !== null)
-    .toSorted((a, b) => b.addedAt - a.addedAt);
+  const newest = [...home.recentlyAddedMovies, ...home.recentlyAddedShows].filter(
+    (title) => title.artwork.backdrop !== null,
+  );
+
+  // Sorts the copy `filter` made; Hermes, the iPhone app's engine, has no `toSorted`.
+  newest.sort((a, b) => b.addedAt - a.addedAt);
 
   const candidates = home.featured === null ? newest : [home.featured, ...newest];
   // A Map keeps each title once, where it first appears.
