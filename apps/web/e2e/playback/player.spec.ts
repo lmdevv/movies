@@ -519,6 +519,7 @@ test("Escape asks before leaving: open layers close first, Stay plays on, Leave 
   await expect(leave).toBeVisible();
   await expect(stay).toBeFocused();
   await expect.poll(paused).toBe(true);
+  await expect(leave).toHaveCSS("opacity", "1");
   await capture(page, "07-12-leave-playback");
   await page.keyboard.press("Escape");
   await expect(leave).toBeHidden();
