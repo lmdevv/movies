@@ -15,6 +15,7 @@ import type { NegotiateResponse } from "@movies/contracts/media-playback";
 import type { MediaVersion } from "@movies/contracts/models/catalog";
 import { EpochMillis, Milliseconds } from "@movies/contracts/units";
 import { Playback, Versions } from "@movies/sdk/effect";
+import { episodeCode } from "@movies/sdk/format";
 import { useCommand, useCommandQuery, useMoviesRuntime, useRoomSync } from "@movies/sdk/react";
 import { ChapterPopover } from "@movies/ui/components/chapter-popover";
 import { CommandMenu } from "@movies/ui/components/command-menu";
@@ -48,7 +49,6 @@ import {
 } from "@/lib/device-storage";
 import { toastFailure } from "@/lib/failure";
 import { copyText } from "@/lib/secure-context";
-import { episodeCode } from "@/lib/format";
 import { playerKeymap } from "@/lib/keymap";
 import { audioTrackLabel, subtitleTrackLabels } from "@/lib/media-facts";
 import { useLatest } from "@/lib/use-latest";

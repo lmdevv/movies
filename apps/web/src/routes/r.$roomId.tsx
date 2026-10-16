@@ -1,4 +1,5 @@
 import { RoomId } from "@movies/contracts/ids";
+import { describeFailure } from "@movies/sdk/failure";
 import { useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
@@ -8,7 +9,6 @@ import { Predicate, Schema } from "effect";
 import { useEffect } from "react";
 
 import { RoomDenied } from "@/components/player/room-states";
-import { describeFailure } from "@/lib/failure";
 import { RequireProfile, RequireSignedIn, useActiveProfile } from "@/session/guards";
 
 const decodeRoomId = Schema.decodeSync(RoomId);

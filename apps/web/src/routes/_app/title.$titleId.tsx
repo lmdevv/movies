@@ -1,4 +1,5 @@
 import { TitleId } from "@movies/contracts/ids";
+import { describeFailure, isFailure } from "@movies/sdk/failure";
 import { useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { buttonVariants } from "@movies/ui/lib/button-variants";
@@ -8,7 +9,6 @@ import { Schema } from "effect";
 
 import { HeroSkeleton } from "@/components/browse/skeletons";
 import { TitleDetailView } from "@/components/browse/title-detail";
-import { describeFailure, isFailure } from "@/lib/failure";
 import { usePhone } from "@/lib/use-phone";
 import { useActiveProfile } from "@/session/guards";
 import { useScopes } from "@/session/viewer";

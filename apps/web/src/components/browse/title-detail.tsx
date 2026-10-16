@@ -13,6 +13,9 @@ import type {
   TitleDetail,
 } from "@movies/contracts/models/catalog";
 import { MediaLabels, Versions } from "@movies/sdk/effect";
+import { facts, formatRemaining, formatRuntime, plural } from "@movies/sdk/format";
+import { playTarget } from "@movies/sdk/play-target";
+import type { PlayTarget } from "@movies/sdk/play-target";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Badge } from "@movies/ui/components/badge";
 import { Button } from "@movies/ui/components/button";
@@ -37,15 +40,14 @@ import { toast } from "sonner";
 
 import { artworkUrl } from "@/lib/artwork";
 import { toastFailure } from "@/lib/failure";
-import { facts, formatRemaining, formatRuntime, plural } from "@/lib/format";
 import { fileBadges, trackSummary } from "@/lib/media-facts";
 import { formatDate, languageName, titleLinks } from "@/lib/metadata";
 import { useVersionChoice } from "@/playback/use-version-choice";
 import type { VersionChoice } from "@/playback/use-version-choice";
 
 import { Episodes } from "./episodes";
-import { playTarget, useMyListToggle, watchSearch } from "./play-target";
-import type { MyListToggle, PlayTarget } from "./play-target";
+import { useMyListToggle, watchSearch } from "./play-target";
+import type { MyListToggle } from "./play-target";
 import { SelectMenu } from "./select-menu";
 import {
   CastAndCrew,

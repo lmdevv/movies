@@ -1,5 +1,6 @@
 import type { Job } from "@movies/contracts/models/jobs";
 import type { Library } from "@movies/contracts/models/catalog";
+import { formatCount } from "@movies/sdk/format";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import type { CommandItem } from "@movies/ui/lib/command-menu";
 import { CircleXIcon, FolderIcon, RefreshCwIcon } from "lucide-react";
@@ -7,7 +8,6 @@ import { useMemo } from "react";
 import { toast } from "sonner";
 
 import { toastFailure } from "@/lib/failure";
-import { formatCount } from "@/lib/format";
 import { isActive, scanProgress } from "@/lib/scan-progress";
 import { useNow } from "@/lib/use-now";
 

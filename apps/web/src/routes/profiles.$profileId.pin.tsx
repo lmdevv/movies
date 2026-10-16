@@ -1,5 +1,6 @@
 import { ProfileId } from "@movies/contracts/ids";
 import type { Profile } from "@movies/contracts/models/profiles";
+import { describeFailure } from "@movies/sdk/failure";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Avatar } from "@movies/ui/components/avatar";
 import { CodeInput } from "@movies/ui/components/code-input";
@@ -10,7 +11,6 @@ import { useEffect, useRef, useState } from "react";
 
 import { AuthPage } from "@/components/auth/auth-page";
 import { profileArt } from "@/components/profiles/profile-art";
-import { describeFailure } from "@/lib/failure";
 import { PIN_LENGTH } from "@/lib/pin";
 import { safeRedirect } from "@/lib/redirect-target";
 import { PageFailure, RequireSignedIn } from "@/session/guards";

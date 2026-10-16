@@ -1,15 +1,18 @@
 # @movies/sdk
 
-The client core shared by the web app, the CLI, and later the native apps. Calls are typed by the
+The client core shared by the web app, the CLI, and the iPhone app. Calls are typed by the
 command registry in `@movies/contracts`: arguments are encoded and results decoded with each
 command's schemas, and failures are the contracts' tagged errors plus `TransportError` and
 `ProtocolError`. No Node built-ins or DOM globals in shipped sources (`import-boundary.test.ts`).
 
-| Entry point           | For                                                               |
-| --------------------- | ----------------------------------------------------------------- |
-| `@movies/sdk/effect`  | Effect programs: services, layers, workflows                      |
-| `@movies/sdk/react`   | React: provider and hooks on the app's `ConvexReactClient`        |
-| `@movies/sdk/promise` | Everything else: a Promise facade that rejects with tagged errors |
+| Entry point               | For                                                                  |
+| ------------------------- | -------------------------------------------------------------------- |
+| `@movies/sdk/effect`      | Effect programs: services, layers, workflows                         |
+| `@movies/sdk/react`       | React: provider and hooks on the app's `ConvexReactClient`           |
+| `@movies/sdk/promise`     | Everything else: a Promise facade that rejects with tagged errors    |
+| `@movies/sdk/failure`     | The line to show for a failed command or sign-in                     |
+| `@movies/sdk/format`      | Display text every app writes alike: `2h 46m`, `41m left`, `S2:E4`   |
+| `@movies/sdk/play-target` | What a title's main button does: `Play`, `Resume`, or `Resume S2:E4` |
 
 ## Effect
 

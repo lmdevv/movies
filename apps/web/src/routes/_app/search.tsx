@@ -1,5 +1,6 @@
 import type { ProfileId } from "@movies/contracts/ids";
 import type { TitleCard, TitleKind } from "@movies/contracts/models/catalog";
+import { formatCount, plural, titleKindFacts } from "@movies/sdk/format";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Chip } from "@movies/ui/components/chip";
 import { LandscapeCard } from "@movies/ui/components/media-card";
@@ -13,7 +14,6 @@ import { toast } from "sonner";
 import { usePrefetchTitle } from "@/components/browse/prefetch";
 import { artworkUrl } from "@/lib/artwork";
 import { toastFailure } from "@/lib/failure";
-import { formatCount, plural, titleKindFacts } from "@/lib/format";
 import { longestWord, similarity } from "@/lib/similarity";
 import { useTitleSearch } from "@/lib/use-title-search";
 import { useActiveProfile } from "@/session/guards";

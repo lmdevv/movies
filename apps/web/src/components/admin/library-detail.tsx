@@ -6,6 +6,7 @@ import type {
   LibraryFileSummary,
 } from "@movies/contracts/models/catalog";
 import type { Job } from "@movies/contracts/models/jobs";
+import { describeFailure, isFailure } from "@movies/sdk/failure";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { buttonVariants } from "@movies/ui/lib/button-variants";
@@ -31,7 +32,6 @@ import {
 import { useState } from "react";
 
 import { artworkUrl } from "@/lib/artwork";
-import { describeFailure, isFailure } from "@/lib/failure";
 import { useNow } from "@/lib/use-now";
 
 import { useAction } from "./action";

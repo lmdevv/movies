@@ -4,6 +4,7 @@
  */
 import type { ProfileId } from "@movies/contracts/ids";
 import type { Episode, SeasonEpisode, TitleDetail } from "@movies/contracts/models/catalog";
+import { facts, formatRuntime, plural, progressFraction, progressLabel } from "@movies/sdk/format";
 import { useCommandQuery } from "@movies/sdk/react";
 import { EpisodeRow } from "@movies/ui/components/media-card";
 import { ProgressBar } from "@movies/ui/components/progress-bar";
@@ -13,7 +14,6 @@ import { ChevronDownIcon } from "lucide-react";
 import { useState } from "react";
 
 import { artworkUrl } from "@/lib/artwork";
-import { facts, formatRuntime, plural, progressFraction, progressLabel } from "@/lib/format";
 import { creditLines, formatDate } from "@/lib/metadata";
 
 import { SelectMenu } from "./select-menu";

@@ -4,6 +4,7 @@
  */
 import { AgeRating, KIDS_DEFAULT_MAX_AGE } from "@movies/contracts/content-rating";
 import type { Profile } from "@movies/contracts/models/profiles";
+import { describeFailure } from "@movies/sdk/failure";
 import { useCommand } from "@movies/sdk/react";
 import { Avatar, EditableAvatar } from "@movies/ui/components/avatar";
 import { Button } from "@movies/ui/components/button";
@@ -19,7 +20,6 @@ import { useId, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 
 import { AVATAR_KEYS, avatarHasLettering, avatarImage } from "@/lib/avatars";
-import { describeFailure } from "@/lib/failure";
 import { PIN_LENGTH } from "@/lib/pin";
 import { useProfileChoice } from "@/session/profile-choice";
 

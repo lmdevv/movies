@@ -6,6 +6,9 @@
   "type": "module",
   "exports": {
     "./effect": "./src/effect.ts",
+    "./failure": "./src/failure.ts",
+    "./format": "./src/format.ts",
+    "./play-target": "./src/play-target.ts",
     "./react": "./src/react.tsx",
     "./promise": "./src/promise.ts"
   },

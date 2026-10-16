@@ -1,5 +1,7 @@
 import { PersonId } from "@movies/contracts/ids";
 import type { PersonDetail } from "@movies/contracts/models/people";
+import { describeFailure, isFailure } from "@movies/sdk/failure";
+import { facts } from "@movies/sdk/format";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { buttonVariants } from "@movies/ui/lib/button-variants";
@@ -14,8 +16,6 @@ import { TitlePosterCard } from "@/components/browse/title-cards";
 import { ExternalLinks } from "@/components/browse/title-extras";
 import { PosterGrid } from "@/components/browse/title-grid-page";
 import { artworkUrl } from "@/lib/artwork";
-import { describeFailure, isFailure } from "@/lib/failure";
-import { facts } from "@/lib/format";
 import { formatDate, personLinks, personRole, yearsBetween } from "@/lib/metadata";
 import { useActiveProfile } from "@/session/guards";
 

@@ -3,11 +3,17 @@
  * watching), artwork from the media service, and detail prefetch on hover and focus.
  */
 import type { ContinueWatchingItem, TitleCard } from "@movies/contracts/models/catalog";
+import {
+  episodeCode,
+  facts,
+  formatRemaining,
+  progressFraction,
+  titleFacts,
+} from "@movies/sdk/format";
 import { LandscapeCard, PosterCard } from "@movies/ui/components/media-card";
 import { Link } from "@tanstack/react-router";
 
 import { artworkUrl } from "@/lib/artwork";
-import { episodeCode, facts, formatRemaining, progressFraction, titleFacts } from "@/lib/format";
 
 import { usePrefetchTitle } from "./prefetch";
 

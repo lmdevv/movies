@@ -1,3 +1,5 @@
+import { describeFailure } from "@movies/sdk/failure";
+import { plural, titleFacts } from "@movies/sdk/format";
 import { useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
@@ -6,8 +8,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { PosterGridSkeleton } from "@/components/browse/skeletons";
 import { TitlePosterCard } from "@/components/browse/title-cards";
 import { GridHeader, PosterGrid } from "@/components/browse/title-grid-page";
-import { describeFailure } from "@/lib/failure";
-import { plural, titleFacts } from "@/lib/format";
 import { useActiveProfile } from "@/session/guards";
 
 export const Route = createFileRoute("/_app/my-list")({

@@ -1,5 +1,6 @@
 import { JobId, LibraryId } from "@movies/contracts/ids";
 import type { Job } from "@movies/contracts/models/jobs";
+import { formatCount } from "@movies/sdk/format";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { buttonVariants } from "@movies/ui/lib/button-variants";
@@ -13,7 +14,6 @@ import { useState } from "react";
 import { AuthPage, PageTitle, SetupSteps } from "@/components/auth/auth-page";
 import { artworkUrl } from "@/lib/artwork";
 import { toastFailure } from "@/lib/failure";
-import { formatCount } from "@/lib/format";
 import { isStopped, scanProgress } from "@/lib/scan-progress";
 import { useNow } from "@/lib/use-now";
 import { RequireSignedIn } from "@/session/guards";

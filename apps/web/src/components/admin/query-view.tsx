@@ -1,9 +1,8 @@
+import { describeFailure } from "@movies/sdk/failure";
 import type { QueryState } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { Match } from "effect";
 import type { ReactNode } from "react";
-
-import { describeFailure } from "@/lib/failure";
 
 /**
  * Renders a live query: `loading` until the first result, its failure as one muted line with Try

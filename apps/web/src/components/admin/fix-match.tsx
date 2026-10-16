@@ -4,6 +4,7 @@ import type {
   MetadataCandidate,
   MetadataOverrides,
 } from "@movies/contracts/models/catalog";
+import { describeFailure, isFailure } from "@movies/sdk/failure";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { buttonVariants } from "@movies/ui/lib/button-variants";
@@ -20,7 +21,6 @@ import { useEffect, useId, useState } from "react";
 import type { ReactNode } from "react";
 
 import { artworkUrl } from "@/lib/artwork";
-import { describeFailure, isFailure } from "@/lib/failure";
 
 import { useAction } from "./action";
 import { Eyebrow } from "./settings-frame";

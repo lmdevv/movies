@@ -1,5 +1,7 @@
 import type { ProfileId } from "@movies/contracts/ids";
 import type { Home, TitleCard } from "@movies/contracts/models/catalog";
+import { describeFailure } from "@movies/sdk/failure";
+import { newBadge } from "@movies/sdk/format";
 import { useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
@@ -10,9 +12,7 @@ import { CollectionCard } from "@/components/browse/collection-card";
 import { HomeHero } from "@/components/browse/home-hero";
 import { EmptyLibrary, NothingToWatch, ScanningLibrary } from "@/components/browse/library-states";
 import { HeroSkeleton, RowSkeleton } from "@/components/browse/skeletons";
-import { newBadge } from "@/components/browse/new-badge";
 import { ContinueCard, TitleLandscapeCard, TitlePosterCard } from "@/components/browse/title-cards";
-import { describeFailure } from "@/lib/failure";
 import { usePhone } from "@/lib/use-phone";
 import { useActiveProfile } from "@/session/guards";
 import { useScopes } from "@/session/viewer";

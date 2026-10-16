@@ -1,4 +1,6 @@
 import { CollectionId } from "@movies/contracts/ids";
+import { describeFailure, isFailure } from "@movies/sdk/failure";
+import { plural, titleFacts } from "@movies/sdk/format";
 import { useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { buttonVariants } from "@movies/ui/lib/button-variants";
@@ -10,8 +12,6 @@ import { HeroSkeleton } from "@/components/browse/skeletons";
 import { TitlePosterCard } from "@/components/browse/title-cards";
 import { PosterGrid } from "@/components/browse/title-grid-page";
 import { artworkUrl } from "@/lib/artwork";
-import { describeFailure, isFailure } from "@/lib/failure";
-import { plural, titleFacts } from "@/lib/format";
 import { useActiveProfile } from "@/session/guards";
 
 const decodeCollectionId = Schema.decodeSync(CollectionId);

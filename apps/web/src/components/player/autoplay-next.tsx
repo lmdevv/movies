@@ -4,12 +4,12 @@
  * Watch credits cancels the countdown and returns to the full frame.
  */
 import type { Episode } from "@movies/contracts/models/catalog";
+import { episodeCode, formatRuntime } from "@movies/sdk/format";
 import { Button } from "@movies/ui/components/button";
 import { ProgressRing } from "@movies/ui/components/progress-ring";
 import { formatTimecode } from "@movies/ui/lib/timecode";
 
 import { artworkUrl } from "@/lib/artwork";
-import { episodeCode, formatRuntime } from "@/lib/format";
 
 import { AUTOPLAY_COUNTDOWN } from "./autoplay";
 

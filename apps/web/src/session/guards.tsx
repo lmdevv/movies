@@ -4,14 +4,13 @@
  * provides it to everything below through `useActiveProfile`.
  */
 import type { Profile } from "@movies/contracts/models/profiles";
+import { describeFailure, isFailure } from "@movies/sdk/failure";
 import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { useAuth, useCommandQuery } from "@movies/sdk/react";
 import { useLocation } from "@tanstack/react-router";
 import { createContext, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
-
-import { describeFailure, isFailure } from "@/lib/failure";
 
 import { useProfileChoice } from "./profile-choice";
 import { BlankPage, Redirect } from "./redirect";

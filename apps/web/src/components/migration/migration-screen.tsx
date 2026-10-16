@@ -1,5 +1,6 @@
 import type { JobId } from "@movies/contracts/ids";
 import type { MigrationSourceFailure } from "@movies/contracts/models/migration";
+import { describeFailure } from "@movies/sdk/failure";
 import { useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
@@ -8,7 +9,6 @@ import { useNavigate } from "@tanstack/react-router";
 import { Match } from "effect";
 import { useEffect, useState } from "react";
 
-import { describeFailure } from "@/lib/failure";
 import { isActive } from "@/lib/scan-progress";
 
 import { Connect } from "./connect";

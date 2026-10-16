@@ -1,3 +1,4 @@
+import { describeFailure } from "@movies/sdk/failure";
 import { useAuth, useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { FieldError, TextField } from "@movies/ui/components/text-field";
@@ -8,7 +9,6 @@ import type { FormEvent } from "react";
 
 import { AuthPage, PageTitle, PasswordField, SetupSteps } from "@/components/auth/auth-page";
 import { MIN_PASSWORD_LENGTH, passwordHint } from "@/lib/password";
-import { describeFailure } from "@/lib/failure";
 import { BlankPage, Redirect } from "@/session/redirect";
 
 export const Route = createFileRoute("/welcome")({

@@ -1,4 +1,5 @@
 import type { LibraryKind } from "@movies/contracts/models/catalog";
+import { describeFailure } from "@movies/sdk/failure";
 import { useCommand } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { cn } from "@movies/ui/lib/utils";
@@ -17,7 +18,6 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 
 import { AuthPage, PageTitle, SetupSteps } from "@/components/auth/auth-page";
-import { describeFailure } from "@/lib/failure";
 import { folderProblem, normalizeFolder } from "@/lib/library-folders";
 import { RequireSignedIn } from "@/session/guards";
 import { BlankPage, Redirect } from "@/session/redirect";

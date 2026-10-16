@@ -5,6 +5,8 @@
 import type { CommandArgs } from "@movies/contracts/commands";
 import type { ProfileId } from "@movies/contracts/ids";
 import type { TitleCard, TitleKind, TitleSort } from "@movies/contracts/models/catalog";
+import { describeFailure } from "@movies/sdk/failure";
+import { newBadge, plural, titleFacts } from "@movies/sdk/format";
 import { useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
@@ -13,8 +15,6 @@ import { ChevronDownIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-import { describeFailure } from "@/lib/failure";
-import { plural, titleFacts } from "@/lib/format";
 import { useLatest } from "@/lib/use-latest";
 import { decadesUntil } from "@/lib/metadata";
 import { useActiveProfile } from "@/session/guards";
@@ -22,7 +22,6 @@ import { useActiveProfile } from "@/session/guards";
 import { PosterGridSkeleton } from "./skeletons";
 import { SelectMenu } from "./select-menu";
 import type { SelectOption } from "./select-menu";
-import { newBadge } from "./new-badge";
 import { TitlePosterCard } from "./title-cards";
 
 /** Titles per page; the grid asks for the next page as its end scrolls into view. */

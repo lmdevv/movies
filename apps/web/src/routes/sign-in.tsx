@@ -1,3 +1,4 @@
+import { describeFailure } from "@movies/sdk/failure";
 import { useAuth, useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { FieldError, TextField } from "@movies/ui/components/text-field";
@@ -9,7 +10,6 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import { AuthPage, PageTitle, PasswordField } from "@/components/auth/auth-page";
-import { describeFailure } from "@/lib/failure";
 import { safeRedirect } from "@/lib/redirect-target";
 import { BlankPage, Redirect } from "@/session/redirect";
 

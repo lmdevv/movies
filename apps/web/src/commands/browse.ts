@@ -1,4 +1,5 @@
 import type { ContinueWatchingItem, PersonCard, TitleCard } from "@movies/contracts/models/catalog";
+import { episodeCode, facts, progressLabel } from "@movies/sdk/format";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import type { CommandItem, CommandLeading } from "@movies/ui/lib/command-menu";
 import { FilmIcon, PlayIcon, PlusIcon, SearchIcon, TvIcon, UserRoundIcon } from "lucide-react";
@@ -7,7 +8,6 @@ import { toast } from "sonner";
 
 import { artworkUrl } from "@/lib/artwork";
 import { toastFailure } from "@/lib/failure";
-import { episodeCode, facts, progressLabel } from "@/lib/format";
 import { useTitleSearch } from "@/lib/use-title-search";
 
 import type { CommandContext, CommandContribution } from "./contribution";

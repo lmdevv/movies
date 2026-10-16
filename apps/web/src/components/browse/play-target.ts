@@ -1,24 +1,9 @@
 import type { EpisodeId, MediaFileId, ProfileId, TitleId } from "@movies/contracts/ids";
-import type { TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommand } from "@movies/sdk/react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
 import { toastFailure } from "@/lib/failure";
-import { episodeCode, progressFraction } from "@/lib/format";
-
-/** What the main button of a title does: start, resume, or play the next episode. */
-export interface PlayTarget {
-  /** `Play`, `Resume`, `Resume S2:E4`, or `Play S1:E1`. */
-  readonly label: string;
-  readonly resuming: boolean;
-  /** The episode to play, for shows. */
-  readonly episodeId: EpisodeId | undefined;
-  /** Fraction watched of what the button resumes, when it resumes. */
-  readonly fraction: number | null;
-  /** Where it resumes, in milliseconds. */
-  readonly positionMs: number | null;
-}
 
 /** The `/watch` search: what to play, in which version, and whether from the beginning. */
 interface WatchLinkSearch {
@@ -45,43 +30,6 @@ export const watchSearch = (
   if (version !== undefined) search.version = version;
 
   return search;
-};
-
-/** The main play action of a title page or billboard. */
-export const playTarget = (title: TitleDetail): PlayTarget => {
-  if (title.kind === "movie") {
-    const fraction = title.progress?.watched === true ? null : progressFraction(title.progress);
-
-    return {
-      label: fraction === null ? "Play" : "Resume",
-      resuming: fraction !== null,
-      episodeId: undefined,
-      fraction,
-      positionMs: fraction === null ? null : (title.progress?.positionMs ?? null),
-    };
-  }
-
-  const next = title.nextEpisode;
-
-  if (next === null) {
-    return {
-      label: "Play",
-      resuming: false,
-      episodeId: undefined,
-      fraction: null,
-      positionMs: null,
-    };
-  }
-
-  const fraction = next.progress?.watched === true ? null : progressFraction(next.progress);
-
-  return {
-    label: `${fraction === null ? "Play" : "Resume"} ${episodeCode(next)}`,
-    resuming: fraction !== null,
-    episodeId: next.id,
-    fraction,
-    positionMs: fraction === null ? null : (next.progress?.positionMs ?? null),
-  };
 };
 
 /** A title's My List membership and the way to flip it. */

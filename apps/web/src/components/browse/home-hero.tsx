@@ -4,6 +4,8 @@
  */
 import type { ProfileId } from "@movies/contracts/ids";
 import type { TitleCard, TitleDetail } from "@movies/contracts/models/catalog";
+import { facts, formatRuntime, newBadge, plural } from "@movies/sdk/format";
+import { playTarget } from "@movies/sdk/play-target";
 import { useCommandQuery } from "@movies/sdk/react";
 import { Badge } from "@movies/ui/components/badge";
 import { Button } from "@movies/ui/components/button";
@@ -16,11 +18,9 @@ import { CheckIcon, InfoIcon, PlusIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { artworkUrl } from "@/lib/artwork";
-import { facts, formatRuntime, plural } from "@/lib/format";
 import { fileBadges } from "@/lib/media-facts";
 
-import { playTarget, useMyListToggle, watchSearch } from "./play-target";
-import { newBadge } from "./new-badge";
+import { useMyListToggle, watchSearch } from "./play-target";
 
 /** The title's logo when it has one; without it the hero draws the name as heavy text. */
 const titleArt = (title: TitleCard, phone: boolean): ReactNode => {

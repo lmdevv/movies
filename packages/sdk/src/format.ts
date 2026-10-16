@@ -79,3 +79,10 @@ export const formatShortDate = (epochMs: number): string => shortDate.format(epo
 /** `2 days ago`, `today`, or `in 3 days`, relative to `now` in whole days. */
 export const formatDaysFrom = (epochMs: number, now: number): string =>
   relative.format(Math.round((epochMs - now) / DAY_MS), "day");
+
+/** Titles added this recently carry the red `New` flag. */
+const NEW_FOR_MS = 7 * DAY_MS;
+
+/** `New` for titles added in the last week, at `now`. */
+export const newBadge = (title: Pick<TitleCard, "addedAt">, now: number): string | undefined =>
+  now - title.addedAt < NEW_FOR_MS ? "New" : undefined;

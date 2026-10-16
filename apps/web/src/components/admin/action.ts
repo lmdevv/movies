@@ -1,7 +1,7 @@
+import { describeFailure } from "@movies/sdk/failure";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
-import { describeFailure } from "@/lib/failure";
 import { useLatest } from "@/lib/use-latest";
 
 /** Options for {@link useAction}. */

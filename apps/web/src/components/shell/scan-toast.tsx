@@ -1,10 +1,10 @@
+import { formatCount } from "@movies/sdk/format";
 import { ProgressBar } from "@movies/ui/components/progress-bar";
 import { Link } from "@tanstack/react-router";
 import { LoaderCircleIcon } from "lucide-react";
 import { useState } from "react";
 
 import { useActiveScans } from "@/commands/library";
-import { formatCount } from "@/lib/format";
 import { scanProgress } from "@/lib/scan-progress";
 import { useNow } from "@/lib/use-now";
 
