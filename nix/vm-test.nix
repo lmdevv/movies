@@ -23,8 +23,8 @@ let
   imageDigest = builtins.elemAt parts 2;
 
   imageHashes = {
-    x86_64-linux = "sha256-cBpGM1/nK9aUYqvk428ZuBreOTeo4mbZtZrWw1yJmnc=";
-    aarch64-linux = "sha256-5HLgH+V1heErzVmX3r9xU4oheuXkC04fV2Oi6baBBbY=";
+    x86_64-linux = "sha256-eLkV9+hlHkBkbF9bag8e2nB4m5GEuH7niOh09q02u1U=";
+    aarch64-linux = "sha256-Mb/uNkGVLPeuOmeUXrUyzOnGg4OGNBem0Du3qlLb+WU=";
   };
 
   convexImage = dockerTools.pullImage {

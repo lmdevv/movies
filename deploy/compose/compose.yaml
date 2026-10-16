@@ -11,7 +11,7 @@ name: movies
 
 # The Convex backend this release runs. Must equal deploy/convex-backend.image
 # (scripts/check-deploy.sh).
-x-convex-image: &convex-image ghcr.io/get-convex/convex-backend:5c7cb5bc7db457290f1769f95f1d1340912f7fd7@sha256:d715e9ec088784407ca4ba2d3db592702cd328d02c76cdca3852c0018f2a76b4
+x-convex-image: &convex-image ghcr.io/convex/convex-backend:5c7cb5bc7db457290f1769f95f1d1340912f7fd7@sha256:d715e9ec088784407ca4ba2d3db592702cd328d02c76cdca3852c0018f2a76b4
 
 services:
   convex:

@@ -8,7 +8,7 @@
 ARG NODE_IMAGE=node:24.21.0-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66
 # Must equal deploy/convex-backend.image (scripts/check-deploy.sh), like compose.yaml: `generate_key`
 # derives the admin key from the backend's instance secret and must match its version.
-ARG CONVEX_IMAGE=ghcr.io/get-convex/convex-backend:5c7cb5bc7db457290f1769f95f1d1340912f7fd7@sha256:d715e9ec088784407ca4ba2d3db592702cd328d02c76cdca3852c0018f2a76b4
+ARG CONVEX_IMAGE=ghcr.io/convex/convex-backend:5c7cb5bc7db457290f1769f95f1d1340912f7fd7@sha256:d715e9ec088784407ca4ba2d3db592702cd328d02c76cdca3852c0018f2a76b4
 
 FROM ${CONVEX_IMAGE} AS convex
 
