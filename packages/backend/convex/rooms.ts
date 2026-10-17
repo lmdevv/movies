@@ -493,7 +493,9 @@ export const heartbeat = mutation({
       return fail("forbidden", "Join the room on this device first");
     const now = Date.now();
     const away = presence === "away";
-    const playerReported = now - (member.watchedAt ?? 0) < PLAYER_SILENCE_MS;
+    // A row from before `watchedAt` heard only from its player: its last heartbeat is the player's.
+    const watchedAt = member.watchedAt ?? member.lastSeenAt;
+    const playerReported = now - watchedAt < PLAYER_SILENCE_MS;
 
     if (away) {
       // Away clears any drift the device reported: it plays nothing.
@@ -501,7 +503,12 @@ export const heartbeat = mutation({
         member._id,
         playerReported
           ? { lastSeenAt: now }
-          : { lastSeenAt: now, presence: "away", driftMs: undefined },
+          : {
+              lastSeenAt: now,
+              presence: "away",
+              driftMs: undefined,
+              watchedAt,
+            },
       );
     } else {
       // A guest that stopped reporting drift (buffering) clears the last value it reported.

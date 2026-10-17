@@ -114,6 +114,11 @@ const decodeHostPresence = Schema.decodeUnknownSync(
   Schema.fromJsonString(Schema.Struct({ status: Schema.String, hostAway: Schema.Boolean })),
 );
 
+/** A room member row's presence and when its player last reported, from `tableLines`. */
+const decodeWatchedAt = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Struct({ presence: Schema.String, watchedAt: Schema.Finite })),
+);
+
 /** The `_id` of a row printed as JSON by `tableLines`. */
 const idOf = (line: string): string => decodeId(line)._id;
 
@@ -2380,6 +2385,12 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         driftMs: 9_000,
         presence: "away",
       });
+      // Its row predates `watchedAt`: going away keeps when its player last reported, so the room
+      // still ends once nobody has played it for half an hour.
+      expect(
+        decodeWatchedAt(tableLines("roomMembers").find((line) => line.includes(awayGuest)) ?? "{}"),
+      ).toStrictEqual({ presence: "away", watchedAt: lastHeard });
+
       // Past the member timeout for the guest that sent nothing.
       await sleep(Math.max(0, lastHeard + 61_000 - Date.now()));
       // The host's player has long been silent: browsing, with a position far from the clock,
