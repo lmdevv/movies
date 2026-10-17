@@ -8,15 +8,17 @@ import type { Episode } from "@movies/contracts/models/catalog";
 import { Button } from "@movies/ui/components/button";
 import { cn } from "@movies/ui/lib/utils";
 import { PlayIcon, TvIcon } from "lucide-react";
+import { useId } from "react";
 
 import { episodeCode, facts, formatRuntime } from "@/lib/format";
 
 import { AUTOPLAY_COUNTDOWN } from "./autoplay";
 
 /**
- * What this viewer can do about the countdown. `advance`: playing on their own, or a room's host,
- * they play the next episode now or watch the credits instead. `follow`: a room's guest sees the
- * host's countdown and can only close the card on this screen.
+ * What this viewer can do about the countdown. `advance`: playing on their own, they play the next
+ * episode now or watch the credits instead. `follow`: for rooms, which show no card yet (ADS-154
+ * brings it to them, with `advance` for the host): a guest sees the host's countdown and can only
+ * close the card on this screen.
  */
 export type NextEpisodeActions =
   | {
@@ -36,7 +38,8 @@ export type NextEpisode = Pick<
  * The card over the playing credits, in the bottom corner (across the bottom on phones held
  * upright).
  *
- * @param still - The next episode's still, sized for a card; without one the tile shows a glyph.
+ * @param still - The next episode's still, sized for a card; without one, or while it fails to
+ *   load, the tile shows a glyph.
  * @param countdownMs - Time left before the next episode starts.
  */
 export function AutoplayNext({
@@ -51,7 +54,11 @@ export function AutoplayNext({
   readonly actions: NextEpisodeActions;
 }) {
   const seconds = Math.max(0, Math.ceil(countdownMs / 1000));
-  const elapsed = 1 - countdownMs / AUTOPLAY_COUNTDOWN.totalMs;
+  // The fill heads for where the countdown will be at its next step, gliding there over the step, so
+  // it is full as the next episode starts.
+  const filled = 1 - (countdownMs - AUTOPLAY_COUNTDOWN.stepMs) / AUTOPLAY_COUNTDOWN.totalMs;
+  const startsIn = `Starts in ${String(seconds)} ${seconds === 1 ? "second" : "seconds"}`;
+  const describedBy = useId();
 
   return (
     <div className="on-media pointer-events-none absolute inset-0 flex items-end justify-end p-4 font-sans md:p-12 short:p-4">
@@ -66,10 +73,17 @@ export function AutoplayNext({
         <div className="flex items-start gap-4">
           <div
             data-slot="next-episode-still"
-            className="flex aspect-video w-28 max-w-1/3 shrink-0 short:w-20 items-center justify-center overflow-hidden rounded-poster bg-text/5 bg-cover bg-center text-text-muted"
-            style={still === undefined ? undefined : { backgroundImage: `url("${still}")` }}
+            className="relative flex aspect-video w-28 max-w-1/3 shrink-0 short:w-20 items-center justify-center overflow-hidden rounded-poster bg-text/5 text-text-muted"
           >
-            {still === undefined ? <TvIcon aria-hidden className="size-6" /> : null}
+            <TvIcon aria-hidden className="size-6" />
+            {still === undefined ? null : (
+              <div
+                aria-hidden
+                data-slot="next-episode-image"
+                className="absolute inset-0 bg-cover bg-center"
+                style={{ backgroundImage: `url("${still}")` }}
+              />
+            )}
           </div>
           <div className="flex min-w-0 flex-col gap-1">
             <p className="text-label/label text-text-muted tabular-nums">
@@ -95,12 +109,16 @@ export function AutoplayNext({
               size="md"
               className="relative isolate grow overflow-hidden bg-text/70 hover:bg-text/80"
               autoFocus
+              aria-describedby={describedBy}
               onClick={actions.onPlayNext}
             >
-              <CountdownFill elapsed={elapsed} className="bg-text" />
+              <CountdownFill filled={filled} className="bg-text" />
               <PlayIcon aria-hidden className="fill-current" />
               <span>Play next</span>
               <Seconds value={seconds} />
+              <span id={describedBy} className="sr-only">
+                {startsIn}
+              </span>
             </Button>
             <Button variant="secondary" size="md" className="grow" onClick={actions.onWatchCredits}>
               Watch credits
@@ -110,10 +128,10 @@ export function AutoplayNext({
           <div className="flex flex-wrap gap-3">
             <p
               role="timer"
-              aria-label={`Starts in ${String(seconds)} ${seconds === 1 ? "second" : "seconds"}`}
+              aria-label={startsIn}
               className="relative isolate flex h-11 grow items-center justify-center gap-2 overflow-hidden rounded-control bg-text/10 px-5 text-body/4.5 font-semibold text-text"
             >
-              <CountdownFill elapsed={elapsed} className="bg-text/15" />
+              <CountdownFill filled={filled} className="bg-text/15" />
               Starts in
               <Seconds value={seconds} />
             </p>
@@ -128,14 +146,14 @@ export function AutoplayNext({
 }
 
 /**
- * The countdown's progress across its control, from the left. It moves a second at a time and
- * glides between steps, unless the viewer asked for less motion.
+ * The countdown's progress across its control, from the left: empty when the card opens, then a
+ * glide over each step toward `filled`, or a step at a time for viewers who asked for less motion.
  */
 function CountdownFill({
-  elapsed,
+  filled,
   className,
 }: {
-  readonly elapsed: number;
+  readonly filled: number;
   readonly className: string;
 }) {
   return (
@@ -143,10 +161,11 @@ function CountdownFill({
       aria-hidden
       data-slot="countdown-fill"
       className={cn(
-        "absolute inset-0 -z-10 origin-left transition-transform duration-1000 ease-linear",
+        "absolute inset-0 -z-10 origin-left transition-[scale] duration-1000 ease-linear starting:scale-x-0!",
         className,
       )}
-      style={{ transform: `scaleX(${String(Math.min(1, Math.max(0, elapsed)))})` }}
+      // The starting style outranks this, so the fill opens empty and glides from there.
+      style={{ scale: `${String(Math.min(1, Math.max(0, filled)))} 1` }}
     />
   );
 }

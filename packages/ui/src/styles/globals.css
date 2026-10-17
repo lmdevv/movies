@@ -7,8 +7,8 @@
 @source "../**/*.{ts,tsx}";
 
 @custom-variant dark (&:is(.dark *));
-/* Windows too short for the full player overlays, such as a phone held sideways: the height
-   below which the player also takes its phone layout on touch screens. */
+/* Windows too short for the player's full overlays, such as a phone held sideways or a squat
+   browser window, whatever the pointer: the next-episode card trims itself to fit them. */
 @custom-variant short (@media (height < 30rem));
 
 /* Tokens from the [movies] Paper file (01M4PMRM5T60Q4P0YYZ8DY580D), names unchanged.

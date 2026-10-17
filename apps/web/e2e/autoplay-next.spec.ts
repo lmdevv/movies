@@ -127,6 +127,9 @@ for (const state of STATES) {
 
       await expectContained(page);
 
+      // Without a still, or until it loads, the tile shows a glyph; a still that loads covers it.
+      await expect(card(page).locator('[data-slot="next-episode-still"] svg')).toBeVisible();
+
       // In a window wider than tall, the card keeps to its corner, leaving the credits in view.
       const viewport = page.viewportSize();
 
@@ -193,8 +196,13 @@ for (const state of [STATES[0], STATES[3]]) {
 test("Play next has focus and plays the next episode; Watch credits closes the card", async ({
   page,
 }) => {
-  await page.goto("/dev/autoplay");
+  await page.goto("/dev/autoplay?seconds=1");
   await expect(page.getByRole("button", { name: "Play next" })).toBeFocused();
+
+  // Screen readers hear when it starts, once, rather than every tick.
+  await expect(page.getByRole("button", { name: "Play next" })).toHaveAccessibleDescription(
+    "Starts in 1 second",
+  );
   await page.keyboard.press("Enter");
   await expect(page.getByRole("status")).toHaveText("Played next");
 

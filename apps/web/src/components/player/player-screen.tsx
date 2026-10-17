@@ -817,10 +817,12 @@ export function PlayerScreen({
   // Autoplay next: near the end of an episode, outside rooms.
   const remaining = Math.max(0, duration - media.positionSeconds);
 
-  // Not while "Leave playback?" asks, so the countdown cannot move on to the next episode behind it.
+  // Not while "Leave playback?" asks, so the countdown cannot move on to the next episode behind it,
+  // nor while the viewer has paused the credits (a click on them pauses); playing again starts it over.
   const showNext =
     isPlaying &&
     leaving === null &&
+    (!media.paused || media.ended) &&
     !inRoom &&
     nextEpisode !== null &&
     !creditsDismissed &&
