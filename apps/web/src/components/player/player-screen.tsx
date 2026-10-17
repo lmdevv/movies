@@ -851,6 +851,10 @@ export function PlayerScreen({
       : null;
 
   const canPick = picking !== null;
+
+  // A picker that can no longer show is closed, so it never reopens by itself later.
+  if (!canPick && episodesOpenIn !== null) setEpisodesOpenIn(null);
+
   const episodesShown = episodesOpenIn === layout && canPick;
 
   // The current season's episodes for the menu, the ones that can play.
@@ -1479,7 +1483,7 @@ export function PlayerScreen({
           position={position}
           duration={duration}
           brightness={brightness}
-          volume={canSetVolume ? (media.muted ? 0 : media.volume) : null}
+          volume={volumeSettable ? (media.muted ? 0 : media.volume) : null}
           locked={guest ? `${hostName} is hosting` : undefined}
           tracks={
             <>

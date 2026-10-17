@@ -322,6 +322,9 @@ function VolumeControl({
     if (next === openNow.current) return;
     openNow.current = next;
     setOpen(next);
+
+    // A drag cut off by closing (Escape, or the controls changing) leaves no stale position.
+    if (!next) setMoving(null);
     onOpenChange?.(next);
   };
 

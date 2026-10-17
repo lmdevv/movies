@@ -304,13 +304,18 @@ export class CastPlayer implements PlayerPort {
   setVolume(volume: number): void {
     this.#remote.volumeLevel = Math.min(1, Math.max(0, volume));
     this.#controller.setVolumeLevel();
-    this.setMuted(false);
+    this.#askMuted(false);
     this.#refresh();
   }
 
   /** Mutes or unmutes the receiver, counting a toggle still on its way as done. */
   setMuted(muted: boolean): void {
-    if ((this.#muteAsked?.muted ?? this.#remote.isMuted) === muted) return;
+    if (this.#askMuted(muted)) this.#refresh();
+  }
+
+  /** Toggles mute unless the receiver is (or was just asked to be) `muted`; whether it toggled. */
+  #askMuted(muted: boolean): boolean {
+    if ((this.#muteAsked?.muted ?? this.#remote.isMuted) === muted) return false;
     this.#forgetMute();
     this.#controller.muteOrUnmute();
     this.#muteAsked = {
@@ -320,7 +325,8 @@ export class CastPlayer implements PlayerPort {
         this.#refresh();
       }, TOGGLE_TIMEOUT_MS),
     };
-    this.#refresh();
+
+    return true;
   }
 
   #forgetMute(): void {

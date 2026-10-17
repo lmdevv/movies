@@ -272,7 +272,7 @@ export function EpisodePopover({
   return (
     <Popover.Root
       open={open}
-      onOpenChange={(next) => onOpenChange(next)}
+      onOpenChange={onOpenChange}
       onOpenChangeComplete={(next) => {
         if (!next) onClosed?.();
       }}
