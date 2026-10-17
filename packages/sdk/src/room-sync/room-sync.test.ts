@@ -788,7 +788,27 @@ describe("a host coming back to a playing room", () => {
 
         yield* advance(2_000);
 
+        // The room pauses with the host's paused player, as before catching up existed.
         expect((yield* current(sync)).follow).toBe("following");
+        expect((yield* rooms.room).clock.status).toBe("paused");
+      }),
+    ));
+
+  it("publishes the host's stall once a catch-up that cannot finish runs out", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        const host = yield* makeFakePlayer((yield* sharedPosition(rooms)) - 4_000);
+
+        host.userPlay();
+        yield* start(rooms, HOST, host);
+        host.stall();
+        yield* advance(DEFAULT_TUNABLES.hostCatchUpMs - 2_000);
+
+        expect((yield* rooms.room).clock.status).toBe("playing");
+
+        yield* advance(3_000);
+
+        expect((yield* rooms.room).clock.status).toBe("buffering");
       }),
     ));
 });

@@ -74,15 +74,16 @@ export const hostReading = (
 
 /**
  * Whether a live room is abandoned at `now`: its host silent for `HOST_ABANDON_TIMEOUT_MS`, or no
- * member's player reporting for that long (`watchedAt`, else when it joined). Away heartbeats keep
- * places, not rooms: a room everyone left to browse ends as one the host left.
+ * member's player reporting for that long (`watchedAt`; rows from before it was kept heard only
+ * from players, so their `lastSeenAt`). Away heartbeats keep places, not rooms: a room everyone
+ * left to browse ends as one the host left.
  */
 export const isAbandoned = (
   room: Pick<Doc<"rooms">, "hostLastSeenAt">,
-  members: ReadonlyArray<Pick<Doc<"roomMembers">, "watchedAt" | "joinedAt">>,
+  members: ReadonlyArray<Pick<Doc<"roomMembers">, "watchedAt" | "lastSeenAt">>,
   now: number,
 ): boolean => {
-  const lastPlayed = Math.max(...members.map((member) => member.watchedAt ?? member.joinedAt));
+  const lastPlayed = Math.max(...members.map((member) => member.watchedAt ?? member.lastSeenAt));
 
   return (
     now - room.hostLastSeenAt > HOST_ABANDON_TIMEOUT_MS ||

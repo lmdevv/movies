@@ -3,7 +3,7 @@ import { Room } from "@movies/contracts/models/rooms";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { driftLabel, roomMembers, watchingCount } from "./room-members";
+import { driftLabel, roomMembers } from "./room-members";
 
 const HOST = DeviceId.make("host-device");
 
@@ -155,10 +155,6 @@ describe("members browsing elsewhere", () => {
         ["Sam", { kind: "away" }],
       ],
     );
-  });
-
-  it("does not count them as watching", () => {
-    expect(watchingCount(browsing)).toBe(1);
   });
 
   it("still shows a host who stopped sending heartbeats as left", () => {

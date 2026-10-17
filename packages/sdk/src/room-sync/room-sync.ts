@@ -132,8 +132,12 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
    * while it still is. Meanwhile the host follows the clock as a guest does and publishes nothing.
    */
   const catchingUpSince = yield* Ref.make(Option.none<number>());
-  /** Seeks the engine made while the host catches up, whose `seeked` events are not the host's. */
-  const seekEchoes = yield* Ref.make(0);
+  /**
+   * Where the engine last seeked the catching-up host's player. A `seeked` landing there is the
+   * engine's; one landing elsewhere is the host's own, even when it replaced the engine's seek
+   * before that one finished.
+   */
+  const catchUpSeek = yield* Ref.make(Option.none<number>());
   const serial = yield* Semaphore.make(1);
 
   const state = yield* SubscriptionRef.make<RoomSyncState>({
@@ -181,7 +185,7 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
           const now = yield* Clock.currentTimeMillis;
 
           if (Option.isSome(yield* Ref.get(catchingUpSince))) {
-            yield* Ref.update(seekEchoes, (count) => count + 1);
+            yield* Ref.set(catchUpSeek, Option.some(positionMs));
           }
 
           yield* Ref.set(lastSeekAt, Option.some(now));
@@ -252,31 +256,29 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
   /** Ends the host's catch-up. */
   const endCatchUp = Effect.andThen(
     Ref.set(catchingUpSince, Option.none<number>()),
-    Ref.set(seekEchoes, 0),
+    Ref.set(catchUpSeek, Option.none<number>()),
   );
 
-  /** Whether the host is still catching up, ending the catch-up once it ran too long. */
+  /** Whether the host is catching up, for no longer than `hostCatchUpMs`. */
   const isCatchingUp: Effect.Effect<boolean> = Effect.gen(function* () {
     const since = yield* Ref.get(catchingUpSince);
 
     if (Option.isNone(since)) return false;
-    const now = yield* Clock.currentTimeMillis;
 
-    if (now - since.value < tunables.hostCatchUpMs) return true;
-    yield* endCatchUp;
-
-    return false;
+    return (yield* Clock.currentTimeMillis) - since.value < tunables.hostCatchUpMs;
   });
 
   /**
-   * A catching-up host's correction. It ends once the host is in step with a playing clock, or
-   * the clock stops playing.
+   * A catching-up host's correction. It ends once the host is in step with a playing clock, the
+   * clock stops playing, the platform refuses to play, or `hostCatchUpMs` passes. Ending, the host
+   * publishes its player's state, which the catch-up held back. Callers hold `serial`.
    */
   const catchUp = Effect.fn("RoomSync.catchUp")(function* (current: RoomSyncState) {
-    if (!(yield* isCatchingUp)) return;
+    if (Option.isNone(yield* Ref.get(catchingUpSince))) return;
 
-    if (current.clock.status !== "playing") {
+    if (!(yield* isCatchingUp) || current.clock.status !== "playing") {
       yield* endCatchUp;
+      yield* publishNow(false);
 
       return;
     }
@@ -285,17 +287,19 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     const { driftMs, follow: following } = yield* SubscriptionRef.get(state);
     const settled = (yield* Ref.get(settledOn)) === current.clock.revision;
 
-    // A player the platform will not start without a gesture cannot catch up; the host's own
-    // play then publishes as usual.
+    // A player the platform will not start without a gesture cannot catch up: the room pauses
+    // with it, as for any host whose player is paused, until the host plays.
     if (following === "blocked") {
       yield* update((latest) => ({ ...latest, follow: "following" }));
       yield* endCatchUp;
+      yield* publishNow(false);
 
       return;
     }
 
     if (settled && driftMs !== null && Math.abs(driftMs) <= tunables.inSyncMs) {
       yield* endCatchUp;
+      yield* publishNow(false);
     }
   });
 
@@ -365,41 +369,47 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     yield* applyClock(result);
   });
 
-  /** Publishes the host player's state as a room command when it differs from the clock. */
+  /**
+   * Publishes the host player's state as a room command when it differs from the clock. Callers
+   * hold `serial`; `publish` takes it.
+   */
+  function publishNow(seeked: boolean): Effect.Effect<void> {
+    return Effect.gen(function* () {
+      const current = yield* SubscriptionRef.get(state);
+
+      if (current.role !== "host" || current.connection !== "connected") return;
+
+      if (yield* isCatchingUp) return;
+      const now = yield* serverNow;
+
+      if (Option.isNone(now)) return;
+      const intent = hostIntent(current.clock, now.value, snapshot(), seeked, tunables);
+
+      if (Option.isNone(intent)) return;
+
+      yield* sendHostCommand(intent.value, current.clock.revision).pipe(
+        Effect.catchTag("TransportError", () => markReconnecting),
+        Effect.catch((error: CallError) =>
+          Effect.gen(function* () {
+            // Stale revision, or the room moved on: revert to the committed clock.
+            yield* Effect.logInfo("RoomSync.hostCommandRejected", error).pipe(
+              Effect.annotateLogs({ roomId, command: intent.value.command }),
+            );
+
+            const room = yield* client.query("rooms.get", { roomId });
+
+            yield* update((latest) => ({ ...latest, room }));
+            yield* applyClock(room.clock);
+            yield* align();
+          }).pipe(Effect.catch(() => markReconnecting)),
+        ),
+      );
+    });
+  }
+
+  /** `publishNow`, holding `serial`. */
   const publish = (seeked: boolean): Effect.Effect<void> =>
-    serial.withPermits(1)(
-      Effect.gen(function* () {
-        const current = yield* SubscriptionRef.get(state);
-
-        if (current.role !== "host" || current.connection !== "connected") return;
-
-        if (yield* isCatchingUp) return;
-        const now = yield* serverNow;
-
-        if (Option.isNone(now)) return;
-        const intent = hostIntent(current.clock, now.value, snapshot(), seeked, tunables);
-
-        if (Option.isNone(intent)) return;
-
-        yield* sendHostCommand(intent.value, current.clock.revision).pipe(
-          Effect.catchTag("TransportError", () => markReconnecting),
-          Effect.catch((error: CallError) =>
-            Effect.gen(function* () {
-              // Stale revision, or the room moved on: revert to the committed clock.
-              yield* Effect.logInfo("RoomSync.hostCommandRejected", error).pipe(
-                Effect.annotateLogs({ roomId, command: intent.value.command }),
-              );
-
-              const room = yield* client.query("rooms.get", { roomId });
-
-              yield* update((latest) => ({ ...latest, room }));
-              yield* applyClock(room.clock);
-              yield* align();
-            }).pipe(Effect.catch(() => markReconnecting)),
-          ),
-        );
-      }),
-    );
+    serial.withPermits(1)(publishNow(seeked));
 
   /**
    * Starts a host whose player is further than `hostSeekMs` from a playing room's live position
@@ -456,9 +466,11 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
         }
 
         if (event === "seeked") {
-          const echo = yield* Ref.modify(seekEchoes, (count) =>
-            count > 0 ? [true, count - 1] : [false, 0],
-          );
+          const pending = yield* Ref.getAndSet(catchUpSeek, Option.none<number>());
+
+          const echo =
+            Option.isSome(pending) &&
+            Math.abs(player.positionMs() - pending.value) <= tunables.hostSeekMs;
 
           // The host seeked their own player: the catch-up ends, and the room seeks with them.
           if (!echo) {
@@ -639,7 +651,7 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     // The host corrects only while it catches up.
     yield* Effect.forkScoped(
       correct.pipe(
-        Effect.andThen(isCatchingUp),
+        Effect.andThen(Effect.map(Ref.get(catchingUpSince), Option.isSome)),
         Effect.repeat({ schedule: correcting, while: (catching) => catching }),
       ),
     );

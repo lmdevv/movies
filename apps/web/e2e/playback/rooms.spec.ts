@@ -523,15 +523,14 @@ test("a guest who browses away keeps their place, and the navbar pill takes them
   await expect(roomPill(guest)).toHaveText("Room · 2");
   await expect(roomPill(guest)).toHaveAccessibleName(`Room · 2: return to ${SHARED}`);
 
-  // Away, not watching, once the player has been silent a while: the host sees one watching and
-  // the guest marked away, with no drift.
+  // Away once the player has been silent a while: the host's panel marks the guest away, with no
+  // drift.
   await expect
     .poll(async () => (await memberNamed(GUEST.name)).presence, {
       timeout: PLAYER_SILENCE_MS + 3 * HEARTBEAT_INTERVAL_MS,
     })
     .toBe("away");
   expect((await memberNamed(GUEST.name)).driftMs).toBeNull();
-  await expect(host.getByText("Live · 1 watching")).toBeVisible();
   await expect(
     host.getByRole("region", { name: "Watching together" }).getByText("away", { exact: true }),
   ).toBeVisible();
@@ -592,7 +591,6 @@ test("the host browses away, the guest keeps watching, and the host comes back t
   expect(room.hostAway).toBe(false);
   expect(room.clock.status).toBe("playing");
   expect((await memberNamed(OWNER.name)).presence).toBe("away");
-  await expect(guest.getByText("Live · 1 watching")).toBeVisible();
   await expect(guest.getByRole("heading", { name: `${OWNER.name} left the room` })).toBeHidden();
 
   // Back by keyboard; the host joins the time the guest is watching instead of pulling it back.

@@ -96,7 +96,7 @@ import {
   SyncingToHost,
   WaitingForHost,
 } from "./room-states";
-import { hostGone, watchingCount } from "./room-members";
+import { hostGone } from "./room-members";
 import { StreamInfo } from "./stream-info";
 import { useControlsVisible, useFullscreen, usePlayerLayout } from "./use-player-frame";
 import { useWatchRoom } from "./use-watch-room";
@@ -1235,10 +1235,7 @@ export function PlayerScreen({
             <ArrowLeftIcon strokeWidth={1.75} aria-hidden />
           </PlayerButton>
           {inRoom ? (
-            <RoomChip
-              paused={roomPaused}
-              watching={hostGone(room) ? undefined : watchingCount(room)}
-            />
+            <RoomChip paused={roomPaused} watching={hostGone(room) ? undefined : members.length} />
           ) : null}
         </div>
         <div className="flex items-center gap-6">

@@ -190,7 +190,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
         />
       ) : null}
 
-      {(phoneTitle && title !== "") || !hero ? null : (
+      {(phoneTitle && title !== "") || !hero || watchRoom?.returnable !== true ? null : (
         // Over the artwork of a hero page without the phone title (a title's page, a collection),
         // level with a title page's Back button, and scrolling with it.
         <div className="on-media absolute top-[max(env(safe-area-inset-top),var(--spacing-12))] right-4 z-40 flex h-10 items-center md:hidden">

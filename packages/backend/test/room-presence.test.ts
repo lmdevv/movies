@@ -87,8 +87,8 @@ describe("isAbandoned", () => {
       isAbandoned(
         present,
         [
-          { joinedAt: longAgo, watchedAt: longAgo },
-          { joinedAt: longAgo, watchedAt: NOW - 60_000 },
+          { lastSeenAt: NOW, watchedAt: longAgo },
+          { lastSeenAt: NOW, watchedAt: NOW - 60_000 },
         ],
         NOW,
       ),
@@ -96,14 +96,14 @@ describe("isAbandoned", () => {
   });
 
   it("ends a room everyone left to browse, though the host is present", () => {
-    expect(isAbandoned(present, [{ joinedAt: longAgo, watchedAt: longAgo }], NOW)).toBe(true);
+    expect(isAbandoned(present, [{ lastSeenAt: NOW, watchedAt: longAgo }], NOW)).toBe(true);
   });
 
-  it("counts joining for rows from before players reported, and ends a silent host's room", () => {
-    expect(isAbandoned(present, [{ joinedAt: NOW - 60_000 }], NOW)).toBe(false);
-    expect(isAbandoned(present, [{ joinedAt: longAgo }], NOW)).toBe(true);
-    expect(isAbandoned({ hostLastSeenAt: longAgo }, [{ joinedAt: NOW, watchedAt: NOW }], NOW)).toBe(
-      true,
-    );
+  it("counts any heartbeat on rows from before players reported, and ends a silent host's room", () => {
+    expect(isAbandoned(present, [{ lastSeenAt: NOW - 60_000 }], NOW)).toBe(false);
+    expect(isAbandoned(present, [{ lastSeenAt: longAgo }], NOW)).toBe(true);
+    expect(
+      isAbandoned({ hostLastSeenAt: longAgo }, [{ lastSeenAt: NOW, watchedAt: NOW }], NOW),
+    ).toBe(true);
   });
 });

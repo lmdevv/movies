@@ -21,10 +21,6 @@ export const driftLabel = (driftMs: number): string =>
 export const hostGone = (room: Pick<Room, "hostAway" | "clock">): boolean =>
   room.hostAway || room.clock.status === "ended";
 
-/** How many members are playing the room; members browsing elsewhere are not watching. */
-export const watchingCount = (room: Pick<Room, "members">): number =>
-  room.members.filter((member) => member.presence === "watching").length;
-
 const hostStatus = (room: Room, member: Room["members"][number]): RoomMemberStatus | undefined => {
   if (hostGone(room)) return { kind: "left" };
 
