@@ -3,20 +3,13 @@
  * this session first, so a PIN keeps guarding it: unlocks live on the server session, which every
  * profile on this device shares.
  */
-import { ProfileId } from "@movies/contracts/ids";
+import type { ProfileId } from "@movies/contracts/ids";
 import { useCommand } from "@movies/sdk/react";
-import { Option, Schema } from "effect";
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { isFailure } from "@/lib/failure";
-import { readValue, writeValue } from "@/lib/secure-storage";
-
-const KEY = "movies.profile";
-
-const decodeProfileId = Schema.decodeUnknownOption(ProfileId);
-
-const loadProfileChoice = (): ProfileId | null => Option.getOrNull(decodeProfileId(readValue(KEY)));
+import { loadProfileChoice, saveProfileChoice } from "@/lib/profile-store";
 
 /** The profile chosen on this device and the way to change it. */
 export interface ProfileChoice {
@@ -38,7 +31,7 @@ export function ProfileChoiceProvider({ children }: { readonly children: ReactNo
 
   const commit = useCallback((next: ProfileId | null) => {
     current.current = next;
-    writeValue(KEY, next);
+    saveProfileChoice(next);
     setProfileId(next);
   }, []);
 

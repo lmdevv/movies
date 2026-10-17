@@ -71,15 +71,26 @@ describe("normalizeServerUrl", () => {
 
 describe("discoverServer", () => {
   it("finds the account server from the media address", async () => {
+    const convexUrl = await start({ "/version": JSON.stringify("1.0") });
+
     const mediaUrl = await start({
       "/api/health": health,
-      "/api/client-config": JSON.stringify({ convexUrl: "https://accounts.cinema.home" }),
+      "/api/client-config": JSON.stringify({ convexUrl }),
     });
 
     expect(await discoverServer(`${mediaUrl}/`)).toEqual({
       ok: true,
-      connection: { mediaUrl, convexUrl: "https://accounts.cinema.home" },
+      connection: { mediaUrl, convexUrl },
     });
+  });
+
+  it("refuses an account server the phone cannot reach", async () => {
+    const mediaUrl = await start({
+      "/api/health": health,
+      "/api/client-config": JSON.stringify({ convexUrl: "http://127.0.0.1:9" }),
+    });
+
+    expect(await discoverServer(mediaUrl)).toEqual({ ok: false, failure: "accountsUnreachable" });
   });
 
   it("asks for connection details when the server doesn't share its account server", async () => {
@@ -97,14 +108,16 @@ describe("discoverServer", () => {
   });
 
   it("falls back to http when an address without a scheme has no https", async () => {
+    const convexUrl = await start({ "/version": JSON.stringify("1.0") });
+
     const mediaUrl = await start({
       "/api/health": health,
-      "/api/client-config": JSON.stringify({ convexUrl: "http://127.0.0.1:3210" }),
+      "/api/client-config": JSON.stringify({ convexUrl }),
     });
 
     expect(await discoverServer(mediaUrl.replace("http://", ""))).toEqual({
       ok: true,
-      connection: { mediaUrl, convexUrl: "http://127.0.0.1:3210" },
+      connection: { mediaUrl, convexUrl },
     });
   });
 });
@@ -125,7 +138,7 @@ describe("connectManually", () => {
 
     expect(await connectManually(mediaUrl, "http://127.0.0.1:9")).toEqual({
       ok: false,
-      failure: "unreachable",
+      failure: "accountsUnreachable",
     });
   });
 });

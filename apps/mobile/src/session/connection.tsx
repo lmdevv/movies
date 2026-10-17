@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 
 import { loadConnection, saveConnection } from "@/lib/connection";
 import type { ServerConnection } from "@/lib/connection";
+import { saveProfileChoice } from "@/lib/profile-store";
 
 /** The connection and the ways to change it. */
 export interface ConnectionState {
@@ -31,6 +32,8 @@ export function ConnectionProvider({ children }: { readonly children: ReactNode 
 
   const disconnect = useCallback(() => {
     saveConnection(null);
+    // Profiles belong to the server's accounts; another server must not inherit the choice.
+    saveProfileChoice(null);
     setConnection(null);
   }, []);
 

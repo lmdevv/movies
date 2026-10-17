@@ -28,7 +28,9 @@ export type ConnectFailure =
    * A [movies] media service that does not say where its account server is (no public Convex
    * URL configured, or a version without `/api/client-config`); Connection Details still works.
    */
-  | "needsDetails";
+  | "needsDetails"
+  /** The media service answered and named its account server, but that address doesn't answer. */
+  | "accountsUnreachable";
 
 const hasSchemePrefix = /^[a-z][a-z\d+.-]*:\/\//iu;
 
@@ -80,7 +82,20 @@ export type ConnectResult =
   | { readonly ok: true; readonly connection: ServerConnection }
   | { readonly ok: false; readonly failure: ConnectFailure };
 
-/** Asks one media service base URL where accounts live. */
+/** Whether a Convex deployment answers at `convexUrl`. */
+const convexAnswers = async (convexUrl: string): Promise<boolean> => {
+  try {
+    const response = await fetch(`${convexUrl}/version`, {
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+
+    return response.ok;
+  } catch {
+    return false;
+  }
+};
+
+/** Asks one media service base URL where accounts live, and checks that address answers. */
 const discoverAt = async (mediaUrl: string): Promise<ConnectResult> => {
   const health = await getDecoded(`${mediaUrl}${MEDIA_ROUTES.health}`, HealthResponse);
 
@@ -89,9 +104,11 @@ const discoverAt = async (mediaUrl: string): Promise<ConnectResult> => {
   const config = await getDecoded(`${mediaUrl}${MEDIA_ROUTES.clientConfig}`, ClientConfigResponse);
   const convexUrl = Option.flatMapNullishOr(config, (value) => value.convexUrl);
 
-  return Option.isNone(convexUrl)
-    ? { ok: false, failure: "needsDetails" }
-    : { ok: true, connection: { mediaUrl, convexUrl: convexUrl.value } };
+  if (Option.isNone(convexUrl)) return { ok: false, failure: "needsDetails" };
+
+  return (await convexAnswers(convexUrl.value))
+    ? { ok: true, connection: { mediaUrl, convexUrl: convexUrl.value } }
+    : { ok: false, failure: "accountsUnreachable" };
 };
 
 const hasScheme = (text: string): boolean => hasSchemePrefix.test(text.trim());
@@ -129,23 +146,16 @@ export const connectManually = async (
 
   if (Option.isNone(health)) return { ok: false, failure: "unreachable" };
 
-  try {
-    const version = await fetch(`${convexUrl}/version`, {
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-
-    return version.ok
-      ? { ok: true, connection: { mediaUrl, convexUrl } }
-      : { ok: false, failure: "unreachable" };
-  } catch {
-    return { ok: false, failure: "unreachable" };
-  }
+  return (await convexAnswers(convexUrl))
+    ? { ok: true, connection: { mediaUrl, convexUrl } }
+    : { ok: false, failure: "accountsUnreachable" };
 };
 
 const FAILURE_LINES = {
   invalid: "Enter a server address, such as https://cinema.home.",
   unreachable: "Can't reach a [movies] server at that address.",
   needsDetails: "This server doesn't share its account server. Enter its connection details.",
+  accountsUnreachable: "Can't reach this server's account server. Check its connection details.",
 } as const satisfies Record<ConnectFailure, string>;
 
 /** The line each failure shows under the field. */
