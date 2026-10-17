@@ -39,6 +39,7 @@ const laggingReceiver = ({ muted = false }: { readonly muted?: boolean } = {}) =
       return mirrorMuted;
     }
 
+    readonly canControlVolume = true;
     readonly duration = 600;
     readonly playerState = "PLAYING";
     currentTime = 30;

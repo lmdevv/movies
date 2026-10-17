@@ -36,6 +36,8 @@ export interface RemoteState {
   readonly buffering: boolean;
   readonly volume: number;
   readonly muted: boolean;
+  /** Whether the page can set the receiver's volume; mute works either way. */
+  readonly volumeSettable: boolean;
 }
 
 /** A Chromecast's player as the progress reporter, the room engine, and the controls see it. */
@@ -137,6 +139,7 @@ export class CastPlayer implements PlayerPort {
       volume: this.#remote.volumeLevel,
       // What was asked shows at once, so controls (and a second press) read it, not the lagging mirror.
       muted: this.#muteWanted ?? this.#remote.isMuted,
+      volumeSettable: this.#remote.canControlVolume,
     };
   }
 

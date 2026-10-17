@@ -464,19 +464,33 @@ export function PlayerScreen({
     [video, casting],
   );
 
-  // The last level the viewer settled on above silence on each output (this element as "", a TV by
-  // name), which unmuting from silence there returns to. A drag's passing levels do not count, so
-  // dragging down to nothing and unmuting restores where it started.
-  const audibleVolume = useRef(new Map<string, number>());
-  const volumeOutput = casting === null ? "" : casting.deviceName;
+  // The last level the viewer settled on above silence, here and on each cast session, which
+  // unmuting from silence there returns to. A drag's passing levels do not count, so dragging down
+  // to nothing and unmuting restores where it started.
+  const audibleHere = useRef<number | null>(null);
+  const audibleCast = useRef(new WeakMap<object, number>());
   const levelNow = media.volume;
 
-  // Before the first change on an output, its level now (under mute, too) is where it started.
+  const remember = useCallback(
+    (level: number) => {
+      if (casting === null) audibleHere.current = level;
+      else audibleCast.current.set(casting, level);
+    },
+    [casting],
+  );
+
+  const remembered = useCallback(
+    (): number | null =>
+      casting === null ? audibleHere.current : (audibleCast.current.get(casting) ?? null),
+    [casting],
+  );
+
+  // A change starts from the level now (under mute, too): here only before the first change, since
+  // a drag moves it as it goes; on a TV every time, since its remote can change it meanwhile and a
+  // drag only reaches it where it settles.
   const rememberStart = useCallback(() => {
-    if (!audibleVolume.current.has(volumeOutput) && levelNow > 0) {
-      audibleVolume.current.set(volumeOutput, levelNow);
-    }
-  }, [volumeOutput, levelNow]);
+    if (levelNow > 0 && (casting !== null || audibleHere.current === null)) remember(levelNow);
+  }, [levelNow, casting, remember]);
 
   const commitVolume = useCallback(
     (value: number) => {
@@ -484,10 +498,10 @@ export function PlayerScreen({
 
       rememberStart();
 
-      if (level > 0) audibleVolume.current.set(volumeOutput, level);
+      if (level > 0) remember(level);
       setVolume(level);
     },
-    [rememberStart, volumeOutput, setVolume],
+    [rememberStart, remember, setVolume],
   );
 
   // The slider follows the pointer here at once; a TV hears only where it settles, since each step
@@ -504,19 +518,17 @@ export function PlayerScreen({
   const silent = media.volume === 0;
 
   // The desktop slider shows where the page can set the level: here, or on a TV.
-  const volumeSettable = canSetVolume || casting !== null;
+  const volumeSettable = casting === null ? canSetVolume : (remote?.volumeSettable ?? false);
 
   const setMuted = useCallback(
     (muted: boolean) => {
       if (!muted && silent) {
         // Nothing settled on here yet: an element starts at full volume, and a TV at a moderate one.
-        setVolume(
-          audibleVolume.current.get(volumeOutput) ?? (casting === null ? 1 : CAST_UNMUTE_LEVEL),
-        );
+        setVolume(remembered() ?? (casting === null ? 1 : CAST_UNMUTE_LEVEL));
       } else if (casting !== null) casting.player.setMuted(muted);
       else if (video !== null) video.muted = muted;
     },
-    [video, casting, silent, volumeOutput, setVolume],
+    [video, casting, silent, remembered, setVolume],
   );
 
   // Audio and subtitle choices from the file and the negotiated stream.
@@ -987,7 +999,8 @@ export function PlayerScreen({
       "player.volume-up": () => commitVolume(media.volume + VOLUME_STEP),
       "player.volume-down": () => commitVolume(media.volume - VOLUME_STEP),
       "player.fullscreen": toggleFullscreen,
-      "player.mute": () => setMuted(!media.muted),
+      // Silence counts as muted, as the button shows it: m then brings the sound back.
+      "player.mute": () => setMuted(!(media.muted || media.volume === 0)),
       "player.subtitles": toggleSubtitles,
       // One press does one thing: leaves full screen, closes Stream info, or asks to leave. Menus,
       // popovers, and dialogs take Escape before it gets here.

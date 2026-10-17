@@ -449,7 +449,8 @@ function VolumeControl({
       return;
     }
 
-    onMuteChange(!muted);
+    // Silence counts as muted, as the icon shows it: the button then brings the sound back.
+    onMuteChange(!silent);
   };
 
   // Escape closes the slider, and nothing else: focus goes back to the button.
@@ -483,10 +484,14 @@ function VolumeControl({
     >
       <PlayerButton
         ref={button}
-        aria-label={muted ? "Unmute" : "Mute"}
-        aria-pressed={muted}
+        aria-label={silent ? "Unmute" : "Mute"}
+        aria-pressed={silent}
         onPointerDown={(event) => {
           pressedWith.current = event.pointerType;
+        }}
+        // A key's click is the keyboard's, whatever pointer last pressed without clicking.
+        onKeyDown={() => {
+          pressedWith.current = null;
         }}
         onClick={toggleMute}
       >
