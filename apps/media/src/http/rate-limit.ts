@@ -1,10 +1,10 @@
 /**
- * A per-address token bucket on the routes anyone may call without a token: artwork and health.
- * Artwork resizes run ffmpeg, so an unauthenticated flood could keep the CPU busy; everything else
- * needs a playback or bearer token first. The budget is generous for a person browsing a large
- * library (a poster grid loads hundreds of images at once) and refuses a script hammering the
- * route with `429` and `Retry-After`. Behind a reverse proxy every request shares the proxy's
- * address, so the budget is then shared; forwarded headers are not trusted.
+ * A per-address token bucket on the routes anyone may call without a token: artwork, health, and
+ * client configuration. Artwork resizes run ffmpeg, so an unauthenticated flood could keep the CPU
+ * busy; everything else needs a playback or bearer token first. The budget is generous for a
+ * person browsing a large library (a poster grid loads hundreds of images at once) and refuses a
+ * script hammering the route with `429` and `Retry-After`. Behind a reverse proxy every request
+ * shares the proxy's address, so the budget is then shared; forwarded headers are not trusted.
  */
 import { Clock, Effect, Layer, Option } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
@@ -21,6 +21,7 @@ interface Budget {
 const BUDGETS: ReadonlyArray<readonly [prefix: string, budget: Budget]> = [
   ["/artwork/", { burst: 600, perSecond: 100 }],
   ["/api/health", { burst: 60, perSecond: 10 }],
+  ["/api/client-config", { burst: 60, perSecond: 10 }],
 ];
 
 /** Buckets kept before the least recently used are forgotten. */

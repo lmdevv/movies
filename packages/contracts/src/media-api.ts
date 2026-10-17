@@ -1,5 +1,6 @@
 /**
- * The media service's Effect HttpApi: playback negotiation, HLS stream control, and health. The
+ * The media service's Effect HttpApi: playback negotiation, HLS stream control, health, and the
+ * connection details apps read. The
  * media service implements it; clients that may use Effect's unstable HTTP modules can derive an
  * `HttpApiClient` from it, and others decode the same schemas from `@movies/contracts/media-playback`.
  *
@@ -11,6 +12,7 @@
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/http-api";
 
 import {
+  ClientConfigResponse,
   HealthResponse,
   MEDIA_ROUTES,
   NegotiateErrors,
@@ -42,9 +44,10 @@ export class PlaybackGroup extends HttpApiGroup.make("playback").add(
   }),
 ) {}
 
-/** Liveness and capability summary. */
+/** Liveness and capability summary, and how apps find the Convex deployment. */
 export class SystemGroup extends HttpApiGroup.make("system").add(
   HttpApiEndpoint.get("health", MEDIA_ROUTES.health, { success: HealthResponse }),
+  HttpApiEndpoint.get("clientConfig", MEDIA_ROUTES.clientConfig, { success: ClientConfigResponse }),
 ) {}
 
 /** The media service API. */

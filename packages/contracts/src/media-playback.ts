@@ -20,6 +20,7 @@ export const MEDIA_ROUTES = {
   seek: "/api/playback/seek",
   stop: "/api/playback/stop",
   health: "/api/health",
+  clientConfig: "/api/client-config",
 } as const;
 
 /**
@@ -219,6 +220,17 @@ export const HealthResponse = Schema.Struct({
 
 /** Service health. */
 export interface HealthResponse extends Schema.Schema.Type<typeof HealthResponse> {}
+
+/**
+ * What an app needs to connect when someone types only this service's address: the Convex URL
+ * to sign in to, as clients reach it. Absent when the service runs without Convex.
+ */
+export const ClientConfigResponse = Schema.Struct({
+  convexUrl: Schema.optional(Schema.String),
+});
+
+/** What an app needs to connect from this service's address. */
+export interface ClientConfigResponse extends Schema.Schema.Type<typeof ClientConfigResponse> {}
 
 /** Why no rung of the playback ladder fits the client. */
 export const UnsupportedReason = Schema.Literals([

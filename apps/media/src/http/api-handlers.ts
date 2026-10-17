@@ -1,6 +1,6 @@
 /** Handlers of the media HttpApi. */
 import { MediaApi } from "@movies/contracts/media-api";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 
 import * as BackendHealth from "../backend-health.ts";
@@ -52,6 +52,9 @@ const systemHandlers = HttpApiBuilder.group(
     const sessions = yield* StreamSessions.Service;
     const hardware = yield* HardwareAcceleration.Service;
     const backend = yield* BackendHealth.Service;
+    const config = yield* MediaConfig.Service;
+    // The address browsers and apps reach Convex at; the internal one when no public one is set.
+    const convexUrl = Option.orElse(config.convexPublicUrl, () => config.convexUrl);
 
     return handlers.handleAll({
       health: Effect.fn("Api.health")(function* () {
@@ -62,6 +65,10 @@ const systemHandlers = HttpApiBuilder.group(
           backend: yield* backend.status,
         };
       }),
+      clientConfig: () =>
+        Effect.succeed(
+          Option.match(convexUrl, { onNone: () => ({}), onSome: (url) => ({ convexUrl: url }) }),
+        ),
     });
   }),
 );
