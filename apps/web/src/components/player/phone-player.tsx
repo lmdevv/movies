@@ -200,7 +200,8 @@ export function PhoneControls({
         <GlassButton aria-label="Close player" onClick={onClose} className="[&_svg]:size-4">
           <XIcon strokeWidth={2.25} aria-hidden />
         </GlassButton>
-        <p className="absolute inset-x-0 top-7 text-center text-body/5 font-semibold text-text">
+        {/* Centered across the bar; taps pass through to the buttons beside it. */}
+        <p className="pointer-events-none absolute inset-x-0 top-7 text-center text-body/5 font-semibold text-text">
           {title}
         </p>
         <div className="relative flex gap-2.5">

@@ -14,7 +14,7 @@ import type { LibraryId, TitleId } from "@movies/contracts/ids";
 import type { LibraryAccess, LibraryKind } from "@movies/contracts/models/catalog";
 import type { MoviesSdk } from "@movies/sdk/promise";
 import { expect } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import type { StackEnv } from "../stack/stack-env";
 
@@ -348,6 +348,42 @@ export const revealControls = async (page: Page): Promise<void> => {
 
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.move(box.x + box.width / 2 + 10, box.y + box.height / 2 + 10);
+};
+
+/** The player's "Leave playback?" confirmation. */
+export const leaveDialog = (page: Page): Locator =>
+  page.getByRole("dialog", { name: "Leave playback?" });
+
+/** Leaves the player as a viewer does from the keyboard: Escape, then Leave in the confirmation. */
+export const leaveWithEscape = async (page: Page): Promise<void> => {
+  await page.getByTestId("player").press("Escape");
+  await leaveDialog(page).getByRole("button", { name: "Leave", exact: true }).click();
+};
+
+/** The command menu and the group of player commands in it. */
+interface CommandMenuParts {
+  readonly menu: Locator;
+  readonly playback: Locator;
+}
+
+/** The command menu and its list of player commands. */
+export const commandMenu = (page: Page): CommandMenuParts => {
+  const menu = page.getByRole("dialog", { name: "Command menu" });
+
+  return { menu, playback: menu.getByRole("group", { name: "Playback" }) };
+};
+
+/** Holds `key` down through `repeats` auto-repeats, then lets go, as a key held by a finger does. */
+export const holdKey = async (page: Page, key: string, repeats: number): Promise<void> => {
+  const repeat = async (left: number): Promise<void> => {
+    if (left === 0) return;
+    await page.keyboard.down(key);
+    await repeat(left - 1);
+  };
+
+  await page.keyboard.down(key);
+  await repeat(repeats);
+  await page.keyboard.up(key);
 };
 
 /** Clicks the scrubber at `fraction` of its width, as a viewer seeks with the mouse. */
