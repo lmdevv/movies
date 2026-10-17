@@ -111,6 +111,7 @@ export const useRoomCommands = (context: CommandContext): CommandContribution =>
           ];
 
     // A device in a room with another profile can still leave it, without naming what it plays.
+    // A host leaving ends the room for everyone, so the host's item says so.
     const elsewhere: ReadonlyArray<CommandItem> =
       current === null
         ? []
@@ -118,10 +119,11 @@ export const useRoomCommands = (context: CommandContext): CommandContribution =>
             ...back,
             {
               kind: "action",
-              id: "room:leave",
-              title: "Leave room",
+              id: current.hosting ? "room:end" : "room:leave",
+              title: current.hosting ? "End room" : "Leave room",
+              keywords: ["leave", "close", "stop"],
               detail: current.mine ? current.titleName : undefined,
-              leading: { kind: "icon", icon: LogOutIcon },
+              leading: { kind: "icon", icon: current.hosting ? SquareXIcon : LogOutIcon },
               perform: () =>
                 leave({ roomId: current.id, deviceId }).then(() => undefined, toastFailure),
             },

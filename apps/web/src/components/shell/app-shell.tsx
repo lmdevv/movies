@@ -78,7 +78,8 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
 
   const scrolled = useScrolledPast(SCROLL_THRESHOLD_PX);
   const deviceRoom = useCurrentRoom();
-  const watchRoom = deviceRoom?.mine === true ? deviceRoom : null;
+  // The room the pill returns to: this profile's, and live.
+  const pillRoom = deviceRoom?.mine === true && deviceRoom.returnable ? deviceRoom : null;
   const current = sectionOf(pathname);
   const art = profileArt(profile);
 
@@ -120,16 +121,16 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   );
 
   const roomPill = (compact: boolean, className?: string) => {
-    if (watchRoom === null || !watchRoom.returnable) return null;
-    const count = watchRoom.members;
+    if (pillRoom === null) return null;
+    const count = pillRoom.members;
 
     return (
       <RoomPill
         count={count}
         compact={compact}
         className={className}
-        aria-label={`Room · ${String(count)}: return to ${watchRoom.titleName}`}
-        render={<Link {...returnTarget(watchRoom)} />}
+        aria-label={`Room · ${String(count)}: return to ${pillRoom.titleName}`}
+        render={<Link {...returnTarget(pillRoom)} />}
       />
     );
   };
@@ -190,7 +191,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
         />
       ) : null}
 
-      {(phoneTitle && title !== "") || !hero || watchRoom?.returnable !== true ? null : (
+      {(phoneTitle && title !== "") || !hero || pillRoom === null ? null : (
         // Over the artwork of a hero page without the phone title (a title's page, a collection),
         // level with a title page's Back button, and scrolling with it.
         <div className="on-media absolute top-[max(env(safe-area-inset-top),var(--spacing-12))] right-4 z-40 flex h-10 items-center md:hidden">
@@ -199,7 +200,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
       )}
 
       <main className={cn("pb-32 md:pb-20", !hero && "md:pt-17")}>
-        {phoneTitle && title === "" && !hero && watchRoom?.returnable === true ? (
+        {phoneTitle && title === "" && !hero && pillRoom !== null ? (
           // A page without a title of its own (a person, a genre) still offers the way back.
           <div className="flex justify-end px-5 pt-[max(env(safe-area-inset-top),var(--spacing-4))] md:hidden">
             {roomPill(true)}

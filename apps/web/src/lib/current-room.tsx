@@ -26,6 +26,8 @@ export interface CurrentRoom {
    * offered to return to, or kept with heartbeats; another profile can only leave it.
    */
   readonly mine: boolean;
+  /** Whether the device hosts the room, so leaving it ends it for everyone. */
+  readonly hosting: boolean;
   /**
    * Whether returning lands in a live room: false while its host is away, when the server has
    * paused it until the host comes back and the player would only say the host left.
@@ -52,14 +54,15 @@ const useDeviceRoom = (deviceId: DeviceId, profileId: ProfileId): CurrentRoom | 
   const episodeId = room?.episode?.id ?? null;
   const members = room?.members.length ?? 0;
   const mine = self !== undefined && self.profileId === profileId;
+  const hosting = self?.role === "host";
   const returnable = room !== null && !room.hostAway;
 
   return useMemo(
     () =>
       id === null || titleId === null
         ? null
-        : { id, titleId, titleName, episodeId, members, mine, returnable },
-    [id, titleId, titleName, episodeId, members, mine, returnable],
+        : { id, titleId, titleName, episodeId, members, mine, hosting, returnable },
+    [id, titleId, titleName, episodeId, members, mine, hosting, returnable],
   );
 };
 

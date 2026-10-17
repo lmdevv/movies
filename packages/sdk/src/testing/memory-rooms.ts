@@ -87,10 +87,13 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
 
   // When each device's player last reported: joining (creating, for the host), then watching
   // heartbeats.
+  // The room's members, host included, joined as the backend opens; by its clock.
+  const opened = Math.round((yield* Clock.currentTimeMillis) + options.serverOffsetMs);
+
   const watched = yield* Ref.make<ReadonlyMap<string, number>>(
     new Map([
-      [initial.hostDeviceId, initial.createdAt],
-      ...initial.members.map((member) => [member.deviceId, member.joinedAt] as const),
+      [initial.hostDeviceId, opened],
+      ...initial.members.map((member) => [member.deviceId, opened] as const),
     ]),
   );
 
@@ -201,17 +204,24 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
       if (guest) return room.clock;
 
       if (presence === "away") {
-        if (room.clock.status !== "buffering") return room.clock;
+        // An away host is still there.
+        const present = room.hostAway ? { ...room, hostAway: false } : room;
+
+        if (present.clock.status !== "buffering") {
+          if (present !== room) yield* commit(present);
+
+          return present.clock;
+        }
 
         // An away host is not buffering any more: the frozen room pauses where it froze.
         const clock: RoomClock = {
-          ...room.clock,
+          ...present.clock,
           status: "paused",
           anchorServerTime: now,
-          revision: room.clock.revision + 1,
+          revision: present.clock.revision + 1,
         };
 
-        yield* commit(withClock(room, clock));
+        yield* commit(withClock(present, clock));
 
         return clock;
       }

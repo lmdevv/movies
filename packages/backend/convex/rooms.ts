@@ -533,20 +533,28 @@ export const heartbeat = mutation({
     if (member.role !== "host" || found.status === "ended") return presentRoomClock(found);
 
     if (away) {
-      // Rooms from before `fileDurationMs` read their file's length, only while playing.
-      const durationMs =
-        found.fileDurationMs ??
-        (found.status === "playing"
-          ? ((await ctx.db.get(found.fileId))?.probe.durationMs ?? 0)
-          : 0);
+      // A room from before `fileDurationMs` reads its file's length once, while playing, and
+      // keeps it.
+      const read =
+        found.fileDurationMs === undefined && found.status === "playing"
+          ? await ctx.db.get(found.fileId)
+          : null;
 
+      const durationMs = found.fileDurationMs ?? read?.probe.durationMs ?? 0;
       const paused = awayHostClock(found, durationMs, now);
+      const kept = read === null ? {} : { fileDurationMs: read.probe.durationMs };
 
       await ctx.db.patch(
         found._id,
         paused === null
-          ? { hostLastSeenAt: now, hostAway: false }
-          : { ...paused, revision: found.revision + 1, hostLastSeenAt: now, hostAway: false },
+          ? { ...kept, hostLastSeenAt: now, hostAway: false }
+          : {
+              ...kept,
+              ...paused,
+              revision: found.revision + 1,
+              hostLastSeenAt: now,
+              hostAway: false,
+            },
       );
 
       return presentRoomClock(await loadRoom(ctx, roomId));

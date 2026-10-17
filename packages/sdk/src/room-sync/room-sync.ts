@@ -138,6 +138,8 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
    * replaced an engine seek before that one finished.
    */
   const catchUpSeeks = yield* Ref.make<ReadonlyArray<number>>([]);
+  /** Whether the catch-up nudged the player's rate, which ending it then puts back. */
+  const catchUpNudged = yield* Ref.make(false);
   const serial = yield* Semaphore.make(1);
 
   const state = yield* SubscriptionRef.make<RoomSyncState>({
@@ -197,7 +199,8 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
           player.pause();
         }),
       SetRate: ({ rate }) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
+          if (Option.isSome(yield* Ref.get(catchingUpSince))) yield* Ref.set(catchUpNudged, true);
           player.setPlaybackRate(rate);
         }),
       Play: () =>
@@ -253,15 +256,13 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     yield* Effect.forEach(decision.commands, execute, { discard: true });
   });
 
-  /** Ends the host's catch-up, putting back the room's rate a nudge may have changed. */
+  /** Ends the host's catch-up, putting back the room's rate if a nudge changed it. */
   const endCatchUp = Effect.gen(function* () {
     yield* Ref.set(catchingUpSince, Option.none<number>());
     yield* Ref.set(catchUpSeeks, []);
     const { clock } = yield* SubscriptionRef.get(state);
 
-    if (player.fixedRate !== true && player.playbackRate() !== clock.playbackRate) {
-      player.setPlaybackRate(clock.playbackRate);
-    }
+    if (yield* Ref.getAndSet(catchUpNudged, false)) player.setPlaybackRate(clock.playbackRate);
   });
 
   /** Whether the host is catching up, for no longer than `hostCatchUpMs`. */
@@ -480,10 +481,18 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
 
         if (event === "seeked") {
           const landed = player.positionMs();
+          const now = yield* serverNow;
+
+          // The engine seeks to the live position, so its seek lands on it, or on the target as
+          // the clock stood then; this event may be handled a while after it landed.
+          const onClock = Option.match(now, {
+            onNone: () => false,
+            onSome: (at) => Math.abs(landed - targetPosition(current.clock, at)) <= tunables.seekMs,
+          });
 
           const echo = yield* Ref.modify(catchUpSeeks, (targets) => {
             const at = targets.findIndex(
-              (target) => Math.abs(landed - target) <= tunables.hostSeekMs,
+              (target) => onClock || Math.abs(landed - target) <= tunables.hostSeekMs,
             );
 
             return at === -1

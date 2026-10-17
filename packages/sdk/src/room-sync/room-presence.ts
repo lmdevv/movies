@@ -7,7 +7,7 @@
  */
 import { HEARTBEAT_INTERVAL_MS } from "@movies/contracts/clock";
 import type { DeviceId, RoomId } from "@movies/contracts/ids";
-import { Duration, Effect, Predicate, Schedule } from "effect";
+import { Cause, Duration, Effect, Predicate, Schedule } from "effect";
 
 import { MoviesClient } from "../movies-client";
 import type { CallError } from "../sdk-errors";
@@ -44,7 +44,18 @@ export const keepAway = Effect.fn("RoomPresence.keepAway")(function* (
     ),
   );
 
-  return yield* beat.pipe(
+  // One heartbeat's defect is reported and the next tries again, as for a failure.
+  const kept = beat.pipe(
+    Effect.catchCauseIf(
+      (cause) => !Cause.hasInterrupts(cause),
+      (cause) =>
+        Effect.logError("RoomPresence.heartbeatDefect", cause).pipe(
+          Effect.annotateLogs({ roomId }),
+        ),
+    ),
+  );
+
+  return yield* kept.pipe(
     Effect.repeat(Schedule.spaced(Duration.millis(options.intervalMs ?? HEARTBEAT_INTERVAL_MS))),
     Effect.asVoid,
   );
