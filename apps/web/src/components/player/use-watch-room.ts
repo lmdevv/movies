@@ -5,6 +5,7 @@
  */
 import type { DeviceId, ProfileId, RoomId } from "@movies/contracts/ids";
 import type { Room } from "@movies/contracts/models/rooms";
+import { HEARTBEAT_INTERVAL_MS } from "@movies/contracts/clock";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Predicate } from "effect";
 import { useEffect, useState } from "react";
@@ -38,6 +39,24 @@ export const useWatchRoom = (
   const record = useCommandQuery("rooms.get", roomId === null ? "skip" : { roomId, profileId });
   const room = record.status === "success" ? record.data : null;
 
+  // A joined room that stops answering moved on out of this profile's reach. A failed read stays
+  // failed, so it is read again every heartbeat interval, until the room plays something this
+  // profile may watch again, or ends.
+  const outOfReach =
+    record.status === "error" &&
+    Predicate.isTagged(record.error, "NotFound") &&
+    join.status === "joined";
+
+  const retry = outOfReach ? record.retry : null;
+
+  useEffect(() => {
+    if (retry === null) return undefined;
+
+    const timer = setInterval(retry, HEARTBEAT_INTERVAL_MS);
+
+    return () => clearInterval(timer);
+  }, [retry]);
+
   useEffect(() => {
     if (roomId === null) return undefined;
 
@@ -69,16 +88,34 @@ export const useWatchRoom = (
 
   if (roomId === null) return null;
 
-  // A room this account cannot read at all belongs to another household.
-  if (record.status === "error" && Predicate.isTagged(record.error, "NotFound")) {
+  // A room that ended while this member was out of reach of what it played.
+  if (record.status === "error" && Predicate.isTagged(record.error, "Conflict")) {
     return {
-      join: { status: "denied", denial: { kind: "household", hostName: null } },
+      join: { status: "denied", denial: { kind: "ended", hostName: "The host" } },
       room: null,
     };
   }
 
+  // A room this account cannot read at all belongs to another household. One this device joined
+  // that stops answering moved on to something the profile it joined with may not watch; it
+  // answers again once the room plays something that profile may.
+  if (record.status === "error" && Predicate.isTagged(record.error, "NotFound")) {
+    return {
+      join: {
+        status: "denied",
+        denial: outOfReach
+          ? { kind: "unavailable", hostName: null }
+          : { kind: "household", hostName: null },
+      },
+      room: null,
+    };
+  }
+
+  // A join refused as ended or for another household names the host once the room could be read.
   const named = (denial: RoomDenial): RoomDenial =>
-    room === null ? denial : { ...denial, hostName: room.hostProfileName };
+    room === null || denial.kind === "unavailable"
+      ? denial
+      : { ...denial, hostName: room.hostProfileName };
 
   return {
     join: join.status === "denied" ? { status: "denied", denial: named(join.denial) } : join,

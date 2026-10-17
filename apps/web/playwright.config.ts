@@ -26,7 +26,8 @@ if (chromium !== undefined && chromium !== "") launchOptions.executablePath = ch
  * runs the account and admin screens on the same stack as the owner `stack` created; it skips
  * without a stack. `metadata` scans an NFO library for the title, person, genre, and collection
  * pages. `player` and then `rooms` play generated clips through the real media service as that
- * owner, `scrubbing` checks scrub thumbnails and chapters, `casting` casts to a scripted
+ * owner, `party` moves a room with a host and two guests on to its next episode, `scrubbing`
+ * checks scrub thumbnails and chapters, `casting` casts to a scripted
  * Chromecast, `versions` chooses among a title's files, `subtitles` delays subtitles, `migration` imports from a Jellyfin through it, and `backups` runs a real backup job
  * on it last. The suites that run a media service take turns, as it owns the stack's port.
  */
@@ -79,9 +80,16 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {
+      // A host and two guests move a room on to its next episode.
+      name: "party",
+      testMatch: /e2e\/playback\/party\.spec\.ts$/u,
+      dependencies: ["rooms"],
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+    },
+    {
       name: "scrubbing",
       testMatch: /e2e\/playback\/scrubbing\.spec\.ts$/u,
-      dependencies: ["rooms"],
+      dependencies: ["party"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {

@@ -19,8 +19,11 @@ const AutoplaySearch = Schema.Struct({
   seconds: Schema.optionalKey(
     Schema.Literals(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]),
   ),
-  /** `follow` shows a room guest's card, which cannot play the next episode. */
-  role: Schema.optionalKey(Schema.Literals(["advance", "follow"])),
+  /**
+   * `follow` shows a room guest's card, which cannot play the next episode; `unavailable` a card
+   * whose next episode cannot play.
+   */
+  role: Schema.optionalKey(Schema.Literals(["advance", "follow", "unavailable"])),
 });
 
 /**

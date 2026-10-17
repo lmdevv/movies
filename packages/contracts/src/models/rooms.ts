@@ -57,6 +57,20 @@ export const RoomMember = Schema.Struct({
 /** A room member. */
 export interface RoomMember extends Schema.Schema.Type<typeof RoomMember> {}
 
+/**
+ * The room's next-episode countdown for what it plays now. `pending`: the host's player reached the
+ * credits, and at `nextAt` by the server's clock the whole room moves on to `episode`, unless the
+ * host plays it sooner or cancels. `cancelled`: the host chose to watch the credits, so this
+ * episode ends without a countdown. Either goes away when the room's media changes.
+ */
+export const RoomNext = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("pending"), episode: Episode, nextAt: EpochMillis }),
+  Schema.Struct({ status: Schema.Literal("cancelled") }),
+]);
+
+/** The room's next-episode countdown. */
+export type RoomNext = typeof RoomNext.Type;
+
 /** A watch room as members and invited account holders see it. */
 export const Room = Schema.Struct({
   id: RoomId,
@@ -75,6 +89,8 @@ export const Room = Schema.Struct({
    */
   hostAway: Schema.Boolean,
   clock: RoomClock,
+  /** The next-episode countdown for what the room plays now; null when there is none. */
+  next: Schema.NullOr(RoomNext),
   members: Schema.Array(RoomMember),
   createdAt: EpochMillis,
 });
@@ -82,12 +98,21 @@ export const Room = Schema.Struct({
 /** A watch room. */
 export interface Room extends Schema.Schema.Type<typeof Room> {}
 
-/** Host control arguments: the room, the host's device, the revision the host last saw, and its position. */
+/**
+ * Host control arguments: the room, the host's device, the revision the host last saw, and its
+ * position, with the file the host's player plays.
+ */
 export const HostControlArgs = Schema.Struct({
   roomId: RoomId,
   deviceId: DeviceId,
   revision: Schema.Int,
   positionMs: Milliseconds,
+  /**
+   * The file the host's player plays. A control from a player still on a file the room moved on
+   * from fails with `stale_revision`, so it never moves the new media's clock; omit it to act on
+   * whatever the room plays.
+   */
+  fileId: Schema.optionalKey(MediaFileId),
 });
 
 /** What a host playback control takes. */

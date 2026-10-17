@@ -15,6 +15,7 @@ import { commands } from "@movies/contracts/commands";
 import type { CommandError } from "@movies/contracts/errors";
 import { Conflict, Forbidden, NotFound, StaleRevision } from "@movies/contracts/errors";
 import type { Room, RoomClock } from "@movies/contracts/models/rooms";
+import type { MediaFileId } from "@movies/contracts/ids";
 import { Room as RoomSchema, RoomClock as RoomClockSchema } from "@movies/contracts/models/rooms";
 import { EpochMillis, Milliseconds } from "@movies/contracts/units";
 import {
@@ -47,6 +48,11 @@ export interface MemoryRooms {
   readonly changeSilently: (change: Partial<RoomClock>) => Effect.Effect<void>;
   /** Every function path called, in order. */
   readonly calls: Effect.Effect<ReadonlyArray<string>>;
+  /**
+   * Moves the room on to `fileId`, paused at its start with the next revision, as `rooms.playNext`
+   * and `rooms.setMedia` do.
+   */
+  readonly moveTo: (fileId: MediaFileId) => Effect.Effect<void>;
 }
 
 /** How the backend behaves. */
@@ -128,7 +134,7 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
 
       if (room.clock.status === "ended") return yield* new Conflict({ message: "Room ended" });
 
-      if (args.revision !== room.clock.revision) {
+      if (args.revision !== room.clock.revision || (args.fileId ?? room.fileId) !== room.fileId) {
         return yield* new StaleRevision({ message: "The room changed" });
       }
 
@@ -221,7 +227,8 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
         args.positionMs === undefined ||
         args.deviceId !== room.hostDeviceId ||
         args.revision !== room.clock.revision ||
-        room.clock.status !== "playing"
+        room.clock.status !== "playing" ||
+        (args.fileId ?? room.fileId) !== room.fileId
       ) {
         return room.clock;
       }
@@ -347,6 +354,25 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
         );
       }),
     calls: Ref.get(calls),
+    moveTo: (fileId) =>
+      Effect.gen(function* () {
+        const room = yield* Ref.get(committed);
+        const now = yield* serverNow;
+
+        yield* commit(
+          Struct.evolve(room, {
+            fileId: () => fileId,
+            next: () => null,
+            clock: (clock) => ({
+              ...clock,
+              status: "paused" as const,
+              positionAtAnchorMs: Milliseconds.make(0),
+              anchorServerTime: now,
+              revision: clock.revision + 1,
+            }),
+          }),
+        );
+      }),
   };
 
   return rooms;

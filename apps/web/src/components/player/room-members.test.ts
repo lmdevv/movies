@@ -55,6 +55,7 @@ const room = (
     hostDeviceId: HOST,
     hostProfileName: "Alex",
     hostAway,
+    next: null,
     clock: {
       status: clock.status,
       positionAtAnchorMs: 0,
