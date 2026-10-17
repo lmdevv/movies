@@ -133,7 +133,8 @@ export class CastPlayer implements PlayerPort {
       ended: this.#ended,
       buffering: this.isBuffering(),
       volume: this.#remote.volumeLevel,
-      muted: this.#remote.isMuted,
+      // What was asked shows at once, so controls (and a second press) read it, not the lagging mirror.
+      muted: this.#muteAsked?.muted ?? this.#remote.isMuted,
     };
   }
 
@@ -304,6 +305,7 @@ export class CastPlayer implements PlayerPort {
     this.#remote.volumeLevel = Math.min(1, Math.max(0, volume));
     this.#controller.setVolumeLevel();
     this.setMuted(false);
+    this.#refresh();
   }
 
   /** Mutes or unmutes the receiver, counting a toggle still on its way as done. */
@@ -311,7 +313,14 @@ export class CastPlayer implements PlayerPort {
     if ((this.#muteAsked?.muted ?? this.#remote.isMuted) === muted) return;
     this.#forgetMute();
     this.#controller.muteOrUnmute();
-    this.#muteAsked = { muted, timer: setTimeout(() => this.#forgetMute(), TOGGLE_TIMEOUT_MS) };
+    this.#muteAsked = {
+      muted,
+      timer: setTimeout(() => {
+        this.#forgetMute();
+        this.#refresh();
+      }, TOGGLE_TIMEOUT_MS),
+    };
+    this.#refresh();
   }
 
   #forgetMute(): void {

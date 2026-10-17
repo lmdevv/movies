@@ -109,6 +109,7 @@ const onListKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
  * jump to the ends, and none of them reach the player's shortcuts.
  *
  * @param currentRef - Gets the current episode's row, for focusing it when the list opens.
+ * @param listRef - Gets the list itself, which takes focus (and its keys) while a season loads.
  */
 export function EpisodeList({
   seasons,
@@ -118,19 +119,23 @@ export function EpisodeList({
   currentId,
   onSelect,
   currentRef,
+  listRef,
   className,
 }: EpisodeBrowser & {
   readonly currentRef?: Ref<HTMLButtonElement> | undefined;
+  readonly listRef?: Ref<HTMLDivElement> | undefined;
   readonly className?: string;
 }) {
   const season = seasons.find((candidate) => candidate.seasonNumber === seasonNumber);
 
   return (
     <div
+      ref={listRef}
       data-slot="episode-list"
+      tabIndex={-1}
       onKeyDown={onListKeyDown}
       className={cn(
-        "flex w-100 flex-col overflow-hidden rounded-control border border-hairline bg-surface-raised",
+        "flex w-100 flex-col overflow-hidden rounded-control outline-none border border-hairline bg-surface-raised",
         className,
       )}
     >
@@ -240,28 +245,37 @@ export function EpisodePopover({
   container,
   open,
   onOpenChange,
+  onClosed,
   ...browser
 }: EpisodeBrowser & {
   readonly trigger: ReactElement;
   readonly container?: HTMLElement | null | undefined;
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
+  /** The popover has finished closing, its exit animation included. */
+  readonly onClosed?: (() => void) | undefined;
 }) {
   const currentRow = useRef<HTMLButtonElement | null>(null);
-  const popup = useRef<HTMLDivElement | null>(null);
+  const list = useRef<HTMLDivElement | null>(null);
 
-  // The season may load after the panel opened, focused on itself: focus then moves to the episode
-  // playing as it shows, unless the viewer has already moved it.
+  // The season may load after the panel opened, focused on the list: focus then moves to the
+  // episode playing as it shows, unless the viewer has already moved it.
   const currentRef = useCallback((row: HTMLButtonElement | null): void => {
     currentRow.current = row;
 
-    if (row === null || document.activeElement !== popup.current) return;
+    if (row === null || document.activeElement !== list.current) return;
     row.focus({ preventScroll: true });
     row.scrollIntoView({ block: "nearest" });
   }, []);
 
   return (
-    <Popover.Root open={open} onOpenChange={(next) => onOpenChange(next)}>
+    <Popover.Root
+      open={open}
+      onOpenChange={(next) => onOpenChange(next)}
+      onOpenChangeComplete={(next) => {
+        if (!next) onClosed?.();
+      }}
+    >
       <Popover.Trigger render={trigger} />
       <Popover.Portal container={container}>
         <Popover.Positioner
@@ -274,17 +288,17 @@ export function EpisodePopover({
         >
           <Popover.Popup
             aria-label="Episodes"
-            ref={popup}
             initialFocus={() => {
               currentRow.current?.scrollIntoView({ block: "nearest" });
 
-              return currentRow.current ?? popup.current;
+              return currentRow.current ?? list.current;
             }}
             className="flex max-h-[min(var(--spacing-chapter-list),var(--available-height))] origin-(--transform-origin) shadow-overlay transition-[opacity,scale] data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
           >
             <EpisodeList
               {...browser}
               currentRef={currentRef}
+              listRef={list}
               className="max-w-(--available-width)"
             />
           </Popover.Popup>

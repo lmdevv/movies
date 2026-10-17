@@ -327,4 +327,18 @@ describe("CastPlayer", () => {
     receiver.deliverMute();
     expect(receiver.receiverMuted()).toBe(true);
   });
+
+  it("reports what was asked of mute and volume at once, so a second press toggles back", () => {
+    const receiver = laggingReceiver({ muted: true });
+    const player = castPlayer(receiver.framework);
+
+    // m, then m again before the mirror has caught up: each press reads what the state says.
+    player.setMuted(!player.getState().muted);
+    expect(player.getState().muted).toBe(false);
+    player.setMuted(!player.getState().muted);
+    expect(receiver.receiverMuted()).toBe(true);
+
+    player.setVolume(0.4);
+    expect(player.getState()).toMatchObject({ muted: false, volume: 0.4 });
+  });
 });

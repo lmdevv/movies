@@ -62,7 +62,7 @@ export function EpisodePicker({
   readonly currentSeason: ReadonlyArray<SeasonEpisode> | null;
   readonly onPlay: (episodeId: EpisodeId) => void;
 }) {
-  // The season browsed to, until the panel closes; it opens on the current episode's again.
+  // The season browsed to, until the panel has closed; it opens on the current episode's again.
   const [browsing, setBrowsing] = useState<number | null>(null);
   const seasonNumber = browsing ?? current.seasonNumber;
 
@@ -70,7 +70,7 @@ export function EpisodePicker({
 
   const other = useCommandQuery(
     "titles.episodes",
-    open && browsingOther ? { profileId, titleId, seasonNumber } : "skip",
+    browsingOther ? { profileId, titleId, seasonNumber } : "skip",
   );
 
   const loaded = browsingOther ? (other.status === "success" ? other.data : null) : currentSeason;
@@ -88,17 +88,13 @@ export function EpisodePicker({
     [seasons],
   );
 
-  const changeOpen = (next: boolean): void => {
-    if (!next) setBrowsing(null);
-    onOpenChange(next);
-  };
-
   return (
     <EpisodePopover
       trigger={trigger}
       container={container}
       open={open}
-      onOpenChange={changeOpen}
+      onOpenChange={onOpenChange}
+      onClosed={() => setBrowsing(null)}
       seasons={seasonOptions}
       seasonNumber={seasonNumber}
       onSeasonChange={setBrowsing}
@@ -107,7 +103,7 @@ export function EpisodePicker({
       onSelect={(option) => {
         const chosen = loaded?.find((episode) => episode.id === option.id);
 
-        changeOpen(false);
+        onOpenChange(false);
 
         if (chosen !== undefined && chosen.id !== current.id) onPlay(chosen.id);
       }}

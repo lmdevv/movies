@@ -1516,7 +1516,7 @@ export function PlayerScreen({
           onSeekCommit={seekTo}
           scrub={scrubProps}
           onBrightness={setBrightness}
-          onVolume={setVolume}
+          onVolume={followVolume}
           onVolumeCommit={commitVolume}
           onRoom={inRoom ? undefined : openStartRoom}
           castMenu={canCast ? castMenu : undefined}

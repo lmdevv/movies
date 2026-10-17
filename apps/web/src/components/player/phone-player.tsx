@@ -28,6 +28,7 @@ import {
   Volume2Icon,
   XIcon,
 } from "lucide-react";
+import { useState } from "react";
 import type { ComponentProps, ReactElement, ReactNode } from "react";
 
 /** A 36px frosted circle button. */
@@ -94,6 +95,9 @@ function SideSlider({
   readonly icon: ReactNode;
   readonly className?: string;
 }) {
+  // Where a drag has put the slider, until it settles; the level it reports can lag (a TV).
+  const [moving, setMoving] = useState<number | null>(null);
+
   return (
     <div className={cn("absolute top-25 flex w-9 flex-col items-center gap-3", className)}>
       <Slider.Root
@@ -101,9 +105,15 @@ function SideSlider({
         min={0}
         max={1}
         step={0.05}
-        value={value}
-        onValueChange={(next) => onChange(next)}
-        onValueCommitted={(next) => onCommit?.(next)}
+        value={moving ?? value}
+        onValueChange={(next) => {
+          setMoving(next);
+          onChange(next);
+        }}
+        onValueCommitted={(next) => {
+          setMoving(null);
+          onCommit?.(next);
+        }}
         className="h-33"
       >
         <Slider.Control className="flex h-full w-9 cursor-pointer touch-none justify-center">

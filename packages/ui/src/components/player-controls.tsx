@@ -425,7 +425,7 @@ function VolumeControl({
 
   // Escape closes the slider, and nothing else: focus goes back to the button.
   const dismiss = (event: KeyboardEvent): void => {
-    if (event.key !== "Escape" || !openNow.current) return;
+    if (event.key !== "Escape" || !openNow.current || !settable) return;
     event.preventDefault();
     event.stopPropagation();
     dismissed.current = true;
