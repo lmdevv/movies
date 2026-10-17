@@ -23,6 +23,7 @@ import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppShowsRouteImport } from './routes/_app/shows'
 import { Route as DevCrashRouteImport } from './routes/dev/crash'
 import { Route as DevKitRouteImport } from './routes/dev/kit'
+import { Route as DevTracksRouteImport } from './routes/dev/tracks'
 import { Route as InviteCodeRouteImport } from './routes/invite.$code'
 import { Route as ProfilesIndexRouteImport } from './routes/profiles.index'
 import { Route as ProfilesNewRouteImport } from './routes/profiles.new'
@@ -116,6 +117,11 @@ const DevCrashRoute = DevCrashRouteImport.update({
 const DevKitRoute = DevKitRouteImport.update({
   id: '/dev/kit',
   path: '/dev/kit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DevTracksRoute = DevTracksRouteImport.update({
+  id: '/dev/tracks',
+  path: '/dev/tracks',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InviteCodeRoute = InviteCodeRouteImport.update({
@@ -261,6 +267,7 @@ export interface FileRoutesByFullPath {
   '/shows': typeof AppShowsRoute
   '/dev/crash': typeof DevCrashRoute
   '/dev/kit': typeof DevKitRoute
+  '/dev/tracks': typeof DevTracksRoute
   '/invite/$code': typeof InviteCodeRoute
   '/profiles/new': typeof ProfilesNewRoute
   '/r/$roomId': typeof RRoomIdRoute
@@ -298,6 +305,7 @@ export interface FileRoutesByTo {
   '/shows': typeof AppShowsRoute
   '/dev/crash': typeof DevCrashRoute
   '/dev/kit': typeof DevKitRoute
+  '/dev/tracks': typeof DevTracksRoute
   '/invite/$code': typeof InviteCodeRoute
   '/profiles/new': typeof ProfilesNewRoute
   '/r/$roomId': typeof RRoomIdRoute
@@ -340,6 +348,7 @@ export interface FileRoutesById {
   '/_app/shows': typeof AppShowsRoute
   '/dev/crash': typeof DevCrashRoute
   '/dev/kit': typeof DevKitRoute
+  '/dev/tracks': typeof DevTracksRoute
   '/invite/$code': typeof InviteCodeRoute
   '/profiles/new': typeof ProfilesNewRoute
   '/r/$roomId': typeof RRoomIdRoute
@@ -383,6 +392,7 @@ export interface FileRouteTypes {
     | '/shows'
     | '/dev/crash'
     | '/dev/kit'
+    | '/dev/tracks'
     | '/invite/$code'
     | '/profiles/new'
     | '/r/$roomId'
@@ -420,6 +430,7 @@ export interface FileRouteTypes {
     | '/shows'
     | '/dev/crash'
     | '/dev/kit'
+    | '/dev/tracks'
     | '/invite/$code'
     | '/profiles/new'
     | '/r/$roomId'
@@ -461,6 +472,7 @@ export interface FileRouteTypes {
     | '/_app/shows'
     | '/dev/crash'
     | '/dev/kit'
+    | '/dev/tracks'
     | '/invite/$code'
     | '/profiles/new'
     | '/r/$roomId'
@@ -496,6 +508,7 @@ export interface RootRouteChildren {
   WelcomeRoute: typeof WelcomeRoute
   DevCrashRoute: typeof DevCrashRoute
   DevKitRoute: typeof DevKitRoute
+  DevTracksRoute: typeof DevTracksRoute
   InviteCodeRoute: typeof InviteCodeRoute
   ProfilesNewRoute: typeof ProfilesNewRoute
   RRoomIdRoute: typeof RRoomIdRoute
@@ -605,6 +618,13 @@ declare module '@tanstack/react-router' {
       path: '/dev/kit'
       fullPath: '/dev/kit'
       preLoaderRoute: typeof DevKitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dev/tracks': {
+      id: '/dev/tracks'
+      path: '/dev/tracks'
+      fullPath: '/dev/tracks'
+      preLoaderRoute: typeof DevTracksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/invite/$code': {
@@ -869,6 +889,7 @@ const rootRouteChildren: RootRouteChildren = {
   WelcomeRoute: WelcomeRoute,
   DevCrashRoute: DevCrashRoute,
   DevKitRoute: DevKitRoute,
+  DevTracksRoute: DevTracksRoute,
   InviteCodeRoute: InviteCodeRoute,
   ProfilesNewRoute: ProfilesNewRoute,
   RRoomIdRoute: RRoomIdRoute,

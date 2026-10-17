@@ -2,21 +2,23 @@
  * Versions against the real media service: a film with two editions, one an MP4 Chromium plays
  * directly and one a taller MKV it needs remuxed, and an episode with two files. The title page
  * offers a Version select whose choice Play plays; the player switches files in place, keeping the
- * position; and the profile's last choice comes back on the title page and in a plain play. Runs
- * after the casting suite on the same stack, signed in as its owner.
+ * position; and the profile's last choice comes back on the title page and in a plain play. With
+ * thirty-two subtitles beside the episode, the track menu stays inside a short full screen window
+ * and a phone. Runs after the casting suite on the same stack, signed in as its owner.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { MediaFileId, TitleId } from "@movies/contracts/ids";
-import { expect, test } from "@playwright/test";
+import { devices, expect, test } from "@playwright/test";
 import type { BrowserContext, Page } from "@playwright/test";
 
 import { NO_STACK, ownedStack, signInOwner, useSession } from "../admin/session";
 import type { Client } from "../admin/session";
 import { buildMediaService, startMediaService } from "../stack/media-service";
 import type { MediaService } from "../stack/media-service";
+import { expectAboveTrigger } from "../menu-geometry";
 import { recordStreams, refuseNextNegotiation } from "./negotiated-streams";
 import type { NegotiatedStream } from "./negotiated-streams";
 import {
@@ -52,6 +54,47 @@ const SHOW = "Ebb Tide";
 
 /** The player's tracks button and its popover. */
 const TRACKS = "Audio, subtitles, and quality";
+
+const SRT = `1
+00:00:00,500 --> 00:00:10,000
+The tide turns.
+`;
+
+/** Thirty-two languages beside the episode's first file. */
+const SUBTITLE_LANGUAGES = [
+  "en",
+  "fr",
+  "de",
+  "es",
+  "it",
+  "pt",
+  "nl",
+  "sv",
+  "no",
+  "da",
+  "fi",
+  "pl",
+  "cs",
+  "hu",
+  "el",
+  "tr",
+  "ru",
+  "uk",
+  "ar",
+  "he",
+  "fa",
+  "hin",
+  "ja",
+  "ko",
+  "zh",
+  "th",
+  "vi",
+  "id",
+  "ro",
+  "bg",
+  "hr",
+  "sr",
+] as const;
 
 let workspace = "";
 
@@ -110,6 +153,10 @@ test.beforeAll(async ({ browser }) => {
       audio: [{ codec: "aac", language: "eng" }],
     }),
     writeText(join(season, `${SHOW} - S01E01.nfo`), episodeNfo(1, 1, "Neap")),
+    // A subtitle in every language the scanner knows, longer than any window shows at once.
+    ...SUBTITLE_LANGUAGES.map(async (language) =>
+      writeText(join(season, `${SHOW} - S01E01.${language}.srt`), SRT),
+    ),
   ]);
 
   buildMediaService();
@@ -314,4 +361,104 @@ test("an episode with two files offers both, on the show's page and in the playe
   await revealControls(page);
   await page.getByRole("button", { name: TRACKS }).click();
   await expect(versionGroup(page).getByRole("radio")).toHaveCount(2);
+});
+
+test("four columns and thirty-two subtitles stay inside a short full screen and a phone", async ({
+  browser,
+}) => {
+  const episode = await firstEpisode();
+
+  // The shared page goes back to its own size, out of full screen, however this part ends.
+  const size = page.viewportSize();
+
+  try {
+    await page.setViewportSize({ width: 1280, height: 400 });
+    await page.goto(`/watch/${showId}?episodeId=${episode}&start=0`);
+    await expectPlayingPast(page, 0.5);
+    // Paused, the controls and the trigger stay while the menu is open.
+    await page.getByTestId("player").press("k");
+    await page.getByTestId("player").press("f");
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement !== null)).toBe(true);
+    await revealControls(page);
+
+    const trigger = page.getByRole("button", { name: TRACKS });
+
+    await trigger.click();
+
+    const menu = page.getByRole("dialog", { name: TRACKS });
+
+    await expect(
+      menu.getByRole("radiogroup", { name: "Subtitles" }).getByRole("radio"),
+    ).toHaveCount(33);
+    // In full screen it renders inside the player, above the trigger and inside the screen.
+    expect(
+      await menu.evaluate((popup) => document.fullscreenElement?.contains(popup) ?? false),
+    ).toBe(true);
+    await expectAboveTrigger(page, menu, trigger);
+
+    await Promise.all(
+      ["Version", "Audio", "Subtitles", "Quality"].map(async (heading) =>
+        expect(menu.getByText(heading, { exact: true })).toBeInViewport({ ratio: 1 }),
+      ),
+    );
+
+    // The keyboard walks to the last subtitle, which scrolls into view under its heading.
+    const subtitles = menu.getByRole("radiogroup", { name: "Subtitles" }).getByRole("radio");
+
+    await subtitles.first().focus();
+    await page.keyboard.press("ArrowUp");
+    await expect(subtitles.last()).toBeFocused();
+    await expect(subtitles.last()).toBeChecked();
+    await expect(subtitles.last()).toBeInViewport({ ratio: 1 });
+    await expect(menu.getByText("Subtitles", { exact: true })).toBeInViewport({ ratio: 1 });
+    await capture(page, "07-02d-many-subtitles");
+
+    // The subtitles key turns them off with the menu open; the list follows the new choice up.
+    await page.keyboard.press("c");
+    await expect(subtitles.first()).toBeChecked();
+    await expect(subtitles.first()).toBeInViewport({ ratio: 1 });
+
+    // Escape closes the menu alone: the player stays, in full screen, with focus on the trigger.
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await expect(page.getByTestId("player")).toBeVisible();
+    expect(await page.evaluate(() => document.fullscreenElement !== null)).toBe(true);
+  } finally {
+    await page.evaluate(async () => {
+      if (document.fullscreenElement !== null) await document.exitFullscreen();
+    });
+
+    if (size !== null) await page.setViewportSize(size);
+  }
+
+  // A phone's subtitle pill opens the same menu, inside the screen either way up.
+  const phone = await browser.newContext({ ...devices["iPhone 13 landscape"] });
+  const handset = await phone.newPage();
+
+  try {
+    await useSession(handset, owner);
+    await handset.goto(`/watch/${showId}?episodeId=${episode}&start=0`);
+    await expectPlayingPast(handset, 0.5);
+    await handset.getByTestId("player-video").tap();
+
+    // The pill is named after the subtitle playing; its captions glyph marks it.
+    const pill = handset
+      .getByRole("button")
+      .filter({ has: handset.locator("svg.lucide-captions") });
+
+    await pill.tap();
+
+    const phoneMenu = handset.getByRole("dialog", { name: TRACKS });
+
+    await expect(phoneMenu).toBeVisible();
+    await expectAboveTrigger(handset, phoneMenu, pill);
+    await handset.setViewportSize(devices["iPhone 13"].viewport);
+    await expect
+      .poll(async () => (await phoneMenu.boundingBox())?.y ?? -1)
+      .toBeGreaterThanOrEqual(0);
+    await expectAboveTrigger(handset, phoneMenu, pill);
+  } finally {
+    await phone.close();
+  }
 });
