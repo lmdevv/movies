@@ -422,6 +422,11 @@ test("four columns and thirty-two subtitles stay inside a short full screen and 
   await expect(menu.getByText("Subtitles", { exact: true })).toBeInViewport({ ratio: 1 });
   await capture(page, "07-02d-many-subtitles");
 
+  // The subtitles key turns them off with the menu open; the list follows the new choice up.
+  await page.keyboard.press("c");
+  await expect(subtitles.first()).toBeChecked();
+  await expect(subtitles.first()).toBeInViewport({ ratio: 1 });
+
   // Escape closes the menu alone: the player stays, in full screen, with focus on the trigger.
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();

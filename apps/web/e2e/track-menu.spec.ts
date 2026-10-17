@@ -29,19 +29,46 @@ const LAST_SUBTITLE = "简体中文";
 
 const FIRST_AUDIO = "English · Dolby TrueHD 7.1 Atmos";
 
-const open = async (page: Page, columns: keyof typeof HEADINGS): Promise<Locator> => {
-  await page.goto(`/dev/tracks?columns=${columns}`);
+/** Opens the menu on the page as it is, once it has finished growing in. */
+const openMenu = async (page: Page): Promise<Locator> => {
   await page.getByRole("button", { name: LABEL }).click();
 
   const menu = page.getByRole("dialog", { name: LABEL });
 
   await expect(menu).toBeVisible();
-  // Measure once it has finished growing in.
   await menu.evaluate(async (popup) => {
     await Promise.all(popup.getAnimations().map(async (animation) => animation.finished));
   });
 
   return menu;
+};
+
+const open = async (page: Page, columns: keyof typeof HEADINGS): Promise<Locator> => {
+  await page.goto(`/dev/tracks?columns=${columns}`);
+
+  return openMenu(page);
+};
+
+/** A finger dragging from one point to another, as Chromium's compositor scrolls for it. */
+const drag = async (
+  page: Page,
+  from: { readonly x: number; readonly y: number },
+  to: { readonly x: number; readonly y: number },
+): Promise<void> => {
+  const cdp = await page.context().newCDPSession(page);
+
+  const touch = async (type: "touchStart" | "touchMove", share: number) =>
+    cdp.send("Input.dispatchTouchEvent", {
+      type,
+      touchPoints: [{ x: from.x + (to.x - from.x) * share, y: from.y + (to.y - from.y) * share }],
+    });
+
+  await touch("touchStart", 0);
+  await touch("touchMove", 1 / 3);
+  await touch("touchMove", 2 / 3);
+  await touch("touchMove", 1);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await cdp.detach();
 };
 
 /** The menu lies inside the window and above its trigger, clear of the controls under it. */
@@ -193,15 +220,30 @@ test("text at double size keeps the menu inside the window and readable", async 
     content: `:root { font-size: 200%; --text-body: 30px; --leading-label: 36px;
       --text-caption: 24px; --leading-caption: 32px; }`,
   });
-  await page.getByRole("button", { name: LABEL }).click();
 
-  const menu = page.getByRole("dialog", { name: LABEL });
+  const menu = await openMenu(page);
 
-  await expect(menu).toBeVisible();
   await expectContained(page, menu);
   await expect(subtitle(menu, CHOSEN_SUBTITLE)).toBeInViewport({ ratio: 1 });
   await expectHeadings(menu, HEADINGS["4"]);
   await expectNoClippedLabels(menu);
+});
+
+test("a window resized after the viewer scrolls keeps their place", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 600 });
+
+  const menu = await open(page, "4");
+
+  await subtitle(menu, CHOSEN_SUBTITLE).hover();
+  await page.mouse.wheel(0, -8000);
+  await expect(subtitle(menu, FIRST_SUBTITLE)).toBeInViewport({ ratio: 1 });
+
+  const before = (await menu.boundingBox())?.height ?? 0;
+
+  await page.setViewportSize({ width: 1280, height: 420 });
+  await expect.poll(async () => (await menu.boundingBox())?.height ?? 0).toBeLessThan(before);
+  await expect(subtitle(menu, FIRST_SUBTITLE)).toBeInViewport({ ratio: 1 });
+  await expect(subtitle(menu, CHOSEN_SUBTITLE)).not.toBeInViewport();
 });
 
 test("the wheel scrolls one column, leaving the headings and the other columns still", async ({
@@ -274,24 +316,36 @@ test("a finger drags one column's options, not the page", async ({ browser }) =>
 
     if (list === null) throw new Error("Nothing to drag");
 
-    // A finger dragging up the list, as Chromium's compositor scrolls it.
-    const cdp = await phone.newCDPSession(page);
     const x = list.x + list.width / 2;
-    const from = list.y + list.height - 4;
-    const to = list.y + 4;
 
-    const touch = async (type: "touchStart" | "touchMove", y: number) =>
-      cdp.send("Input.dispatchTouchEvent", { type, touchPoints: [{ x, y }] });
-
-    await touch("touchStart", from);
-    await touch("touchMove", from - (from - to) / 3);
-    await touch("touchMove", from - ((from - to) * 2) / 3);
-    await touch("touchMove", to);
-    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await drag(page, { x, y: list.y + list.height - 4 }, { x, y: list.y + 4 });
 
     await expect(subtitle(menu, CHOSEN_SUBTITLE)).not.toBeInViewport({ ratio: 1 });
     await expect(menu.getByRole("radio", { name: FIRST_AUDIO })).toBeInViewport({ ratio: 1 });
     expect(await headingBoxes(menu, HEADINGS["3"])).toEqual(headings);
+    await expectContained(page, menu);
+  } finally {
+    await phone.close();
+  }
+});
+
+test("a finger swiping sideways over the options brings the next columns", async ({ browser }) => {
+  const phone = await browser.newContext({ ...devices["iPhone 13"] });
+  const page = await phone.newPage();
+
+  try {
+    const menu = await open(page, "4");
+    const version = menu.getByText("Version", { exact: true });
+    const start = (await version.boundingBox())?.x ?? 0;
+    const list = await menu.getByRole("radiogroup", { name: "Version" }).boundingBox();
+
+    if (list === null) throw new Error("Nothing to swipe");
+
+    const y = list.y + list.height / 2;
+
+    await drag(page, { x: list.x + list.width - 4, y }, { x: list.x + 4, y });
+
+    await expect.poll(async () => (await version.boundingBox())?.x ?? start).toBeLessThan(start);
     await expectContained(page, menu);
   } finally {
     await phone.close();
@@ -305,11 +359,9 @@ test("in full screen the menu renders inside the player and inside the screen", 
   await page.goto("/dev/tracks?columns=4");
   await page.getByRole("button", { name: "Full screen" }).click();
   await expect.poll(() => page.evaluate(() => document.fullscreenElement !== null)).toBe(true);
-  await page.getByRole("button", { name: LABEL }).click();
 
-  const menu = page.getByRole("dialog", { name: LABEL });
+  const menu = await openMenu(page);
 
-  await expect(menu).toBeVisible();
   expect(await menu.evaluate((popup) => document.fullscreenElement?.contains(popup) ?? false)).toBe(
     true,
   );

@@ -3,7 +3,7 @@ import { Radio } from "@base-ui/react/radio";
 import { RadioGroup } from "@base-ui/react/radio-group";
 import { cn } from "@movies/ui/lib/utils";
 import { CheckIcon } from "lucide-react";
-import { Fragment, useId } from "react";
+import { Fragment, useCallback, useId } from "react";
 import type { ReactElement } from "react";
 
 /** One choice in a column, such as an audio track or a version of the film. */
@@ -14,32 +14,61 @@ export type TrackOption = {
   readonly detail?: string | undefined;
 };
 
-/** Scrolls `list` the least that shows its checked option whole. */
-function revealChecked(list: HTMLElement): void {
+/**
+ * Where `list`'s checked option sits in its scrolled content, with the list's scroll padding around
+ * it (room for the focus ring, as the keyboard leaves when it moves the focus).
+ */
+function checkedSpan(list: HTMLElement): { readonly top: number; readonly bottom: number } | null {
   const checked = list.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]');
 
-  if (checked === null) return;
+  if (checked === null) return null;
 
-  // Offsets, unlike client rects, ignore the popup's opening scale. The list's scroll padding
-  // leaves room for the focus ring, as it does when the keyboard moves the focus.
+  // Offsets, unlike client rects, ignore the popup's opening scale.
   const { scrollPaddingTop, scrollPaddingBottom } = getComputedStyle(list);
   const above = Number.parseFloat(scrollPaddingTop) || 0;
   const below = Number.parseFloat(scrollPaddingBottom) || 0;
-  const top = checked.offsetTop - above;
-  const bottom = checked.offsetTop + checked.offsetHeight + below;
 
-  if (top < list.scrollTop) list.scrollTop = top;
-  else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+  return {
+    top: checked.offsetTop - above,
+    bottom: checked.offsetTop + checked.offsetHeight + below,
+  };
+}
+
+/** Whether `list`, `height` tall, shows its checked option whole; true when nothing is checked. */
+function showsChecked(list: HTMLElement, height: number): boolean {
+  const span = checkedSpan(list);
+
+  return span === null || (span.top >= list.scrollTop && span.bottom <= list.scrollTop + height);
+}
+
+/** Scrolls `list` the least that shows its checked option whole. */
+function revealChecked(list: HTMLElement): void {
+  const span = checkedSpan(list);
+
+  if (span === null) return;
+
+  if (span.top < list.scrollTop) list.scrollTop = span.top;
+  else if (span.bottom > list.scrollTop + list.clientHeight) {
+    list.scrollTop = span.bottom - list.clientHeight;
+  }
 }
 
 /**
- * Keeps the checked option of a scrolling list in view whenever the list changes size: when it
- * first shows, and when a smaller window or a rotated phone shortens it.
+ * Shows the checked option of a scrolling list once the list has its size, then keeps it in view
+ * while the list changes size (a smaller window, a rotated phone), unless the viewer had scrolled
+ * it out of view to browse.
  */
 function keepCheckedInView(list: HTMLElement | null): (() => void) | undefined {
   if (list === null) return undefined;
 
-  const observer = new ResizeObserver(() => revealChecked(list));
+  // The height the list had at its last resize; none before its first, which always reveals.
+  let height: number | undefined;
+
+  const observer = new ResizeObserver(() => {
+    if (height === undefined || showsChecked(list, height)) revealChecked(list);
+
+    height = list.clientHeight;
+  });
 
   observer.observe(list);
 
@@ -59,9 +88,16 @@ function TrackColumn({
 }) {
   const labelId = useId();
 
+  // A new choice, or new options, start following the chosen option again: React runs a ref with a
+  // new identity afresh.
+  const followChecked = useCallback(
+    (list: HTMLElement | null) => keepCheckedInView(list),
+    [value, options],
+  );
+
   // The heading stays put while the options under it scroll, each column on its own.
   return (
-    <div className="flex min-h-0 min-w-50 flex-1 flex-col gap-0.5 pt-5">
+    <div className="flex min-w-50 flex-1 flex-col gap-0.5 pt-5">
       <span
         id={labelId}
         className="shrink-0 px-5 pb-1.5 font-sans text-caption/caption font-medium tracking-caps text-text-muted uppercase"
@@ -69,11 +105,11 @@ function TrackColumn({
         {label}
       </span>
       <RadioGroup
-        ref={keepCheckedInView}
+        ref={followChecked}
         aria-labelledby={labelId}
         value={value}
         onValueChange={(next) => onValueChange(next)}
-        className="relative flex min-h-0 scroll-py-1 flex-col gap-0.5 overflow-y-auto overscroll-contain px-5 pt-1 pb-5"
+        className="relative flex min-h-0 scroll-py-1 flex-col gap-0.5 overflow-y-auto overscroll-y-contain px-5 pt-1 pb-5"
       >
         {options.map((option) => (
           <Radio.Root
