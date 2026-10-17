@@ -422,7 +422,12 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
   const adopt = (room: Room): Effect.Effect<boolean> =>
     room.fileId === fileId
       ? Effect.andThen(
-          update((current) => ({ ...current, room })),
+          // Back on this player's file before the app opened the other: follow it again.
+          update((current) => ({
+            ...current,
+            room,
+            follow: current.follow === "moved" ? "following" : current.follow,
+          })),
           applyClock(room.clock),
         )
       : Effect.as(

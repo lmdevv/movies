@@ -117,11 +117,10 @@ export const useRoomNext = ({
   useEffect(() => {
     if (!shouldStart) return;
 
+    // The next episode playing was checked before; a refusal now (its file went missing since, or
+    // the room ended) says why in the server's words.
     startCountdown({ roomId, deviceId, fromEpisodeId: episodeId }).catch((cause: unknown) => {
-      setProblem({
-        from: episodeId,
-        reason: Predicate.isTagged(cause, "Conflict") ? FILE_MISSING : describeFailure(cause),
-      });
+      setProblem({ from: episodeId, reason: describeFailure(cause) });
     });
   }, [shouldStart, roomId, episodeId, deviceId, startCountdown]);
 

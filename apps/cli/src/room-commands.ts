@@ -5,13 +5,18 @@
  * between is read again and retried once.
  */
 import type { ClockOffset } from "@movies/contracts/clock";
-import { estimateClockOffset, targetPosition, toServerTime } from "@movies/contracts/clock";
+import {
+  countdownRemaining,
+  estimateClockOffset,
+  targetPosition,
+  toServerTime,
+} from "@movies/contracts/clock";
 import { commands } from "@movies/contracts/commands";
 import { NotFound } from "@movies/contracts/errors";
 import type { ProfileId } from "@movies/contracts/ids";
 import { EpisodeId, RoomId } from "@movies/contracts/ids";
 import type { Room, RoomClock } from "@movies/contracts/models/rooms";
-import type { Milliseconds } from "@movies/contracts/units";
+import type { EpochMillis, Milliseconds } from "@movies/contracts/units";
 import { Milliseconds as MillisecondsSchema } from "@movies/contracts/units";
 import { Clock, Effect, Option, Ref, Stream } from "effect";
 
@@ -240,17 +245,17 @@ const leave: ShortcutCommand = {
 };
 
 /** The room's next-episode countdown in a line, or null while there is none. */
-const describeNext = (room: Room, serverNow: number): string | null => {
+const describeNext = (room: Room, serverNow: EpochMillis): string | null => {
   if (room.next === null) return null;
 
   if (room.next.status === "cancelled") return "  next episode: cancelled (watching the credits)";
   const { episode, nextAt } = room.next;
-  const seconds = Math.ceil(Math.max(0, nextAt - serverNow) / 1000);
+  const seconds = Math.ceil(countdownRemaining(nextAt, serverNow) / 1000);
 
   return `  next episode: S${String(episode.seasonNumber)}:E${String(episode.episodeNumber)} ${episode.name} in ${String(seconds)}s`;
 };
 
-const describeRoom = (room: Room, liveMs: number, serverNow: number): string =>
+const describeRoom = (room: Room, liveMs: number, serverNow: EpochMillis): string =>
   [
     `${room.title.name}${room.episode === null ? "" : ` S${String(room.episode.seasonNumber)}:E${String(room.episode.episodeNumber)} ${room.episode.name}`} · ${room.clock.status} at ${formatDuration(liveMs)} · revision ${String(room.clock.revision)}${room.hostAway ? " · host away" : ""}`,
     ...[describeNext(room, serverNow)].filter((line) => line !== null),

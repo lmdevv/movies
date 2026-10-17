@@ -498,6 +498,12 @@ describe("room sync", () => {
         host.userSeek(30_000);
         yield* advance(12_000);
         expect((yield* rooms.room).clock).toStrictEqual(moved);
+
+        // Back on their file before the app opened the other, they follow the room again.
+        yield* rooms.moveTo(MediaFileId.make("file-1"));
+        yield* advance(1_000);
+        expect((yield* current(guestSync)).follow).toBe("following");
+        expect(hostControlsEnabled(yield* current(hostSync))).toBe(true);
       }),
     ));
 

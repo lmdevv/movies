@@ -2909,11 +2909,13 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         // The host picks another episode during the countdown, which ends it.
         const room = await run(fixture.owner, "rooms.get", { roomId: picked.id });
 
+        // It names the file to switch to, which is not the one playing.
         const pick = await run(fixture.owner, "rooms.setMedia", {
           ...onPicked,
           revision: room.clock.revision,
           titleId: serialId,
           episodeId: episodeId("s02e01"),
+          fileId: (await fileAt(fixture, serialPath("s02e01"))).fileId,
         });
 
         expect(pick).toMatchObject({ status: "paused", positionAtAnchorMs: 0 });
@@ -2951,6 +2953,50 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           [onDue, onCancelled, onPicked].map((args) => run(fixture.owner, "rooms.end", args)),
         );
       }, 60_000);
+
+      it("stops a countdown when the host pauses or seeks before the end, not at the end", async () => {
+        const hostDevice = device("hold-host");
+        const room = await roomOn("s01e01", hostDevice, device("hold-guest"));
+
+        const fromFirst = {
+          roomId: room.id,
+          deviceId: hostDevice,
+          fromEpisodeId: episodeId("s01e01"),
+        };
+
+        /** A host control at the room's current revision. */
+        const control = async (name: "rooms.pause" | "rooms.seek", positionMs: number) => {
+          const { clock } = await run(fixture.owner, "rooms.get", { roomId: room.id });
+
+          return run(fixture.owner, name, {
+            roomId: room.id,
+            deviceId: hostDevice,
+            revision: clock.revision,
+            positionMs: ms(positionMs),
+          });
+        };
+
+        const nextOf = async () =>
+          (await run(fixture.owner, "rooms.get", { roomId: room.id })).next;
+
+        // The host's player pausing itself at the end keeps the countdown.
+        await run(fixture.owner, "rooms.startNextCountdown", fromFirst);
+        await control("rooms.pause", DURATION_MS);
+        expect(await nextOf()).toMatchObject({ status: "pending" });
+
+        // Seeking back, or pausing the credits, stops it; the host's player starts another.
+        await control("rooms.seek", 120_000);
+        expect(await nextOf()).toBeNull();
+        await run(fixture.owner, "rooms.startNextCountdown", fromFirst);
+        await control("rooms.pause", DURATION_MS - 5_000);
+        expect(await nextOf()).toBeNull();
+
+        // A cancelled countdown stays cancelled.
+        await run(fixture.owner, "rooms.cancelNextCountdown", fromFirst);
+        await control("rooms.seek", 60_000);
+        expect(await nextOf()).toStrictEqual({ status: "cancelled" });
+        await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
+      });
 
       it("switches media only for the host, at the current revision, out of sight of a guest who cannot see it", async () => {
         const hostDevice = device("media-host");

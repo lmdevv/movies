@@ -482,20 +482,43 @@ export const play = mutation({
     })),
 });
 
-/** Pauses the room at `positionMs`. Host's device only, at the room's current revision. */
+/**
+ * How close to the end of its file a pause or seek leaves the room in its ending: the host's
+ * player pauses itself at the end, which must not stop the countdown the end started.
+ */
+const ENDING_MS = 1_000;
+
+/**
+ * What a host's pause or seek to `positionMs` does to a pending countdown: before the end of the
+ * file it stops it, as pausing the credits holds solo autoplay, and the host's player starts it
+ * again when it plays the credits; at the end it runs on. A cancelled countdown stays cancelled.
+ */
+const countdownAfter = (room: Doc<"rooms">, positionMs: number): RoomPatch => {
+  const durationMs = room.fileDurationMs ?? 0;
+  const ending = durationMs > 0 && positionMs >= durationMs - ENDING_MS;
+
+  return room.next?.status === "pending" && !ending ? { next: undefined } : {};
+};
+
+/**
+ * Pauses the room at `positionMs`. Host's device only, at the room's current revision. Before the
+ * end of the file it stops a pending next-episode countdown (`countdownAfter`).
+ */
 export const pause = mutation({
   args: hostControlArgs,
   returns: roomClock,
   handler: (ctx, args) =>
-    hostCommand(ctx, args, (_room, now) => ({
+    hostCommand(ctx, args, (room, now) => ({
       status: "paused",
       positionAtAnchorMs: checkPosition(args.positionMs),
       anchorServerTime: now,
+      ...countdownAfter(room, args.positionMs),
     })),
 });
 
 /**
  * Moves the room to `positionMs`, keeping it playing or paused; a buffering room comes out paused.
+ * Like a pause, a seek before the end of the file stops a pending next-episode countdown.
  * Host's device only, at the room's current revision.
  */
 export const seek = mutation({
@@ -506,6 +529,7 @@ export const seek = mutation({
       status: room.status === "buffering" ? "paused" : room.status,
       positionAtAnchorMs: checkPosition(args.positionMs),
       anchorServerTime: now,
+      ...countdownAfter(room, args.positionMs),
     })),
 });
 
@@ -705,7 +729,10 @@ export const setMedia = mutation({
       BEST_QUALITY,
     );
 
-    return hostCommand(ctx, args, (_room, now) => mediaChange(playable, now));
+    // `fileId` here is the file to switch to, not the one the host's player plays.
+    const control = { roomId: args.roomId, deviceId: args.deviceId, revision: args.revision };
+
+    return hostCommand(ctx, control, (_room, now) => mediaChange(playable, now));
   },
 });
 
@@ -728,12 +755,20 @@ const mediaChange = (playable: Playable, now: number): RoomPatch => ({
 /** Why a room cannot move on to its next episode. */
 type NextProblem = "movie" | "last_episode" | "missing_file";
 
+/** An episode to move a room on to, with the file it plays. */
+interface NextPlayable extends Playable {
+  readonly episode: Doc<"episodes">;
+}
+
 /**
  * The episode after the one `room` plays, with the file it would play, or why there is none: a
  * movie, the last episode (specials last), or an episode with no file on disk. Its title is the
  * room's, so every member who may watch this episode may watch the next.
  */
-const nextPlayable = async (ctx: QueryCtx, room: Doc<"rooms">): Promise<Playable | NextProblem> => {
+const nextPlayable = async (
+  ctx: QueryCtx,
+  room: Doc<"rooms">,
+): Promise<NextPlayable | NextProblem> => {
   const playing = room.episodeId === null ? null : await ctx.db.get(room.episodeId);
   const title = await ctx.db.get(room.titleId);
 
@@ -750,7 +785,7 @@ const nextPlayable = async (ctx: QueryCtx, room: Doc<"rooms">): Promise<Playable
  * What the room's pending countdown moves on to: the episode it named, with a file on disk. Null
  * when there is no pending countdown, or its episode has since gone or lost its files.
  */
-const pendingPlayable = async (ctx: QueryCtx, room: Doc<"rooms">): Promise<Playable | null> => {
+const pendingPlayable = async (ctx: QueryCtx, room: Doc<"rooms">): Promise<NextPlayable | null> => {
   if (room.next?.status !== "pending") return null;
   const episode = await ctx.db.get(room.next.episodeId);
   const title = await ctx.db.get(room.titleId);
@@ -762,7 +797,7 @@ const pendingPlayable = async (ctx: QueryCtx, room: Doc<"rooms">): Promise<Playa
 };
 
 /** `nextPlayable` for a host's command, failing when there is no next episode to move on to. */
-const requireNextPlayable = async (ctx: QueryCtx, room: Doc<"rooms">): Promise<Playable> => {
+const requireNextPlayable = async (ctx: QueryCtx, room: Doc<"rooms">): Promise<NextPlayable> => {
   const found = await nextPlayable(ctx, room);
 
   if (found === "movie") return fail("invalid_args", "A movie has no next episode");
@@ -824,8 +859,6 @@ export const startNextCountdown = mutation({
     }
 
     const target = await requireNextPlayable(ctx, room);
-
-    if (target.episode === null) return fail("invalid_args", "A movie has no next episode");
     const nextAt = Date.now() + NEXT_EPISODE_COUNTDOWN_MS;
 
     await ctx.db.patch(room._id, {
