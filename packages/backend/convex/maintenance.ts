@@ -13,10 +13,10 @@ import { overlappingLibraries as findOverlaps } from "./lib/roots";
 import { forgetTrickplay } from "./lib/trickplay";
 import { endAuthSession } from "./lib/viewer";
 import {
-  HOST_ABANDON_TIMEOUT_MS,
   HOST_PRESENCE_TIMEOUT_MS,
+  isAbandoned,
   livePosition,
-  MEMBER_PRESENCE_TIMEOUT_MS,
+  presenceTimeout,
 } from "./lib/roomClock";
 
 /** Playback sessions without a report for this long end. */
@@ -29,7 +29,9 @@ const PURGE_BATCH = 200;
 
 /**
  * Pauses rooms whose host stopped sending heartbeats, at the live position, and marks the host
- * away; ends rooms abandoned for half an hour; drops guests who went silent.
+ * away; ends rooms abandoned for half an hour (`isAbandoned`); drops guests who went silent.
+ * Members whose last heartbeat said away get the longer `AWAY_PRESENCE_TIMEOUT_MS`
+ * (`presenceTimeout`).
  */
 export const sweepRooms = internalMutation({
   args: {},
@@ -53,9 +55,17 @@ export const sweepRooms = internalMutation({
       rooms.map(async (room) => {
         const silentFor = now - room.hostLastSeenAt;
 
-        if (silentFor > HOST_ABANDON_TIMEOUT_MS) {
+        const members = await ctx.db
+          .query("roomMembers")
+          .withIndex("by_room_device", (q) => q.eq("roomId", room._id))
+          .collect();
+
+        const host = members.find((member) => member.role === "host");
+        const hostTimeout = host === undefined ? HOST_PRESENCE_TIMEOUT_MS : presenceTimeout(host);
+
+        if (isAbandoned(room, members, now)) {
           await endRoom(ctx, room, now);
-        } else if (silentFor > HOST_PRESENCE_TIMEOUT_MS && room.status !== "paused") {
+        } else if (silentFor > hostTimeout && room.status !== "paused") {
           await ctx.db.patch(room._id, {
             status: "paused",
             positionAtAnchorMs: livePosition(room, now),
@@ -63,18 +73,13 @@ export const sweepRooms = internalMutation({
             revision: room.revision + 1,
             hostAway: true,
           });
-        } else if (silentFor > HOST_PRESENCE_TIMEOUT_MS && !room.hostAway) {
+        } else if (silentFor > hostTimeout && !room.hostAway) {
           await ctx.db.patch(room._id, { hostAway: true });
         }
 
-        const members = await ctx.db
-          .query("roomMembers")
-          .withIndex("by_room_device", (q) => q.eq("roomId", room._id))
-          .collect();
-
         await Promise.all(
           members.flatMap((member) =>
-            member.role === "guest" && now - member.lastSeenAt > MEMBER_PRESENCE_TIMEOUT_MS
+            member.role === "guest" && now - member.lastSeenAt > presenceTimeout(member)
               ? [ctx.db.delete(member._id)]
               : [],
           ),

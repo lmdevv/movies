@@ -244,7 +244,7 @@ const describeRoom = (room: Room, liveMs: number): string =>
     `${room.title.name} · ${room.clock.status} at ${formatDuration(liveMs)} · revision ${String(room.clock.revision)}${room.hostAway ? " · host away" : ""}`,
     ...room.members.map(
       (member) =>
-        `  ${member.role === "host" ? "host " : "guest"} ${member.profileName} (${member.deviceId})`,
+        `  ${member.role === "host" ? "host " : "guest"} ${member.profileName} (${member.deviceId})${member.presence === "away" ? " · away" : ""}`,
     ),
   ].join("\n");
 

@@ -37,6 +37,11 @@ export interface RoomSyncTunables {
   readonly seekCooldownMs: number;
   /** A host seek further than this from the shared position becomes a room seek. */
   readonly hostSeekMs: number;
+  /**
+   * The longest a starting host follows the room to catch up with it before publishing its own
+   * state again, for a stream that cannot keep up.
+   */
+  readonly hostCatchUpMs: number;
   /** How often members report presence; the host also reports its position. */
   readonly heartbeatIntervalMs: number;
   /** A heartbeat unanswered this long marks the connection lost and disables host controls. */
@@ -61,6 +66,7 @@ export const DEFAULT_TUNABLES: RoomSyncTunables = {
   correctionIntervalMs: 500,
   seekCooldownMs: 3_000,
   hostSeekMs: 1_000,
+  hostCatchUpMs: 15_000,
   heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
   heartbeatTimeoutMs: 4_000,
   offsetSamples: 5,

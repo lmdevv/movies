@@ -2,7 +2,7 @@ import { Avatar } from "@movies/ui/components/avatar";
 import { CommandMenu } from "@movies/ui/components/command-menu";
 import { CompactTopBar, LargeTitle } from "@movies/ui/components/phone-title";
 import { TabBar, TabBarItem, TabBarSearch } from "@movies/ui/components/tab-bar";
-import { SearchTrigger, TopBar, TopBarLink } from "@movies/ui/components/top-bar";
+import { RoomPill, SearchTrigger, TopBar, TopBarLink } from "@movies/ui/components/top-bar";
 import { Wordmark } from "@movies/ui/components/wordmark";
 import { moveRowFocus } from "@movies/ui/lib/row-focus";
 import { useKeymap } from "@movies/ui/lib/use-keymap";
@@ -14,6 +14,7 @@ import type { ReactNode } from "react";
 import { SWITCH_PROFILE_COMMAND, useCommandRoot } from "@/commands";
 import { TitlePrefetchProvider } from "@/components/browse/prefetch";
 import { profileArt } from "@/components/profiles/profile-art";
+import { returnTarget, useCurrentRoom } from "@/lib/current-room";
 import { keymap, shortcutLabel } from "@/lib/keymap";
 import { useActiveProfile } from "@/session/guards";
 import { useScopes } from "@/session/viewer";
@@ -48,7 +49,13 @@ type MenuState = { readonly open: false } | { readonly open: true; readonly star
  * The signed-in app frame. At `md` and up: the Netflix-style top bar, transparent over a route's
  * hero and solid once scrolled. Below `md`: a large title that hands over to a compact glass bar,
  * and the floating glass tab bar with its search circle. It hosts the command menu, the global
- * keyboard shortcuts, and the scanning toast. Must sit inside `RequireProfile`.
+ * keyboard shortcuts, and the scanning toast. Must sit inside `RequireProfile` and
+ * `CurrentRoomProvider`.
+ *
+ * While this device is in a watch room with the active profile, the bars show the room pill, a
+ * link back into the room: "Room · N" at `md` and up; on phones the compact form beside the
+ * avatar, and on pages without a phone title of their own over a hero's artwork (a title's page)
+ * or above the page (a person). Search, whose Cancel holds that corner, leaves it to the bars.
  *
  * A route opts into the transparent bar over its billboard with `staticData: { hero: true }`, and
  * out of the phone large title with `staticData: { phoneTitle: false }`.
@@ -70,6 +77,9 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   });
 
   const scrolled = useScrolledPast(SCROLL_THRESHOLD_PX);
+  const deviceRoom = useCurrentRoom();
+  // The room the pill returns to: this profile's, and live.
+  const pillRoom = deviceRoom?.mine === true && deviceRoom.returnable ? deviceRoom : null;
   const current = sectionOf(pathname);
   const art = profileArt(profile);
 
@@ -110,6 +120,34 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     </button>
   );
 
+  const roomPill = (compact: boolean, className?: string) => {
+    if (pillRoom === null) return null;
+    const count = pillRoom.members;
+
+    return (
+      <RoomPill
+        count={count}
+        compact={compact}
+        className={className}
+        aria-label={`Room · ${String(count)}: return to ${pillRoom.titleName}`}
+        render={<Link {...returnTarget(pillRoom)} />}
+      />
+    );
+  };
+
+  // A hero page without a phone title of its own floats the pill over its artwork. Where the
+  // compact bar exists it carries the pill once scrolled; on a title's page, which has none, the
+  // pill stays.
+  const heroPill = hero && (!phoneTitle || title === "");
+
+  /** The avatar, after the room pill when there is one. */
+  const trailing = (size: "xs" | "sm") => (
+    <span className="flex items-center gap-3">
+      {roomPill(true)}
+      {profileButton(size, true)}
+    </span>
+  );
+
   return (
     <div className="min-h-svh bg-page text-text">
       <div
@@ -142,6 +180,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
                 aria-keyshortcuts="Meta+K Control+K"
                 onClick={() => openMenu()}
               />
+              {roomPill(false)}
               {profileButton("sm", false)}
             </>
           }
@@ -153,16 +192,30 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           title={title}
           visible={scrolled}
           className="fixed inset-x-0 top-0 z-40 md:hidden"
-          trailing={profileButton("xs", true)}
+          trailing={trailing("xs")}
         />
       ) : null}
 
+      {!heroPill || (scrolled && phoneTitle) || pillRoom === null ? null : (
+        // Over the artwork of a hero page without the phone title (a title's page, a collection),
+        // level with a title page's Back button, held in place on glass.
+        <div className="on-media fixed top-[max(env(safe-area-inset-top),var(--spacing-12))] right-4 z-40 flex h-10 items-center md:hidden">
+          {roomPill(true, "bg-glass backdrop-blur-xl")}
+        </div>
+      )}
+
       <main className={cn("pb-32 md:pb-20", !hero && "md:pt-17")}>
+        {phoneTitle && title === "" && !hero && pillRoom !== null ? (
+          // A page without a title of its own (a person, a genre) still offers the way back.
+          <div className="flex justify-end px-5 pt-[max(env(safe-area-inset-top),var(--spacing-4))] md:hidden">
+            {roomPill(true)}
+          </div>
+        ) : null}
         {title === "" || !phoneTitle ? null : (
           <LargeTitle
             title={title}
             className="pt-[max(env(safe-area-inset-top),var(--spacing-4))] md:hidden"
-            trailing={profileButton("sm", true)}
+            trailing={trailing("sm")}
           />
         )}
         <TitlePrefetchProvider profileId={profile.id}>

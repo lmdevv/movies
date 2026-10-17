@@ -34,6 +34,7 @@ import {
   probe,
   ratings,
   role,
+  roomPresence,
   roomRole,
   roomStatus,
   scope,
@@ -405,6 +406,8 @@ export default defineSchema({
     revision: v.number(),
     hostLastSeenAt: v.number(),
     hostAway: v.boolean(),
+    /** The length of `fileId`, for an away host's end-of-file pause; absent on older rooms. */
+    fileDurationMs: v.optional(v.number()),
     endedAt: v.optional(v.number()),
   })
     .index("by_status", ["status"])
@@ -419,6 +422,10 @@ export default defineSchema({
     role: roomRole,
     joinedAt: v.number(),
     lastSeenAt: v.number(),
+    /** What the device's last heartbeat said it is doing; absent on rows from before it was kept. */
+    presence: v.optional(roomPresence),
+    /** When the device's player last reported: joining, or a watching heartbeat. */
+    watchedAt: v.optional(v.number()),
     /** A guest's last reported distance from the shared position; absent until it reports one. */
     driftMs: v.optional(v.number()),
   })
