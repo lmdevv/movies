@@ -951,8 +951,12 @@ test("hovering the volume button opens a slider that sets the level live and sta
   await expect
     .poll(async () => Math.round((await videoState(page)).volume * 100))
     .toBe(Math.min(100, keyed + 1) - 10);
-  await page.keyboard.press("Tab");
+
+  // Escape closes the slider and nothing more; focus returns to the button.
+  await page.keyboard.press("Escape");
   await expect(slider).toHaveCount(0);
+  await expect(mute).toBeFocused();
+  await expect(leaveDialog(page)).toBeHidden();
 
   expect((await videoState(page)).paused).toBe(false);
   expect(streams.length).toBe(before);

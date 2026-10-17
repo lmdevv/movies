@@ -105,6 +105,7 @@ import {
 import { hostGone } from "./room-members";
 import { StreamInfo } from "./stream-info";
 import { useControlsVisible, useFullscreen, usePlayerLayout } from "./use-player-frame";
+import type { PlayerLayout } from "./use-player-frame";
 import { useWatchRoom } from "./use-watch-room";
 
 /** Seconds of buffer that count as a full buffering ring. */
@@ -118,6 +119,9 @@ const KEY_PREVIEW_MS = 1_200;
 
 /** The volume keys move by this much. */
 const VOLUME_STEP = 0.1;
+
+/** Where unmuting a TV that is silent returns to when this player never set its level. */
+const CAST_UNMUTE_LEVEL = 0.5;
 
 /** A volume from 0 to 1 in whole percent, so steps of a tenth land on silence exactly. */
 const volumeLevel = (value: number): number =>
@@ -219,7 +223,9 @@ export function PlayerScreen({
   const [menu, setMenu] = useState(false);
   const [info, setInfo] = useState(false);
   const [panel, setPanel] = useState(true);
-  const [episodesOpen, setEpisodesOpen] = useState(false);
+  // The layout the episode picker is open in: its button and the phone's pill are separate pickers,
+  // so a layout change closes it rather than opening the other one.
+  const [episodesOpenIn, setEpisodesOpenIn] = useState<PlayerLayout | null>(null);
   const [volumeOpen, setVolumeOpen] = useState(false);
 
   // The route keys the player by title and episode, so a dismissal ends with its episode.
@@ -458,19 +464,28 @@ export function PlayerScreen({
     [video, casting],
   );
 
-  // The last level the viewer settled on above silence, which unmuting from silence returns to. A
-  // drag's passing levels do not count, so dragging down to nothing and unmuting restores where it
-  // started.
-  const audibleVolume = useRef(1);
+  // The last level the viewer settled on above silence, and where (this element, or a TV), which
+  // unmuting from silence there returns to. A drag's passing levels do not count, so dragging down
+  // to nothing and unmuting restores where it started.
+  const audibleVolume = useRef<{ readonly on: unknown; readonly level: number } | null>(null);
 
   const commitVolume = useCallback(
     (value: number) => {
       const level = volumeLevel(value);
 
-      if (level > 0) audibleVolume.current = level;
+      if (level > 0) audibleVolume.current = { on: casting, level };
       setVolume(level);
     },
-    [setVolume],
+    [casting, setVolume],
+  );
+
+  // The slider follows the pointer here at once; a TV hears only where it settles, since each step
+  // of a drag would be a message to it.
+  const followVolume = useCallback(
+    (value: number) => {
+      if (casting === null) setVolume(value);
+    },
+    [casting, setVolume],
   );
 
   const silent = media.volume === 0;
@@ -480,8 +495,18 @@ export function PlayerScreen({
 
   const setMuted = useCallback(
     (muted: boolean) => {
-      if (!muted && silent) setVolume(audibleVolume.current);
-      else if (casting !== null) casting.player.setMuted(muted);
+      if (!muted && silent) {
+        const remembered = audibleVolume.current;
+
+        // Nothing settled on here yet: an element starts at full volume, and a TV at a moderate one.
+        setVolume(
+          remembered !== null && remembered.on === casting
+            ? remembered.level
+            : casting === null
+              ? 1
+              : CAST_UNMUTE_LEVEL,
+        );
+      } else if (casting !== null) casting.player.setMuted(muted);
       else if (video !== null) video.muted = muted;
     },
     [video, casting, silent, setVolume],
@@ -826,7 +851,7 @@ export function PlayerScreen({
       : null;
 
   const canPick = picking !== null;
-  const episodesShown = episodesOpen && canPick;
+  const episodesShown = episodesOpenIn === layout && canPick;
 
   // The current season's episodes for the menu, the ones that can play.
   const episodeOptions = useMemo(
@@ -949,11 +974,9 @@ export function PlayerScreen({
       "player.forward-10": () => skipByKey(10),
       "player.back-5": () => skipByKey(-5),
       "player.forward-5": () => skipByKey(5),
-      // Muted counts as silence, as the slider shows it.
-      "player.volume-up": () => commitVolume((media.muted ? 0 : media.volume) + VOLUME_STEP),
-      "player.volume-down": () => {
-        if (!media.muted) commitVolume(media.volume - VOLUME_STEP);
-      },
+      // From the level under mute, which they unmute, as they always have.
+      "player.volume-up": () => commitVolume(media.volume + VOLUME_STEP),
+      "player.volume-down": () => commitVolume(media.volume - VOLUME_STEP),
       "player.fullscreen": toggleFullscreen,
       "player.mute": () => setMuted(!media.muted),
       "player.subtitles": toggleSubtitles,
@@ -1130,7 +1153,7 @@ export function PlayerScreen({
         trigger={trigger}
         container={overlayContainer}
         open={episodesShown}
-        onOpenChange={setEpisodesOpen}
+        onOpenChange={(open) => setEpisodesOpenIn(open ? layout : null)}
         profileId={profile.id}
         titleId={titleId}
         seasons={picking.seasons}
@@ -1431,7 +1454,7 @@ export function PlayerScreen({
           onSeek={(seconds) => setScrub(seconds)}
           onSeekCommit={seekTo}
           onMuteChange={setMuted}
-          onVolumeChange={setVolume}
+          onVolumeChange={followVolume}
           onVolumeCommit={commitVolume}
           onVolumeOpenChange={setVolumeOpen}
           onNext={nextEpisode === null || inRoom ? undefined : playNext}

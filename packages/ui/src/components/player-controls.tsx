@@ -13,7 +13,7 @@ import {
   VolumeXIcon,
 } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
-import type { ComponentProps, FocusEvent, PointerEvent, ReactNode } from "react";
+import type { ComponentProps, FocusEvent, KeyboardEvent, PointerEvent, ReactNode } from "react";
 
 import { PauseGlyph, PlayGlyph, SkipNextGlyph } from "./icons";
 import { SpriteThumbnail } from "./sprite-thumbnail";
@@ -304,6 +304,11 @@ function VolumeControl({
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // The pointer that pressed the button, read by the click that follows.
   const pressedWith = useRef<string | null>(null);
+  const button = useRef<HTMLButtonElement | null>(null);
+  // Closed with Escape: keyboard focus left inside does not open it again until it leaves.
+  const dismissed = useRef(false);
+  // Where a drag or key has put the slider, until it settles; the level it reports can lag (a TV).
+  const [moving, setMoving] = useState<number | null>(null);
   const silent = muted || volume === 0;
   const settable = volume !== null && onVolumeChange !== undefined;
 
@@ -358,6 +363,7 @@ function VolumeControl({
 
   const enter = (event: PointerEvent): void => {
     if (event.pointerType === "touch") return;
+    dismissed.current = false;
     clearTimeout(hoverTimer.current);
     hold("hover", true);
   };
@@ -387,6 +393,7 @@ function VolumeControl({
 
   // Keyboard focus opens it; the focus a click or a drag leaves behind does not.
   const focus = (event: FocusEvent): void => {
+    if (dismissed.current) return;
     hold(
       "focus",
       !pressing.current &&
@@ -397,6 +404,7 @@ function VolumeControl({
 
   const blur = (event: FocusEvent): void => {
     if (event.relatedTarget instanceof Node && group.current?.contains(event.relatedTarget)) return;
+    dismissed.current = false;
     hold("focus", false);
   };
 
@@ -415,7 +423,19 @@ function VolumeControl({
     onMuteChange(!muted);
   };
 
-  const shown = muted || volume === null ? 0 : percent(volume);
+  // Escape closes the slider, and nothing else: focus goes back to the button.
+  const dismiss = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape" || !openNow.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dismissed.current = true;
+
+    for (const reason of reasons.current) hold(reason, false);
+    button.current?.focus();
+  };
+
+  const level = muted || volume === null ? 0 : percent(volume);
+  const shown = moving ?? level;
 
   return (
     <div
@@ -429,8 +449,10 @@ function VolumeControl({
       }}
       onFocus={focus}
       onBlur={blur}
+      onKeyDown={dismiss}
     >
       <PlayerButton
+        ref={button}
         aria-label={muted ? "Unmute" : "Mute"}
         aria-pressed={muted}
         onPointerDown={(event) => {
@@ -456,8 +478,14 @@ function VolumeControl({
             step={1}
             largeStep={10}
             value={shown}
-            onValueChange={(next) => onVolumeChange(next / 100)}
-            onValueCommitted={(next) => onVolumeCommit?.(next / 100)}
+            onValueChange={(next) => {
+              setMoving(next);
+              onVolumeChange(next / 100);
+            }}
+            onValueCommitted={(next) => {
+              setMoving(null);
+              onVolumeCommit?.(next / 100);
+            }}
             className="flex h-35 w-11 justify-center rounded-control border border-hairline bg-surface-raised py-4 shadow-overlay"
           >
             <Slider.Control
@@ -471,7 +499,9 @@ function VolumeControl({
                 <Slider.Indicator className="w-1 rounded-bar bg-accent" />
                 <Slider.Thumb
                   aria-label="Volume"
-                  getAriaValueText={(_, value) => (muted ? "Muted" : `${String(value)}%`)}
+                  getAriaValueText={(_, value) =>
+                    muted && moving === null ? "Muted" : `${String(value)}%`
+                  }
                   className="size-3.5 rounded-pill bg-accent outline-none focus-visible:ring-2 focus-visible:ring-text"
                 />
               </Slider.Track>
