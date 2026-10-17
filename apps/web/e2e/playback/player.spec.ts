@@ -843,6 +843,7 @@ test("the next episode plays itself after the countdown; Watch credits cancels i
   await expect(card).toContainText(SLACK_TIDE.plot);
   await expect(image).toHaveCSS("background-image", /^url\(/u);
   await expect(card.getByRole("button", { name: "Play next" })).toBeFocused();
+  await expect(card.getByRole("button", { name: "Play next" })).toHaveAccessibleName("Play next");
   await expect(card.getByRole("button", { name: "Play next" })).toHaveAccessibleDescription(
     /^Starts in \d+ seconds?$/u,
   );

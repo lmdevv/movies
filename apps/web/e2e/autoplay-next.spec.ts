@@ -199,7 +199,9 @@ test("Play next has focus and plays the next episode; Watch credits closes the c
   await page.goto("/dev/autoplay?seconds=1");
   await expect(page.getByRole("button", { name: "Play next" })).toBeFocused();
 
-  // Screen readers hear when it starts, once, rather than every tick.
+  // Screen readers hear when it starts, once, rather than every tick: the time is its description,
+  // and its name stays the same.
+  await expect(page.getByRole("button", { name: "Play next" })).toHaveAccessibleName("Play next");
   await expect(page.getByRole("button", { name: "Play next" })).toHaveAccessibleDescription(
     "Starts in 1 second",
   );

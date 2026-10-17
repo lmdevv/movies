@@ -163,6 +163,14 @@ export const showNfo = (name: string, year: number): string => `<?xml version="1
 </tvshow>
 `;
 
+/** `text` with the characters XML reserves escaped, for NFO text. */
+const escapeXml = (text: string): string =>
+  text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+
 /** What an episode's NFO may add to its name: a synopsis and a runtime in minutes. */
 interface EpisodeDetails {
   readonly plot?: string;
@@ -179,13 +187,13 @@ export const episodeNfo = (
   [
     `<?xml version="1.0"?>`,
     `<episodedetails>`,
-    `  <title>${title}</title>`,
+    `  <title>${escapeXml(title)}</title>`,
     `  <season>${String(season)}</season>`,
     `  <episode>${String(episode)}</episode>`,
     ...(details.runtimeMinutes === undefined
       ? []
       : [`  <runtime>${String(details.runtimeMinutes)}</runtime>`]),
-    ...(details.plot === undefined ? [] : [`  <plot>${details.plot}</plot>`]),
+    ...(details.plot === undefined ? [] : [`  <plot>${escapeXml(details.plot)}</plot>`]),
     `</episodedetails>`,
     ``,
   ].join("\n");
