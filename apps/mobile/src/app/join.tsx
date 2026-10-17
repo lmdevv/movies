@@ -34,10 +34,10 @@ const ENDED = {
 
 function EndedInvite({ title }: { readonly title: string }) {
   const { disconnect } = useConnection();
-  const { setCode } = usePendingInvite();
+  const { setInvite } = usePendingInvite();
 
   return (
-    <Screen header={<NavHeader onBack={() => setCode(null)} />}>
+    <Screen header={<NavHeader onBack={() => setInvite(null)} />}>
       <CalmState
         placement="top"
         icon={Link}
@@ -47,7 +47,7 @@ function EndedInvite({ title }: { readonly title: string }) {
           <Button
             label="Connect to Server"
             onPress={() => {
-              setCode(null);
+              setInvite(null);
               disconnect();
             }}
           />
@@ -59,7 +59,7 @@ function EndedInvite({ title }: { readonly title: string }) {
 
 function AcceptInvite({ code, invite }: { readonly code: string; readonly invite: KnownInvite }) {
   const { signInWithPassword } = useAuth();
-  const { setCode } = usePendingInvite();
+  const { setInvite } = usePendingInvite();
   const server = useServer();
   const emailField = useRef<ComponentRef<typeof TextInput>>(null);
   const passwordField = useRef<ComponentRef<typeof TextInput>>(null);
@@ -90,7 +90,7 @@ function AcceptInvite({ code, invite }: { readonly code: string; readonly invite
         password,
         inviteCode: code,
       });
-      setCode(null);
+      setInvite(null);
     } catch (cause) {
       setError(describeFailure(cause));
       setBusy(false);
@@ -98,7 +98,7 @@ function AcceptInvite({ code, invite }: { readonly code: string; readonly invite
   };
 
   return (
-    <Screen scroll header={<NavHeader title="Join Household" onBack={() => setCode(null)} />}>
+    <Screen scroll header={<NavHeader title="Join Household" onBack={() => setInvite(null)} />}>
       <Text variant="title" className="mt-12">
         {`${invite.inviterName} invited you to\n${displayHost(server.mediaUrl)}.`}
       </Text>
@@ -144,18 +144,22 @@ function AcceptInvite({ code, invite }: { readonly code: string; readonly invite
         onSubmitEditing={() => void submit()}
       />
       <Button label="Create Account" busy={busy} disabled={!filled} onPress={() => void submit()} />
-      <Button label="I Already Have an Account" variant="secondary" onPress={() => setCode(null)} />
+      <Button
+        label="I Already Have an Account"
+        variant="secondary"
+        onPress={() => setInvite(null)}
+      />
     </Screen>
   );
 }
 
 export default function Join() {
-  const { code, setCode } = usePendingInvite();
+  const { code, setInvite } = usePendingInvite();
   const lookup = useCommandQuery("invites.lookup", code === null ? "skip" : { code });
 
   if (code === null || lookup.status === "loading") {
     return (
-      <Screen header={<NavHeader title="Join Household" onBack={() => setCode(null)} />}>
+      <Screen header={<NavHeader title="Join Household" onBack={() => setInvite(null)} />}>
         {null}
       </Screen>
     );
@@ -163,7 +167,7 @@ export default function Join() {
 
   if (lookup.status === "error") {
     return (
-      <Screen header={<NavHeader onBack={() => setCode(null)} />}>
+      <Screen header={<NavHeader onBack={() => setInvite(null)} />}>
         <CalmState
           placement="top"
           icon={Link}

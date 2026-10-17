@@ -51,7 +51,9 @@ const useDeviceLogin = (round: number): Attempt => {
   const [attempt, setAttempt] = useState<Attempt>({ kind: "starting" });
 
   useEffect(() => {
-    const run = { current: true };
+    // Leaving the screen or asking for a new code stops the wait, so approving an abandoned code
+    // later signs nothing in.
+    const stop = new AbortController();
 
     setAttempt({ kind: "starting" });
 
@@ -59,7 +61,7 @@ const useDeviceLogin = (round: number): Attempt => {
       try {
         const login = await startDeviceLogin(CLIENT_NAME);
 
-        if (!run.current) return;
+        if (stop.signal.aborted) return;
         setAttempt({
           kind: "waiting",
           userCode: login.userCode,
@@ -67,9 +69,9 @@ const useDeviceLogin = (round: number): Attempt => {
           expiresAt: login.expiresAt,
         });
         // Signing in changes the session phase, which leaves this screen.
-        await login.complete();
+        await login.complete(stop.signal);
       } catch (cause) {
-        if (!run.current) return;
+        if (stop.signal.aborted) return;
         setAttempt(
           Predicate.isTagged(cause, "DeviceLoginRefused")
             ? { kind: "expired" }
@@ -78,9 +80,7 @@ const useDeviceLogin = (round: number): Attempt => {
       }
     })();
 
-    return () => {
-      run.current = false;
-    };
+    return () => stop.abort();
   }, [round, startDeviceLogin]);
 
   return attempt;

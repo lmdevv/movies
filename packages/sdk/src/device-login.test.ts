@@ -1,4 +1,4 @@
-import { Effect, Fiber, Layer, Option, Queue, Ref } from "effect";
+import { Clock, Effect, Fiber, Layer, ManagedRuntime, Option, Queue, Ref } from "effect";
 import type { Scope } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
@@ -96,6 +96,27 @@ const advanceUntilPoll = (polls: Queue.Queue<number>, index: number) =>
     }
   });
 
+/**
+ * Waits on `login` through its Promise API, aborts once the first status poll arrives, and
+ * resolves with how the wait ended. Without the abort it would wait until the code expires.
+ */
+const abandonAfterFirstPoll = async (
+  login: DeviceLogin.PendingDeviceLogin,
+  polls: Queue.Queue<number>,
+): Promise<string> => {
+  const controller = new AbortController();
+
+  const waiting = login.complete(controller.signal).then(
+    () => "signed in",
+    () => "stopped",
+  );
+
+  await Effect.runPromise(Queue.take(polls));
+  controller.abort();
+
+  return waiting;
+};
+
 describe("DeviceLogin", () => {
   it("signs in with the device code once the sign-in is approved", () =>
     withDeviceLogin((fake) =>
@@ -167,4 +188,42 @@ describe("DeviceLogin", () => {
         expect(yield* Effect.flatMap(Auth.Auth, (auth) => auth.currentStatus)).toBe("signedIn");
       }),
     ));
+
+  it(
+    "stops waiting as soon as the Promise caller aborts",
+    () =>
+      withDeviceLogin((fake) =>
+        Effect.gen(function* () {
+          const polls = yield* scriptStatus(fake, [state("pending")]);
+          // The Promise API runs on the real clock, so the code must still be valid in real time.
+          const now = yield* TestClock.withLive(Clock.currentTimeMillis);
+
+          yield* fake.reply(
+            "deviceAuth:request",
+            Reply.Success({
+              value: {
+                deviceCode: "device-secret",
+                userCode: "ABCD-EFGH",
+                verificationUrl: "https://movies.example.com/device",
+                expiresAt: now + 600_000,
+              },
+            }),
+          );
+
+          const runtime = ManagedRuntime.make(
+            Movies.layer({ convexUrl: fake.url, mediaUrl: Option.none(), connection: "http" }).pipe(
+              Layer.provide(TokenStorage.layerMemory),
+            ),
+          );
+
+          const login = yield* Effect.promise(() => DeviceLogin.startOn(runtime, "Phone"));
+          const outcome = yield* Effect.promise(() => abandonAfterFirstPoll(login, polls));
+
+          expect(outcome).toBe("stopped");
+          expect(yield* fake.requestsTo("auth:signIn")).toStrictEqual([]);
+          yield* Effect.promise(() => runtime.dispose());
+        }),
+      ),
+    10_000,
+  );
 });

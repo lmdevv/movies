@@ -14,12 +14,24 @@ import { Screen } from "@/components/ui/screen";
 import { discoverServer, normalizeServerUrl } from "@/lib/discovery";
 import { displayHost, isLocalNetworkUrl } from "@/lib/local-network";
 import { useConnectAttempt } from "@/session/connect-attempt";
+import { usePendingInvite } from "@/session/pending-invite";
 
 const back = () => router.back();
 
 export default function Unreachable() {
-  const { address = "" } = useLocalSearchParams<{ address?: string }>();
+  // `invite` comes from Open an Invite, so connecting on Try Again still opens Join Household.
+  const { address = "", invite } = useLocalSearchParams<{ address?: string; invite?: string }>();
   const { busy, run } = useConnectAttempt();
+  const { setInvite } = usePendingInvite();
+
+  const retry = () =>
+    void run(() => discoverServer(address), {
+      filled: address !== "",
+      beforeConnect: (connection) => {
+        if (invite !== undefined) setInvite({ server: connection.mediaUrl, code: invite });
+      },
+    });
+
   const url = normalizeServerUrl(address) ?? address;
 
   if (isLocalNetworkUrl(url)) {
@@ -44,7 +56,7 @@ export default function Unreachable() {
   return (
     <ServerUnavailable
       description={`${displayHost(url)} is unavailable.`}
-      onRetry={() => void run(() => discoverServer(address), { filled: address !== "" })}
+      onRetry={retry}
       retrying={busy}
       onChangeServer={back}
       onBack={back}

@@ -1,23 +1,44 @@
 /**
  * The invite being redeemed (A06 Join Household). Opening an invite connects to its server and
- * keeps the code here, outside the connected part of the app, so the signed-out stack opens on
- * Join Household instead of Sign In.
+ * keeps the invite here, outside the connected part of the app, so the signed-out stack opens on
+ * Join Household instead of Sign In. An invite belongs to its server: it shows only while the app
+ * is connected there, is forgotten on disconnecting, and is dropped once someone is signed in.
  */
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { Alert } from "react-native";
 
-/** The pending invite code and the way to change it. */
+import { sameServer } from "@/lib/invite-link";
+import type { InviteLink } from "@/lib/invite-link";
+
+import { useConnection } from "./connection";
+
+/** The pending invite and the way to change it. */
 export interface PendingInvite {
+  /** The invite code for the connected server, or null. */
   readonly code: string | null;
-  readonly setCode: (code: string | null) => void;
+  /** Keeps `link` to redeem on its server, or forgets the invite with null. */
+  readonly setInvite: (link: InviteLink | null) => void;
 }
 
 const PendingInviteContext = createContext<PendingInvite | null>(null);
 
 /** Holds the invite being redeemed for this launch. */
 export function PendingInviteProvider({ children }: { readonly children: ReactNode }) {
-  const [code, setCode] = useState<string | null>(null);
-  const value = useMemo(() => ({ code, setCode }), [code]);
+  const { connection } = useConnection();
+  const [invite, setInvite] = useState<InviteLink | null>(null);
+
+  // Disconnecting (Change Server, Sign In's server row) abandons the invite with its server.
+  useEffect(() => {
+    if (connection === null) setInvite(null);
+  }, [connection]);
+
+  const code =
+    invite !== null && connection !== null && sameServer(connection.mediaUrl, invite.server)
+      ? invite.code
+      : null;
+
+  const value = useMemo(() => ({ code, setInvite }), [code]);
 
   return <PendingInviteContext.Provider value={value}>{children}</PendingInviteContext.Provider>;
 }
@@ -34,4 +55,24 @@ export const usePendingInvite = (): PendingInvite => {
     throw new Error("usePendingInvite must be used inside PendingInviteProvider");
 
   return invite;
+};
+
+/**
+ * Drops the pending invite while someone is signed in: after joining, or when a link arrives for
+ * the account already signed in, which says so instead of waiting for a later sign-out.
+ */
+export const useDropInviteWhenSignedIn = (signedIn: boolean): void => {
+  const { code, setInvite } = usePendingInvite();
+  const seen = useRef(code);
+
+  useEffect(() => {
+    const arrived = code !== null && code !== seen.current;
+
+    seen.current = code;
+
+    if (!signedIn || code === null) return;
+    setInvite(null);
+
+    if (arrived) Alert.alert("Already Signed In", "Sign out to accept this invite.");
+  }, [code, signedIn, setInvite]);
 };

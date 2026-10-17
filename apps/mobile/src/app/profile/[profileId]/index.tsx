@@ -5,7 +5,7 @@
  */
 import { router } from "expo-router";
 import { Check, Clapperboard, Lock, Pencil, ShieldCheck } from "lucide-react-native";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ActionSheetIOS, View } from "react-native";
 
 import { useProfileEditor } from "@/components/profile-editor";
@@ -26,12 +26,15 @@ export default function ProfileForm() {
   const profiles = useAccountProfiles();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const inFlight = useRef(false);
   const creating = profile === null;
   const ready = canSave(draft) && !saving;
   const hasPin = willHavePin(profile?.hasPin ?? false, draft.pin);
 
   const submit = async () => {
-    if (!ready) return;
+    // The check and the keyboard's Done can both fire before `saving` renders.
+    if (!ready || inFlight.current) return;
+    inFlight.current = true;
     setSaving(true);
     setError(null);
 
@@ -41,6 +44,7 @@ export default function ProfileForm() {
     } catch (cause) {
       setError(describeFailure(cause));
       setSaving(false);
+      inFlight.current = false;
     }
   };
 

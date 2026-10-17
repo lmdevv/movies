@@ -22,6 +22,7 @@ describe("avatars", () => {
   it("writes the monogram and the spoken name", () => {
     expect(monogram("  alex ")).toBe("A");
     expect(monogram("")).toBe("");
+    expect(monogram("🎬 Movie Night")).toBe("🎬");
     expect(avatarLabel("plum")).toBe("Plum");
   });
 });

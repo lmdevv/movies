@@ -8,10 +8,21 @@ import { normalizeServerUrl } from "./discovery";
 
 /** The server an invite belongs to and its code. */
 export interface InviteLink {
-  /** The media service, as `normalizeServerUrl` writes it. */
-  readonly mediaUrl: string;
+  /**
+   * The media service as the link names it, which may leave out the scheme (`cinema.home`);
+   * discovery then tries `https` and `http`.
+   */
+  readonly server: string;
   readonly code: string;
 }
+
+const SCHEME = /^[a-z][a-z\d+.-]*:\/\//iu;
+
+/** `server` when it is a usable address, without trailing slashes; null otherwise. */
+const validServer = (server: string | null): string | null =>
+  server === null || normalizeServerUrl(server) === null
+    ? null
+    : server.trim().replace(/\/+$/u, "");
 
 const MAX_CODE_LENGTH = 200;
 
@@ -55,10 +66,9 @@ const parseDeepLink = (text: string): InviteLink | null => {
   const query = groups["query"] ?? "";
   const server = queryValue(query, "server");
   const code = validCode(queryValue(query, "code") ?? groups["path"]);
-  const decodedServer = server === null ? null : decode(server);
-  const mediaUrl = decodedServer === null ? null : normalizeServerUrl(decodedServer);
+  const address = validServer(server === null ? null : decode(server));
 
-  return code === null || mediaUrl === null ? null : { mediaUrl, code };
+  return code === null || address === null ? null : { server: address, code };
 };
 
 /** `<server>/invite/<code>`, where the server may sit under a path prefix. */
@@ -68,10 +78,10 @@ const parseWebLink = (text: string): InviteLink | null => {
   if (groups === undefined) return null;
   const scheme = groups["scheme"];
   const base = groups["base"] ?? "";
-  const mediaUrl = normalizeServerUrl(scheme === undefined ? base : `${scheme}://${base}`);
+  const address = validServer(scheme === undefined ? base : `${scheme}://${base}`);
   const code = validCode(groups["code"]);
 
-  return code === null || mediaUrl === null ? null : { mediaUrl, code };
+  return code === null || address === null ? null : { server: address, code };
 };
 
 /**
@@ -84,6 +94,19 @@ export const parseInviteLink = (text: string): InviteLink | null => {
   return /^movies:/iu.test(trimmed) ? parseDeepLink(trimmed) : parseWebLink(trimmed);
 };
 
-/** Whether two media service addresses name the same server. */
-export const sameServer = (left: string, right: string): boolean =>
-  normalizeServerUrl(left) === normalizeServerUrl(right);
+const withoutScheme = (url: string): string => url.replace(SCHEME, "");
+
+/**
+ * Whether two media service addresses name the same server. An address without a scheme matches
+ * either scheme, as discovery tries both.
+ */
+export const sameServer = (left: string, right: string): boolean => {
+  const a = normalizeServerUrl(left);
+  const b = normalizeServerUrl(right);
+
+  if (a === null || b === null) return false;
+
+  return SCHEME.test(left.trim()) && SCHEME.test(right.trim())
+    ? a === b
+    : withoutScheme(a) === withoutScheme(b);
+};

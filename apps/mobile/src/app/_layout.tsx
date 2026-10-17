@@ -17,7 +17,11 @@ import { useThemeColor } from "@/lib/theme-color";
 import { ActiveProfileContext } from "@/session/active-profile";
 import { ConnectionProvider, useConnection, useServer } from "@/session/connection";
 import { InviteLinks } from "@/session/invite-links";
-import { PendingInviteProvider, usePendingInvite } from "@/session/pending-invite";
+import {
+  PendingInviteProvider,
+  useDropInviteWhenSignedIn,
+  usePendingInvite,
+} from "@/session/pending-invite";
 import { ProfileChoiceProvider } from "@/session/profile-choice";
 import { SdkProvider } from "@/session/sdk-provider";
 import { SessionPhaseContext, useLiveSessionPhase, useSettledPhase } from "@/session/session-phase";
@@ -184,6 +188,8 @@ function ConnectionTrouble({
 function ConnectedApp() {
   const phase = useLiveSessionPhase();
   const settled = useSettledPhase(phase);
+
+  useDropInviteWhenSignedIn(settled !== null && settled.kind !== "signedOut");
   const slow = useSlowLoad(phase.kind === "loading");
 
   let trouble: ReactNode = null;

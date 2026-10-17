@@ -45,8 +45,15 @@ export const avatarArt = (profile: {
   return { gradient: gradientFor(avatar), mark: avatar === "kids" ? "lettering" : "monogram" };
 };
 
-/** The letter on a monogram tile: the name's first character, uppercased. */
-export const monogram = (name: string): string => name.trim().charAt(0).toUpperCase();
+/**
+ * The letter on a monogram tile: the name's first character, uppercased. Characters outside the
+ * Basic Multilingual Plane, such as emoji, stay whole rather than splitting into half a pair.
+ */
+export const monogram = (name: string): string => {
+  const first = name.trim().codePointAt(0);
+
+  return first === undefined ? "" : String.fromCodePoint(first).toUpperCase();
+};
 
 /** The first avatar no other profile uses, leaving the kids art to kids profiles. */
 export const firstFreeAvatar = (taken: ReadonlyArray<string>): AvatarKey =>

@@ -20,7 +20,7 @@ export default function OpenInvite() {
   const [text, setText] = useState("");
   const [notALink, setNotALink] = useState(false);
   const { busy, failure, clearFailure, run } = useConnectAttempt();
-  const { setCode } = usePendingInvite();
+  const { setInvite } = usePendingInvite();
   const filled = text.trim() !== "";
 
   const submit = async () => {
@@ -32,14 +32,17 @@ export default function OpenInvite() {
       return;
     }
 
-    const result = await run(() => discoverServer(link.mediaUrl), {
+    const result = await run(() => discoverServer(link.server), {
       filled,
-      beforeConnect: () => setCode(link.code),
+      beforeConnect: (connection) => setInvite({ server: connection.mediaUrl, code: link.code }),
     });
 
     if (result?.ok === false && result.failure === "unreachable") {
       clearFailure();
-      router.push({ pathname: "/unreachable", params: { address: link.mediaUrl } });
+      router.push({
+        pathname: "/unreachable",
+        params: { address: link.server, invite: link.code },
+      });
     }
   };
 

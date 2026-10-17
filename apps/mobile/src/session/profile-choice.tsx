@@ -48,7 +48,7 @@ export function ProfileChoiceProvider({ children }: { readonly children: ReactNo
 
       // Switch first, so the screen never shows the profile left behind as locked while it is
       // still chosen (which would flash Who's Watching?), then lock it; if locking fails, go back
-      // to it, still unlocked. A remembered profile that no longer exists, or belongs to another
+      // to it, still unlocked, unless another profile was chosen meanwhile. A remembered profile that no longer exists, or belongs to another
       // account, has nothing left to lock.
       commit(next);
 
@@ -56,7 +56,9 @@ export function ProfileChoiceProvider({ children }: { readonly children: ReactNo
         await lock({ profileId: previous });
       } catch (cause) {
         if (isFailure(cause, "NotFound") || isFailure(cause, "Forbidden")) return;
-        commit(previous);
+
+        // Someone who has moved on to another profile since keeps it.
+        if (current.current === next) commit(previous);
         throw cause;
       }
     },
