@@ -63,6 +63,7 @@ function NavigationTheme({ children }: { readonly children: ReactNode }) {
  */
 function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
   const invite = usePendingInvite();
+
   const sheet = {
     presentation: "formSheet",
     sheetAllowedDetents: "fitToContents",
