@@ -126,10 +126,14 @@ export const useRoomNext = ({
     if (!shouldStart) return undefined;
 
     let retry: ReturnType<typeof setTimeout> | undefined;
+    // An answer after the episode or the room changed is for a countdown this player left.
+    let active = true;
 
     // The next episode playing was checked before; a refusal now (its file went missing since, or
     // the room ended) says why in the server's words. Anything else may pass: try again shortly.
     startCountdown({ roomId, deviceId, fromEpisodeId: episodeId }).catch((cause: unknown) => {
+      if (!active) return;
+
       if (REFUSALS.some((tag) => Predicate.isTagged(cause, tag))) {
         setProblem({ from: episodeId, reason: describeFailure(cause) });
 
@@ -139,7 +143,10 @@ export const useRoomNext = ({
       retry = setTimeout(() => setAttempt((count) => count + 1), RETRY_MS);
     });
 
-    return () => clearTimeout(retry);
+    return () => {
+      active = false;
+      clearTimeout(retry);
+    };
   }, [shouldStart, roomId, episodeId, deviceId, startCountdown, attempt]);
 
   // Whatever the room plays is what this player opens, in the room: the host's Play next, the
