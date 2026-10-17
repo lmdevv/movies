@@ -502,7 +502,7 @@ export const heartbeat = mutation({
       await ctx.db.patch(
         member._id,
         playerReported
-          ? { lastSeenAt: now }
+          ? { lastSeenAt: now, watchedAt }
           : {
               lastSeenAt: now,
               presence: "away",

@@ -116,7 +116,9 @@ const decodeHostPresence = Schema.decodeUnknownSync(
 
 /** A room member row's presence and when its player last reported, from `tableLines`. */
 const decodeWatchedAt = Schema.decodeUnknownSync(
-  Schema.fromJsonString(Schema.Struct({ presence: Schema.String, watchedAt: Schema.Finite })),
+  Schema.fromJsonString(
+    Schema.Struct({ presence: Schema.optionalKey(Schema.String), watchedAt: Schema.Finite }),
+  ),
 );
 
 /** The `_id` of a row printed as JSON by `tableLines`. */
@@ -2437,6 +2439,52 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       expect((await memberOn(fixture, room.id, awayGuest)).presence).toBe("watching");
       await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
     }, 90_000);
+
+    it("keeps a legacy member's last player report through away heartbeats inside the silence", async () => {
+      const hostDevice = device("legacy-host");
+      const legacyGuest = device("legacy-guest");
+      const member = await run(fixture.member, "account.viewer", {});
+      const heard = Date.now() - 2_000;
+
+      const room = await run(fixture.owner, "rooms.create", {
+        profileId: fixture.ownerProfile,
+        deviceId: hostDevice,
+        titleId: fixture.titles.allAges,
+        positionMs: ms(0),
+      });
+
+      // A row from before `watchedAt`, whose player reported two seconds ago.
+      importDocuments("roomMembers", [
+        JSON.stringify({
+          roomId: room.id,
+          userId: member.user.id,
+          profileId: fixture.memberProfile,
+          deviceId: legacyGuest,
+          role: "guest",
+          joinedAt: heard,
+          lastSeenAt: heard,
+        }),
+      ]);
+
+      // Away heartbeats inside the silence only keep the place, and pin when the player last
+      // reported, so they cannot keep pushing it forward.
+      const away = () =>
+        run(fixture.member, "rooms.heartbeat", {
+          roomId: room.id,
+          deviceId: legacyGuest,
+          presence: "away",
+        });
+
+      await away();
+      await away();
+
+      expect(
+        decodeWatchedAt(
+          tableLines("roomMembers").find((line) => line.includes(legacyGuest)) ?? "{}",
+        ).watchedAt,
+      ).toBe(heard);
+      await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
+    });
 
     it("pauses a room once its host browses away from a stall or past the end", async () => {
       const hostDevice = device("stalled-host");
