@@ -92,6 +92,7 @@ import {
   PreparingStream,
   PressPlay,
   ResumePrompt,
+  SubtitleDelayNotice,
   TryingAnotherWay,
 } from "./player-states";
 import { roomMembers } from "./room-members";
@@ -107,6 +108,7 @@ import { hostGone } from "./room-members";
 import { StreamInfo } from "./stream-info";
 import { useControlsVisible, useFullscreen, usePlayerLayout } from "./use-player-frame";
 import type { PlayerLayout } from "./use-player-frame";
+import { useSubtitleDelay } from "./use-subtitle-delay";
 import { useWatchRoom } from "./use-watch-room";
 
 /** Seconds of buffer that count as a full buffering ring. */
@@ -680,6 +682,17 @@ export function PlayerScreen({
     }
   }, [video, shownSubtitle, stream]);
 
+  // This viewer's subtitle delay: it moves the cues in this element only, never a room's clock.
+  const subtitleDelay = useSubtitleDelay({
+    controller,
+    stream,
+    subtitleId: snapshot?.subtitleId ?? null,
+    delayMs: snapshot?.subtitleDelayMs ?? 0,
+    casting: casting !== null,
+    otherScreen: airplay?.active === true || remotePlayback?.active === true,
+    keycaps: layout === "desktop",
+  });
+
   // Rooms.
   const copyLink = useCallback((id: RoomId) => {
     void copyText(roomLink(id)).then(() => toast.success("Invite link copied"), toastFailure);
@@ -1020,6 +1033,8 @@ export function PlayerScreen({
       // Silence counts as muted, as the button shows it: m then brings the sound back.
       "player.mute": () => setMuted(!(media.muted || silent)),
       "player.subtitles": toggleSubtitles,
+      "player.subtitles-earlier": () => subtitleDelay.stepWithNotice(-1),
+      "player.subtitles-later": () => subtitleDelay.stepWithNotice(1),
       // One press does one thing: leaves full screen, closes Stream info, or asks to leave. Menus,
       // popovers, and dialogs take Escape before it gets here.
       "player.exit": (event) => {
@@ -1044,6 +1059,9 @@ export function PlayerScreen({
       subtitles: subtitleOptions,
       subtitleId,
       selectSubtitle,
+      subtitleDelay: subtitleDelay.timing.adjustable
+        ? { delayMs: subtitleDelay.delayMs, step: subtitleDelay.stepWithNotice }
+        : null,
       audio: audioOptions,
       audioId,
       selectAudio,
@@ -1076,6 +1094,9 @@ export function PlayerScreen({
       subtitleOptions,
       subtitleId,
       selectSubtitle,
+      subtitleDelay.timing.adjustable,
+      subtitleDelay.delayMs,
+      subtitleDelay.stepWithNotice,
       audioOptions,
       audioId,
       selectAudio,
@@ -1165,6 +1186,7 @@ export function PlayerScreen({
           options: subtitleOptions,
           value: subtitleId,
           onValueChange: selectSubtitle,
+          footer: subtitleDelay.control,
         },
         {
           id: "quality",
@@ -1600,6 +1622,7 @@ export function PlayerScreen({
           phoneControls
         )}
         {center}
+        <SubtitleDelayNotice text={subtitleDelay.notice} />
         {showNext ? (
           <AutoplayNext
             current={heading}

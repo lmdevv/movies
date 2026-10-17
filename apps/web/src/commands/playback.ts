@@ -1,5 +1,5 @@
 /**
- * Player commands in the menu: play or pause, skip, subtitles, audio, quality, and the version (when
+ * Player commands in the menu: play or pause, skip, subtitles and their delay, audio, quality, and the version (when
  * a title has several files) as nested lists, stream info, full screen, the next episode, and the
  * playing season's episodes. They exist only while the player is open; the player screen passes
  * what they act on as the context's `player`.
@@ -9,6 +9,8 @@ import type { TrackOption } from "@movies/ui/components/track-popover";
 import {
   AudioLinesIcon,
   CaptionsIcon,
+  ChevronsLeftIcon,
+  ChevronsRightIcon,
   FastForwardIcon,
   GalleryVerticalEndIcon,
   GaugeIcon,
@@ -19,6 +21,7 @@ import {
   PlayIcon,
   RewindIcon,
   SkipForwardIcon,
+  TimerResetIcon,
 } from "lucide-react";
 import { useMemo } from "react";
 
@@ -50,6 +53,46 @@ const trackPage = (
     },
   ],
 });
+
+/** Earlier, Later, and (with a delay set) Reset, while a text subtitle shows. */
+const subtitleDelayItems = (delay: PlayerCommands["subtitleDelay"]): ReadonlyArray<CommandItem> => {
+  if (delay === null) return [];
+
+  const keywords = ["subtitles", "captions", "delay", "timing", "sync", "offset"];
+
+  return [
+    {
+      kind: "action",
+      id: "player:subtitles-earlier",
+      title: "Subtitles earlier",
+      keywords,
+      leading: { kind: "icon", icon: ChevronsLeftIcon },
+      keycaps: playerKeymap.keycaps("player.subtitles-earlier"),
+      perform: () => delay.step(-1),
+    },
+    {
+      kind: "action",
+      id: "player:subtitles-later",
+      title: "Subtitles later",
+      keywords,
+      leading: { kind: "icon", icon: ChevronsRightIcon },
+      keycaps: playerKeymap.keycaps("player.subtitles-later"),
+      perform: () => delay.step(1),
+    },
+    ...(delay.delayMs === 0
+      ? []
+      : [
+          {
+            kind: "action" as const,
+            id: "player:subtitles-reset",
+            title: "Reset subtitle delay",
+            keywords,
+            leading: { kind: "icon" as const, icon: TimerResetIcon },
+            perform: () => delay.step(0),
+          },
+        ]),
+  ];
+};
 
 /**
  * The player's group of commands. Guests, who follow the room's timeline, get no transport or next
@@ -135,6 +178,7 @@ export const playbackCommands = (player: PlayerCommands | null): CommandContribu
         player.selectSubtitle,
       ),
     },
+    ...subtitleDelayItems(player.subtitleDelay),
     ...(player.audio.length === 0
       ? []
       : [

@@ -25,6 +25,7 @@ const recordingPlayer = (overrides: Partial<PlayerCommands> = {}) => {
     selectSubtitle: (id) => {
       chosen.push(`subtitles:${id}`);
     },
+    subtitleDelay: null,
     audio: [
       { id: "1", label: "English Stereo" },
       { id: "2", label: "French Stereo" },
@@ -68,6 +69,12 @@ const submenu = (player: PlayerCommands, id: string): CommandPage => {
 
   return item.page;
 };
+
+/** The subtitle delay's commands, with their keycaps. */
+const delayCommands = (player: PlayerCommands) =>
+  items(player)
+    .filter((item) => item.id.startsWith("player:subtitles-"))
+    .map((item) => [item.title, item.keycaps ?? []]);
 
 const options = (page: CommandPage): ReadonlyArray<CommandItem> =>
   page.groups.flatMap((group) => group.items);
@@ -154,6 +161,37 @@ describe("playbackCommands", () => {
     const guest = recordingPlayer({ episodes, episodeId: "e1", controlsTimeline: false });
 
     expect(items(guest.player).map((item) => item.title)).not.toContain("Episodes");
+  });
+
+  it("moves the subtitle delay while a text subtitle shows, and resets one that is set", () => {
+    const steps: Array<number> = [];
+
+    const delay = (delayMs: number) => ({
+      delayMs,
+      step: (direction: -1 | 0 | 1) => {
+        steps.push(direction);
+      },
+    });
+
+    expect(delayCommands(recordingPlayer().player)).toEqual([]);
+    expect(delayCommands(recordingPlayer({ subtitleDelay: delay(0) }).player)).toEqual([
+      ["Subtitles earlier", ["G"]],
+      ["Subtitles later", ["H"]],
+    ]);
+
+    const { player } = recordingPlayer({ subtitleDelay: delay(-300) });
+
+    expect(delayCommands(player).map(([title]) => title)).toEqual([
+      "Subtitles earlier",
+      "Subtitles later",
+      "Reset subtitle delay",
+    ]);
+
+    for (const item of items(player)) {
+      if (item.kind === "action" && item.id.startsWith("player:subtitles-")) void item.perform();
+    }
+
+    expect(steps).toEqual([-1, 1, 0]);
   });
 
   it("drops Stream info where its panel cannot show", () => {

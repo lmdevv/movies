@@ -86,11 +86,13 @@ function TrackColumn({
   options,
   value,
   onValueChange,
+  footer,
 }: {
   readonly label: string;
   readonly options: ReadonlyArray<TrackOption>;
   readonly value: string;
   readonly onValueChange: (id: string) => void;
+  readonly footer: ReactElement | undefined;
 }) {
   const labelId = useId();
 
@@ -117,7 +119,8 @@ function TrackColumn({
     if (list.current !== null) revealChecked(list.current);
   }, [value, optionIds]);
 
-  // The heading stays put while the options under it scroll, each column on its own.
+  // The heading, and the footer when there is one, stay put while the options between them
+  // scroll, each column on its own.
   return (
     <div className="flex min-w-50 flex-1 flex-col gap-0.5 pt-5">
       <span
@@ -131,7 +134,10 @@ function TrackColumn({
         aria-labelledby={labelId}
         value={value}
         onValueChange={(next) => onValueChange(next)}
-        className="relative flex min-h-0 scroll-py-1 flex-col gap-0.5 overflow-y-auto overscroll-y-contain px-5 pt-1 pb-5"
+        className={cn(
+          "relative flex min-h-0 scroll-py-1 flex-col gap-0.5 overflow-y-auto overscroll-y-contain px-5 pt-1",
+          footer === undefined ? "pb-5" : "pb-3",
+        )}
       >
         {options.map((option) => (
           <Radio.Root
@@ -162,6 +168,7 @@ function TrackColumn({
           </Radio.Root>
         ))}
       </RadioGroup>
+      {footer}
     </div>
   );
 }
@@ -174,6 +181,8 @@ export type TrackChoice = {
   readonly options: ReadonlyArray<TrackOption>;
   readonly value: string;
   readonly onValueChange: (id: string) => void;
+  /** What sits under the options, outside their scrolling, such as the subtitle delay. */
+  readonly footer?: ReactElement | undefined;
 };
 
 /** The columns of choices, left to right. */
@@ -212,6 +221,7 @@ export function TrackPanel({
             options={choice.options}
             value={choice.value}
             onValueChange={choice.onValueChange}
+            footer={choice.footer}
           />
         </Fragment>
       ))}
