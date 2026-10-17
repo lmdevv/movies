@@ -1,0 +1,185 @@
+/**
+ * Finding the server this app talks to: the media service people type in (it also serves the web
+ * app and artwork) and the Convex deployment accounts live on. Typing only the media address is
+ * enough; the media service answers with the Convex URL at `/api/client-config`.
+ */
+import {
+  ClientConfigResponse,
+  HealthResponse,
+  MEDIA_ROUTES,
+} from "@movies/contracts/media-playback";
+import { Option, Schema } from "effect";
+
+/** Where this install connects. */
+export interface ServerConnection {
+  /** The media service, such as `https://cinema.home`. */
+  readonly mediaUrl: string;
+  /** The Convex deployment, such as `https://accounts.cinema.home`. */
+  readonly convexUrl: string;
+}
+
+/** Why connecting to an address failed. */
+export type ConnectFailure =
+  /** The text is not an address. */
+  | "invalid"
+  /** Nothing answered, or it answered but is not a [movies] media service. */
+  | "unreachable"
+  /**
+   * A [movies] media service that does not say where its account server is (no public Convex
+   * URL configured, or a version without `/api/client-config`); Connection Details still works.
+   */
+  | "needsDetails"
+  /** The media service answered and named its account server, but that address doesn't answer. */
+  | "accountsUnreachable";
+
+const hasSchemePrefix = /^[a-z][a-z\d+.-]*:\/\//iu;
+
+/**
+ * Turns typed text into a base URL: trims it, adds `https://` when no scheme is given, and drops
+ * trailing slashes. Null when it is not an http or https URL.
+ */
+export const normalizeServerUrl = (text: string): string | null => {
+  const trimmed = text.trim();
+
+  if (trimmed === "") return null;
+
+  const withScheme = hasSchemePrefix.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  try {
+    const url = new URL(withScheme);
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+
+    return `${url.origin}${url.pathname}`.replace(/\/+$/u, "");
+  } catch {
+    return null;
+  }
+};
+
+const TIMEOUT_MS = 5000;
+
+/**
+ * Fetches `url` and decodes its JSON body with `schema`'s JSON codec, as the media service encodes
+ * it; none when the request fails, times out, or the body does not decode.
+ */
+const getDecoded = async <A>(
+  url: string,
+  schema: Schema.Codec<A, unknown>,
+): Promise<Option.Option<A>> => {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+
+    return response.ok
+      ? Schema.decodeUnknownOption(Schema.toCodecJson(schema))(await response.json())
+      : Option.none();
+  } catch {
+    return Option.none();
+  }
+};
+
+/** What connecting to an address found. */
+export type ConnectResult =
+  | { readonly ok: true; readonly connection: ServerConnection }
+  | { readonly ok: false; readonly failure: ConnectFailure };
+
+/** Whether a Convex deployment answers at `convexUrl`. */
+const convexAnswers = async (convexUrl: string): Promise<boolean> => {
+  try {
+    const response = await fetch(`${convexUrl}/version`, {
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+
+    return response.ok;
+  } catch {
+    return false;
+  }
+};
+
+/** Whether a [movies] media service answers its health check at `mediaUrl`. */
+const mediaAnswers = async (mediaUrl: string): Promise<boolean> =>
+  Option.isSome(await getDecoded(`${mediaUrl}${MEDIA_ROUTES.health}`, HealthResponse));
+
+/**
+ * The base URLs to try for typed text: as typed when it names a scheme, else `https://` and then
+ * `http://`, the way home servers often run. Null when the text is not an address.
+ */
+const candidatesFor = (text: string): ReadonlyArray<string> | null => {
+  const normalized = normalizeServerUrl(text);
+
+  if (normalized === null) return null;
+
+  return hasSchemePrefix.test(text.trim())
+    ? [normalized]
+    : [normalized, normalized.replace(/^https:/u, "http:")];
+};
+
+/**
+ * The first candidate, in order, for which `answers` holds. Candidates are probed at once, so an
+ * address whose https port silently drops packets costs one timeout, not two.
+ */
+const firstAnswering = async (
+  candidates: ReadonlyArray<string>,
+  answers: (url: string) => Promise<boolean>,
+): Promise<string | null> => {
+  const results = await Promise.all(candidates.map(answers));
+
+  return candidates.find((_, index) => results[index] === true) ?? null;
+};
+
+/** Checks that `text` is a [movies] media service, asks it where accounts live, and probes that. */
+export const discoverServer = async (text: string): Promise<ConnectResult> => {
+  const candidates = candidatesFor(text);
+
+  if (candidates === null) return { ok: false, failure: "invalid" };
+
+  const mediaUrl = await firstAnswering(candidates, mediaAnswers);
+
+  if (mediaUrl === null) return { ok: false, failure: "unreachable" };
+
+  const config = await getDecoded(`${mediaUrl}${MEDIA_ROUTES.clientConfig}`, ClientConfigResponse);
+  const convexUrl = Option.flatMapNullishOr(config, (value) => value.convexUrl);
+
+  if (Option.isNone(convexUrl)) return { ok: false, failure: "needsDetails" };
+
+  return (await convexAnswers(convexUrl.value))
+    ? { ok: true, connection: { mediaUrl, convexUrl: convexUrl.value } }
+    : { ok: false, failure: "accountsUnreachable" };
+};
+
+/**
+ * Checks both addresses typed on Connection Details: the media service must answer its health
+ * check and the account server its version endpoint. Each address without a scheme tries https,
+ * then http.
+ */
+export const connectManually = async (
+  mediaText: string,
+  convexText: string,
+): Promise<ConnectResult> => {
+  const mediaCandidates = candidatesFor(mediaText);
+  const convexCandidates = candidatesFor(convexText);
+
+  if (mediaCandidates === null || convexCandidates === null) {
+    return { ok: false, failure: "invalid" };
+  }
+
+  const [mediaUrl, convexUrl] = await Promise.all([
+    firstAnswering(mediaCandidates, mediaAnswers),
+    firstAnswering(convexCandidates, convexAnswers),
+  ]);
+
+  if (mediaUrl === null) return { ok: false, failure: "unreachable" };
+
+  if (convexUrl === null) return { ok: false, failure: "accountsUnreachable" };
+
+  return { ok: true, connection: { mediaUrl, convexUrl } };
+};
+
+const FAILURE_LINES = {
+  invalid: "Enter a server address, such as https://cinema.home.",
+  unreachable: "Can't reach a [movies] server at that address.",
+  needsDetails: "This server doesn't share its account server. Enter its connection details.",
+  accountsUnreachable: "Can't reach this server's account server. Check its connection details.",
+} as const satisfies Record<ConnectFailure, string>;
+
+/** The line each failure shows under the field. */
+export const describeConnectFailure = (failure: ConnectFailure): string => FAILURE_LINES[failure];

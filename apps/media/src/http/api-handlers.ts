@@ -1,6 +1,6 @@
 /** Handlers of the media HttpApi. */
 import { MediaApi } from "@movies/contracts/media-api";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 
 import * as BackendHealth from "../backend-health.ts";
@@ -52,6 +52,7 @@ const systemHandlers = HttpApiBuilder.group(
     const sessions = yield* StreamSessions.Service;
     const hardware = yield* HardwareAcceleration.Service;
     const backend = yield* BackendHealth.Service;
+    const config = yield* MediaConfig.Service;
 
     return handlers.handleAll({
       health: Effect.fn("Api.health")(function* () {
@@ -62,6 +63,15 @@ const systemHandlers = HttpApiBuilder.group(
           backend: yield* backend.status,
         };
       }),
+      clientConfig: () =>
+        Effect.succeed(
+          // Only the public address: the internal one (a container name, a loopback) is often
+          // unreachable from phones, and apps fall back to Connection Details without it.
+          Option.match(config.convexPublicUrl, {
+            onNone: () => ({}),
+            onSome: (url) => ({ convexUrl: url }),
+          }),
+        ),
     });
   }),
 );
