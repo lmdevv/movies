@@ -45,6 +45,11 @@ const recordingPlayer = (overrides: Partial<PlayerCommands> = {}) => {
     versionId: "",
     selectVersion: noop,
     nextEpisode: noop,
+    episodes: [],
+    episodeId: "",
+    selectEpisode: (id) => {
+      chosen.push(`episode:${id}`);
+    },
     startRoom: null,
     room: null,
     ...overrides,
@@ -121,6 +126,34 @@ describe("playbackCommands", () => {
       "Stream info",
       "Full screen",
     ]);
+  });
+
+  it("lists the season's episodes after Next episode, the playing one checked, for those who move the timeline", () => {
+    const episodes = [
+      { id: "e1", label: "1. Low Water" },
+      { id: "e2", label: "2. Slack Tide" },
+    ];
+
+    const { player, chosen } = recordingPlayer({ episodes, episodeId: "e1" });
+    const titles = items(player).map((item) => item.title);
+
+    expect(titles.indexOf("Episodes")).toBe(titles.indexOf("Next episode") + 1);
+
+    const list = options(submenu(player, "player:episodes"));
+
+    expect(list.map((option) => [option.title, option.checked])).toEqual([
+      ["1. Low Water", true],
+      ["2. Slack Tide", false],
+    ]);
+
+    const later = list.at(-1);
+
+    if (later?.kind === "action") void later.perform();
+    expect(chosen).toEqual(["episode:e2"]);
+
+    const guest = recordingPlayer({ episodes, episodeId: "e1", controlsTimeline: false });
+
+    expect(items(guest.player).map((item) => item.title)).not.toContain("Episodes");
   });
 
   it("drops Stream info where its panel cannot show", () => {

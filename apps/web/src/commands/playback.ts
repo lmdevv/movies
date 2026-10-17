@@ -1,8 +1,8 @@
 /**
  * Player commands in the menu: play or pause, skip, subtitles, audio, quality, and the version (when
- * a title has several files) as nested lists, stream info, full screen, and the next episode. They
- * exist only while the player is open; the player screen passes what they act on as the context's
- * `player`.
+ * a title has several files) as nested lists, stream info, full screen, the next episode, and the
+ * playing season's episodes. They exist only while the player is open; the player screen passes
+ * what they act on as the context's `player`.
  */
 import type { CommandItem, CommandPage } from "@movies/ui/lib/command-menu";
 import type { TrackOption } from "@movies/ui/components/track-popover";
@@ -10,6 +10,7 @@ import {
   AudioLinesIcon,
   CaptionsIcon,
   FastForwardIcon,
+  GalleryVerticalEndIcon,
   GaugeIcon,
   InfoIcon,
   LayersIcon,
@@ -95,6 +96,24 @@ export const playbackCommands = (player: PlayerCommands | null): CommandContribu
                 title: "Next episode",
                 leading: { kind: "icon" as const, icon: SkipForwardIcon },
                 perform: player.nextEpisode,
+              },
+            ]),
+        ...(player.episodes.length === 0
+          ? []
+          : [
+              {
+                kind: "submenu" as const,
+                id: "player:episodes",
+                title: "Episodes",
+                keywords: ["season", "episode"],
+                leading: { kind: "icon" as const, icon: GalleryVerticalEndIcon },
+                page: trackPage(
+                  "episodes",
+                  "Episodes",
+                  player.episodes,
+                  player.episodeId,
+                  player.selectEpisode,
+                ),
               },
             ]),
       ]

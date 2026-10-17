@@ -36,6 +36,8 @@ export interface RemoteState {
   readonly buffering: boolean;
   readonly volume: number;
   readonly muted: boolean;
+  /** Whether the page can set the receiver's volume; mute works either way. */
+  readonly volumeSettable: boolean;
 }
 
 /** A Chromecast's player as the progress reporter, the room engine, and the controls see it. */
@@ -59,6 +61,14 @@ export class CastPlayer implements PlayerPort {
   #reported: boolean | null = null;
   /** A toggle is on its way; the next pause or play the mirror reports is its outcome. */
   #toggling: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Whether the receiver should be muted, until its mirror shows it. As with play and pause, the
+   * controller only toggles, from what the mirror says, so toggles go one at a time: a second sent
+   * before the mirror shows the first would repeat it rather than undo it.
+   */
+  #muteWanted: boolean | null = null;
+  /** A mute toggle is on its way; given up on, and the mirror trusted again, after a while. */
+  #muteToggling: ReturnType<typeof setTimeout> | null = null;
   #moving: AbortController | null = null;
   #ended = false;
   /** Where the receiver was when this player was disposed; reports read it from then on. */
@@ -100,6 +110,8 @@ export class CastPlayer implements PlayerPort {
     this.#final = this.positionMs();
     this.#moving?.abort();
     this.#settleToggle();
+    this.#settleMuteToggle();
+    this.#muteWanted = null;
     this.#wanted = null;
     this.#controller.removeEventListener(this.#changeEvent, this.#onChange);
     this.#listeners.clear();
@@ -125,7 +137,9 @@ export class CastPlayer implements PlayerPort {
       ended: this.#ended,
       buffering: this.isBuffering(),
       volume: this.#remote.volumeLevel,
-      muted: this.#remote.isMuted,
+      // What was asked shows at once, so controls (and a second press) read it, not the lagging mirror.
+      muted: this.#muteWanted ?? this.#remote.isMuted,
+      volumeSettable: this.#remote.canControlVolume,
     };
   }
 
@@ -155,6 +169,11 @@ export class CastPlayer implements PlayerPort {
     if (change.field === "isPaused") {
       this.#settleToggle();
       this.#reconcile();
+    }
+
+    if (change.field === "isMuted") {
+      this.#settleMuteToggle();
+      this.#reconcileMute();
     }
 
     // Every pause and play the receiver goes through is reported, even one it is being toggled
@@ -289,17 +308,46 @@ export class CastPlayer implements PlayerPort {
     this.#controller.stop();
   }
 
-  /** Sets the receiver's volume, from 0 to 1, and unmutes it. */
+  /** Sets the receiver's volume, from 0 to 1: silence mutes it, and any other level unmutes it. */
   setVolume(volume: number): void {
     this.#remote.volumeLevel = Math.min(1, Math.max(0, volume));
     this.#controller.setVolumeLevel();
-
-    if (this.#remote.isMuted) this.#controller.muteOrUnmute();
+    this.#askMuted(this.#remote.volumeLevel === 0);
+    this.#refresh();
   }
 
-  /** Mutes or unmutes the receiver. */
+  /** Mutes or unmutes the receiver; what was asked shows in its state at once. */
   setMuted(muted: boolean): void {
-    if (this.#remote.isMuted !== muted) this.#controller.muteOrUnmute();
+    this.#askMuted(muted);
+    this.#refresh();
+  }
+
+  #askMuted(muted: boolean): void {
+    this.#muteWanted = muted;
+    this.#reconcileMute();
+  }
+
+  /** Sends one mute toggle if the receiver isn't where it was asked to be and none is on its way. */
+  #reconcileMute(): void {
+    if (this.#muteWanted === null || this.#muteToggling !== null) return;
+
+    if (!this.#remote.isConnected || this.#remote.isMuted === this.#muteWanted) {
+      this.#muteWanted = null;
+
+      return;
+    }
+
+    this.#muteToggling = setTimeout(() => {
+      this.#muteToggling = null;
+      this.#muteWanted = null;
+      this.#refresh();
+    }, TOGGLE_TIMEOUT_MS);
+    this.#controller.muteOrUnmute();
+  }
+
+  #settleMuteToggle(): void {
+    if (this.#muteToggling !== null) clearTimeout(this.#muteToggling);
+    this.#muteToggling = null;
   }
 
   readonly subscribe = (listener: (event: PlayerEvent) => void): (() => void) => {

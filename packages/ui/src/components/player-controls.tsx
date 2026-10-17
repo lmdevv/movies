@@ -3,15 +3,17 @@ import { formatTimecode } from "@movies/ui/lib/timecode";
 import { cn } from "@movies/ui/lib/utils";
 import {
   CaptionsIcon,
+  GalleryVerticalEndIcon,
   LockIcon,
   RotateCcwIcon,
   RotateCwIcon,
   UsersIcon,
+  Volume1Icon,
   Volume2Icon,
   VolumeXIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import type { ComponentProps, PointerEvent, ReactNode } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
+import type { ComponentProps, FocusEvent, KeyboardEvent, PointerEvent, ReactNode } from "react";
 
 import { PauseGlyph, PlayGlyph, SkipNextGlyph } from "./icons";
 import { SpriteThumbnail } from "./sprite-thumbnail";
@@ -258,6 +260,343 @@ function ProgressLine({
   );
 }
 
+/** How long the slider waits after the pointer leaves, so a slightly curved path onto it keeps it. */
+const HOVER_CLOSE_MS = 250;
+
+/** How long a slider a tap or the keyboard opened stays once left alone, as the controls do. */
+const IDLE_MS = 3_000;
+
+/** What keeps the slider open: the pointer over it, keyboard focus in it, a drag, or a tap. */
+type Reason = "hover" | "focus" | "drag" | "touch";
+
+/** The level as a whole percent, which the slider steps through. */
+const percent = (level: number): number => Math.round(Math.min(1, Math.max(0, level)) * 100);
+
+/**
+ * The player's mute button with its volume slider. The slider opens while the pointer is over the
+ * button or the slider, while keyboard focus is in either, and while it is dragged. A click on the
+ * button mutes and unmutes; on touch, where nothing hovers, the first tap opens the slider and the
+ * next one mutes. A muted player's slider reads 0.
+ *
+ * @param volume - The level from 0 to 1, or null where the page cannot set it (iPhones and iPads,
+ *   whose hardware buttons own it): then there is only the mute button.
+ * @param onVolumeChange - Follows the slider as it moves; `onVolumeCommit` gets where it settled,
+ *   at the end of a drag or after each key.
+ * @param onOpenChange - Whether the pointer, focus, a drag, or a tap holds the slider open, so the
+ *   player can keep its controls up meanwhile; it shows only while `volume` is not null.
+ */
+function VolumeControl({
+  volume,
+  muted,
+  onMuteChange,
+  onVolumeChange,
+  onVolumeCommit,
+  onOpenChange,
+}: {
+  readonly volume: number | null;
+  readonly muted: boolean;
+  readonly onMuteChange: (muted: boolean) => void;
+  readonly onVolumeChange?: ((volume: number) => void) | undefined;
+  readonly onVolumeCommit?: ((volume: number) => void) | undefined;
+  readonly onOpenChange?: ((open: boolean) => void) | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  const reasons = useRef(new Set<Reason>());
+  const openNow = useRef(false);
+  const group = useRef<HTMLDivElement | null>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // The pointer that pressed the button, read by the click that follows.
+  const pressedWith = useRef<string | null>(null);
+  const button = useRef<HTMLButtonElement | null>(null);
+  // Closed with Escape, or left alone: keyboard focus inside does not open it again until it leaves.
+  const dismissed = useRef(false);
+  // Where a drag or key has put the slider, until it settles; the level it reports can lag (a TV).
+  // The latest callbacks, for timers and window listeners that outlive the render that set them
+  // (a commit after the output changed must reach the new one).
+  const latest = useRef({ onVolumeCommit, onOpenChange });
+
+  useLayoutEffect(() => {
+    latest.current = { onVolumeCommit, onOpenChange };
+  });
+  const [moving, setMoving] = useState<number | null>(null);
+  const movingNow = useRef<number | null>(null);
+
+  const move = (value: number | null): void => {
+    movingNow.current = value;
+    setMoving(value);
+  };
+
+  // A drag cut off before it was let go (closing, a cancelled pointer, the window losing focus)
+  // settles where it got to, so a TV hears it too.
+  const settle = (): void => {
+    const value = movingNow.current;
+
+    if (value === null) return;
+    move(null);
+    latest.current.onVolumeCommit?.(value / 100);
+  };
+
+  const silent = muted || volume === 0;
+  const settable = volume !== null && onVolumeChange !== undefined;
+
+  const hold = (reason: Reason, on: boolean): void => {
+    if (on) reasons.current.add(reason);
+    else reasons.current.delete(reason);
+
+    // Kept whether or not the level can be set, so a change in that never strands a stale state.
+    const next = reasons.current.size > 0;
+
+    if (next === openNow.current) return;
+    openNow.current = next;
+    setOpen(next);
+
+    if (!next) settle();
+    latest.current.onOpenChange?.(next);
+  };
+
+  // A press inside, until it is let go: focus it moves does not count as keyboard focus.
+  const pressing = useRef(false);
+
+  const release = useEffectEvent((reason: Reason) => hold(reason, false));
+  const settleCut = useEffectEvent(() => settle());
+
+  // Let go of the controls when unmounted open, as when the controls give way to a state.
+  const unmount = useEffectEvent(() => {
+    clearTimeout(hoverTimer.current);
+    clearTimeout(idleTimer.current);
+    reasons.current.clear();
+
+    if (!openNow.current) return;
+    openNow.current = false;
+    setOpen(false);
+    onOpenChange?.(false);
+  });
+
+  // A drag ends wherever it is let go; a tap elsewhere closes what a tap opened.
+  useEffect(() => {
+    const dropped = (): void => {
+      pressing.current = false;
+      release("drag");
+    };
+
+    // A drag the system takes over, or the window losing focus, settles where it got to.
+    const cancelled = (): void => {
+      dropped();
+      settleCut();
+    };
+
+    const outside = (event: globalThis.PointerEvent): void => {
+      if (event.target instanceof Node && group.current?.contains(event.target) === true) return;
+      release("touch");
+    };
+
+    window.addEventListener("pointerup", dropped);
+    window.addEventListener("pointercancel", cancelled);
+    // A release the window never hears, as when it loses focus mid-drag, ends the drag too.
+    window.addEventListener("blur", cancelled);
+    window.addEventListener("pointerdown", outside);
+
+    return () => {
+      window.removeEventListener("pointerup", dropped);
+      window.removeEventListener("pointercancel", cancelled);
+      window.removeEventListener("blur", cancelled);
+      window.removeEventListener("pointerdown", outside);
+      unmount();
+    };
+  }, []);
+
+  const enter = (event: PointerEvent): void => {
+    if (event.pointerType === "touch") return;
+    dismissed.current = false;
+    clearTimeout(hoverTimer.current);
+    hold("hover", true);
+  };
+
+  // Once the pointer has gone, only what still holds counts: a drag still pressed, or focus a
+  // keyboard put inside. A release or focus the window never reported cannot keep it open.
+  const leave = (event: PointerEvent): void => {
+    if (event.pointerType === "touch") return;
+
+    const pressed = event.buttons !== 0;
+
+    clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(() => {
+      const active = document.activeElement;
+
+      const keyboardFocus =
+        active instanceof HTMLElement &&
+        group.current?.contains(active) === true &&
+        active.matches(":focus-visible");
+
+      if (!pressed) hold("drag", false);
+
+      if (!keyboardFocus) hold("focus", false);
+      hold("hover", false);
+    }, HOVER_CLOSE_MS);
+  };
+
+  // Keyboard focus opens it; the focus a click or a drag leaves behind does not.
+  const focus = (event: FocusEvent): void => {
+    if (dismissed.current) return;
+    hold(
+      "focus",
+      !pressing.current &&
+        event.target instanceof HTMLElement &&
+        event.target.matches(":focus-visible"),
+    );
+    idleAgain();
+  };
+
+  const blur = (event: FocusEvent): void => {
+    if (event.relatedTarget instanceof Node && group.current?.contains(event.relatedTarget)) return;
+    dismissed.current = false;
+    hold("focus", false);
+  };
+
+  // A slider a tap or the keyboard opened closes once left alone, so it never keeps the controls up
+  // for good; each touch, key, or change keeps it a while longer. Focus left inside stays put.
+  const idleAgain = (): void => {
+    if (!reasons.current.has("touch") && !reasons.current.has("focus")) return;
+    clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => {
+      if (reasons.current.has("focus")) dismissed.current = true;
+
+      // Focus on the slider would go nowhere as it closes: it moves to the button instead.
+      const active = document.activeElement;
+
+      if (
+        active !== button.current &&
+        active !== null &&
+        group.current?.contains(active) === true
+      ) {
+        button.current?.focus();
+      }
+
+      hold("touch", false);
+      hold("focus", false);
+    }, IDLE_MS);
+  };
+
+  const toggleMute = (): void => {
+    const touch = pressedWith.current === "touch";
+
+    pressedWith.current = null;
+
+    // On touch the first tap opens the slider, and the next one mutes.
+    if (touch && settable && !reasons.current.has("touch")) {
+      hold("touch", true);
+      idleAgain();
+
+      return;
+    }
+
+    // Silence counts as muted, as the icon shows it: the button then brings the sound back.
+    onMuteChange(!silent);
+  };
+
+  // Escape closes the slider, and nothing else: focus goes back to the button.
+  const dismiss = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape" || !openNow.current || !settable) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dismissed.current = true;
+
+    for (const reason of reasons.current) hold(reason, false);
+    button.current?.focus();
+  };
+
+  const level = muted || volume === null ? 0 : percent(volume);
+  const shown = moving ?? level;
+
+  return (
+    <div
+      ref={group}
+      className="relative flex"
+      onPointerEnter={enter}
+      onPointerLeave={leave}
+      onPointerDownCapture={(event) => {
+        pressing.current = true;
+
+        // A finger on a slider the keyboard opened keeps it, as a tap would have.
+        if (event.pointerType === "touch" && openNow.current) hold("touch", true);
+        hold("focus", false);
+        idleAgain();
+      }}
+      onFocus={focus}
+      onBlur={blur}
+      onKeyDown={(event) => {
+        dismiss(event);
+        idleAgain();
+      }}
+    >
+      <PlayerButton
+        ref={button}
+        aria-label={silent ? "Unmute" : "Mute"}
+        aria-pressed={silent}
+        onPointerDown={(event) => {
+          pressedWith.current = event.pointerType;
+        }}
+        // A key's click is the keyboard's, whatever pointer last pressed without clicking.
+        onKeyDown={() => {
+          pressedWith.current = null;
+        }}
+        onClick={toggleMute}
+      >
+        {silent ? (
+          <VolumeXIcon strokeWidth={1.75} aria-hidden />
+        ) : volume !== null && volume < 0.5 ? (
+          <Volume1Icon strokeWidth={1.75} aria-hidden />
+        ) : (
+          <Volume2Icon strokeWidth={1.75} aria-hidden />
+        )}
+      </PlayerButton>
+      {open && settable ? (
+        // The padding under the box bridges the gap to the button, so the pointer stays inside.
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 pb-4">
+          <Slider.Root
+            orientation="vertical"
+            min={0}
+            max={100}
+            step={1}
+            largeStep={10}
+            value={shown}
+            onValueChange={(next) => {
+              idleAgain();
+              move(next);
+              onVolumeChange(next / 100);
+            }}
+            onValueCommitted={(next) => {
+              move(null);
+              onVolumeCommit?.(next / 100);
+            }}
+            className="flex h-35 w-11 justify-center rounded-control border border-hairline bg-surface-raised py-4 shadow-overlay"
+          >
+            <Slider.Control
+              data-slot="volume-slider"
+              onPointerDown={(event) => {
+                if (event.button === 0) hold("drag", true);
+              }}
+              className="flex h-full w-full cursor-pointer touch-none justify-center"
+            >
+              <Slider.Track className="relative h-full w-1 rounded-bar bg-text/25">
+                <Slider.Indicator className="w-1 rounded-bar bg-accent" />
+                <Slider.Thumb
+                  aria-label="Volume"
+                  getAriaValueText={(_, value) =>
+                    muted && moving === null ? "Muted" : `${String(value)}%`
+                  }
+                  className="size-3.5 rounded-pill bg-accent outline-none focus-visible:ring-2 focus-visible:ring-text"
+                />
+              </Slider.Track>
+            </Slider.Control>
+          </Slider.Root>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * The player's bottom controls over a dark gradient: scrubber and remaining time, transport on the
  * left, the title in the middle, and next episode, tracks, room and fullscreen on the right.
@@ -273,6 +612,10 @@ function ProgressLine({
  * @param locked - Replaces the transport and the scrubber with a lock line, such as `Only Alex
  *   can pause or seek`, for a room guest.
  * @param roomActive - The room panel is open, so its button shows as active.
+ * @param volume - The level for the slider beside mute, or null where the page cannot set it
+ *   ({@link VolumeControl}).
+ * @param episodes - The Episodes control, usually an `EpisodePopover` trigger; shows beside next
+ *   episode.
  */
 export function PlayerControls({
   title,
@@ -280,8 +623,10 @@ export function PlayerControls({
   position,
   duration,
   muted = false,
+  volume = null,
   tracks,
   chapterList,
+  episodes,
   scrub,
   locked,
   roomActive = false,
@@ -289,6 +634,9 @@ export function PlayerControls({
   onSeek,
   onSeekCommit,
   onMuteChange,
+  onVolumeChange,
+  onVolumeCommit,
+  onVolumeOpenChange,
   onNext,
   onRoom,
   onFullscreen,
@@ -299,8 +647,10 @@ export function PlayerControls({
   readonly position: number;
   readonly duration: number;
   readonly muted?: boolean;
+  readonly volume?: number | null;
   readonly tracks?: ReactNode;
   readonly chapterList?: ReactNode;
+  readonly episodes?: ReactNode;
   readonly scrub?: Pick<
     ComponentProps<typeof Scrubber>,
     "describe" | "chapters" | "preview" | "onPreviewStart"
@@ -311,6 +661,10 @@ export function PlayerControls({
   readonly onSeek: (seconds: number) => void;
   readonly onSeekCommit?: ((seconds: number) => void) | undefined;
   readonly onMuteChange?: ((muted: boolean) => void) | undefined;
+  readonly onVolumeChange?: ((volume: number) => void) | undefined;
+  readonly onVolumeCommit?: ((volume: number) => void) | undefined;
+  /** Whether something holds the volume slider open, so the controls can stay up meanwhile. */
+  readonly onVolumeOpenChange?: ((open: boolean) => void) | undefined;
   readonly onNext?: (() => void) | undefined;
   readonly onRoom?: (() => void) | undefined;
   readonly onFullscreen?: (() => void) | undefined;
@@ -368,17 +722,14 @@ export function PlayerControls({
             </span>
           )}
           {onMuteChange === undefined ? null : (
-            <PlayerButton
-              aria-label={muted ? "Unmute" : "Mute"}
-              aria-pressed={muted}
-              onClick={() => onMuteChange(!muted)}
-            >
-              {muted ? (
-                <VolumeXIcon strokeWidth={1.75} aria-hidden />
-              ) : (
-                <Volume2Icon strokeWidth={1.75} aria-hidden />
-              )}
-            </PlayerButton>
+            <VolumeControl
+              volume={volume}
+              muted={muted}
+              onMuteChange={onMuteChange}
+              onVolumeChange={onVolumeChange}
+              onVolumeCommit={onVolumeCommit}
+              onOpenChange={onVolumeOpenChange}
+            />
           )}
         </div>
         <p className="truncate text-center font-sans text-lead/body font-semibold">{title}</p>
@@ -388,6 +739,7 @@ export function PlayerControls({
               <SkipNextGlyph />
             </PlayerButton>
           )}
+          {episodes}
           {chapterList}
           {tracks}
           {onRoom === undefined ? null : (
@@ -409,6 +761,11 @@ export function PlayerControls({
       </div>
     </div>
   );
+}
+
+/** The stacked-cards glyph of the Episodes button. */
+export function EpisodesGlyph() {
+  return <GalleryVerticalEndIcon strokeWidth={1.75} aria-hidden />;
 }
 
 /** The captions glyph used by the audio and subtitles button. */

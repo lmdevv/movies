@@ -112,6 +112,8 @@ export interface RemotePlayer {
   readonly isMediaLoaded: boolean;
   readonly isPaused: boolean;
   readonly isMuted: boolean;
+  /** False for a receiver whose volume is fixed, such as one a TV sets over HDMI. */
+  readonly canControlVolume: boolean;
   readonly duration: number;
   readonly playerState: string | null;
   currentTime: number;

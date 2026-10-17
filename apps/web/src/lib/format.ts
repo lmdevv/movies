@@ -52,6 +52,13 @@ export const facts = (...parts: ReadonlyArray<string | number | null | undefined
     .flatMap((part) => (part === null || part === undefined || part === "" ? [] : [String(part)]))
     .join(" · ");
 
+/** `52m · 41m left`, or `52m · File missing` for an episode with nothing on disk. */
+export const episodeRuntimeFacts = (episode: Episode): string =>
+  facts(
+    episode.runtimeMs === null ? null : formatRuntime(episode.runtimeMs),
+    episode.available ? progressLabel(episode.progress) : "File missing",
+  );
+
 /** `2024 · 2h 46m`, the line under a poster in a grid. */
 export const titleFacts = (title: TitleCard): string =>
   facts(title.year, title.runtimeMs === null ? null : formatRuntime(title.runtimeMs));
