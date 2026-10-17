@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { PLAYER_SILENCE_MS } from "@movies/contracts/clock";
+import { HOST_ABANDON_TIMEOUT_MS, PLAYER_SILENCE_MS } from "@movies/contracts/clock";
 import type { AnyCommand } from "@movies/contracts/command";
 import type { CommandArgs } from "@movies/contracts/commands";
 import { commands } from "@movies/contracts/commands";
@@ -25,7 +25,11 @@ import type {
   UserId,
 } from "@movies/contracts/ids";
 import type { CatalogFile, WatchStateImport } from "@movies/contracts/models/migration-service";
-import { DeviceId as DeviceIdSchema, JobId as JobIdSchema } from "@movies/contracts/ids";
+import {
+  DeviceId as DeviceIdSchema,
+  JobId as JobIdSchema,
+  RoomId as RoomIdSchema,
+} from "@movies/contracts/ids";
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import {
   type ScannedEpisode as ScannedEpisodeSchema,
@@ -454,6 +458,10 @@ const catalogFiles = async (session: Session): Promise<ReadonlyArray<CatalogFile
 };
 
 const at = (offset: number) => EpochMillis.make(1_760_000_000_000 + offset);
+
+/** The room a row of `tableLines("rooms")` names `hostDeviceId` in. */
+const roomOf = (hostDeviceId: string): RoomId =>
+  RoomIdSchema.make(idOf(tableLines("rooms").find((line) => line.includes(hostDeviceId)) ?? "{}"));
 
 /** The room's member on `deviceId`, as the owner, the rooms' host, reads the room. */
 const memberOn = async (fixture: Fixture, roomId: RoomId, deviceId: DeviceId) => {
@@ -2469,6 +2477,65 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       });
       await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
     }, 30_000);
+
+    it("ends a room nobody has played for half an hour, though its host browses the app", async () => {
+      const owner = await run(fixture.owner, "account.viewer", {});
+      const file = await fileAt(fixture, `/stack-${id}/open/all-ages.mp4`);
+      const now = Date.now();
+      const longAgo = now - HOST_ABANDON_TIMEOUT_MS - 60_000;
+      const idle = `idle-host-${id}`;
+      const played = `played-host-${id}`;
+
+      // Both hosts send away heartbeats; only one has played the room lately.
+      importDocuments(
+        "rooms",
+        [idle, played].map((hostDeviceId) =>
+          JSON.stringify({
+            titleId: fixture.titles.allAges,
+            episodeId: null,
+            fileId: file.fileId,
+            hostUserId: owner.user.id,
+            hostProfileId: fixture.ownerProfile,
+            hostDeviceId,
+            status: "paused",
+            positionAtAnchorMs: 0,
+            anchorServerTime: now,
+            playbackRate: 1,
+            revision: 1,
+            hostLastSeenAt: now,
+            hostAway: false,
+          }),
+        ),
+      );
+
+      importDocuments(
+        "roomMembers",
+        [
+          { deviceId: idle, watchedAt: longAgo },
+          { deviceId: played, watchedAt: now - 60_000 },
+        ].map(({ deviceId, watchedAt }) =>
+          JSON.stringify({
+            roomId: roomOf(deviceId),
+            userId: owner.user.id,
+            profileId: fixture.ownerProfile,
+            deviceId,
+            role: "host",
+            joinedAt: longAgo,
+            lastSeenAt: now,
+            presence: "away",
+            watchedAt,
+          }),
+        ),
+      );
+      runInternal("maintenance:sweepRooms");
+
+      expect(rowOf("rooms", idle).status).toBe("ended");
+      expect(rowOf("rooms", played).status).toBe("paused");
+      await run(fixture.owner, "rooms.end", {
+        roomId: roomOf(played),
+        deviceId: DeviceIdSchema.make(played),
+      });
+    }, 60_000);
 
     it("keeps kids profiles out of rooms for titles they cannot see", async () => {
       const room = await run(fixture.owner, "rooms.create", {

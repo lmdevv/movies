@@ -2,7 +2,12 @@ import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
 import type { ClockAnchor } from "../convex/lib/roomClock";
-import { awayHostClock, livePosition } from "../convex/lib/roomClock";
+import {
+  awayHostClock,
+  HOST_ABANDON_TIMEOUT_MS,
+  isAbandoned,
+  livePosition,
+} from "../convex/lib/roomClock";
 
 const NOW = 1_760_000_000_000;
 
@@ -69,6 +74,36 @@ describe("awayHostClock", () => {
         );
         expect(paused.positionAtAnchorMs).toBeLessThanOrEqual(livePosition(clock, NOW));
       }),
+    );
+  });
+});
+
+describe("isAbandoned", () => {
+  const present = { hostLastSeenAt: NOW - 5_000 };
+  const longAgo = NOW - HOST_ABANDON_TIMEOUT_MS - 1;
+
+  it("keeps a room someone played within the timeout", () => {
+    expect(
+      isAbandoned(
+        present,
+        [
+          { joinedAt: longAgo, watchedAt: longAgo },
+          { joinedAt: longAgo, watchedAt: NOW - 60_000 },
+        ],
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
+  it("ends a room everyone left to browse, though the host is present", () => {
+    expect(isAbandoned(present, [{ joinedAt: longAgo, watchedAt: longAgo }], NOW)).toBe(true);
+  });
+
+  it("counts joining for rows from before players reported, and ends a silent host's room", () => {
+    expect(isAbandoned(present, [{ joinedAt: NOW - 60_000 }], NOW)).toBe(false);
+    expect(isAbandoned(present, [{ joinedAt: longAgo }], NOW)).toBe(true);
+    expect(isAbandoned({ hostLastSeenAt: longAgo }, [{ joinedAt: NOW, watchedAt: NOW }], NOW)).toBe(
+      true,
     );
   });
 });

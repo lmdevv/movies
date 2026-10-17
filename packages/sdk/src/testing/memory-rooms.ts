@@ -84,8 +84,16 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
   const published = yield* SubscriptionRef.make(initial);
   const connected = yield* SubscriptionRef.make(true);
   const calls = yield* Ref.make<ReadonlyArray<string>>([]);
-  // When each device's player last sent a watching heartbeat.
-  const watched = yield* Ref.make<ReadonlyMap<string, number>>(new Map());
+
+  // When each device's player last reported: joining (creating, for the host), then watching
+  // heartbeats.
+  const watched = yield* Ref.make<ReadonlyMap<string, number>>(
+    new Map([
+      [initial.hostDeviceId, initial.createdAt],
+      ...initial.members.map((member) => [member.deviceId, member.joinedAt] as const),
+    ]),
+  );
+
   const latency = Duration.millis(options.latencyMs);
 
   const commit = (room: Room): Effect.Effect<void> =>

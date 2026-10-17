@@ -301,22 +301,12 @@ const useScoped = <A, E>(
 /**
  * Keeps this device's place in a room while mounted, outside the room's player: heartbeats that
  * say the device is away, browsing, so the server neither drops it nor counts it as watching.
- * Null sends nothing. It stops on unmount, or by itself once the device is no longer in the room.
+ * Null sends nothing. It stops on unmount; pass null once the device is no longer in the room.
  */
 export const useRoomPresence = (input: RoomPresence.RoomPresenceOptions | null): void => {
   const key = input === null ? null : `${input.roomId}:${input.deviceId}`;
 
-  useScoped(key, () =>
-    input === null
-      ? Effect.void
-      : RoomPresence.keepAway(input).pipe(
-          Effect.catch((error) =>
-            Effect.logInfo("RoomPresence.stopped", error).pipe(
-              Effect.annotateLogs({ roomId: input.roomId }),
-            ),
-          ),
-        ),
-  );
+  useScoped(key, () => (input === null ? Effect.void : RoomPresence.keepAway(input)));
 };
 
 /** What `useRoomSync` needs. */

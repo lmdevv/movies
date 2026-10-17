@@ -20,7 +20,7 @@ export const HOST_PRESENCE_TIMEOUT_MS = 20_000;
 /** A guest silent this long leaves the member list. */
 export const MEMBER_PRESENCE_TIMEOUT_MS = 60_000;
 
-/** A room whose host has been away this long ends. */
+/** A room whose host has been away this long, or that no member's player played this long, ends. */
 export const HOST_ABANDON_TIMEOUT_MS = 30 * 60_000;
 
 /** A host heartbeat re-anchors only when the host drifted further than this from the clock. */
@@ -70,6 +70,24 @@ export const hostReading = (
   const carriedMs = room.status === "playing" ? Math.max(0, ageMs) * room.playbackRate : 0;
 
   return { positionMs: positionMs + carriedMs, thresholdMs: HOST_REANCHOR_THRESHOLD_MS };
+};
+
+/**
+ * Whether a live room is abandoned at `now`: its host silent for `HOST_ABANDON_TIMEOUT_MS`, or no
+ * member's player reporting for that long (`watchedAt`, else when it joined). Away heartbeats keep
+ * places, not rooms: a room everyone left to browse ends as one the host left.
+ */
+export const isAbandoned = (
+  room: Pick<Doc<"rooms">, "hostLastSeenAt">,
+  members: ReadonlyArray<Pick<Doc<"roomMembers">, "watchedAt" | "joinedAt">>,
+  now: number,
+): boolean => {
+  const lastPlayed = Math.max(...members.map((member) => member.watchedAt ?? member.joinedAt));
+
+  return (
+    now - room.hostLastSeenAt > HOST_ABANDON_TIMEOUT_MS ||
+    (members.length > 0 && now - lastPlayed > HOST_ABANDON_TIMEOUT_MS)
+  );
 };
 
 /** A paused clock at `positionAtAnchorMs`, anchored at the heartbeat that paused it. */

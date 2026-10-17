@@ -54,7 +54,8 @@ type MenuState = { readonly open: false } | { readonly open: true; readonly star
  *
  * While this device is in a watch room with the active profile, the bars show the room pill, a
  * link back into the room: "Room · N" at `md` and up; on phones the compact form beside the
- * avatar, or over the artwork on a hero route without the phone title (a title's page).
+ * avatar, and on pages without a phone title of their own over a hero's artwork (a title's page)
+ * or above the page (a person). Search, whose Cancel holds that corner, leaves it to the bars.
  *
  * A route opts into the transparent bar over its billboard with `staticData: { hero: true }`, and
  * out of the phone large title with `staticData: { phoneTitle: false }`.
@@ -189,14 +190,21 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
         />
       ) : null}
 
-      {phoneTitle || !hero ? null : (
-        // Over the artwork, level with the page's own Back button, and scrolling with it.
+      {(phoneTitle && title !== "") || !hero ? null : (
+        // Over the artwork of a hero page without the phone title (a title's page, a collection),
+        // level with a title page's Back button, and scrolling with it.
         <div className="on-media absolute top-[max(env(safe-area-inset-top),var(--spacing-12))] right-4 z-40 flex h-10 items-center md:hidden">
           {roomPill(true, "bg-glass backdrop-blur-xl")}
         </div>
       )}
 
       <main className={cn("pb-32 md:pb-20", !hero && "md:pt-17")}>
+        {phoneTitle && title === "" && !hero && watchRoom?.returnable === true ? (
+          // A page without a title of its own (a person, a genre) still offers the way back.
+          <div className="flex justify-end px-5 pt-[max(env(safe-area-inset-top),var(--spacing-4))] md:hidden">
+            {roomPill(true)}
+          </div>
+        ) : null}
         {title === "" || !phoneTitle ? null : (
           <LargeTitle
             title={title}

@@ -23,7 +23,10 @@ export const HOST_PRESENCE_TIMEOUT_MS = 20_000;
 /** A guest silent this long is dropped from the member list. */
 export const MEMBER_PRESENCE_TIMEOUT_MS = 60_000;
 
-/** A room whose host has been away this long ends. */
+/**
+ * A room whose host has been away this long ends, as does one no member's player has played this
+ * long: away heartbeats keep places, not rooms.
+ */
 export const HOST_ABANDON_TIMEOUT_MS = 30 * 60_000;
 
 /**

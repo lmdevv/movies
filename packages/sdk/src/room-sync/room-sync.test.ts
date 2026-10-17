@@ -1,9 +1,13 @@
-import { MEMBER_PRESENCE_TIMEOUT_MS, targetPosition } from "@movies/contracts/clock";
+import {
+  MEMBER_PRESENCE_TIMEOUT_MS,
+  PLAYER_SILENCE_MS,
+  targetPosition,
+} from "@movies/contracts/clock";
 import { DeviceId } from "@movies/contracts/ids";
 import type { RoomClock } from "@movies/contracts/models/rooms";
 import { Room, RoomClock as RoomClockSchema } from "@movies/contracts/models/rooms";
 import { EpochMillis, Milliseconds } from "@movies/contracts/units";
-import { Deferred, Effect, Exit, Fiber, Layer, Option, Schema } from "effect";
+import { Deferred, Effect, Fiber, Layer, Option, Schema } from "effect";
 import type { Scope } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
@@ -632,7 +636,8 @@ describe("room presence while browsing", () => {
         const frozen = (yield* rooms.room).clock;
 
         yield* Effect.forkChild(keepAway({ roomId: (yield* rooms.room).id, deviceId: HOST }));
-        yield* advance(1_000);
+        // Once the host's player has been silent long enough for away to count.
+        yield* advance(PLAYER_SILENCE_MS + DEFAULT_TUNABLES.heartbeatIntervalMs);
 
         expect((yield* rooms.room).clock).toMatchObject({
           status: "paused",
@@ -660,19 +665,17 @@ describe("room presence while browsing", () => {
       }),
     ));
 
-  it("stops once the device is no longer in the room", () =>
+  it("keeps trying through a refusal, as while another tab's player rejoins", () =>
     scenario(playingForAMinute, ({ rooms }) =>
       Effect.gen(function* () {
         const fiber = yield* Effect.forkChild(
           keepAway({ roomId: (yield* rooms.room).id, deviceId: DeviceId.make("left-device") }),
         );
 
-        yield* advance(1_000);
-        const exit = yield* Fiber.await(fiber);
+        yield* advance(3 * DEFAULT_TUNABLES.heartbeatIntervalMs + 1_000);
 
-        expect(Exit.isFailure(exit)).toBe(true);
-        yield* advance(3 * DEFAULT_TUNABLES.heartbeatIntervalMs);
-        expect(yield* heartbeats(rooms)).toBe(1);
+        expect(fiber.pollUnsafe()).toBeUndefined();
+        expect(yield* heartbeats(rooms)).toBe(4);
       }),
     ));
 });
@@ -749,6 +752,43 @@ describe("a host coming back to a playing room", () => {
         yield* advance(1_000);
 
         expect((yield* rooms.room).clock.revision).toBeGreaterThan(4);
+      }),
+    ));
+
+  it("publishes its own seek while catching up", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        const before = (yield* rooms.room).clock;
+        const host = yield* makeFakePlayer((yield* sharedPosition(rooms)) - 4_000);
+
+        host.userPlay();
+        yield* start(rooms, HOST, host);
+        host.stall();
+        yield* advance(1_000);
+        host.recover();
+        host.userSeek(host.positionMs() + 30_000);
+        yield* advance(1_000);
+
+        const after = (yield* rooms.room).clock;
+
+        expect(after.revision).toBeGreaterThan(before.revision);
+        expect(Math.abs(yield* driftOf(rooms, host))).toBeLessThanOrEqual(
+          DEFAULT_TUNABLES.hostSeekMs,
+        );
+      }),
+    ));
+
+  it("stops catching up when the platform refuses to play", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        const host = yield* makeFakePlayer((yield* sharedPosition(rooms)) - 4_000);
+
+        host.blockAutoplay(true);
+        const sync = yield* start(rooms, HOST, host);
+
+        yield* advance(2_000);
+
+        expect((yield* current(sync)).follow).toBe("following");
       }),
     ));
 });
