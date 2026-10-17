@@ -17,16 +17,20 @@ import { Spinner } from "./spinner";
 
 function Leading({
   leading,
+  checked,
   running,
 }: {
   readonly leading: CommandLeading | undefined;
+  readonly checked: boolean;
   readonly running: boolean;
 }) {
   return (
     <span aria-hidden className="flex size-5 shrink-0 items-center justify-center">
-      {leading === undefined ? null : leading.kind === "icon" ? (
+      {checked ? (
+        <CheckIcon className="size-4 text-text" strokeWidth={1.75} />
+      ) : leading === undefined ? null : leading.kind === "icon" ? (
         <leading.icon className={cn("size-4", running ? "text-text" : "text-text-muted")} />
-      ) : leading.kind === "poster" ? (
+      ) : (
         <img
           src={leading.src}
           alt=""
@@ -34,8 +38,6 @@ function Leading({
           decoding="async"
           className="h-5 w-3.5 rounded-bar object-cover"
         />
-      ) : (
-        <CheckIcon className="size-4 text-text" strokeWidth={1.75} />
       )}
     </span>
   );
@@ -64,6 +66,7 @@ function CommandRow({
       id={id}
       role="option"
       aria-selected={active}
+      aria-checked={item.checked}
       aria-busy={busy || undefined}
       data-active={active || undefined}
       onPointerMove={active ? undefined : onPoint}
@@ -76,7 +79,7 @@ function CommandRow({
       )}
     >
       <div className="flex items-center gap-3">
-        <Leading leading={item.leading} running={running} />
+        <Leading leading={item.leading} checked={item.checked === true} running={running} />
         <span className="flex min-w-0 flex-1 items-baseline gap-2">
           <span className="truncate text-small/5 text-text">{item.title}</span>
           {item.detail === undefined ? null : (
@@ -122,6 +125,8 @@ function CommandRow({
  *   supply `search`-scoped groups (such as title results) for it.
  * @param start - The id of a submenu in `root` to show when the menu opens, such as a "Switch
  *   profile" list opened by its own shortcut. Going back reaches the root list.
+ * @param container - Where the menu renders, such as the player while it is full screen, where
+ *   nothing outside the full-screen element shows; the body when undefined.
  */
 export function CommandMenu({
   open,
@@ -129,15 +134,36 @@ export function CommandMenu({
   root,
   onQueryChange,
   start,
+  container,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly root: CommandPage;
   readonly onQueryChange?: (query: string, page: CommandPage) => void;
   readonly start?: string | undefined;
+  readonly container?: HTMLElement | undefined;
 }) {
   const [state, dispatch] = useReducer(commandMenuReducer, initialCommandMenuState);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Opening is the one place the menu resets: it starts from the root list, even when it opens
+  // again before its closing animation has ended.
+  const [wasOpen, setWasOpen] = useState(open);
+
+  if (open !== wasOpen) {
+    setWasOpen(open);
+
+    if (open) dispatch({ type: "reset" });
+  }
+
+  // Counts openings, so a command that settles after the menu opened again leaves that one open.
+  // Its spinner (`busyId`) stays across openings, so it cannot run twice at once.
+  const openings = useRef(0);
+
+  useEffect(() => {
+    if (open) openings.current += 1;
+  }, [open]);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const listboxId = useId();
   const frame = currentFrame(state);
@@ -191,10 +217,12 @@ export function CommandMenu({
       return;
     }
 
-    const finish = (): void => {
+    const opening = openings.current;
+
+    const settle = (close: boolean): void => {
       setBusyId(null);
 
-      if (item.keepOpen !== true) onOpenChange(false);
+      if (close && item.keepOpen !== true && openings.current === opening) onOpenChange(false);
     };
 
     const result = item.perform();
@@ -202,12 +230,15 @@ export function CommandMenu({
     if (result instanceof Promise) {
       setBusyId(item.id);
       // A rejected command keeps the menu open; the command reports its own failure.
-      void result.then(finish, () => setBusyId(null));
+      void result.then(
+        () => settle(true),
+        () => settle(false),
+      );
 
       return;
     }
 
-    finish();
+    settle(true);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
@@ -244,14 +275,8 @@ export function CommandMenu({
 
         onOpenChange(next);
       }}
-      onOpenChangeComplete={(isOpen) => {
-        if (isOpen) return;
-
-        dispatch({ type: "reset" });
-        setBusyId(null);
-      }}
     >
-      <Dialog.Portal>
+      <Dialog.Portal container={container}>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-scrim transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
         <Dialog.Popup
           initialFocus={inputRef}

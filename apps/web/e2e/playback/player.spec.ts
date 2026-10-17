@@ -14,7 +14,7 @@ import type { EpisodeId, TitleId } from "@movies/contracts/ids";
 import { MEDIA_ROUTES } from "@movies/contracts/media-playback";
 import type { PlaybackMode } from "@movies/contracts/models/playback";
 import { devices, expect, test } from "@playwright/test";
-import type { BrowserContext, Page } from "@playwright/test";
+import type { BrowserContext, Page, Request } from "@playwright/test";
 
 import { NO_STACK, ownedStack, signInOwner, useSession } from "../admin/session";
 import type { Client } from "../admin/session";
@@ -24,11 +24,15 @@ import {
   adultProfile,
   capture,
   clickScrubber,
+  commandMenu,
   encodeClip,
   episodeNfo,
   expectPlayingPast,
   expectPositionNear,
   firstFrameMs,
+  holdKey,
+  leaveDialog,
+  leaveWithEscape,
   movieNfo,
   offline,
   revealControls,
@@ -253,6 +257,16 @@ const playFromStart = async (name: string, mode: PlaybackMode): Promise<void> =>
   firstFrames.push({ mode, ms: await firstFrameMs(page) });
 };
 
+/** The subtitle track the player shows, with its cue count, or null when none shows. */
+const showingSubtitle = () =>
+  page.getByTestId("player-video").evaluate((element) => {
+    if (!(element instanceof HTMLVideoElement)) return null;
+
+    const track = Array.from(element.textTracks).find((each) => each.mode === "showing");
+
+    return track === undefined ? null : { label: track.label, cues: track.cues?.length ?? 0 };
+  });
+
 const activeRung = (target: Page) =>
   target.getByRole("list", { name: "Playback mode" }).locator('[aria-current="true"]');
 
@@ -318,7 +332,7 @@ test("a direct file plays, answers the keyboard, and lands in Continue watching"
   await player.press("l");
   await player.press("l");
   await expectPlayingPast(page, 21);
-  await player.press("Escape");
+  await leaveWithEscape(page);
   await expect(page).toHaveURL(new RegExp(`/title/${titleId(MOVIES.direct)}$`, "u"));
 
   // In the app, as a viewer would: a reload would cut off the report of where playback stopped.
@@ -354,23 +368,13 @@ test("subtitles show from the track popover and toggle with c; another audio tra
   const panel = page.getByRole("dialog", { name: TRACKS });
 
   await panel.getByRole("radio", { name: "English" }).last().click();
-
-  const showing = () =>
-    page.getByTestId("player-video").evaluate((element) => {
-      if (!(element instanceof HTMLVideoElement)) return null;
-
-      const track = Array.from(element.textTracks).find((each) => each.mode === "showing");
-
-      return track === undefined ? null : { label: track.label, cues: track.cues?.length ?? 0 };
-    });
-
-  await expect.poll(showing).toEqual({ label: "English", cues: 2 });
+  await expect.poll(showingSubtitle).toEqual({ label: "English", cues: 2 });
   await capture(page, "07-02b-subtitles");
   await page.keyboard.press("Escape");
   await page.getByTestId("player").press("c");
-  await expect.poll(showing).toBeNull();
+  await expect.poll(showingSubtitle).toBeNull();
   await page.getByTestId("player").press("c");
-  await expect.poll(showing).toEqual({ label: "English", cues: 2 });
+  await expect.poll(showingSubtitle).toEqual({ label: "English", cues: 2 });
 
   // A track the browser cannot pick from the file needs the media service to remux it.
   const before = streams.length;
@@ -395,8 +399,247 @@ test("subtitles show from the track popover and toggle with c; another audio tra
   );
 
   await page.keyboard.press("Escape");
-  await page.getByTestId("player").press("Escape");
+  await leaveWithEscape(page);
   await stopped;
+});
+
+test("⌘K lists the player's audio, subtitles, and quality, and switches them as the track menu does", async () => {
+  await playFromStart(MOVIES.direct, "direct");
+
+  const { menu, playback } = commandMenu(page);
+  const onPlayer = new RegExp(`/watch/${titleId(MOVIES.direct)}`, "u");
+
+  await page.keyboard.press("ControlOrMeta+k");
+
+  await Promise.all(
+    [
+      /^Pause/u,
+      /^Back 10 seconds/u,
+      /^Forward 10 seconds/u,
+      /^Subtitles/u,
+      /^Audio/u,
+      /^Quality/u,
+      /^Stream info/u,
+      /^Full screen/u,
+    ].map((name) => expect(playback.getByRole("option", { name })).toBeVisible()),
+  );
+
+  await capture(page, "07-11-command-menu-playback");
+
+  // Audio lists both tracks with the playing one checked; French remuxes, as from the track menu.
+  await playback.getByRole("option", { name: /^Audio/u }).click();
+
+  const audio = menu.getByRole("listbox", { name: "Audio" });
+
+  await expect(audio.getByRole("option")).toHaveText([/^English/u, /^French/u]);
+  await expect(audio.getByRole("option", { name: /^English/u })).toBeChecked();
+
+  const before = streams.length;
+
+  await audio.getByRole("option", { name: /^French/u }).click();
+  await expect(menu).toBeHidden();
+  await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe("remux");
+  await revealControls(page);
+  await page.getByRole("button", { name: TRACKS }).click();
+  await expect(
+    page.getByRole("dialog", { name: TRACKS }).getByRole("radio", { name: "French" }),
+  ).toBeChecked();
+  await page.keyboard.press("Escape");
+
+  // Subtitles: Off is checked until the English track is chosen, which then shows.
+  await page.keyboard.press("ControlOrMeta+k");
+  await playback.getByRole("option", { name: /^Subtitles/u }).click();
+
+  const subtitles = menu.getByRole("listbox", { name: "Subtitles" });
+
+  await expect(subtitles.getByRole("option")).toHaveText(["Off", "English"]);
+  await expect(subtitles.getByRole("option", { name: "Off" })).toBeChecked();
+  await subtitles.getByRole("option", { name: "English" }).click();
+  await expect.poll(showingSubtitle).toEqual({ label: "English", cues: 2 });
+
+  // Quality shows the current choice. Escape goes back a level, then closes; neither leaves.
+  await page.keyboard.press("ControlOrMeta+k");
+  await playback.getByRole("option", { name: /^Quality/u }).click();
+  await expect(
+    menu.getByRole("listbox", { name: "Quality" }).getByRole("option", { name: "Auto" }),
+  ).toBeChecked();
+  await page.keyboard.press("Escape");
+  await expect(playback).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(leaveDialog(page)).toBeHidden();
+  await expect(page).toHaveURL(onPlayer);
+
+  // Full screen: the menu opens inside the player, and its commands work there.
+  await page.getByTestId("player").press("f");
+  await expect
+    .poll(() => page.evaluate(() => document.fullscreenElement?.getAttribute("data-testid")))
+    .toBe("player");
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          document.fullscreenElement?.contains(
+            document.querySelector('[data-slot="command-menu"]'),
+          ) ?? false,
+      ),
+    )
+    .toBe(true);
+
+  // Full screen ending under the open menu (as the browser's own Escape does) leaves it open, with
+  // the keyboard still in its input.
+  const search = menu.getByRole("combobox");
+
+  await expect(search).toBeFocused();
+  await page.evaluate(() => document.exitFullscreen());
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await expect(playback).toBeVisible();
+  await expect(search).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(leaveDialog(page)).toBeHidden();
+
+  // Back to full screen: the menu's commands work there.
+  await page.getByTestId("player").press("f");
+  await expect
+    .poll(() => page.evaluate(() => document.fullscreenElement?.getAttribute("data-testid")))
+    .toBe("player");
+  await page.keyboard.press("ControlOrMeta+k");
+  await playback.getByRole("option", { name: /^Pause/u }).click();
+  await expect.poll(async () => (await videoState(page)).paused).toBe(true);
+
+  // Escape leaves full screen and nothing more: the player stays, and nothing asks.
+  await page.getByTestId("player").press("Escape");
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await expect(leaveDialog(page)).toBeHidden();
+  await expect(page).toHaveURL(onPlayer);
+
+  // Away from the player the menu has no player commands.
+  await leaveWithEscape(page);
+  await expect(page.getByRole("heading", { name: MOVIES.direct, level: 1 })).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(menu).toBeVisible();
+  await expect(playback).toHaveCount(0);
+  await expect(menu.getByRole("option", { name: /^Audio/u })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+});
+
+test("Escape asks before leaving: open layers close first, Stay plays on, Leave goes back", async () => {
+  await playFromStart(MOVIES.remux, "remux");
+
+  const player = page.getByTestId("player");
+  const leave = leaveDialog(page);
+  const stay = leave.getByRole("button", { name: "Stay" });
+  const onPlayer = new RegExp(`/watch/${titleId(MOVIES.remux)}`, "u");
+  const paused = async () => (await videoState(page)).paused;
+
+  // With nothing open, Escape asks and pauses, with focus on Stay. Escape again plays on.
+  await player.press("Escape");
+  await expect(leave).toBeVisible();
+  await expect(stay).toBeFocused();
+  await expect.poll(paused).toBe(true);
+  await expect(leave).toHaveCSS("opacity", "1");
+  await capture(page, "07-12-leave-playback");
+  await page.keyboard.press("Escape");
+  await expect(leave).toBeHidden();
+  await expect(player).toBeFocused();
+  await expect.poll(paused).toBe(false);
+
+  // From a focused control, focus goes back to that control.
+  const streamInfo = page.getByRole("button", { name: "Stream info" });
+
+  await revealControls(page);
+  await streamInfo.focus();
+  await page.keyboard.press("Escape");
+  await expect(stay).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(leave).toBeHidden();
+  await expect(streamInfo).toBeFocused();
+
+  // Stay and a click outside the dialog play on too.
+  await player.press("Escape");
+  await stay.click();
+  await expect(leave).toBeHidden();
+  await expect.poll(paused).toBe(false);
+  await player.press("Escape");
+  await expect(leave).toBeVisible();
+  await page.mouse.click(8, 8);
+  await expect(leave).toBeHidden();
+  await expect.poll(paused).toBe(false);
+
+  // Paused before asking, Stay keeps it paused.
+  await player.press("k");
+  await expect.poll(paused).toBe(true);
+  await player.press("Escape");
+  await stay.click();
+  await expect(leave).toBeHidden();
+  await page.waitForTimeout(500);
+  expect(await paused()).toBe(true);
+  await player.press("k");
+  await expect.poll(paused).toBe(false);
+
+  // An open layer takes Escape first, even held down.
+  const panel = page.getByRole("dialog", { name: TRACKS });
+
+  await revealControls(page);
+  await page.getByRole("button", { name: TRACKS }).click();
+  await expect(panel).toBeVisible();
+
+  await holdKey(page, "Escape", 4);
+  await expect(panel).toBeHidden();
+  await expect(leave).toBeHidden();
+
+  const { menu } = commandMenu(page);
+
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(menu).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(leave).toBeHidden();
+
+  const info = page.getByRole("region", { name: "Stream info" });
+
+  await revealControls(page);
+  await page.getByRole("button", { name: "Stream info" }).click();
+  await expect(info).toBeVisible();
+  await player.press("Escape");
+  await expect(info).toBeHidden();
+  await expect(leave).toBeHidden();
+  await expect(page).toHaveURL(onPlayer);
+  await expect.poll(paused).toBe(false);
+
+  // Held with nothing open, Escape asks once, and the dialog stays.
+  await player.focus();
+
+  await holdKey(page, "Escape", 4);
+  await expect(leave).toBeVisible();
+  await page.waitForTimeout(500);
+  await expect(leave).toBeVisible();
+
+  // From the keyboard: Tab moves from Stay to Leave, Enter leaves, and the stream stops once.
+  const stops: Array<string> = [];
+
+  const onRequest = (request: Request) => {
+    if (request.url().endsWith(MEDIA_ROUTES.stop)) stops.push(request.url());
+  };
+
+  page.on("request", onRequest);
+  await page.keyboard.press("Tab");
+  await expect(leave.getByRole("button", { name: "Leave", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(new RegExp(`/title/${titleId(MOVIES.remux)}$`, "u"));
+  await page.waitForTimeout(1_000);
+  page.off("request", onRequest);
+  expect(stops).toHaveLength(1);
+
+  // The visible Back button leaves without asking.
+  await playFromStart(MOVIES.remux, "remux");
+  await revealControls(page);
+  await page.getByRole("button", { name: "Back to details" }).click();
+  await expect(page).toHaveURL(new RegExp(`/title/${titleId(MOVIES.remux)}$`, "u"));
+  await expect(leave).toHaveCount(0);
 });
 
 test("a picture subtitle burns into a transcode and back out; a lower quality transcodes down", async () => {
@@ -557,6 +800,14 @@ test("the next episode plays itself after the countdown; Watch credits cancels i
 
   const credits = page.getByRole("button", { name: "Watch credits" });
 
+  // While "Leave playback?" asks, the ten-second countdown waits instead of moving on behind it.
+  await expect(credits).toBeVisible({ timeout: 10_000 });
+  await player.press("Escape");
+  await expect(leaveDialog(page)).toBeVisible();
+  await page.waitForTimeout(11_000);
+  await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"));
+  await page.keyboard.press("Escape");
+  await expect(leaveDialog(page)).toBeHidden();
   await credits.click();
   await expect(credits).toBeHidden();
   await expect
@@ -588,5 +839,10 @@ test("a phone plays in its own layout, with brightness and volume sliders", asyn
   await expect(handset.getByRole("slider", { name: "Volume" })).toBeVisible();
   await expect(handset.getByRole("button", { name: "Close player" })).toBeVisible();
   await capture(handset, "07-10-ios-player");
+
+  // Close is already deliberate, so it leaves without asking.
+  await handset.getByRole("button", { name: "Close player" }).tap();
+  await expect(handset).toHaveURL(new RegExp(`/title/${titleId(MOVIES.direct)}$`, "u"));
+  await expect(leaveDialog(handset)).toHaveCount(0);
   await phone.close();
 });

@@ -25,6 +25,9 @@ const FINISHED = "FINISHED";
 
 const ERROR = "ERROR";
 
+/** How long a play or pause may take to show in the receiver's mirror before it counts as lost. */
+const TOGGLE_TIMEOUT_MS = 5_000;
+
 /** What the controls draw while casting. */
 export interface RemoteState {
   readonly positionSeconds: number;
@@ -46,6 +49,16 @@ export class CastPlayer implements PlayerPort {
   readonly #listeners = new Set<(event: PlayerEvent) => void>();
   readonly #watchers = new Set<() => void>();
   #pending: number | null = null;
+  /**
+   * Whether the receiver should be paused (true) or playing (false), until its mirror shows it.
+   * Commands only toggle and the mirror lags, so what was asked is kept here and reached one toggle
+   * at a time.
+   */
+  #wanted: boolean | null = null;
+  /** The pause or play listeners last heard, so they hear each change once. */
+  #reported: boolean | null = null;
+  /** A toggle is on its way; the next pause or play the mirror reports is its outcome. */
+  #toggling: ReturnType<typeof setTimeout> | null = null;
   #moving: AbortController | null = null;
   #ended = false;
   /** Where the receiver was when this player was disposed; reports read it from then on. */
@@ -86,6 +99,8 @@ export class CastPlayer implements PlayerPort {
   dispose(): void {
     this.#final = this.positionMs();
     this.#moving?.abort();
+    this.#settleToggle();
+    this.#wanted = null;
     this.#controller.removeEventListener(this.#changeEvent, this.#onChange);
     this.#listeners.clear();
     this.#watchers.clear();
@@ -137,9 +152,16 @@ export class CastPlayer implements PlayerPort {
       this.#last = { positionMs: this.#remote.currentTime * 1000, paused: this.#remote.isPaused };
     }
 
+    if (change.field === "isPaused") {
+      this.#settleToggle();
+      this.#reconcile();
+    }
+
+    // Every pause and play the receiver goes through is reported, even one it is being toggled
+    // away from: the room engine hears one echo for each pause it asks for.
     if (change.field === "isPaused" && this.#pending === null) {
       if (change.value === false) this.#ended = false;
-      this.#emit(change.value === true ? "paused" : "playing");
+      this.#reportPaused(change.value === true);
     }
 
     if (change.field === "playerState") {
@@ -169,11 +191,15 @@ export class CastPlayer implements PlayerPort {
     return this.#remote.isConnected ? this.#remote.currentTime * 1000 : this.#last.positionMs;
   }
 
+  /** Paused as last asked while that is on its way to the receiver, else as its mirror says. */
   readonly isPaused = (): boolean =>
-    this.#remote.isConnected ? this.#remote.isPaused : this.#last.paused;
+    this.#remote.isConnected ? (this.#wanted ?? this.#remote.isPaused) : this.#last.paused;
 
+  /** Seeking, an asked play the receiver hasn't started yet, or the receiver buffering. */
   readonly isBuffering = (): boolean =>
-    this.#pending !== null || (!this.#remote.isPaused && this.#remote.playerState === BUFFERING);
+    this.#pending !== null ||
+    (this.#wanted === false && this.#remote.isPaused) ||
+    (!this.#remote.isPaused && this.#remote.playerState === BUFFERING);
 
   readonly playbackRate = (): number => 1;
 
@@ -205,14 +231,58 @@ export class CastPlayer implements PlayerPort {
   }
 
   readonly play = (): Promise<void> => {
-    if (this.#remote.isPaused) this.#controller.playOrPause();
+    this.#ask(false);
 
     return Promise.resolve();
   };
 
   readonly pause = (): void => {
-    if (!this.#remote.isPaused) this.#controller.playOrPause();
+    this.#ask(true);
   };
+
+  /** Asks for the receiver to be `paused` (or playing); reached as soon as no toggle is on its way. */
+  #ask(paused: boolean): void {
+    this.#wanted = paused;
+    this.#reconcile();
+    this.#refresh();
+  }
+
+  /**
+   * Sends one toggle if the receiver isn't where it was asked to be and none is on its way. A
+   * toggle whose outcome never shows (a lost command) is given up on after a while, and the mirror
+   * is trusted again.
+   */
+  #reconcile(): void {
+    if (this.#wanted === null || this.#toggling !== null) return;
+
+    // A receiver that is gone takes no commands; its mirror resets to paused.
+    if (!this.#remote.isConnected || this.#remote.isPaused === this.#wanted) {
+      this.#wanted = null;
+
+      return;
+    }
+
+    this.#toggling = setTimeout(() => {
+      this.#toggling = null;
+      this.#wanted = null;
+
+      if (this.#pending === null) this.#reportPaused(this.#remote.isPaused);
+      this.#refresh();
+    }, TOGGLE_TIMEOUT_MS);
+    this.#controller.playOrPause();
+  }
+
+  /** Tells listeners the receiver is `paused` (or playing), unless that is what they last heard. */
+  #reportPaused(paused: boolean): void {
+    if (paused === this.#reported) return;
+    this.#reported = paused;
+    this.#emit(paused ? "paused" : "playing");
+  }
+
+  #settleToggle(): void {
+    if (this.#toggling !== null) clearTimeout(this.#toggling);
+    this.#toggling = null;
+  }
 
   /** Stops the receiver's media; the device stays connected. */
   stopReceiver(): void {

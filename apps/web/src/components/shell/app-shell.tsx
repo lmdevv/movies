@@ -78,7 +78,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
       ? `For ${profile.name}`
       : (current?.label ?? (pathname.startsWith("/settings") ? "Settings" : ""));
 
-  const root = useCommandRoot({ navigate, query, profile, profiles, scopes });
+  const root = useCommandRoot({ navigate, query, profile, profiles, scopes, player: null });
 
   const openMenu = useCallback((start?: string) => {
     setMenu(start === undefined ? { open: true } : { open: true, start });

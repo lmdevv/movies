@@ -14,7 +14,6 @@ import { loadDeviceId } from "@/lib/device-storage";
 import { toastFailure } from "@/lib/failure";
 
 import type { CommandContext, CommandContribution } from "./contribution";
-import { usePlayerCommands } from "./playback";
 
 const decodeRoomId = Schema.decodeUnknownOption(RoomId);
 
@@ -27,8 +26,7 @@ const typedRoomId = (query: string): Option.Option<RoomId> => {
 
 /** Room actions for the menu. */
 export const useRoomCommands = (context: CommandContext): CommandContribution => {
-  const { navigate, query } = context;
-  const player = usePlayerCommands();
+  const { navigate, query, player } = context;
   const deviceId = useMemo(() => loadDeviceId(), []);
   const leave = useCommand("rooms.leave");
   const current = useCommandQuery("rooms.current", player === null ? { deviceId } : "skip");
@@ -74,25 +72,22 @@ export const useRoomCommands = (context: CommandContext): CommandContribution =>
                 leading: { kind: "icon", icon: LinkIcon },
                 perform: player.room.copyLink,
               },
-              ...(player.room.end === null
-                ? []
-                : [
-                    {
-                      kind: "action" as const,
-                      id: "room:end",
-                      title: "End room",
-                      keywords: ["close", "stop"],
-                      leading: { kind: "icon" as const, icon: SquareXIcon },
-                      perform: player.room.end,
-                    },
-                  ]),
-              {
-                kind: "action",
-                id: "room:leave",
-                title: "Leave room",
-                leading: { kind: "icon", icon: LogOutIcon },
-                perform: player.room.leave,
-              },
+              player.room.role === "host"
+                ? {
+                    kind: "action",
+                    id: "room:end",
+                    title: "End room",
+                    keywords: ["close", "stop"],
+                    leading: { kind: "icon", icon: SquareXIcon },
+                    perform: player.room.end,
+                  }
+                : {
+                    kind: "action",
+                    id: "room:leave",
+                    title: "Leave room",
+                    leading: { kind: "icon", icon: LogOutIcon },
+                    perform: player.room.leave,
+                  },
             ];
 
       return { groups: [{ id: "room", label: "Room", items: inPlayer }], fallback: join };
