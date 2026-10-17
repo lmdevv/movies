@@ -181,7 +181,12 @@ function ConnectedApp() {
       <ActiveProfileContext.Provider value={settled.kind === "ready" ? settled.active : null}>
         <HideSplash />
         <RootStack phase={settled.kind} />
-        {trouble === null ? null : <View className="absolute inset-0">{trouble}</View>}
+        {trouble === null ? null : (
+          // Modal for VoiceOver too, so the covered screens can't be reached underneath.
+          <View className="absolute inset-0" accessibilityViewIsModal>
+            {trouble}
+          </View>
+        )}
       </ActiveProfileContext.Provider>
     </SessionPhaseContext.Provider>
   );
