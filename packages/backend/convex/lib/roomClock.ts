@@ -28,6 +28,19 @@ export const HOST_PRESENCE_TIMEOUT_MS = 20_000;
 /** A guest silent this long leaves the member list. */
 export const MEMBER_PRESENCE_TIMEOUT_MS = 60_000;
 
+/**
+ * The host and guest timeouts for a member whose last heartbeat said away: browsers wake the timers
+ * of a tab hidden for minutes only about once a minute, and the app browsing in one is still there.
+ */
+export const AWAY_PRESENCE_TIMEOUT_MS = 3 * 60_000;
+
+/** How long a member may stay silent before the sweep counts it gone, by its role and presence. */
+export const presenceTimeout = (member: Pick<Doc<"roomMembers">, "role" | "presence">): number => {
+  if (member.presence === "away") return AWAY_PRESENCE_TIMEOUT_MS;
+
+  return member.role === "host" ? HOST_PRESENCE_TIMEOUT_MS : MEMBER_PRESENCE_TIMEOUT_MS;
+};
+
 /** A room whose host has been away this long, or that no member's player played this long, ends. */
 export const HOST_ABANDON_TIMEOUT_MS = 30 * 60_000;
 

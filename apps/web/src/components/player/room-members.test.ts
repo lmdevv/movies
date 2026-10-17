@@ -157,6 +157,16 @@ describe("members browsing elsewhere", () => {
     );
   });
 
+  it("never shows this device away: it is in the player", () => {
+    const back = room(
+      [member(HOST, "Alex", "host", null, "away"), member(ME, "Maya", "guest", null, "away")],
+      { status: "playing" },
+    );
+
+    expect(roomMembers(back, ME, false, 20)[1]?.status).toBeUndefined();
+    expect(roomMembers(back, HOST, false, null)[0]?.status).toBeUndefined();
+  });
+
   it("still shows a host who stopped sending heartbeats as left", () => {
     const silent = room([member(HOST, "Alex", "host", null, "away")], { status: "paused" }, true);
 

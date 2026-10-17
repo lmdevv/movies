@@ -44,8 +44,12 @@ export interface CurrentRoom {
  * Every member's heartbeat changes the room record, so the result is rebuilt only when something
  * it holds changes.
  */
-const useDeviceRoom = (deviceId: DeviceId, profileId: ProfileId): CurrentRoom | null => {
-  const current = useCommandQuery("rooms.current", { deviceId });
+const useDeviceRoom = (
+  deviceId: DeviceId,
+  profileId: ProfileId,
+  enabled: boolean,
+): CurrentRoom | null => {
+  const current = useCommandQuery("rooms.current", enabled ? { deviceId } : "skip");
   const room = current.status === "success" ? current.data : null;
   const self = room?.members.find((member) => member.deviceId === deviceId);
   const id = room?.id ?? null;
@@ -71,7 +75,8 @@ const CurrentRoomContext = createContext<CurrentRoom | null>(null);
 /**
  * Reads this device's room for everything inside, and keeps the device's place in it with
  * heartbeats that say it is away while the room is the active profile's. `keepPlace` is false
- * where the room's own player runs, which sends this device's heartbeats itself. Must sit inside
+ * where the room's own player runs, which follows its room and sends this device's heartbeats
+ * itself: the provider then reads nothing and provides null. Must sit inside
  * `RequireProfile`. Only this component re-renders as members' heartbeats change the record.
  */
 export function CurrentRoomProvider({
@@ -83,9 +88,9 @@ export function CurrentRoomProvider({
 }) {
   const { profile } = useActiveProfile();
   const deviceId = useMemo(() => loadDeviceId(), []);
-  const room = useDeviceRoom(deviceId, profile.id);
+  const room = useDeviceRoom(deviceId, profile.id, keepPlace);
 
-  useRoomPresence(keepPlace && room?.mine === true ? { roomId: room.id, deviceId } : null);
+  useRoomPresence(room?.mine === true ? { roomId: room.id, deviceId } : null);
 
   return <CurrentRoomContext value={room}>{children}</CurrentRoomContext>;
 }

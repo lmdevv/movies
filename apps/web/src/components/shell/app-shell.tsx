@@ -135,7 +135,8 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     );
   };
 
-  // A hero page without a phone title of its own floats the pill over its artwork instead.
+  // A hero page without a phone title of its own floats the pill over its artwork until the
+  // compact bar, which carries it once scrolled, takes over.
   const heroPill = hero && (!phoneTitle || title === "");
 
   /** The avatar, after the room pill when there is one. */
@@ -190,11 +191,11 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           title={title}
           visible={scrolled}
           className="fixed inset-x-0 top-0 z-40 md:hidden"
-          trailing={trailing("xs", !heroPill)}
+          trailing={trailing("xs", true)}
         />
       ) : null}
 
-      {!heroPill || pillRoom === null ? null : (
+      {!heroPill || scrolled || pillRoom === null ? null : (
         // Over the artwork of a hero page without the phone title (a title's page, a collection),
         // level with a title page's Back button, and scrolling with it.
         <div className="on-media absolute top-[max(env(safe-area-inset-top),var(--spacing-12))] right-4 z-40 flex h-10 items-center md:hidden">

@@ -94,9 +94,11 @@ A guest's `rooms play|pause|seek` fails with `forbidden`. A control racing anoth
 retried once at the new revision.
 
 Members heartbeat every 5 seconds: a guest silent for a minute leaves, and a host silent for 20
-seconds pauses the room (`hostAway`). Each member shows a `presence`: `watching` from a player, `away` from a device that keeps its place while browsing
-(`movies rooms heartbeat <room-id> --presence away`), once its player has been silent for 10
-seconds. Away members report no drift, and an away host's room keeps playing for the guests.
+seconds pauses the room (`hostAway`); a member whose last heartbeat said away gets three minutes.
+Each member shows a `presence`: `watching` from a player, `away` from a device that keeps its place
+while browsing (`movies rooms heartbeat <room-id> --presence away`), once its player has been
+silent for 10 seconds. Away members report no drift, and an away host's room keeps playing for the
+guests.
 
 Libraries and scans (admin):
 

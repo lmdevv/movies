@@ -17,6 +17,12 @@ export const HEARTBEAT_INTERVAL_MS = 5_000;
  */
 export const PLAYER_SILENCE_MS = 2 * HEARTBEAT_INTERVAL_MS;
 
+/**
+ * The host and guest timeouts for a member whose last heartbeat said away: browsers wake the timers
+ * of a tab hidden for minutes only about once a minute.
+ */
+export const AWAY_PRESENCE_TIMEOUT_MS = 3 * 60_000;
+
 /** A host silent this long is away: the server pauses the room at the live position. */
 export const HOST_PRESENCE_TIMEOUT_MS = 20_000;
 

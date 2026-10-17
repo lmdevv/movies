@@ -3,10 +3,14 @@ import { describe, expect, it } from "vitest";
 
 import type { ClockAnchor } from "../convex/lib/roomClock";
 import {
+  AWAY_PRESENCE_TIMEOUT_MS,
   awayHostClock,
   HOST_ABANDON_TIMEOUT_MS,
+  HOST_PRESENCE_TIMEOUT_MS,
   isAbandoned,
   livePosition,
+  MEMBER_PRESENCE_TIMEOUT_MS,
+  presenceTimeout,
 } from "../convex/lib/roomClock";
 
 const NOW = 1_760_000_000_000;
@@ -105,5 +109,14 @@ describe("isAbandoned", () => {
     expect(
       isAbandoned({ hostLastSeenAt: longAgo }, [{ lastSeenAt: NOW, watchedAt: NOW }], NOW),
     ).toBe(true);
+  });
+});
+
+describe("presenceTimeout", () => {
+  it("gives away members the longer timeout, for hidden tabs' slowed timers", () => {
+    expect(presenceTimeout({ role: "host", presence: "away" })).toBe(AWAY_PRESENCE_TIMEOUT_MS);
+    expect(presenceTimeout({ role: "guest", presence: "away" })).toBe(AWAY_PRESENCE_TIMEOUT_MS);
+    expect(presenceTimeout({ role: "host", presence: "watching" })).toBe(HOST_PRESENCE_TIMEOUT_MS);
+    expect(presenceTimeout({ role: "guest" })).toBe(MEMBER_PRESENCE_TIMEOUT_MS);
   });
 });

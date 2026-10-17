@@ -21,12 +21,17 @@ export const driftLabel = (driftMs: number): string =>
 export const hostGone = (room: Pick<Room, "hostAway" | "clock">): boolean =>
   room.hostAway || room.clock.status === "ended";
 
-const hostStatus = (room: Room, member: Room["members"][number]): RoomMemberStatus | undefined => {
+const hostStatus = (
+  room: Room,
+  member: Room["members"][number],
+  self: boolean,
+): RoomMemberStatus | undefined => {
   if (hostGone(room)) return { kind: "left" };
 
   if (room.clock.status === "buffering") return { kind: "buffering" };
 
-  return member.presence === "away" ? { kind: "away" } : undefined;
+  // This device is plainly in the player, whatever its last heartbeat said.
+  return member.presence === "away" && !self ? { kind: "away" } : undefined;
 };
 
 const guestStatus = (
@@ -35,7 +40,7 @@ const guestStatus = (
   syncing: boolean,
   ownDriftMs: number | null,
 ): RoomMemberStatus | undefined => {
-  if (member.presence === "away") return { kind: "away" };
+  if (member.presence === "away" && !self) return { kind: "away" };
 
   if (self && syncing) return { kind: "syncing" };
 
@@ -72,7 +77,9 @@ export const roomMembers = (
       name: member.profileName,
       detail: host ? "Host" : self ? "You" : undefined,
       avatar: avatarImage(member.avatar),
-      status: host ? hostStatus(room, member) : guestStatus(member, self, syncing, ownDriftMs),
+      status: host
+        ? hostStatus(room, member, self)
+        : guestStatus(member, self, syncing, ownDriftMs),
     };
   });
 

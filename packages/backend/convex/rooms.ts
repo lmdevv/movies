@@ -574,7 +574,9 @@ export const heartbeat = mutation({
         !found.hostAway &&
         now - found.hostLastSeenAt < AWAY_REFRESH_MS;
 
-      if (!quiet) await ctx.db.patch(found._id, patch);
+      if (quiet) return presentRoomClock(found);
+
+      await ctx.db.patch(found._id, patch);
 
       return presentRoomClock(await loadRoom(ctx, roomId));
     }
