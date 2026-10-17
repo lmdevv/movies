@@ -18,7 +18,12 @@ import { Playback, Versions } from "@movies/sdk/effect";
 import { useCommand, useCommandQuery, useMoviesRuntime, useRoomSync } from "@movies/sdk/react";
 import { ChapterPopover } from "@movies/ui/components/chapter-popover";
 import { CommandMenu } from "@movies/ui/components/command-menu";
-import { PlayerButton, PlayerControls, TracksGlyph } from "@movies/ui/components/player-controls";
+import {
+  EpisodesGlyph,
+  PlayerButton,
+  PlayerControls,
+  TracksGlyph,
+} from "@movies/ui/components/player-controls";
 import { RoomPanel } from "@movies/ui/components/room-panel";
 import { TrackPopover } from "@movies/ui/components/track-popover";
 import type { TrackOption } from "@movies/ui/components/track-popover";
@@ -71,6 +76,7 @@ import { useScopes } from "@/session/viewer";
 import { AUTOPLAY_COUNTDOWN, AUTOPLAY_VIDEO_FRAME } from "./autoplay";
 import { AutoplayNext } from "./autoplay-next";
 import { CastMenu, CastingState } from "./cast-menu";
+import { EpisodePicker } from "./episode-picker";
 import { LeaveDialog } from "./leave-dialog";
 import {
   PhoneControls,
@@ -112,6 +118,10 @@ const KEY_PREVIEW_MS = 1_200;
 
 /** The volume keys move by this much. */
 const VOLUME_STEP = 0.1;
+
+/** A volume from 0 to 1 in whole percent, so steps of a tenth land on silence exactly. */
+const volumeLevel = (value: number): number =>
+  Math.round(Math.min(1, Math.max(0, value)) * 100) / 100;
 
 const OFF = "off";
 
@@ -209,6 +219,8 @@ export function PlayerScreen({
   const [menu, setMenu] = useState(false);
   const [info, setInfo] = useState(false);
   const [panel, setPanel] = useState(true);
+  const [episodesOpen, setEpisodesOpen] = useState(false);
+  const [volumeOpen, setVolumeOpen] = useState(false);
 
   // The route keys the player by title and episode, so a dismissal ends with its episode.
   const [creditsDismissed, setCreditsDismissed] = useState(false);
@@ -425,28 +437,51 @@ export function PlayerScreen({
     else output.pause();
   }, [output, controlsTimeline, snapshot?.needsGesture, casting, play]);
 
+  // Silence mutes and any other level unmutes, so the mute button and the slider always agree.
   const setVolume = useCallback(
     (value: number) => {
+      const level = volumeLevel(value);
+
       if (casting !== null) {
-        casting.player.setVolume(value);
+        casting.player.setVolume(level);
+
+        if (level === 0) casting.player.setMuted(true);
 
         return;
       }
 
       if (video === null) return;
 
-      video.volume = Math.min(1, Math.max(0, value));
-      video.muted = false;
+      video.volume = level;
+      video.muted = level === 0;
     },
     [video, casting],
   );
 
+  // The last level the viewer settled on above silence, which unmuting from silence returns to. A
+  // drag's passing levels do not count, so dragging down to nothing and unmuting restores where it
+  // started.
+  const audibleVolume = useRef(1);
+
+  const commitVolume = useCallback(
+    (value: number) => {
+      const level = volumeLevel(value);
+
+      if (level > 0) audibleVolume.current = level;
+      setVolume(level);
+    },
+    [setVolume],
+  );
+
+  const silent = media.volume === 0;
+
   const setMuted = useCallback(
     (muted: boolean) => {
-      if (casting !== null) casting.player.setMuted(muted);
+      if (!muted && silent) setVolume(audibleVolume.current);
+      else if (casting !== null) casting.player.setMuted(muted);
       else if (video !== null) video.muted = muted;
     },
-    [video, casting],
+    [video, casting, silent, setVolume],
   );
 
   // Audio and subtitle choices from the file and the negotiated stream.
@@ -760,14 +795,61 @@ export function PlayerScreen({
     return at > 0 ? (seasonEpisodes.data[at - 1] ?? null) : null;
   })();
 
+  const playEpisode = useCallback(
+    (id: EpisodeId) => {
+      void navigate({
+        to: "/watch/$titleId",
+        params: { titleId },
+        search: { episodeId: id, start: "resume" },
+      });
+    },
+    [navigate, titleId],
+  );
+
   const playPrevious = useCallback(() => {
-    if (previousEpisode === null) return;
-    void navigate({
-      to: "/watch/$titleId",
-      params: { titleId },
-      search: { episodeId: previousEpisode.id, start: "resume" },
-    });
-  }, [navigate, previousEpisode, titleId]);
+    if (previousEpisode !== null) playEpisode(previousEpisode.id);
+  }, [playEpisode, previousEpisode]);
+
+  // The episode picker: a show's episode, outside rooms. A room plays one episode for everyone; only
+  // its host could change it, and the room cannot carry its members along yet. Once left, the stream
+  // is this player's own again, and another episode starts without the room.
+  const picking =
+    episode !== null && roomId === undefined && detail !== null
+      ? { seasons: detail.seasons, current: { id: episode.id, seasonNumber: episode.seasonNumber } }
+      : null;
+
+  const canPick = picking !== null;
+  const episodesShown = episodesOpen && canPick;
+
+  // The current season's episodes for the menu, the ones that can play.
+  const episodeOptions = useMemo(
+    (): ReadonlyArray<TrackOption> =>
+      !canPick || seasonEpisodes.status !== "success"
+        ? []
+        : seasonEpisodes.data.flatMap((candidate) =>
+            candidate.available
+              ? [
+                  {
+                    id: candidate.id,
+                    label: `${String(candidate.episodeNumber)}. ${candidate.name}`,
+                  },
+                ]
+              : [],
+          ),
+    [canPick, seasonEpisodes],
+  );
+
+  const selectEpisode = useCallback(
+    (id: string) => {
+      const chosen =
+        seasonEpisodes.status === "success"
+          ? seasonEpisodes.data.find((candidate) => candidate.id === id)
+          : undefined;
+
+      if (chosen !== undefined && chosen.id !== episode?.id) playEpisode(chosen.id);
+    },
+    [seasonEpisodes, episode?.id, playEpisode],
+  );
 
   useMediaSession(
     !isPlaying || castItem === null
@@ -840,6 +922,8 @@ export function PlayerScreen({
     media.paused ||
     infoShown ||
     menu ||
+    episodesShown ||
+    volumeOpen ||
     startDialog !== null ||
     leaving !== null ||
     showNext ||
@@ -858,8 +942,11 @@ export function PlayerScreen({
       "player.forward-10": () => skipByKey(10),
       "player.back-5": () => skipByKey(-5),
       "player.forward-5": () => skipByKey(5),
-      "player.volume-up": () => setVolume(media.volume + VOLUME_STEP),
-      "player.volume-down": () => setVolume(media.volume - VOLUME_STEP),
+      "player.volume-up": () => commitVolume(media.volume + VOLUME_STEP),
+      // Muted is already silent; Down leaves it so.
+      "player.volume-down": () => {
+        if (!media.muted) commitVolume(media.volume - VOLUME_STEP);
+      },
       "player.fullscreen": toggleFullscreen,
       "player.mute": () => setMuted(!media.muted),
       "player.subtitles": toggleSubtitles,
@@ -897,6 +984,9 @@ export function PlayerScreen({
       versionId,
       selectVersion,
       nextEpisode: nextEpisode === null || inRoom ? null : playNext,
+      episodes: episodeOptions,
+      episodeId: episode?.id ?? "",
+      selectEpisode,
       startRoom: inRoom || started === null ? null : openStartRoom,
       room: !inRoom
         ? null
@@ -927,6 +1017,9 @@ export function PlayerScreen({
       nextEpisode,
       inRoom,
       playNext,
+      episodeOptions,
+      episode?.id,
+      selectEpisode,
       started,
       streamInfoAvailable,
       openStartRoom,
@@ -1023,6 +1116,21 @@ export function PlayerScreen({
       onSelect={(chapter) => seekTo(chapter.startSeconds)}
     />
   );
+
+  const episodePicker = (trigger: React.ReactElement) =>
+    picking === null ? null : (
+      <EpisodePicker
+        trigger={trigger}
+        container={overlayContainer}
+        open={episodesShown}
+        onOpenChange={setEpisodesOpen}
+        profileId={profile.id}
+        titleId={titleId}
+        seasons={picking.seasons}
+        current={picking.current}
+        onPlay={playEpisode}
+      />
+    );
 
   // One menu for every way this browser plays elsewhere: Chromecast, AirPlay, its own picker.
   const castTargets = {
@@ -1288,11 +1396,17 @@ export function PlayerScreen({
           position={position}
           duration={duration}
           muted={media.muted}
+          volume={canSetVolume || casting !== null ? media.volume : null}
           locked={guest ? `Only ${hostName} can pause or seek` : undefined}
           roomActive={sidePanel}
           tracks={tracks(
             <PlayerButton aria-label={TRACKS_LABEL}>
               <TracksGlyph />
+            </PlayerButton>,
+          )}
+          episodes={episodePicker(
+            <PlayerButton aria-label="Episodes">
+              <EpisodesGlyph />
             </PlayerButton>,
           )}
           chapterList={
@@ -1309,6 +1423,9 @@ export function PlayerScreen({
           onSeek={(seconds) => setScrub(seconds)}
           onSeekCommit={seekTo}
           onMuteChange={setMuted}
+          onVolumeChange={setVolume}
+          onVolumeCommit={commitVolume}
+          onVolumeOpenChange={setVolumeOpen}
           onNext={nextEpisode === null || inRoom ? undefined : playNext}
           onRoom={inRoom ? () => setPanel((open) => !open) : openStartRoom}
           onFullscreen={toggleFullscreen}
@@ -1349,6 +1466,7 @@ export function PlayerScreen({
                       label={audioOptions.find((option) => option.id === audioId)?.label ?? "Audio"}
                     />,
                   )}
+              {episodePicker(<TrackPill icon="episodes" label="Episodes" />)}
               {scrubbing.chapters.length === 0 || guest
                 ? null
                 : chapterMenu(

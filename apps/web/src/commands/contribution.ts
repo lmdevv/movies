@@ -43,6 +43,12 @@ export interface PlayerCommands {
   readonly selectVersion: (id: string) => void;
   /** Plays the next episode now; null for movies and the last episode. */
   readonly nextEpisode: (() => void) | null;
+  /** The playing season's episodes that can play; empty for movies and in rooms. */
+  readonly episodes: ReadonlyArray<TrackOption>;
+  /** The episode playing, or empty. */
+  readonly episodeId: string;
+  /** Plays another of `episodes` in the player. */
+  readonly selectEpisode: (id: string) => void;
   /** Starts a room for this title; null while in one. */
   readonly startRoom: (() => void) | null;
   /** The room the player is in, or null. */

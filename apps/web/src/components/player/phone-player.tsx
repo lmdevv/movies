@@ -17,6 +17,7 @@ import { cn } from "@movies/ui/lib/utils";
 import {
   CaptionsIcon,
   CastIcon,
+  GalleryVerticalEndIcon,
   ListVideoIcon,
   LockIcon,
   LogOutIcon,
@@ -113,14 +114,14 @@ function SideSlider({
   );
 }
 
-/** A frosted pill under the scrubber: the subtitle or audio track playing, or the chapter. */
+/** A frosted pill under the scrubber: the subtitle or audio track playing, the chapter, or Episodes. */
 export function TrackPill({
   icon,
   label,
   className,
   ...props
 }: ComponentProps<"button"> & {
-  readonly icon: "subtitles" | "audio" | "chapters";
+  readonly icon: "subtitles" | "audio" | "chapters" | "episodes";
   readonly label: string;
 }) {
   return (
@@ -135,6 +136,7 @@ export function TrackPill({
       {icon === "subtitles" ? <CaptionsIcon strokeWidth={1.75} aria-hidden /> : null}
       {icon === "audio" ? <Volume1Icon strokeWidth={1.75} aria-hidden /> : null}
       {icon === "chapters" ? <ListVideoIcon strokeWidth={1.75} aria-hidden /> : null}
+      {icon === "episodes" ? <GalleryVerticalEndIcon strokeWidth={1.75} aria-hidden /> : null}
       {label}
     </button>
   );

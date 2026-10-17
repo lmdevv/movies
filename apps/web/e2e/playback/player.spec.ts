@@ -95,6 +95,9 @@ const SHOW = "Tide Tables";
 
 const EPISODES = ["Low Water", "Slack Tide", "Spring Tide"] as const;
 
+/** The show's second season, for browsing seasons in the player's episode picker. */
+const SEASON_TWO = ["Neap Tide"] as const;
+
 /** How long each episode runs; autoplay offers the next one in its last tenth. */
 const EPISODE_SECONDS = 30;
 
@@ -113,6 +116,8 @@ let streams: ReadonlyArray<NegotiatedStream> = [];
 const titles = new Map<string, TitleId>();
 
 const episodes: Array<EpisodeId> = [];
+
+const seasonTwo: Array<EpisodeId> = [];
 
 /** First-frame times by mode, reported once the suite ends. */
 const firstFrames: Array<{ readonly mode: string; readonly ms: number }> = [];
@@ -184,6 +189,23 @@ test.beforeAll(async ({ browser }) => {
         writeText(`${stem}.nfo`, episodeNfo(1, index + 1, name)),
       ];
     }),
+    ...SEASON_TWO.flatMap((name, index) => {
+      const stem = join(
+        shows,
+        `${SHOW} (2020)`,
+        "Season 02",
+        `${SHOW} - S02E0${String(index + 1)}`,
+      );
+
+      return [
+        encodeClip(`${stem}.mp4`, {
+          seconds: EPISODE_SECONDS,
+          video: "h264",
+          audio: [{ codec: "aac", language: "eng" }],
+        }),
+        writeText(`${stem}.nfo`, episodeNfo(2, index + 1, name)),
+      ];
+    }),
   ]);
 
   buildMediaService();
@@ -217,6 +239,14 @@ test.beforeAll(async ({ browser }) => {
   });
 
   episodes.push(...season.map((episode) => episode.id));
+
+  const second = await owner.sdk.query("titles.episodes", {
+    profileId: profile.id,
+    titleId: titleId(SHOW),
+    seasonNumber: 2,
+  });
+
+  seasonTwo.push(...second.map((episode) => episode.id));
   context = await browser.newContext();
   page = await context.newPage();
   streams = recordStreams(page);
@@ -814,6 +844,283 @@ test("the next episode plays itself after the countdown; Watch credits cancels i
     .poll(async () => (await videoState(page)).currentTime, { timeout: 15_000 })
     .toBeGreaterThan(29);
   await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"));
+});
+
+/** The bottom controls, which fade out while the viewer is idle unless something holds them. */
+const controlsShown = (target: Page) =>
+  target.locator('[data-slot="player-controls"]').evaluate((element) => {
+    const { opacity } = getComputedStyle(element);
+
+    return opacity === "1";
+  });
+
+/** Idle for longer than the controls wait before hiding. */
+const IDLE_MS = 4_000;
+
+test("hovering the volume button opens a slider that sets the level live and stays in step with mute", async () => {
+  await playFromStart(MOVIES.direct, "direct");
+  await revealControls(page);
+
+  const before = streams.length;
+  const mute = page.getByRole("button", { name: "Mute", exact: true });
+  const unmute = page.getByRole("button", { name: "Unmute", exact: true });
+  const slider = page.getByRole("slider", { name: "Volume" });
+  const control = page.locator('[data-slot="volume-slider"]');
+
+  await expect(slider).toHaveCount(0);
+  await mute.hover();
+  await expect(slider).toBeVisible();
+  await expect(slider).toHaveAttribute("aria-valuetext", "100%");
+
+  // From the button onto the slider, it stays open, and holds the controls while the pointer rests.
+  const box = await control.boundingBox();
+
+  if (box === null) throw new Error("The volume slider is not on screen");
+
+  const at = (fraction: number) => ({
+    x: box.x + box.width / 2,
+    y: box.y + box.height * (1 - fraction),
+  });
+
+  const start = at(1);
+
+  await page.mouse.move(start.x, start.y, { steps: 8 });
+  await page.waitForTimeout(IDLE_MS);
+  await expect(slider).toBeVisible();
+  expect(await controlsShown(page)).toBe(true);
+  await capture(page, "07-13-volume-slider");
+
+  // Dragging sets the level as it moves, without pausing or renegotiating the stream.
+  await page.mouse.down();
+  await page.mouse.move(at(0.6).x, at(0.6).y, { steps: 4 });
+  await expect.poll(async () => (await videoState(page)).volume).toBeLessThan(0.75);
+  await page.mouse.move(at(0.3).x, at(0.3).y, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => (await videoState(page)).volume).toBeLessThan(0.4);
+
+  const level = (await videoState(page)).volume;
+
+  expect(level).toBeGreaterThan(0.2);
+  await expect(slider).toHaveAttribute("aria-valuetext", `${String(Math.round(level * 100))}%`);
+
+  // Mute and the slider agree: muted reads 0, and unmuting returns to the level.
+  await mute.click();
+  await expect.poll(async () => (await videoState(page)).muted).toBe(true);
+  await expect(slider).toHaveAttribute("aria-valuetext", "Muted");
+  await unmute.click();
+  await expect.poll(async () => (await videoState(page)).muted).toBe(false);
+  expect((await videoState(page)).volume).toBeCloseTo(level, 2);
+
+  // Down to nothing mutes; unmuting returns to the level it was dragged from.
+  await page.mouse.move(at(0.3).x, at(0.3).y);
+  await page.mouse.down();
+  await page.mouse.move(at(0).x, box.y + box.height + 8, { steps: 6 });
+  await page.mouse.up();
+  await expect(unmute).toBeVisible();
+  await expect.poll(async () => (await videoState(page)).muted).toBe(true);
+  await unmute.click();
+  await expect.poll(async () => (await videoState(page)).volume).toBeCloseTo(level, 2);
+  expect((await videoState(page)).muted).toBe(false);
+
+  // Away from the button and the slider, it closes and stops holding the controls.
+  const frame = await page.getByTestId("player").boundingBox();
+
+  if (frame === null) throw new Error("The player is not on screen");
+
+  await page.mouse.move(frame.x + frame.width / 2, frame.y + frame.height / 3, { steps: 4 });
+  await expect(slider).toHaveCount(0);
+  await expect.poll(() => controlsShown(page), { timeout: IDLE_MS + 2_000 }).toBe(false);
+
+  // From the keyboard: tabbing to the button opens it, Tab reaches it, arrows step it.
+  await revealControls(page);
+  await page.getByRole("button", { name: "Forward 10 seconds" }).focus();
+  await page.keyboard.press("Tab");
+  await expect(mute).toBeFocused();
+  await expect(slider).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(slider).toBeFocused();
+
+  const keyed = Math.round((await videoState(page)).volume * 100);
+
+  await page.keyboard.press("ArrowUp");
+  await expect
+    .poll(async () => Math.round((await videoState(page)).volume * 100))
+    .toBe(Math.min(100, keyed + 1));
+  await expect(slider).toHaveAttribute("aria-valuetext", `${String(Math.min(100, keyed + 1))}%`);
+  await page.keyboard.press("PageDown");
+  await expect
+    .poll(async () => Math.round((await videoState(page)).volume * 100))
+    .toBe(Math.min(100, keyed + 1) - 10);
+  await page.keyboard.press("Tab");
+  await expect(slider).toHaveCount(0);
+
+  expect((await videoState(page)).paused).toBe(false);
+  expect(streams.length).toBe(before);
+});
+
+test("the episode picker browses seasons and plays earlier and later episodes in the player", async () => {
+  const [first, second] = episodes;
+  const [later] = seasonTwo;
+
+  if (first === undefined || second === undefined || later === undefined) {
+    throw new Error("The show has no episodes");
+  }
+
+  await page.goto(`/watch/${titleId(SHOW)}?episodeId=${second}&start=0`);
+  await expectPlayingPast(page, 0.5);
+
+  const player = page.getByTestId("player");
+  const button = page.getByRole("button", { name: "Episodes", exact: true });
+  const picker = page.getByRole("dialog", { name: "Episodes" });
+  const current = picker.locator('[aria-current="true"]');
+
+  // Next episode stays beside it.
+  await revealControls(page);
+  await expect(page.getByRole("button", { name: "Next episode" })).toBeVisible();
+  await button.click();
+  await expect(picker).toBeVisible();
+
+  // It opens on the season playing, the current episode marked and focused.
+  await expect(picker.getByRole("button", { name: "Season 1", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(picker.locator('[data-slot="episode-row"]')).toHaveText([
+    new RegExp(`^1\\s*${EPISODES[0]}`, "u"),
+    new RegExp(`^2\\s*${EPISODES[1]}`, "u"),
+    new RegExp(`^3\\s*${EPISODES[2]}`, "u"),
+  ]);
+  await expect(current).toContainText(EPISODES[1]);
+  await expect(current).toBeFocused();
+
+  // It holds the controls while open.
+  await page.waitForTimeout(IDLE_MS);
+  expect(await controlsShown(page)).toBe(true);
+  await capture(page, "07-14-episode-picker");
+
+  // Arrows move between episodes without seeking or changing the volume.
+  const volume = (await videoState(page)).volume;
+
+  await page.keyboard.press("ArrowDown");
+  await expect(picker.getByRole("button", { name: new RegExp(EPISODES[2], "u") })).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowUp");
+  await expect(picker.getByRole("button", { name: new RegExp(EPISODES[0], "u") })).toBeFocused();
+  expect((await videoState(page)).volume).toBe(volume);
+
+  // Escape closes the picker and nothing more: playback goes on, nothing asks.
+  await page.keyboard.press("Escape");
+  await expect(picker).toBeHidden();
+  await expect(leaveDialog(page)).toBeHidden();
+  await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"));
+  expect((await videoState(page)).paused).toBe(false);
+
+  // A later season's episode plays from the picker.
+  await revealControls(page);
+  await button.click();
+  await picker.getByRole("button", { name: "Season 2", exact: true }).click();
+  await expect(picker.locator('[data-slot="episode-row"]')).toHaveText([
+    new RegExp(`^1\\s*${SEASON_TWO[0]}`, "u"),
+  ]);
+  await capture(page, "07-15-episode-picker-season");
+  await picker.getByRole("button", { name: new RegExp(SEASON_TWO[0], "u") }).click();
+  await expect(page).toHaveURL(new RegExp(`episodeId=${later}`, "u"));
+  await expectPlayingPast(page, 0.5);
+
+  // It opens on that season now; an earlier episode plays from Season 1, in full screen too.
+  await player.press("f");
+  await expect
+    .poll(() => page.evaluate(() => document.fullscreenElement?.getAttribute("data-testid")))
+    .toBe("player");
+  await revealControls(page);
+  await button.click();
+  await expect(current).toContainText(SEASON_TWO[0]);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          document.fullscreenElement?.contains(
+            document.querySelector('[data-slot="episode-list"]'),
+          ) ?? false,
+      ),
+    )
+    .toBe(true);
+
+  // Escape closes the picker first; full screen stays until the next press.
+  await page.keyboard.press("Escape");
+  await expect(picker).toBeHidden();
+  expect(await page.evaluate(() => document.fullscreenElement !== null)).toBe(true);
+  await revealControls(page);
+  await button.click();
+  await picker.getByRole("button", { name: "Season 1", exact: true }).click();
+  await picker.getByRole("button", { name: new RegExp(EPISODES[0], "u") }).click();
+  await expect(page).toHaveURL(new RegExp(`episodeId=${first}`, "u"));
+  await expectPlayingPast(page, 0.5);
+  await page.evaluate(() => document.exitFullscreen().catch(() => undefined));
+
+  // A movie has no picker.
+  await playFromStart(MOVIES.direct, "direct");
+  await revealControls(page);
+  await expect(page.getByRole("button", { name: "Mute", exact: true })).toBeVisible();
+  await expect(button).toHaveCount(0);
+});
+
+test("touch: a tap opens the volume slider before muting, and the picker plays an episode", async ({
+  browser,
+}) => {
+  if (stack === null) return;
+
+  const [first, second] = episodes;
+
+  if (first === undefined || second === undefined) throw new Error("The show has no episodes");
+
+  // A tablet keeps the desktop controls, with touch.
+  const tablet = await browser.newContext({ ...devices["Galaxy Tab S9 landscape"] });
+  const touch = await tablet.newPage();
+
+  await useSession(touch, owner);
+  await touch.goto(`/watch/${titleId(SHOW)}?episodeId=${first}&start=0`);
+  await expectPlayingPast(touch, 0.5);
+  await revealControls(touch);
+
+  const slider = touch.getByRole("slider", { name: "Volume" });
+
+  await touch.getByRole("button", { name: "Mute", exact: true }).tap();
+  await expect(slider).toBeVisible();
+  expect((await videoState(touch)).muted).toBe(false);
+  await touch.getByRole("button", { name: "Mute", exact: true }).tap();
+  await expect.poll(async () => (await videoState(touch)).muted).toBe(true);
+  await touch.getByRole("button", { name: "Unmute", exact: true }).tap();
+  await expect.poll(async () => (await videoState(touch)).muted).toBe(false);
+
+  await touch.getByRole("button", { name: "Episodes", exact: true }).tap();
+  await expect(slider).toHaveCount(0);
+
+  const picker = touch.getByRole("dialog", { name: "Episodes" });
+
+  await picker.getByRole("button", { name: new RegExp(EPISODES[1], "u") }).tap();
+  await expect(touch).toHaveURL(new RegExp(`episodeId=${second}`, "u"));
+  await expectPlayingPast(touch, 0.5);
+  await tablet.close();
+
+  // A phone has an Episodes pill under the scrubber.
+  const phone = await browser.newContext({ ...devices["iPhone 13 landscape"] });
+  const handset = await phone.newPage();
+
+  await useSession(handset, owner);
+  await handset.goto(`/watch/${titleId(SHOW)}?episodeId=${second}&start=0`);
+  await expectPlayingPast(handset, 0.5);
+  await handset.getByTestId("player-video").tap();
+  await handset.getByRole("button", { name: "Episodes", exact: true }).tap();
+
+  const phonePicker = handset.getByRole("dialog", { name: "Episodes" });
+
+  await expect(phonePicker.locator('[aria-current="true"]')).toContainText(EPISODES[1]);
+  await expect(phonePicker).toHaveCSS("opacity", "1");
+  await capture(handset, "07-16-ios-episode-picker");
+  await phonePicker.getByRole("button", { name: new RegExp(EPISODES[0], "u") }).tap();
+  await expect(handset).toHaveURL(new RegExp(`episodeId=${first}`, "u"));
+  await phone.close();
 });
 
 test("a file gone from disk says so instead of playing", async () => {
