@@ -163,15 +163,40 @@ export const showNfo = (name: string, year: number): string => `<?xml version="1
 </tvshow>
 `;
 
-/** An NFO that names an episode. */
-export const episodeNfo = (season: number, episode: number, title: string): string =>
-  `<?xml version="1.0"?>
-<episodedetails>
-  <title>${title}</title>
-  <season>${String(season)}</season>
-  <episode>${String(episode)}</episode>
-</episodedetails>
-`;
+/** `text` with the characters XML reserves escaped, for NFO text. */
+const escapeXml = (text: string): string =>
+  text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+
+/** What an episode's NFO may add to its name: a synopsis and a runtime in minutes. */
+interface EpisodeDetails {
+  readonly plot?: string;
+  readonly runtimeMinutes?: number;
+}
+
+/** An NFO that names an episode, with its synopsis and runtime when given. */
+export const episodeNfo = (
+  season: number,
+  episode: number,
+  title: string,
+  details: EpisodeDetails = {},
+): string =>
+  [
+    `<?xml version="1.0"?>`,
+    `<episodedetails>`,
+    `  <title>${escapeXml(title)}</title>`,
+    `  <season>${String(season)}</season>`,
+    `  <episode>${String(episode)}</episode>`,
+    ...(details.runtimeMinutes === undefined
+      ? []
+      : [`  <runtime>${String(details.runtimeMinutes)}</runtime>`]),
+    ...(details.plot === undefined ? [] : [`  <plot>${escapeXml(details.plot)}</plot>`]),
+    `</episodedetails>`,
+    ``,
+  ].join("\n");
 
 /** Makes a temporary folder for a suite's clips. */
 export const makeWorkspace = (prefix: string): Promise<string> => mkdtemp(join(tmpdir(), prefix));

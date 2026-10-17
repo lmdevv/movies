@@ -18,6 +18,7 @@ import type { BrowserContext, Page, Request } from "@playwright/test";
 
 import { NO_STACK, ownedStack, signInOwner, useSession } from "../admin/session";
 import type { Client } from "../admin/session";
+import { drawStill } from "../stack/fixture-library";
 import { buildMediaService, startMediaService } from "../stack/media-service";
 import type { MediaService } from "../stack/media-service";
 import {
@@ -94,6 +95,15 @@ const TRACKS = "Audio, subtitles, and quality";
 const SHOW = "Tide Tables";
 
 const EPISODES = ["Low Water", "Slack Tide", "Spring Tide"] as const;
+
+/**
+ * The second episode carries what the next-episode card shows: a still, a runtime, and a synopsis
+ * as long as a real one. The third has none of them, for the card's fallbacks.
+ */
+const SLACK_TIDE = {
+  plot: "The harbor master's daughter comes home to the lighthouse; the ferry crew argues over the night timetable; the keeper's log goes missing.",
+  runtimeMinutes: 48,
+} as const;
 
 /** The show's second season, for browsing seasons in the player's episode picker. */
 const SEASON_TWO = ["Neap Tide"] as const;
@@ -180,13 +190,16 @@ test.beforeAll(async ({ browser }) => {
     ...EPISODES.flatMap((name, index) => {
       const stem = join(showFolder, `${SHOW} - S01E0${String(index + 1)}`);
 
+      const second = name === EPISODES[1];
+
       return [
         encodeClip(`${stem}.mp4`, {
           seconds: EPISODE_SECONDS,
           video: "h264",
           audio: [{ codec: "aac", language: "eng" }],
         }),
-        writeText(`${stem}.nfo`, episodeNfo(1, index + 1, name)),
+        writeText(`${stem}.nfo`, episodeNfo(1, index + 1, name, second ? SLACK_TIDE : {})),
+        ...(second ? [drawStill(browser, name, `${stem}-thumb.jpg`)] : []),
       ];
     }),
     ...SEASON_TWO.flatMap((name, index) => {
@@ -818,7 +831,25 @@ test("the next episode plays itself after the countdown; Watch credits cancels i
   await expect(page.getByRole("button", { name: "Watch credits" })).toBeVisible({
     timeout: 10_000,
   });
-  await expect(page.getByText(EPISODES[1])).toBeVisible();
+
+  // A compact card names the next episode, with its still, runtime, and synopsis, and Play next
+  // has focus, while the credits keep the whole frame.
+  const card = page.getByRole("region", { name: "Next episode" });
+  const still = card.locator('[data-slot="next-episode-still"]');
+  const image = still.locator('[data-slot="next-episode-image"]');
+
+  await expect(card.getByRole("heading", { name: EPISODES[1] })).toBeVisible();
+  await expect(card).toContainText("S1:E2 · 48m");
+  await expect(card).toContainText(SLACK_TIDE.plot);
+  await expect(image).toHaveCSS("background-image", /^url\(/u);
+  await expect(card.getByRole("button", { name: "Play next" })).toBeFocused();
+  await expect(card.getByRole("button", { name: "Play next" })).toHaveAccessibleName("Play next");
+  await expect(card.getByRole("button", { name: "Play next" })).toHaveAccessibleDescription(
+    /^Starts in \d+ seconds?$/u,
+  );
+  const frame = await player.boundingBox();
+
+  await expect.poll(() => page.getByTestId("player-video").boundingBox()).toEqual(frame);
   await capture(page, "07-05-autoplay-next");
   await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"), { timeout: 20_000 });
   await expectPlayingPast(page, 0.5);
@@ -830,8 +861,27 @@ test("the next episode plays itself after the countdown; Watch credits cancels i
 
   const credits = page.getByRole("button", { name: "Watch credits" });
 
-  // While "Leave playback?" asks, the ten-second countdown waits instead of moving on behind it.
   await expect(credits).toBeVisible({ timeout: 10_000 });
+
+  // The last episode has no still: its tile keeps its place with a glyph.
+  await expect(card.getByRole("heading", { name: EPISODES[2] })).toBeVisible();
+  await expect(image).toHaveCount(0);
+  await expect(still.locator("svg")).toBeVisible();
+
+  // A click on the credits pauses them, and the countdown with them: the card gives way to the
+  // controls until they play again, and then counts down from the start.
+  const video = page.getByTestId("player-video");
+  const onCredits = { position: { x: 200, y: 450 } } as const;
+
+  await video.click(onCredits);
+  await expect(card).toBeHidden();
+  await expect.poll(() => controlsShown(page)).toBe(true);
+  await page.waitForTimeout(11_000);
+  await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"));
+  await video.click(onCredits);
+  await expect(credits).toBeVisible();
+
+  // While "Leave playback?" asks, the ten-second countdown waits instead of moving on behind it.
   await player.press("Escape");
   await expect(leaveDialog(page)).toBeVisible();
   await page.waitForTimeout(11_000);

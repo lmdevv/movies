@@ -399,3 +399,7 @@ export const encodeClip = (output: string): Promise<void> => encode("hd", output
 /** Draws a poster lettered with `name` to `path`, for suites that build their own folders. */
 export const drawPoster = (browser: Browser, name: string, path: string): Promise<void> =>
   drawArt(browser, { kind: "poster", name, path });
+
+/** Draws an episode still colored from `name` to `path`, for suites that build their own folders. */
+export const drawStill = (browser: Browser, name: string, path: string): Promise<void> =>
+  drawArt(browser, { kind: "still", name, path });
