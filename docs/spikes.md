@@ -7,7 +7,7 @@ against which versions, and what it showed. Add a section per spike; keep the he
 
 Run 2026-10-12 against the self-hosted backend started by `scripts/dev-stack.sh`
 (`ghcr.io/get-convex/convex-backend:latest`, then digest `sha256:d715e9ec…`; every install and the
-dev stack now pin it in `deploy/convex-backend.image`), `convex` 1.46.0, `@convex-dev/auth` 0.0.96,
+dev stack now pin it in `deploy/convex-backend.image`, from `ghcr.io/convex` since Convex moved it), `convex` 1.46.0, `@convex-dev/auth` 0.0.96,
 `@auth/core` 0.41.3, Node 24.20.
 
 ### HMAC playback tokens in the Convex runtime
