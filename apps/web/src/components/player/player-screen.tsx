@@ -691,10 +691,11 @@ export function PlayerScreen({
     setLeaving({ resume: pause });
   }, [roomId, output]);
 
+  // Through `togglePlay`, which also covers a stream that now needs a gesture: Stay is one.
   const stay = useCallback(() => {
-    if (leaving?.resume === true) void output?.play().catch(() => undefined);
+    if (leaving?.resume === true && output?.isPaused() === true) togglePlay();
     setLeaving(null);
-  }, [leaving, output]);
+  }, [leaving, output, togglePlay]);
 
   // Back to where focus was in the player, or to the player itself. The dialog would move focus
   // from the frame, which only script can focus, to its first button, so the frame is focused here.
@@ -717,8 +718,10 @@ export function PlayerScreen({
   // Autoplay next: near the end of an episode, outside rooms.
   const remaining = Math.max(0, duration - media.positionSeconds);
 
+  // Not while "Leave playback?" asks, so the countdown cannot move on to the next episode behind it.
   const showNext =
     isPlaying &&
+    leaving === null &&
     !inRoom &&
     nextEpisode !== null &&
     !creditsDismissed &&

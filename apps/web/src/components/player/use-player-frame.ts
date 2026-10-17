@@ -91,10 +91,18 @@ export const useFullscreen = (
     [],
   );
 
+  // Leaves full screen as the page. If that fails (or the browser is already leaving), later exits
+  // are the browser's own again.
+  const endFullscreen = useCallback(() => {
+    endedByPage.current = true;
+    void document.exitFullscreen().catch(() => {
+      endedByPage.current = false;
+    });
+  }, []);
+
   const toggle = useCallback(() => {
     if (document.fullscreenElement !== null) {
-      endedByPage.current = true;
-      void document.exitFullscreen();
+      endFullscreen();
 
       return;
     }
@@ -107,18 +115,17 @@ export const useFullscreen = (
     }
 
     video?.webkitEnterFullscreen?.();
-  }, [frame, video]);
+  }, [frame, video, endFullscreen]);
 
   const takeEscape = useCallback((): boolean => {
     if (document.fullscreenElement !== null) {
-      endedByPage.current = true;
-      void document.exitFullscreen();
+      endFullscreen();
 
       return true;
     }
 
     return performance.now() - exitedAt.current < FULLSCREEN_ESCAPE_MS;
-  }, []);
+  }, [endFullscreen]);
 
   return { fullscreen, toggle, takeEscape };
 };

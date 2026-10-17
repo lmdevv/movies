@@ -8,7 +8,7 @@ import {
 import type { CommandItem, CommandLeading, CommandPage } from "@movies/ui/lib/command-menu";
 import { cn } from "@movies/ui/lib/utils";
 import { CheckIcon } from "lucide-react";
-import { useEffect, useEffectEvent, useId, useReducer, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useId, useMemo, useReducer, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 import { Keycaps } from "./keycap";
@@ -147,8 +147,8 @@ export function CommandMenu({
   const [state, dispatch] = useReducer(commandMenuReducer, initialCommandMenuState);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  // Opening starts from the root list, even when the menu opens again before its closing
-  // animation ended (and the reset after it ran), which would show the list it closed on.
+  // Opening is the one place the menu resets: it starts from the root list, even when it opens
+  // again before its closing animation has ended.
   const [wasOpen, setWasOpen] = useState(open);
 
   if (open !== wasOpen) {
@@ -172,10 +172,14 @@ export function CommandMenu({
 
   // A group with a checked row is a list of choices, where every row is checked or not, even while
   // typing hides the checked one.
-  const choiceGroups = new Set(
-    page.groups
-      .filter((group) => group.items.some((item) => item.leading?.kind === "check"))
-      .map((group) => group.id),
+  const choiceGroups = useMemo(
+    () =>
+      new Set(
+        page.groups
+          .filter((group) => group.items.some((item) => item.leading?.kind === "check"))
+          .map((group) => group.id),
+      ),
+    [page],
   );
 
   useEffect(() => {
@@ -273,12 +277,6 @@ export function CommandMenu({
         }
 
         onOpenChange(next);
-      }}
-      onOpenChangeComplete={(isOpen) => {
-        if (isOpen) return;
-
-        dispatch({ type: "reset" });
-        setBusyId(null);
       }}
     >
       <Dialog.Portal container={container}>

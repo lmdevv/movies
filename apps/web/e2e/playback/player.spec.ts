@@ -779,6 +779,14 @@ test("the next episode plays itself after the countdown; Watch credits cancels i
 
   const credits = page.getByRole("button", { name: "Watch credits" });
 
+  // While "Leave playback?" asks, the ten-second countdown waits instead of moving on behind it.
+  await expect(credits).toBeVisible({ timeout: 10_000 });
+  await player.press("Escape");
+  await expect(leaveDialog(page)).toBeVisible();
+  await page.waitForTimeout(11_000);
+  await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"));
+  await page.keyboard.press("Escape");
+  await expect(leaveDialog(page)).toBeHidden();
   await credits.click();
   await expect(credits).toBeHidden();
   await expect
