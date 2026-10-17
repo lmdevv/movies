@@ -21,8 +21,8 @@ const TONE_VARIABLES = {
 
 /**
  * Glyph sizes as Paper draws them: 14 under profile tiles, 16 for row chevrons, 20 in buttons and
- * on artwork, 22 in list rows, 24 in navigation, 28 large controls, 40 in calm states, and 56 on
- * avatar tiles. Lucide takes a point size, so the scale lives here rather than in CSS.
+ * on artwork, 22 in list rows, 24 in navigation, 28 large controls, 32 in the round badge of calm
+ * states, 40 on small avatar tiles, and 56 on large ones. Lucide takes a point size, so the scale lives here rather than in CSS.
  */
 const SIZES = {
   caption: 14,
@@ -31,6 +31,7 @@ const SIZES = {
   row: 22,
   nav: 24,
   large: 28,
+  badge: 32,
   state: 40,
   tile: 56,
 } as const;

@@ -2,21 +2,26 @@ import "../global.css";
 
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { CloudOff } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Alert, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useUniwind } from "uniwind";
 
+import { ServerUnavailable } from "@/components/server-unavailable";
 import { Button } from "@/components/ui/button";
-import { CalmState } from "@/components/ui/calm-state";
-import { Screen } from "@/components/ui/screen";
 import { applyAppearance } from "@/lib/appearance";
 import { describeFailure } from "@/lib/failure";
+import { displayHost } from "@/lib/local-network";
 import { useThemeColor } from "@/lib/theme-color";
 import { ActiveProfileContext } from "@/session/active-profile";
-import { ConnectionProvider, useConnection } from "@/session/connection";
+import { ConnectionProvider, useConnection, useServer } from "@/session/connection";
+import { InviteLinks } from "@/session/invite-links";
+import {
+  PendingInviteProvider,
+  useDropInviteWhenSignedIn,
+  usePendingInvite,
+} from "@/session/pending-invite";
 import { ProfileChoiceProvider } from "@/session/profile-choice";
 import { SdkProvider } from "@/session/sdk-provider";
 import { SessionPhaseContext, useLiveSessionPhase, useSettledPhase } from "@/session/session-phase";
@@ -51,26 +56,49 @@ function NavigationTheme({ children }: { readonly children: ReactNode }) {
   );
 }
 
+/** A native sheet sized to its content, with the grabber. */
+const SHEET = {
+  presentation: "formSheet",
+  sheetAllowedDetents: "fitToContents",
+  sheetGrabberVisible: true,
+  sheetCornerRadius: 28,
+} as const;
+
 /**
  * Every screen, grouped by the phase that may show it. Changing phase sends the stack to the
  * first screen the new phase allows.
  */
 function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
+  const invite = usePendingInvite();
+
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Protected guard={phase === "disconnected"}>
         <Stack.Screen name="welcome" />
         <Stack.Screen name="connect" />
         <Stack.Screen name="connection-details" />
+        <Stack.Screen name="open-invite" />
+        <Stack.Screen name="unreachable" />
       </Stack.Protected>
-      <Stack.Protected guard={phase === "signedOut"}>
+      <Stack.Protected guard={phase === "signedOut" && invite.code !== null}>
+        <Stack.Screen name="join" options={{ animation: "fade" }} />
+      </Stack.Protected>
+      <Stack.Protected guard={phase === "signedOut" && invite.code === null}>
         <Stack.Screen name="sign-in" />
+        <Stack.Screen name="sign-in-code" />
       </Stack.Protected>
       <Stack.Protected guard={phase === "chooseProfile"}>
         <Stack.Screen name="profiles" options={{ animation: "fade" }} />
       </Stack.Protected>
+      <Stack.Protected guard={phase === "chooseProfile" || phase === "ready"}>
+        <Stack.Screen name="manage-profiles" />
+        <Stack.Screen name="profile/[profileId]" />
+        <Stack.Screen name="profile-pin/[profileId]" />
+        <Stack.Screen name="delete-profile/[profileId]" options={SHEET} />
+      </Stack.Protected>
       <Stack.Protected guard={phase === "ready"}>
         <Stack.Screen name="(tabs)" options={{ animation: "fade" }} />
+        <Stack.Screen name="switch-profile" options={SHEET} />
         <Stack.Screen name="title/[titleId]" />
         <Stack.Screen
           name="watch/[titleId]"
@@ -115,43 +143,41 @@ const useSlowLoad = (loading: boolean): boolean => {
 };
 
 /**
- * Shown instead of the splash when the session cannot load, such as when the account server is
- * unreachable or the stored session was revoked: try again, sign out, or pick another server.
+ * A08 · Server Unavailable for the remembered server, shown instead of the splash when the session
+ * cannot load, such as when the account server is unreachable or the stored session was revoked:
+ * try again, pick another server, or sign out.
  */
 function ConnectionTrouble({
   description,
   retry,
 }: {
-  readonly description: string;
+  readonly description?: string;
   readonly retry?: () => void;
 }) {
   const { disconnect } = useConnection();
+  const server = useServer();
   const signOut = useSignOut();
 
   return (
-    <Screen>
+    <>
       <HideSplash />
-      <CalmState
-        icon={CloudOff}
-        title="Server Unavailable"
-        description={description}
-        actions={
-          <>
-            {retry === undefined ? null : <Button label="Try Again" onPress={retry} />}
-            <Button label="Change Server" variant="secondary" onPress={disconnect} />
-            <Button
-              label="Sign Out"
-              variant="plain"
-              onPress={() => {
-                void signOut().catch((cause: unknown) => {
-                  Alert.alert("Couldn't Sign Out", describeFailure(cause));
-                });
-              }}
-            />
-          </>
+      <ServerUnavailable
+        description={description ?? `${displayHost(server.mediaUrl)} is unavailable.`}
+        onRetry={retry}
+        onChangeServer={disconnect}
+        extra={
+          <Button
+            label="Sign Out"
+            variant="plain"
+            onPress={() => {
+              void signOut().catch((cause: unknown) => {
+                Alert.alert("Couldn’t Sign Out", describeFailure(cause));
+              });
+            }}
+          />
         }
       />
-    </Screen>
+    </>
   );
 }
 
@@ -162,6 +188,8 @@ function ConnectionTrouble({
 function ConnectedApp() {
   const phase = useLiveSessionPhase();
   const settled = useSettledPhase(phase);
+
+  useDropInviteWhenSignedIn(settled !== null && settled.kind !== "signedOut");
   const slow = useSlowLoad(phase.kind === "loading");
 
   let trouble: ReactNode = null;
@@ -169,9 +197,7 @@ function ConnectedApp() {
   if (phase.kind === "unavailable") {
     trouble = <ConnectionTrouble description={describeFailure(phase.cause)} retry={phase.retry} />;
   } else if (phase.kind === "loading" && slow) {
-    trouble = (
-      <ConnectionTrouble description="The server isn't answering. Check the connection, or choose another server." />
-    );
+    trouble = <ConnectionTrouble />;
   }
 
   if (settled === null) return trouble;
@@ -218,7 +244,10 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <NavigationTheme>
         <ConnectionProvider>
-          <App />
+          <PendingInviteProvider>
+            <InviteLinks />
+            <App />
+          </PendingInviteProvider>
         </ConnectionProvider>
       </NavigationTheme>
     </GestureHandlerRootView>

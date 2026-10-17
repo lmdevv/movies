@@ -110,8 +110,12 @@ export interface PendingDeviceLogin {
   readonly verificationUrl: string;
   /** When the server stops accepting approval; `complete` gives up shortly after. */
   readonly expiresAt: EpochMillis;
-  /** Resolves once approved and signed in; rejects with `DeviceLoginRefused` when denied or expired. */
-  readonly complete: () => Promise<void>;
+  /**
+   * Resolves once approved and signed in; rejects with `DeviceLoginRefused` when denied or expired.
+   * Aborting `signal` stops waiting, so an abandoned code that is approved later signs nothing in;
+   * the promise then rejects.
+   */
+  readonly complete: (signal?: AbortSignal) => Promise<void>;
 }
 
 /** Starts a device sign-in on `runtime`, for the Promise and React entry points. */
@@ -125,6 +129,6 @@ export const startOn = async (
     userCode: login.userCode,
     verificationUrl: login.verificationUrl,
     expiresAt: login.expiresAt,
-    complete: () => runtime.runPromise(login.complete),
+    complete: (signal) => runtime.runPromise(login.complete, { signal }),
   };
 };

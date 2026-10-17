@@ -17,7 +17,8 @@ export default function Welcome() {
           [movies]
         </Text>
       </View>
-      <View className="flex-1 justify-center gap-4 px-5 pb-4">
+      <View className="gap-4 px-5 py-4">
+        <View className="h-20" />
         <Image
           source={welcomeArt}
           contentFit="cover"
@@ -27,6 +28,11 @@ export default function Welcome() {
         <Text variant="display">{"Your cinema.\nEverywhere."}</Text>
         <View className="h-4" />
         <Button label="Connect to Server" onPress={() => router.push("/connect")} />
+        <Button
+          label="Open an Invite"
+          variant="secondary"
+          onPress={() => router.push("/open-invite")}
+        />
       </View>
     </Screen>
   );

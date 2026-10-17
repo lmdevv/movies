@@ -11,6 +11,9 @@ People type the media service's address (the one that serves the web app). The a
 Details takes both addresses for servers whose media service runs without a public Convex URL.
 The session tokens, the server, and the chosen profile live in the iOS keychain.
 
+Invites open from a pasted web link (`<server>/invite/<code>`) on Open an Invite, or from the app's
+own link `movies://invite?server=<media-url>&code=<code>`, which connects to that server first.
+
 ## Develop
 
 Native code needs a development build; Expo Go does not carry the modules this app uses. On a Mac

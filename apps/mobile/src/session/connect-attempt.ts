@@ -1,0 +1,68 @@
+/**
+ * One attempt to connect from a form (A02 Connect to Server, A09 Connection Details, A08's Try
+ * Again, Open an Invite): ignores submits while one runs or the form is incomplete, remembers the
+ * failure until the form changes, and opens the app on the server once it answers.
+ */
+import { useCallback, useRef, useState } from "react";
+
+import type { ConnectFailure, ConnectResult, ServerConnection } from "@/lib/discovery";
+
+import { useConnection } from "./connection";
+
+/** A form's connect attempt. */
+export interface ConnectAttempt {
+  readonly busy: boolean;
+  /** Why the last attempt failed, until `clearFailure` or the next attempt. */
+  readonly failure: ConnectFailure | null;
+  readonly clearFailure: () => void;
+  /**
+   * Runs `attempt` unless one is running or `filled` is false, and connects when it succeeds,
+   * after `beforeConnect`. Resolves with the result, or null when the submit was ignored.
+   */
+  readonly run: (
+    attempt: () => Promise<ConnectResult>,
+    options: {
+      readonly filled: boolean;
+      readonly beforeConnect?: (connection: ServerConnection) => void;
+    },
+  ) => Promise<ConnectResult | null>;
+}
+
+/** A connect attempt for one form. */
+export const useConnectAttempt = (): ConnectAttempt => {
+  const { connect } = useConnection();
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<ConnectFailure | null>(null);
+  // The keyboard's Go key can fire before `busy` renders.
+  const running = useRef(false);
+
+  const clearFailure = useCallback(() => setFailure(null), []);
+
+  const run = useCallback<ConnectAttempt["run"]>(
+    async (attempt, { filled, beforeConnect }) => {
+      if (running.current || !filled) return null;
+      running.current = true;
+      setBusy(true);
+      setFailure(null);
+
+      try {
+        const result = await attempt();
+
+        if (result.ok) {
+          beforeConnect?.(result.connection);
+          connect(result.connection);
+        } else {
+          setFailure(result.failure);
+        }
+
+        return result;
+      } finally {
+        running.current = false;
+        setBusy(false);
+      }
+    },
+    [connect],
+  );
+
+  return { busy, failure, clearFailure, run };
+};

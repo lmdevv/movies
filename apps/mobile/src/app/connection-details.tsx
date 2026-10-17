@@ -6,29 +6,15 @@ import { NavHeader } from "@/components/ui/nav-header";
 import { Screen } from "@/components/ui/screen";
 import { TextField } from "@/components/ui/text-field";
 import { connectManually, describeConnectFailure, normalizeServerUrl } from "@/lib/discovery";
-import type { ConnectFailure } from "@/lib/discovery";
-import { useConnection } from "@/session/connection";
+import { useConnectAttempt } from "@/session/connect-attempt";
 
 export default function ConnectionDetails() {
-  const { connect } = useConnection();
   const [mediaUrl, setMediaUrl] = useState("");
   const [convexUrl, setConvexUrl] = useState("");
-  const [failure, setFailure] = useState<ConnectFailure | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { busy, failure, clearFailure, run } = useConnectAttempt();
+  const filled = mediaUrl.trim() !== "" && convexUrl.trim() !== "";
 
-  const ready = mediaUrl.trim() !== "" && convexUrl.trim() !== "" && !busy;
-
-  const submit = async () => {
-    if (!ready) return;
-    setBusy(true);
-    setFailure(null);
-    const result = await connectManually(mediaUrl, convexUrl);
-
-    setBusy(false);
-
-    if (result.ok) connect(result.connection);
-    else setFailure(result.failure);
-  };
+  const submit = () => run(() => connectManually(mediaUrl, convexUrl), { filled });
 
   // A failure shows under the field it is about, and editing either field clears it.
   const mediaError =
@@ -40,14 +26,14 @@ export default function ConnectionDetails() {
     failure === null || mediaError !== null ? null : describeConnectFailure(failure);
 
   return (
-    <Screen scroll header={<NavHeader title="Connection Details" />}>
+    <Screen scroll header={<NavHeader title="Connection Details" fallback="/welcome" />}>
       <TextField
         label="Media server"
         placeholder="https://cinema.home"
         value={mediaUrl}
         onChangeText={(text) => {
           setMediaUrl(text);
-          setFailure(null);
+          clearFailure();
         }}
         error={mediaError}
         autoCapitalize="none"
@@ -60,7 +46,7 @@ export default function ConnectionDetails() {
         value={convexUrl}
         onChangeText={(text) => {
           setConvexUrl(text);
-          setFailure(null);
+          clearFailure();
         }}
         error={convexError}
         autoCapitalize="none"
@@ -68,12 +54,7 @@ export default function ConnectionDetails() {
         returnKeyType="go"
         onSubmitEditing={() => void submit()}
       />
-      <Button
-        label="Connect"
-        busy={busy}
-        disabled={mediaUrl.trim() === "" || convexUrl.trim() === ""}
-        onPress={() => void submit()}
-      />
+      <Button label="Connect" busy={busy} disabled={!filled} onPress={() => void submit()} />
     </Screen>
   );
 }
