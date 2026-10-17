@@ -549,16 +549,14 @@ export const heartbeat = mutation({
     if (away) {
       // A room from before `fileDurationMs` reads its file's length once, while playing, and
       // keeps it.
-      const read =
-        found.fileDurationMs === undefined && found.status === "playing"
-          ? await ctx.db.get(found.fileId)
-          : null;
-
+      const reading = found.fileDurationMs === undefined && found.status === "playing";
+      const read = reading ? await ctx.db.get(found.fileId) : null;
+      // A missing file keeps 0, a length `awayHostClock` treats as unknown, so it is read once.
       const durationMs = found.fileDurationMs ?? read?.probe.durationMs ?? 0;
       const paused = awayHostClock(found, durationMs, now);
       const patch: AwayHostPatch = { hostLastSeenAt: now, hostAway: false };
 
-      if (read !== null) patch.fileDurationMs = read.probe.durationMs;
+      if (reading) patch.fileDurationMs = durationMs;
 
       if (paused !== null) {
         patch.status = paused.status;
@@ -570,7 +568,7 @@ export const heartbeat = mutation({
       // The host's presence too is refreshed only every `AWAY_REFRESH_MS`, inside the host timeout.
       const quiet =
         paused === null &&
-        read === null &&
+        !reading &&
         !found.hostAway &&
         now - found.hostLastSeenAt < AWAY_REFRESH_MS;
 

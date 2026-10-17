@@ -496,7 +496,8 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
               (target) => Math.abs(landed - target) <= tunables.hostSeekMs,
             );
 
-            if (at !== -1) return [true, targets.filter((_, index) => index !== at)];
+            // Earlier targets were replaced by this one, or already landed.
+            if (at !== -1) return [true, targets.slice(at + 1)];
 
             // Landing on the room's time is no change of the host's, whoever seeked.
             return [onClock, onClock ? targets.slice(1) : targets];

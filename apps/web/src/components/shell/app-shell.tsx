@@ -135,8 +135,9 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     );
   };
 
-  // A hero page without a phone title of its own floats the pill over its artwork until the
-  // compact bar, which carries it once scrolled, takes over.
+  // A hero page without a phone title of its own floats the pill over its artwork. Where the
+  // compact bar exists it carries the pill once scrolled; on a title's page, which has none, the
+  // pill stays.
   const heroPill = hero && (!phoneTitle || title === "");
 
   /** The avatar, after the room pill when there is one. */
@@ -195,10 +196,10 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
         />
       ) : null}
 
-      {!heroPill || scrolled || pillRoom === null ? null : (
+      {!heroPill || (scrolled && phoneTitle) || pillRoom === null ? null : (
         // Over the artwork of a hero page without the phone title (a title's page, a collection),
-        // level with a title page's Back button, and scrolling with it.
-        <div className="on-media absolute top-[max(env(safe-area-inset-top),var(--spacing-12))] right-4 z-40 flex h-10 items-center md:hidden">
+        // level with a title page's Back button, held in place on glass.
+        <div className="on-media fixed top-[max(env(safe-area-inset-top),var(--spacing-12))] right-4 z-40 flex h-10 items-center md:hidden">
           {roomPill(true, "bg-glass backdrop-blur-xl")}
         </div>
       )}
