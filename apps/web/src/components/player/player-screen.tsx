@@ -829,10 +829,15 @@ export function PlayerScreen({
   const roomPaused = room !== null && (room.clock.status !== "playing" || hostGone(room));
   const stalled = useSettled(isPlaying && media.buffering, BUFFERING_GRACE_MS);
 
+  // Stream info shows only in the desktop controls, once a stream has loaded; left open on a layout
+  // without it, it is hidden and holds nothing (it shows again on the desktop layout).
+  const streamInfoAvailable = layout === "desktop" && stream !== null && started !== null;
+  const infoShown = info && streamInfoAvailable;
+
   const hold =
     !isPlaying ||
     media.paused ||
-    info ||
+    infoShown ||
     menu ||
     startDialog !== null ||
     leaving !== null ||
@@ -862,7 +867,7 @@ export function PlayerScreen({
       "player.exit": (event) => {
         if (takeEscape(event)) return;
 
-        if (info) setInfo(false);
+        if (infoShown) setInfo(false);
         else askToLeave();
       },
     },
@@ -877,9 +882,7 @@ export function PlayerScreen({
       togglePlay,
       skip,
       toggleFullscreen,
-      // Stream info shows only in the desktop controls, once a stream has loaded.
-      showStreamInfo:
-        layout === "desktop" && stream !== null && started !== null ? () => setInfo(true) : null,
+      showStreamInfo: streamInfoAvailable ? () => setInfo(true) : null,
       subtitles: subtitleOptions,
       subtitleId,
       selectSubtitle,
@@ -924,8 +927,7 @@ export function PlayerScreen({
       inRoom,
       playNext,
       started,
-      layout,
-      stream,
+      streamInfoAvailable,
       openStartRoom,
       roomId,
       copyLink,
@@ -1255,8 +1257,8 @@ export function PlayerScreen({
           {isPlaying && stream !== null && started !== null ? (
             <PlayerButton
               aria-label="Stream info"
-              aria-pressed={info}
-              active={info}
+              aria-pressed={infoShown}
+              active={infoShown}
               onClick={() => setInfo((open) => !open)}
             >
               <InfoIcon strokeWidth={1.75} aria-hidden />
@@ -1264,7 +1266,7 @@ export function PlayerScreen({
           ) : null}
         </div>
       </header>
-      {info && stream !== null && started !== null ? (
+      {infoShown ? (
         <StreamInfo
           file={started.file}
           stream={stream}
