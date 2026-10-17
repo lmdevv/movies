@@ -137,6 +137,7 @@ fi
 
 cat >"${root}/apps/media/.env.local" <<ENV
 CONVEX_URL=http://127.0.0.1:${convex_port}
+CONVEX_PUBLIC_URL=http://127.0.0.1:${convex_port}
 MEDIA_BASE_URL=http://127.0.0.1:${media_port}
 PORT=${media_port}
 DATA_DIR=${data_dir}

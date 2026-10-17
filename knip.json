@@ -11,6 +11,10 @@
       "project": ["src/**/*.ts", "scripts/**/*.ts"]
     },
     "apps/web": {},
+    "apps/mobile": {
+      "entry": ["src/app/**/*.tsx"],
+      "project": ["src/**/*.{ts,tsx,css}"]
+    },
     "packages/backend": {
       "typescript": {
         "config": ["convex/tsconfig.json"]

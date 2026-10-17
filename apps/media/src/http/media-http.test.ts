@@ -210,6 +210,15 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
       }),
     );
 
+    it.effect("has no Convex URL for apps when it runs standalone", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const response = yield* get(`${server.baseUrl}/api/client-config`);
+
+        assert.deepStrictEqual(yield* json(response), {});
+      }),
+    );
+
     it.effect("serves artwork by sealed key, resized on request, and refuses others", () =>
       Effect.gen(function* () {
         const server = yield* MediaTestServer.Service;
@@ -730,6 +739,20 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const status = yield* decodeHealth(yield* json(health)).pipe(Effect.orDie);
 
         assert.strictEqual(status.hardwareAcceleration, "none");
+      }),
+    );
+  });
+
+  layer(MediaTestServer.layer({ CONVEX_PUBLIC_URL: "https://convex.example.com/" }), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })("with a public Convex URL", (it) => {
+    it.effect("tells apps where to sign in", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const response = yield* get(`${server.baseUrl}/api/client-config`);
+
+        assert.deepStrictEqual(yield* json(response), { convexUrl: "https://convex.example.com" });
       }),
     );
   });

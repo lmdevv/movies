@@ -27,6 +27,7 @@ playback events are logged. `CONVEX_URL` without the key refuses to start.
 | `POST /api/playback/seek`                                | Move an HLS stream; returns the generation and playlist URL to load |
 | `POST /api/playback/stop`                                | End an HLS stream and delete its output (204)                       |
 | `GET /api/health`                                        | Status, active streams, hardware acceleration                       |
+| `GET /api/client-config`                                 | The Convex URL apps sign in to (`CONVEX_PUBLIC_URL`)                |
 | `GET, HEAD /media/direct/:fileId?token=`                 | Original file with single byte ranges                               |
 | `GET /media/hls/:streamId/:generation/index.m3u8?token=` | VOD playlist of one generation                                      |
 | `GET /media/hls/:streamId/:generation/init.mp4?token=`   | fMP4 init segment                                                   |
@@ -39,7 +40,7 @@ playback events are logged. `CONVEX_URL` without the key refuses to start.
 | `POST /api/migration/import`                             | `migration.import` command (bearer Convex token, `admin`)           |
 | `GET /*`                                                 | Built web app from `WEB_DIST_DIR`, with SPA fallback                |
 
-The playback API (`/api/playback/*`, `/api/health`) is the Effect HttpApi in
+The playback API (`/api/playback/*`, `/api/health`, `/api/client-config`) is the Effect HttpApi in
 `@movies/contracts/media-api`, built from the schemas and tagged errors in
 `@movies/contracts/media-playback`. Its errors are JSON bodies encoded with their schema, such as
 `{"_tag":"StreamGenerationGone","streamId":"…","generation":1,"currentGeneration":2}` (410).
