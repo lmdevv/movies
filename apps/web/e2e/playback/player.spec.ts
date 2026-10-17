@@ -1121,6 +1121,14 @@ test("touch: a tap opens the volume slider before muting, and the picker plays a
 
   await expect(phonePicker.locator('[aria-current="true"]')).toContainText(EPISODES[1]);
   await expect(phonePicker).toHaveCSS("opacity", "1");
+
+  // On a screen this short it stays above the pill, within the screen, and its list scrolls.
+  const pill = await handset.getByRole("button", { name: "Episodes", exact: true }).boundingBox();
+  const panel = await phonePicker.boundingBox();
+
+  if (pill === null || panel === null) throw new Error("The picker is not on screen");
+  expect(panel.y).toBeGreaterThanOrEqual(0);
+  expect(panel.y + panel.height).toBeLessThanOrEqual(pill.y);
   await capture(handset, "07-16-ios-episode-picker");
   await phonePicker.getByRole("button", { name: new RegExp(EPISODES[0], "u") }).tap();
   await expect(handset).toHaveURL(new RegExp(`episodeId=${first}`, "u"));

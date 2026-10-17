@@ -139,7 +139,7 @@ export function EpisodeList({
         className,
       )}
     >
-      <div className="flex flex-col gap-3 px-5 pt-5 pb-3">
+      <div className="flex shrink-0 flex-col gap-3 px-5 pt-5 pb-2">
         <span className="font-sans text-caption/caption font-medium tracking-caps text-text-muted uppercase">
           Episodes
         </span>
@@ -171,7 +171,8 @@ export function EpisodeList({
           </span>
         )}
       </div>
-      <ol className="flex min-h-0 flex-col gap-0.5 overflow-y-auto px-3 pb-3">
+      {/* The heading and season chips stay put while the episodes under them scroll. */}
+      <ol className="flex min-h-0 scroll-py-1 flex-col gap-0.5 overflow-y-auto overscroll-y-contain px-3 pt-1 pb-3">
         {episodes === null
           ? LOADING_ROWS.map((row) => (
               <li key={row} aria-hidden className="flex items-center gap-3 p-2">
@@ -284,6 +285,8 @@ export function EpisodePopover({
           sideOffset={76}
           alignOffset={-32}
           collisionPadding={16}
+          // Always above the controls, as the track menu: a short window shortens the panel instead.
+          collisionAvoidance={{ side: "none", align: "shift" }}
           className="z-50"
         >
           <Popover.Popup
@@ -293,13 +296,13 @@ export function EpisodePopover({
 
               return currentRow.current ?? list.current;
             }}
-            className="flex max-h-[min(var(--spacing-chapter-list),var(--available-height))] origin-(--transform-origin) shadow-overlay transition-[opacity,scale] data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
+            className="origin-(--transform-origin) shadow-overlay transition-[opacity,scale] data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
           >
             <EpisodeList
               {...browser}
               currentRef={currentRef}
               listRef={list}
-              className="max-w-(--available-width)"
+              className="max-h-[min(var(--available-height),var(--spacing-episode-panel))] max-w-(--available-width)"
             />
           </Popover.Popup>
         </Popover.Positioner>
