@@ -847,7 +847,9 @@ test("the next episode plays itself after the countdown; Watch credits cancels i
   await expect(card.getByRole("button", { name: "Play next" })).toHaveAccessibleDescription(
     /^Starts in \d+ seconds?$/u,
   );
-  expect(await page.getByTestId("player-video").boundingBox()).toEqual(await player.boundingBox());
+  const frame = await player.boundingBox();
+
+  await expect.poll(() => page.getByTestId("player-video").boundingBox()).toEqual(frame);
   await capture(page, "07-05-autoplay-next");
   await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"), { timeout: 20_000 });
   await expectPlayingPast(page, 0.5);

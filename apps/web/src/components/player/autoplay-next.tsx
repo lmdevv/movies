@@ -54,9 +54,6 @@ export function AutoplayNext({
   readonly actions: NextEpisodeActions;
 }) {
   const seconds = Math.max(0, Math.ceil(countdownMs / 1000));
-  // The fill heads for where the countdown will be at its next step, gliding there over the step, so
-  // it is full as the next episode starts.
-  const filled = 1 - (countdownMs - AUTOPLAY_COUNTDOWN.stepMs) / AUTOPLAY_COUNTDOWN.totalMs;
   const startsIn = `Starts in ${String(seconds)} ${seconds === 1 ? "second" : "seconds"}`;
   const describedBy = useId();
 
@@ -114,7 +111,7 @@ export function AutoplayNext({
                 aria-describedby={describedBy}
                 onClick={actions.onPlayNext}
               >
-                <CountdownFill filled={filled} className="bg-text" />
+                <CountdownFill countdownMs={countdownMs} className="bg-text" />
                 <PlayIcon aria-hidden className="fill-current" />
                 <span>Play next</span>
                 <Seconds value={seconds} />
@@ -140,7 +137,7 @@ export function AutoplayNext({
                 aria-label={startsIn}
                 className="relative isolate flex h-11 grow items-center justify-center gap-2 overflow-hidden rounded-control bg-text/10 px-5 text-body/4.5 font-semibold text-text"
               >
-                <CountdownFill filled={filled} className="bg-text/15" />
+                <CountdownFill countdownMs={countdownMs} className="bg-text/15" />
                 Starts in
                 <Seconds value={seconds} />
               </p>
@@ -155,28 +152,45 @@ export function AutoplayNext({
   );
 }
 
+/** The share of the countdown gone once `countdownMs` is left, from 0 to 1. */
+const gone = (countdownMs: number): string =>
+  String(Math.min(1, Math.max(0, 1 - countdownMs / AUTOPLAY_COUNTDOWN.totalMs)));
+
 /**
- * The countdown's progress across its control, from the left: empty when the card opens, then a
- * glide over each step toward `filled`, or a step at a time for viewers who asked for less motion.
+ * The countdown's progress across its control, from the left. It opens empty and glides over each
+ * step toward where the countdown will be at the next one, so it is full as the next episode
+ * starts. For viewers who asked for less motion it shows where the countdown is, a step at a time.
  */
 function CountdownFill({
-  filled,
+  countdownMs,
   className,
 }: {
-  readonly filled: number;
+  readonly countdownMs: number;
   readonly className: string;
 }) {
+  const fill = cn("absolute inset-0 -z-10 origin-left", className);
+
   return (
-    <span
-      aria-hidden
-      data-slot="countdown-fill"
-      className={cn(
-        "absolute inset-0 -z-10 origin-left transition-[scale] duration-1000 ease-linear starting:scale-x-0!",
-        className,
-      )}
-      // The starting style outranks this, so the fill opens empty and glides from there.
-      style={{ scale: `${String(Math.min(1, Math.max(0, filled)))} 1` }}
-    />
+    <>
+      <span
+        aria-hidden
+        data-slot="countdown-fill"
+        className={cn(
+          fill,
+          "transition-[scale] ease-linear starting:scale-x-0! motion-reduce:hidden",
+        )}
+        // The starting style outranks this, so the fill opens empty and glides from there.
+        style={{
+          scale: `${gone(countdownMs - AUTOPLAY_COUNTDOWN.stepMs)} 1`,
+          transitionDuration: `${String(AUTOPLAY_COUNTDOWN.stepMs)}ms`,
+        }}
+      />
+      <span
+        aria-hidden
+        className={cn(fill, "motion-safe:hidden")}
+        style={{ scale: `${gone(countdownMs)} 1` }}
+      />
+    </>
   );
 }
 
