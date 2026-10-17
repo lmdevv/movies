@@ -314,12 +314,28 @@ export function PlayerScreen({
       })
     : null;
 
+  // A room that switches only its file (another version of what plays) keeps the page, so its new
+  // file starts a new session here. Other media opens a page of its own (`useRoomNext`); until it
+  // does, this page keeps the file it had rather than start a session for media it will leave.
+  const [pageFile, setPageFile] = useState("");
+
+  const matchingFile =
+    roomRecord !== null &&
+    roomRecord.title.id === titleId &&
+    (roomRecord.episode?.id ?? undefined) === episodeId
+      ? roomRecord.fileId
+      : null;
+
+  if (matchingFile !== null && matchingFile !== pageFile) setPageFile(matchingFile);
+  const roomFile = matchingFile ?? pageFile;
+
   const playbackKey = [
     roomReady ? "ready" : "waiting",
     profile.id,
     titleId,
     episodeId ?? "",
     openedRoom ?? "",
+    roomFile,
   ].join(":");
 
   const handle = usePlayback(video, buildRequest, playbackKey);
