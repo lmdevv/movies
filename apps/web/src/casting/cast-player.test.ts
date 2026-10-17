@@ -136,7 +136,7 @@ describe("CastPlayer", () => {
     expect(player.isPaused()).toBe(false);
   });
 
-  it("reports only the state the receiver settles in, not one it is toggled away from", async () => {
+  it("reports every pause and play the receiver goes through, so each pause asked is heard", async () => {
     const receiver = laggingReceiver();
     const player = castPlayer(receiver.framework);
     const events: Array<string> = [];
@@ -149,7 +149,43 @@ describe("CastPlayer", () => {
     receiver.deliverOne();
     receiver.deliver();
 
-    expect(events).toEqual(["playing"]);
+    // The room engine counts one echo per pause it asks for; this pause's must arrive.
+    expect(events).toEqual(["paused", "playing"]);
+  });
+
+  it("counts an asked play as buffering until the receiver plays", async () => {
+    const receiver = laggingReceiver();
+    const player = castPlayer(receiver.framework);
+
+    player.pause();
+    receiver.deliver();
+    await player.play();
+    expect(player.isPaused()).toBe(false);
+    expect(player.isBuffering()).toBe(true);
+    receiver.deliver();
+    expect(player.isBuffering()).toBe(false);
+  });
+
+  it("reports the receiver's real state when an asked play never takes effect", async () => {
+    vi.useFakeTimers();
+
+    const receiver = laggingReceiver();
+    const player = castPlayer(receiver.framework);
+    const events: Array<string> = [];
+
+    player.pause();
+    receiver.deliver();
+    player.subscribe((event) => {
+      events.push(event);
+    });
+    await player.play();
+    receiver.loseLast();
+    vi.advanceTimersByTime(5_000);
+
+    expect(player.isPaused()).toBe(true);
+    expect(player.isBuffering()).toBe(false);
+    expect(player.getState().paused).toBe(true);
+    expect(events).toEqual([]);
   });
 
   it("trusts the mirror again when a toggle never shows", async () => {

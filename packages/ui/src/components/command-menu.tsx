@@ -47,7 +47,6 @@ function CommandRow({
   item,
   id,
   active,
-  checked,
   busy,
   onPoint,
   onChoose,
@@ -55,8 +54,6 @@ function CommandRow({
   readonly item: CommandItem;
   readonly id: string;
   readonly active: boolean;
-  /** Whether the row is the current choice of a list of choices; undefined elsewhere. */
-  readonly checked: boolean | undefined;
   readonly busy: boolean;
   readonly onPoint: () => void;
   readonly onChoose: () => void;
@@ -69,7 +66,7 @@ function CommandRow({
       id={id}
       role="option"
       aria-selected={active}
-      aria-checked={checked}
+      aria-checked={item.checked}
       aria-busy={busy || undefined}
       data-active={active || undefined}
       onPointerMove={active ? undefined : onPoint}
@@ -156,17 +153,15 @@ export function CommandMenu({
   if (open !== wasOpen) {
     setWasOpen(open);
 
-    if (open) {
-      dispatch({ type: "reset" });
-      setBusyId(null);
-    }
+    if (open) dispatch({ type: "reset" });
   }
 
-  // The command this opening of the menu is running, if any.
-  const running = useRef<symbol | null>(null);
+  // Counts openings, so a command that settles after the menu opened again leaves that one open.
+  // Its spinner (`busyId`) stays across openings, so it cannot run twice at once.
+  const openings = useRef(0);
 
   useEffect(() => {
-    if (open) running.current = null;
+    if (open) openings.current += 1;
   }, [open]);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -222,18 +217,12 @@ export function CommandMenu({
       return;
     }
 
-    const run = Symbol(item.id);
+    const opening = openings.current;
 
-    running.current = run;
-
-    // A command that settles after the menu opened again belongs to an earlier opening: it neither
-    // clears another command's spinner nor closes the menu now open.
     const settle = (close: boolean): void => {
-      if (running.current !== run) return;
-      running.current = null;
       setBusyId(null);
 
-      if (close && item.keepOpen !== true) onOpenChange(false);
+      if (close && item.keepOpen !== true && openings.current === opening) onOpenChange(false);
     };
 
     const result = item.perform();
@@ -360,7 +349,6 @@ export function CommandMenu({
                         id={`${listboxId}-${position}`}
                         item={item}
                         active={position === active}
-                        checked={item.checked}
                         busy={busyId === item.id}
                         onPoint={() => dispatch({ type: "point", index: position })}
                         onChoose={() => choose(item)}

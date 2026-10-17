@@ -968,7 +968,8 @@ export function PlayerScreen({
   );
 
   // Where menus, popovers, and dialogs render: always inside the player, so they show in full
-  // screen, where nothing outside the player does, and stay put when full screen ends.
+  // screen, where nothing outside the player does, and stay put when full screen ends. Popovers
+  // open only from controls, after the layer has mounted.
   const overlayContainer = overlays ?? undefined;
 
   const tracks = (trigger: React.ReactElement) => (
@@ -1441,38 +1442,45 @@ export function PlayerScreen({
           onLeave={host || hostGone(room) ? undefined : leaveAndExit}
         />
       ) : null}
-      <StartRoomDialog
-        open={startDialog !== null}
-        link={
-          startDialog?.roomId === null || startDialog === null ? null : roomLink(startDialog.roomId)
-        }
-        container={overlayContainer ?? null}
-        onCopy={() => {
-          if (startDialog?.roomId != null) copyLink(startDialog.roomId);
-        }}
-        onCancel={cancelStartRoom}
-        onStart={confirmStartRoom}
-      />
-      <LeaveDialog
-        open={leaving !== null}
-        container={overlayContainer}
-        returnFocus={focusAfterLeaving}
-        onStay={stay}
-        onLeave={backToDetails}
-      />
-      <CommandMenu
-        open={menu}
-        container={overlayContainer}
-        onOpenChange={(open) => {
-          setMenu(open);
+      {/* Dialogs and the menu wait for their layer, so none ever renders outside the player. */}
+      {overlays === null ? null : (
+        <>
+          <StartRoomDialog
+            open={startDialog !== null}
+            link={
+              startDialog?.roomId === null || startDialog === null
+                ? null
+                : roomLink(startDialog.roomId)
+            }
+            container={overlays}
+            onCopy={() => {
+              if (startDialog?.roomId != null) copyLink(startDialog.roomId);
+            }}
+            onCancel={cancelStartRoom}
+            onStart={confirmStartRoom}
+          />
+          <LeaveDialog
+            open={leaving !== null}
+            container={overlays}
+            returnFocus={focusAfterLeaving}
+            onStay={stay}
+            onLeave={backToDetails}
+          />
+          <CommandMenu
+            open={menu}
+            container={overlays}
+            onOpenChange={(open) => {
+              setMenu(open);
 
-          if (!open) setMenuQuery("");
-        }}
-        onQueryChange={(text, page) => {
-          if (page.id === "root") setMenuQuery(text);
-        }}
-        root={root}
-      />
+              if (!open) setMenuQuery("");
+            }}
+            onQueryChange={(text, page) => {
+              if (page.id === "root") setMenuQuery(text);
+            }}
+            root={root}
+          />
+        </>
+      )}
       {/* The overlays' layer: inside the frame, but with the cursor and text selection back. */}
       <div ref={setOverlays} className="contents cursor-auto select-text" />
     </div>
