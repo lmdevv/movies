@@ -93,10 +93,14 @@ export interface CueLike {
   endTime: number;
 }
 
-/** The parts of a `TextTrack` the retimer reads: its cues, null while it is disabled. */
+/** The parts of a `TextTrack` the retimer reads: its kind, and its cues, null while disabled. */
 export interface TextTrackLike {
+  readonly kind: string;
   readonly cues: Iterable<CueLike> | null;
 }
+
+/** The kinds of text track the delay moves; metadata and chapters keep their times. */
+const DELAYED_KINDS: ReadonlySet<string> = new Set(["subtitles", "captions"]);
 
 /**
  * The parts of a media element the retimer follows. Its `<track>` children fire `load` once their
@@ -147,6 +151,8 @@ export class SubtitleRetimer {
   /** Moves the cues of every track that has them; a disabled track is moved when it shows. */
   readonly #apply = (): void => {
     for (const track of this.#element.textTracks) {
+      if (!DELAYED_KINDS.has(track.kind)) continue;
+
       // The list is live and kept in start order: a moved cue changes places in it, so it is read
       // whole before any cue moves.
       for (const cue of Array.from(track.cues ?? [])) this.#move(cue);

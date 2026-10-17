@@ -68,7 +68,8 @@ export function SubtitleDelay({
   readonly className?: string;
 }) {
   const reasonId = useId();
-  // What is being typed, while the field has focus; the field shows `value` otherwise.
+  // What the viewer has typed and not yet entered; the field shows `value` otherwise, so focusing it
+  // alone never enters an old value over a delay that changed meanwhile.
   const [draft, setDraft] = useState<string | null>(null);
   const disabled = unavailable !== undefined;
   const [wasDisabled, setWasDisabled] = useState(disabled);
@@ -134,10 +135,7 @@ export function SubtitleDelay({
             aria-label="Subtitle delay in seconds"
             disabled={disabled}
             value={typed ?? value}
-            onFocus={(event) => {
-              setDraft(value);
-              event.currentTarget.select();
-            }}
+            onFocus={(event) => event.currentTarget.select()}
             onChange={(event) => setDraft(event.currentTarget.value)}
             onKeyDown={onKeyDown}
             onBlur={commit}

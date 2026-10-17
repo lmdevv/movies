@@ -20,6 +20,7 @@ const cue = (startTime: number, endTime: number): CueLike => ({ startTime, endTi
  */
 class FakeTrack implements TextTrackLike {
   mode: "disabled" | "showing" = "showing";
+  kind = "subtitles";
   /** The cues in the order their file has them. */
   loaded: Array<CueLike> = [];
 
@@ -195,6 +196,18 @@ describe("SubtitleRetimer", () => {
       [40, 42],
       [50, 52.5],
     ]);
+  });
+
+  it("leaves metadata and chapter tracks where their files put them", () => {
+    const { element, retimer } = setup();
+    const metadata = new FakeTrack();
+
+    metadata.kind = "metadata";
+    element.textTracks.add(metadata);
+    element.load(metadata, [cue(5, 6)]);
+    retimer.set(1000);
+
+    expect(times(metadata)).toEqual([[5, 6]]);
   });
 
   it("never moves a cue before the start of the film", () => {
