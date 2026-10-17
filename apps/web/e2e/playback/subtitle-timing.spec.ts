@@ -84,6 +84,9 @@ const VOBSUB = join(
   "vobsub.mkv",
 );
 
+/** `HTMLMediaElement.HAVE_CURRENT_DATA`: the element has the frame at its position. */
+const HAVE_CURRENT_DATA = 2;
+
 /** The player's tracks button and its popover. */
 const TRACKS = "Audio, subtitles, and quality";
 
@@ -390,7 +393,15 @@ test("the delay holds through seeks, playing, and a quality change to an hls.js 
     .toMatchObject({ mode: "transcode-software", height: 480 });
   await expectPlayingPast(page, 11);
   await page.getByTestId("player").press("k");
-  await expect.poll(async () => (await videoState(page)).paused).toBe(true);
+
+  // Paused with the picture there: a stream the player is still swapping in reads 0 for a moment.
+  await expect
+    .poll(async () => {
+      const state = await videoState(page);
+
+      return state.paused && state.readyState >= HAVE_CURRENT_DATA && state.currentTime > 10;
+    })
+    .toBe(true);
 
   const field = delayControl(await tracksPanel(page)).getByRole("textbox", {
     name: "Subtitle delay in seconds",
