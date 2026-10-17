@@ -141,9 +141,9 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   const heroPill = hero && (!phoneTitle || title === "");
 
   /** The avatar, after the room pill when there is one. */
-  const trailing = (size: "xs" | "sm", withPill: boolean) => (
+  const trailing = (size: "xs" | "sm") => (
     <span className="flex items-center gap-3">
-      {withPill ? roomPill(true) : null}
+      {roomPill(true)}
       {profileButton(size, true)}
     </span>
   );
@@ -192,7 +192,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           title={title}
           visible={scrolled}
           className="fixed inset-x-0 top-0 z-40 md:hidden"
-          trailing={trailing("xs", true)}
+          trailing={trailing("xs")}
         />
       ) : null}
 
@@ -215,7 +215,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           <LargeTitle
             title={title}
             className="pt-[max(env(safe-area-inset-top),var(--spacing-4))] md:hidden"
-            trailing={trailing("sm", true)}
+            trailing={trailing("sm")}
           />
         )}
         <TitlePrefetchProvider profileId={profile.id}>

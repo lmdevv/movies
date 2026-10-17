@@ -472,10 +472,8 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
           );
 
           // The host paused their own player: the catch-up ends, and the room pauses with them.
-          if (!echo) {
-            yield* endCatchUp;
-            yield* publish(false);
-          }
+          // Under `serial`, so no correction is midway through a nudge as it ends.
+          if (!echo) yield* serial.withPermits(1)(Effect.andThen(endCatchUp, publishNow(false)));
 
           return;
         }
@@ -485,15 +483,17 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
           const now = yield* serverNow;
 
           // The engine seeks to the live position, so its seek lands on it, or on the target as
-          // the clock stood then; this event may be handled a while after it landed.
+          // the clock stood then; this event may be handled a while after it landed. Without a
+          // clock offset there is no telling, and nothing could be published anyway.
           const onClock = Option.match(now, {
-            onNone: () => false,
+            onNone: () => true,
             onSome: (at) => Math.abs(landed - targetPosition(current.clock, at)) <= tunables.seekMs,
           });
 
           const echo = yield* Ref.modify(catchUpSeeks, (targets) => {
             const at = targets.findIndex(
-              (target) => Math.abs(landed - target) <= tunables.hostSeekMs,
+              // A stream may land a little off its target, on a keyframe.
+              (target) => Math.abs(landed - target) <= tunables.seekMs,
             );
 
             // Earlier targets were replaced by this one, or already landed.
@@ -505,8 +505,7 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
 
           // The host seeked their own player: the catch-up ends, and the room seeks with them.
           if (!echo) {
-            yield* endCatchUp;
-            yield* publish(true);
+            yield* serial.withPermits(1)(Effect.andThen(endCatchUp, publishNow(true)));
 
             return;
           }
