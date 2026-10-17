@@ -7,3 +7,12 @@ export const useThemeColor = (variable: `--color-${string}`): string => {
 
   return value === undefined ? "transparent" : String(value);
 };
+
+/** Several color roles at once, such as a gradient's stops, following the current theme. */
+export const useThemeColors = (
+  variables: ReadonlyArray<`--color-${string}`>,
+): ReadonlyArray<string> => {
+  const values = useCSSVariable([...variables]);
+
+  return values.map((value) => (value === undefined ? "transparent" : String(value)));
+};

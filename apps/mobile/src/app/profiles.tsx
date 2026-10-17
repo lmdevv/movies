@@ -1,106 +1,112 @@
-/** B01 · Who's Watching?: choose a profile; profiles with a PIN ask for it first. */
+/** B01 · Who's Watching?: choose a profile; PIN profiles ask for it first; the pencil manages them. */
 import type { Profile } from "@movies/contracts/models/profiles";
-import { useCommand } from "@movies/sdk/react";
-import { Lock, Plus } from "lucide-react-native";
+import { router } from "expo-router";
+import { Lock, Pencil, Plus } from "lucide-react-native";
 import { useState } from "react";
-import { Alert, Pressable, View } from "react-native";
+import { Alert, Pressable, ScrollView, View } from "react-native";
 
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { IconButton } from "@/components/ui/icon-button";
 import { Screen } from "@/components/ui/screen";
 import { Text } from "@/components/ui/text";
 import { describeFailure } from "@/lib/failure";
+import { canAddProfile } from "@/lib/profile-draft";
 import { useProfileChoice } from "@/session/profile-choice";
 import { useSessionPhase } from "@/session/session-phase";
 import { useSignOut } from "@/session/viewer";
 
+function ProfileTile({
+  profile,
+  onPress,
+}: {
+  readonly profile: Profile;
+  readonly onPress: () => void;
+}) {
+  const detail = profile.hasPin ? "PIN" : profile.kids ? "Kids" : null;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={detail === null ? profile.name : `${profile.name}, ${detail}`}
+      onPress={onPress}
+      className="items-center gap-3 active:opacity-70"
+    >
+      <ProfileAvatar profile={profile} />
+      <Text variant="navTitle" numberOfLines={1} className="max-w-28">
+        {profile.name}
+      </Text>
+      {profile.hasPin ? (
+        <Icon icon={Lock} tone="muted" size="chevron" />
+      ) : profile.kids ? (
+        <Text variant="metaStrong" tone="muted">
+          Kids
+        </Text>
+      ) : null}
+    </Pressable>
+  );
+}
+
 export default function Profiles() {
   const phase = useSessionPhase();
   const { choose } = useProfileChoice();
-  const unlock = useCommand("profiles.unlock");
   const signOut = useSignOut();
   const [busy, setBusy] = useState(false);
   const profiles = phase.kind === "chooseProfile" ? phase.profiles : [];
 
-  const askForPin = (profile: Profile) => {
-    Alert.prompt(
-      `Enter ${profile.name}'s PIN`,
-      undefined,
-      (pin) => {
-        void (async () => {
-          try {
-            const result = await unlock({ profileId: profile.id, pin });
-
-            if (result.status === "unlocked") await choose(profile.id);
-            else if (result.status === "wrong_pin")
-              Alert.alert("Wrong PIN", `${result.attemptsLeft} tries left.`);
-            else Alert.alert("Profile Locked", "Too many tries. Try again later.");
-          } catch (cause) {
-            Alert.alert("Couldn't Unlock", describeFailure(cause));
-          }
-        })();
-      },
-      "secure-text",
-      "",
-      "number-pad",
-    );
-  };
-
   const pick = (profile: Profile) => {
     if (profile.locked) {
-      askForPin(profile);
+      router.push({ pathname: "/profile-pin/[profileId]", params: { profileId: profile.id } });
 
       return;
     }
 
     void choose(profile.id).catch((cause: unknown) => {
-      Alert.alert("Couldn't Switch Profile", describeFailure(cause));
+      Alert.alert("Couldn’t Switch Profile", describeFailure(cause));
     });
   };
 
   return (
     <Screen>
-      <View className="h-16 flex-row items-center px-5">
-        <Text variant="largeTitle" accessibilityRole="header">
+      <View className="h-16 flex-row items-center gap-3 px-5">
+        <Text variant="largeTitle" accessibilityRole="header" className="flex-1">
           Who’s Watching?
         </Text>
+        <IconButton
+          icon={Pencil}
+          label="Manage Profiles"
+          onPress={() => router.push("/manage-profiles")}
+        />
       </View>
-      <View className="flex-1 justify-center gap-12 px-5">
+      <ScrollView contentContainerClassName="gap-4 px-5 py-4">
+        <View className="h-24" />
         <View className="flex-row flex-wrap justify-center gap-8">
           {profiles.map((profile) => (
-            <Pressable
-              key={profile.id}
-              accessibilityRole="button"
-              accessibilityLabel={profile.locked ? `${profile.name}, locked` : profile.name}
-              onPress={() => pick(profile)}
-              className="items-center gap-3 active:opacity-70"
-            >
-              <ProfileAvatar profile={profile} />
-              <Text variant="navTitle">{profile.name}</Text>
-              {profile.hasPin ? (
-                <Icon icon={Lock} tone="muted" size="caption" />
-              ) : profile.kids ? (
-                <Text variant="meta" tone="muted">
-                  Kids
-                </Text>
-              ) : null}
-            </Pressable>
+            <ProfileTile key={profile.id} profile={profile} onPress={() => pick(profile)} />
           ))}
         </View>
-        <View className="gap-4">
-          <Button label="Add Profile" variant="secondary" icon={Plus} disabled />
+        <View className="h-8" />
+        {canAddProfile(profiles.length) ? (
           <Button
-            label="Sign Out"
+            label="Add Profile"
             variant="secondary"
-            busy={busy}
-            onPress={() => {
-              setBusy(true);
-              void signOut().catch(() => setBusy(false));
-            }}
+            icon={Plus}
+            onPress={() =>
+              router.push({ pathname: "/profile/[profileId]", params: { profileId: "new" } })
+            }
           />
-        </View>
-      </View>
+        ) : null}
+        <Button
+          label="Sign Out"
+          variant="secondary"
+          busy={busy}
+          onPress={() => {
+            setBusy(true);
+            void signOut().catch(() => setBusy(false));
+          }}
+        />
+      </ScrollView>
     </Screen>
   );
 }

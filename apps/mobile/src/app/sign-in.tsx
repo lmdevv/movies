@@ -1,5 +1,6 @@
-/** A03 · Sign In and A04 · its wrong-password state. */
+/** A03 · Sign In and A04 · its wrong-password state, with the way to sign in with a code (A05). */
 import { useAuth } from "@movies/sdk/react";
+import { router } from "expo-router";
 import { Server } from "lucide-react-native";
 import { useRef, useState } from "react";
 import type { ComponentRef } from "react";
@@ -86,6 +87,11 @@ export default function SignIn() {
         busy={busy}
         disabled={email.trim() === "" || secret === ""}
         onPress={() => void submit()}
+      />
+      <Button
+        label="Sign In with a Code"
+        variant="secondary"
+        onPress={() => router.push("/sign-in-code")}
       />
     </Screen>
   );

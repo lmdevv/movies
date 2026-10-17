@@ -56,8 +56,12 @@
   --leading-ios-21: 21px;
   --leading-ios-23: 23px;
   --leading-ios-28: 28px;
+  --leading-ios-34: 34px;
   --leading-ios-40: 40px;
+  --leading-ios-42: 42px;
   --leading-ios-46: 46px;
+  --leading-ios-54: 54px;
+  --leading-ios-62: 62px;
 
   --opacity-muted: 60%;
   --opacity-disabled: 40%;
@@ -77,6 +81,26 @@
   --color-video-track: rgb(255 255 255 / 30%);
   --color-video-muted: rgb(255 255 255 / 70%);
   --text-tab: 10px;
+}
+
+/* The profile avatar set, shared with the web app (`apps/web/public/avatars/<key>.svg`): each key
+   is a diagonal gradient from top left to bottom right, the same in both themes. */
+@theme {
+  --color-avatar-red-from: #e3a35f;
+  --color-avatar-red-to: #c45a2c;
+  --color-avatar-blue-from: #5c8ad6;
+  --color-avatar-blue-to: #2b479e;
+  --color-avatar-green-from: #77bf86;
+  --color-avatar-green-to: #3b7f50;
+  --color-avatar-plum-from: #c58fa8;
+  --color-avatar-plum-to: #6b3f5c;
+  --color-avatar-teal-from: #5fb3b0;
+  --color-avatar-teal-to: #2a5f66;
+  --color-avatar-slate-from: #9ea3aa;
+  --color-avatar-slate-to: #4b5057;
+  --color-avatar-kids-from: #f6d66c;
+  --color-avatar-kids-via: #ef9659;
+  --color-avatar-kids-to: #e86fa1;
 }
 
 @layer theme {
