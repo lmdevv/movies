@@ -263,8 +263,8 @@ function ProgressLine({
 /** How long the slider waits after the pointer leaves, so a slightly curved path onto it keeps it. */
 const HOVER_CLOSE_MS = 250;
 
-/** How long a slider a tap opened stays once left alone, as the controls around it do. */
-const TOUCH_IDLE_MS = 3_000;
+/** How long a slider a tap or the keyboard opened stays once left alone, as the controls do. */
+const IDLE_MS = 3_000;
 
 /** What keeps the slider open: the pointer over it, keyboard focus in it, a drag, or a tap. */
 type Reason = "hover" | "focus" | "drag" | "touch";
@@ -305,14 +305,31 @@ function VolumeControl({
   const openNow = useRef(false);
   const group = useRef<HTMLDivElement | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const touchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // The pointer that pressed the button, read by the click that follows.
   const pressedWith = useRef<string | null>(null);
   const button = useRef<HTMLButtonElement | null>(null);
-  // Closed with Escape: keyboard focus left inside does not open it again until it leaves.
+  // Closed with Escape, or left alone: keyboard focus inside does not open it again until it leaves.
   const dismissed = useRef(false);
   // Where a drag or key has put the slider, until it settles; the level it reports can lag (a TV).
   const [moving, setMoving] = useState<number | null>(null);
+  const movingNow = useRef<number | null>(null);
+
+  const move = (value: number | null): void => {
+    movingNow.current = value;
+    setMoving(value);
+  };
+
+  // A drag cut off before it was let go (closing, a cancelled pointer, the window losing focus)
+  // settles where it got to, so a TV hears it too.
+  const settle = (): void => {
+    const value = movingNow.current;
+
+    if (value === null) return;
+    move(null);
+    onVolumeCommit?.(value / 100);
+  };
+
   const silent = muted || volume === 0;
   const settable = volume !== null && onVolumeChange !== undefined;
 
@@ -327,8 +344,7 @@ function VolumeControl({
     openNow.current = next;
     setOpen(next);
 
-    // A drag cut off by closing (Escape, or the controls changing) leaves no stale position.
-    if (!next) setMoving(null);
+    if (!next) settle();
     onOpenChange?.(next);
   };
 
@@ -336,11 +352,12 @@ function VolumeControl({
   const pressing = useRef(false);
 
   const release = useEffectEvent((reason: Reason) => hold(reason, false));
+  const settleCut = useEffectEvent(() => settle());
 
   // Let go of the controls when unmounted open, as when the controls give way to a state.
   const unmount = useEffectEvent(() => {
     clearTimeout(hoverTimer.current);
-    clearTimeout(touchTimer.current);
+    clearTimeout(idleTimer.current);
     reasons.current.clear();
 
     if (!openNow.current) return;
@@ -356,10 +373,10 @@ function VolumeControl({
       release("drag");
     };
 
-    // A drag the system takes over, or the window losing focus, settles nowhere.
+    // A drag the system takes over, or the window losing focus, settles where it got to.
     const cancelled = (): void => {
       dropped();
-      setMoving(null);
+      settleCut();
     };
 
     const outside = (event: globalThis.PointerEvent): void => {
@@ -421,6 +438,7 @@ function VolumeControl({
         event.target instanceof HTMLElement &&
         event.target.matches(":focus-visible"),
     );
+    idleAgain();
   };
 
   const blur = (event: FocusEvent): void => {
@@ -429,11 +447,28 @@ function VolumeControl({
     hold("focus", false);
   };
 
-  // A slider a tap opened closes once left alone; each touch on it keeps it a while longer.
-  const touchAgain = (): void => {
-    if (!reasons.current.has("touch")) return;
-    clearTimeout(touchTimer.current);
-    touchTimer.current = setTimeout(() => hold("touch", false), TOUCH_IDLE_MS);
+  // A slider a tap or the keyboard opened closes once left alone, so it never keeps the controls up
+  // for good; each touch, key, or change keeps it a while longer. Focus left inside stays put.
+  const idleAgain = (): void => {
+    if (!reasons.current.has("touch") && !reasons.current.has("focus")) return;
+    clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => {
+      if (reasons.current.has("focus")) dismissed.current = true;
+
+      // Focus on the slider would go nowhere as it closes: it moves to the button instead.
+      const active = document.activeElement;
+
+      if (
+        active !== button.current &&
+        active !== null &&
+        group.current?.contains(active) === true
+      ) {
+        button.current?.focus();
+      }
+
+      hold("touch", false);
+      hold("focus", false);
+    }, IDLE_MS);
   };
 
   const toggleMute = (): void => {
@@ -444,7 +479,7 @@ function VolumeControl({
     // On touch the first tap opens the slider, and the next one mutes.
     if (touch && settable && !reasons.current.has("touch")) {
       hold("touch", true);
-      touchAgain();
+      idleAgain();
 
       return;
     }
@@ -479,11 +514,14 @@ function VolumeControl({
         // A finger on a slider the keyboard opened keeps it, as a tap would have.
         if (event.pointerType === "touch" && openNow.current) hold("touch", true);
         hold("focus", false);
-        touchAgain();
+        idleAgain();
       }}
       onFocus={focus}
       onBlur={blur}
-      onKeyDown={dismiss}
+      onKeyDown={(event) => {
+        dismiss(event);
+        idleAgain();
+      }}
     >
       <PlayerButton
         ref={button}
@@ -517,12 +555,12 @@ function VolumeControl({
             largeStep={10}
             value={shown}
             onValueChange={(next) => {
-              touchAgain();
-              setMoving(next);
+              idleAgain();
+              move(next);
               onVolumeChange(next / 100);
             }}
             onValueCommitted={(next) => {
-              setMoving(null);
+              move(null);
               onVolumeCommit?.(next / 100);
             }}
             className="flex h-35 w-11 justify-center rounded-control border border-hairline bg-surface-raised py-4 shadow-overlay"
