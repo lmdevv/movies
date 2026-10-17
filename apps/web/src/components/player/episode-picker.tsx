@@ -7,7 +7,7 @@ import type { EpisodeId, ProfileId, TitleId } from "@movies/contracts/ids";
 import type { SeasonEpisode, TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { EpisodePopover } from "@movies/ui/components/episode-popover";
-import type { EpisodeOption, SeasonOption } from "@movies/ui/components/episode-popover";
+import type { EpisodeOption } from "@movies/ui/components/episode-popover";
 import { useMemo, useState } from "react";
 import type { ReactElement } from "react";
 
@@ -77,12 +77,6 @@ export function EpisodePicker({
   const loaded = browsingOther ? listOrLoading(other) : currentSeason;
   const episodes = useMemo(() => loaded?.map(episodeOption) ?? null, [loaded]);
 
-  const seasonOptions = useMemo(
-    (): ReadonlyArray<SeasonOption> =>
-      seasons.map((season) => ({ seasonNumber: season.seasonNumber, name: season.name })),
-    [seasons],
-  );
-
   return (
     <EpisodePopover
       trigger={trigger}
@@ -90,7 +84,7 @@ export function EpisodePicker({
       open={open}
       onOpenChange={onOpenChange}
       onClosed={() => setBrowsing(null)}
-      seasons={seasonOptions}
+      seasons={seasons}
       seasonNumber={seasonNumber}
       onSeasonChange={setBrowsing}
       episodes={episodes}

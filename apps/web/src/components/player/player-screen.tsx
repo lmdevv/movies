@@ -857,20 +857,32 @@ export function PlayerScreen({
   // The episode picker: a show's episode, outside rooms. A room plays one episode for everyone; only
   // its host could change it, and the room cannot carry its members along yet. Once left, the stream
   // is this player's own again, and another episode starts without the room.
-  const picking =
-    episode !== null && roomId === undefined && detail !== null
-      ? {
-          seasons: detail.seasons,
-          current: { id: episode.id, seasonNumber: episode.seasonNumber },
-          currentSeason: listOrLoading(seasonEpisodes),
-        }
-      : null;
+  const pickable = episode !== null && roomId === undefined;
+  const episodeIdNow = episode?.id ?? null;
+  const seasonNow = episode?.seasonNumber ?? null;
+  const seasons = detail?.seasons ?? null;
+
+  // Rebuilt only when what it shows changes, not with each position update.
+  const picking = useMemo(
+    () =>
+      !pickable || episodeIdNow === null || seasonNow === null || seasons === null
+        ? null
+        : {
+            seasons,
+            current: { id: episodeIdNow, seasonNumber: seasonNow },
+            currentSeason: listOrLoading(seasonEpisodes),
+          },
+    [pickable, episodeIdNow, seasonNow, seasons, seasonEpisodes],
+  );
 
   const canPick = picking !== null;
 
-  // A picker that can no longer show, or that was open in another layout, is closed, so it never
-  // reopens by itself later.
-  if (episodesOpenIn !== null && (!canPick || episodesOpenIn !== layout)) setEpisodesOpenIn(null);
+  // A picker for an episode that can no longer pick (a room, a movie), or open in another layout,
+  // is closed, so it never reopens by itself later. One that only waits for the title's details
+  // again stays open.
+  if (episodesOpenIn !== null && (!pickable || episodesOpenIn !== layout)) {
+    setEpisodesOpenIn(null);
+  }
 
   const episodesShown = episodesOpenIn === layout && canPick;
 
@@ -996,8 +1008,10 @@ export function PlayerScreen({
       "player.back-5": () => skipByKey(-5),
       "player.forward-5": () => skipByKey(5),
       // From the level under mute, which they unmute, as they always have.
+      // Where the level cannot be set, Up still unmutes, as it always has.
       "player.volume-up": () => {
         if (volumeSettable) commitVolume(media.volume + VOLUME_STEP);
+        else if (media.muted) setMuted(false);
       },
       "player.volume-down": () => {
         if (volumeSettable) commitVolume(media.volume - VOLUME_STEP);
