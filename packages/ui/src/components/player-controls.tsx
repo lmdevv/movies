@@ -360,10 +360,27 @@ function VolumeControl({
     hold("hover", true);
   };
 
+  // Once the pointer has gone, only what still holds counts: a drag still pressed, or focus a
+  // keyboard put inside. A release or focus the window never reported cannot keep it open.
   const leave = (event: PointerEvent): void => {
     if (event.pointerType === "touch") return;
+
+    const pressed = event.buttons !== 0;
+
     clearTimeout(hoverTimer.current);
-    hoverTimer.current = setTimeout(() => hold("hover", false), HOVER_CLOSE_MS);
+    hoverTimer.current = setTimeout(() => {
+      const active = document.activeElement;
+
+      const keyboardFocus =
+        active instanceof HTMLElement &&
+        group.current?.contains(active) === true &&
+        active.matches(":focus-visible");
+
+      if (!pressed) hold("drag", false);
+
+      if (!keyboardFocus) hold("focus", false);
+      hold("hover", false);
+    }, HOVER_CLOSE_MS);
   };
 
   // Keyboard focus opens it; the focus a click or a drag leaves behind does not.
