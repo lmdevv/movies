@@ -57,6 +57,20 @@ export const RoomMember = Schema.Struct({
 /** A room member. */
 export interface RoomMember extends Schema.Schema.Type<typeof RoomMember> {}
 
+/**
+ * The room's next-episode countdown for what it plays now. `pending`: the host's player reached the
+ * credits, and at `nextAt` by the server's clock the whole room moves on to `episode`, unless the
+ * host plays it sooner or cancels. `cancelled`: the host chose to watch the credits, so this
+ * episode ends without a countdown. Either goes away when the room's media changes.
+ */
+export const RoomNext = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("pending"), episode: Episode, nextAt: EpochMillis }),
+  Schema.Struct({ status: Schema.Literal("cancelled") }),
+]);
+
+/** The room's next-episode countdown. */
+export type RoomNext = typeof RoomNext.Type;
+
 /** A watch room as members and invited account holders see it. */
 export const Room = Schema.Struct({
   id: RoomId,
@@ -75,6 +89,8 @@ export const Room = Schema.Struct({
    */
   hostAway: Schema.Boolean,
   clock: RoomClock,
+  /** The next-episode countdown for what the room plays now; null when there is none. */
+  next: Schema.NullOr(RoomNext),
   members: Schema.Array(RoomMember),
   createdAt: EpochMillis,
 });

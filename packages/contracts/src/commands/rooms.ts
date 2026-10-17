@@ -1,6 +1,7 @@
 /**
  * Watch rooms. Only the host's device controls the timeline; every control carries the revision
- * the host last saw and fails with `stale_revision` when the room moved on.
+ * the host last saw and fails with `stale_revision` when the room moved on. The next-episode
+ * commands are keyed on what the room plays instead, so a repeat or a race moves it on once.
  */
 import { Schema } from "effect";
 
@@ -139,6 +140,38 @@ export const roomCommands = {
     }),
     result: RoomClock,
     function: "rooms:setMedia",
+  }),
+  "rooms.startNextCountdown": mutation({
+    summary:
+      "Host: start the room's countdown to the next episode; the server moves everyone on when it ends",
+    group: "rooms",
+    scope: "play",
+    args: OnDevice,
+    result: Room,
+    function: "rooms:startNextCountdown",
+  }),
+  "rooms.cancelNextCountdown": mutation({
+    summary: "Host: cancel the next-episode countdown for everyone, to watch the credits",
+    group: "rooms",
+    scope: "play",
+    args: OnDevice,
+    result: Room,
+    function: "rooms:cancelNextCountdown",
+  }),
+  "rooms.playNext": mutation({
+    summary: "Host: move the room on to the next episode now; once per episode",
+    group: "rooms",
+    scope: "play",
+    args: Schema.Struct({
+      ...OnDevice.fields,
+      /**
+       * The episode the host is moving on from. When the room already plays another, it moved on
+       * before this call, which then changes nothing: repeats and races advance once.
+       */
+      fromEpisodeId: EpisodeId,
+    }),
+    result: Room,
+    function: "rooms:playNext",
   }),
   "rooms.end": mutation({
     summary: "End the room for everyone",

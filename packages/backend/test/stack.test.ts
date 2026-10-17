@@ -9,7 +9,11 @@
 import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { HOST_ABANDON_TIMEOUT_MS, PLAYER_SILENCE_MS } from "@movies/contracts/clock";
+import {
+  HOST_ABANDON_TIMEOUT_MS,
+  NEXT_EPISODE_COUNTDOWN_MS,
+  PLAYER_SILENCE_MS,
+} from "@movies/contracts/clock";
 import type { AnyCommand } from "@movies/contracts/command";
 import type { CommandArgs } from "@movies/contracts/commands";
 import { commands } from "@movies/contracts/commands";
@@ -27,6 +31,7 @@ import type {
 import type { CatalogFile, WatchStateImport } from "@movies/contracts/models/migration-service";
 import {
   DeviceId as DeviceIdSchema,
+  EpisodeId as EpisodeIdSchema,
   JobId as JobIdSchema,
   RoomId as RoomIdSchema,
 } from "@movies/contracts/ids";
@@ -94,6 +99,9 @@ const direct = (
     ),
     Match.exhaustive,
   );
+
+/** Where the next-episode room tests' serial keeps episode `code`, such as `s01e02`. */
+const serialPath = (code: string): string => `/stack-${id}/open/serial/${code}.mp4`;
 
 /** A string of `length` characters. */
 const long = (length: number): string => "x".repeat(length);
@@ -2648,6 +2656,370 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         deviceId: DeviceIdSchema.make(played),
       });
     }, 60_000);
+
+    describe("moving on to the next episode", () => {
+      const serial = { kind: "show" as const, name: `Serial ${TOKEN}`, ageRating: 7 };
+      let episodes: ReadonlyArray<{ readonly id: string; readonly code: string }> = [];
+      let serialId: TitleId;
+
+      /** The serial's episode `code`, such as `s02e01`. */
+      const episodeId = (code: string) => {
+        const found = episodes.find((episode) => episode.code === code);
+
+        if (found === undefined) throw new Error(`The serial has no ${code}`);
+
+        return EpisodeIdSchema.make(found.id);
+      };
+
+      beforeAll(async () => {
+        // Two seasons; the last episode's file is gone from disk.
+        await service(fixture.mediaService, "mediaService.upsertScanned", {
+          libraryId: fixture.openLibrary,
+          items: [
+            scanned(serialPath("s01e01"), serial, { season: 1, episode: 1 }),
+            scanned(serialPath("s01e02"), serial, { season: 1, episode: 2 }),
+            scanned(serialPath("s02e01"), serial, { season: 2, episode: 1 }),
+            scanned(serialPath("s02e02"), serial, { season: 2, episode: 2 }),
+          ],
+        });
+        await service(fixture.mediaService, "mediaService.markMissing", {
+          libraryId: fixture.openLibrary,
+          paths: [serialPath("s02e02")],
+        });
+        serialId = (await titleNamed(fixture.owner, fixture.ownerProfile, serial.name)).id;
+
+        const seasons = await Promise.all(
+          [1, 2].map((seasonNumber) =>
+            run(fixture.owner, "titles.episodes", {
+              profileId: fixture.ownerProfile,
+              titleId: serialId,
+              seasonNumber,
+            }),
+          ),
+        );
+
+        episodes = seasons.flat().map((episode) => ({
+          id: episode.id,
+          code: `s0${String(episode.seasonNumber)}e0${String(episode.episodeNumber)}`,
+        }));
+      });
+
+      /** A room on the serial's `code` hosted on `hostDevice`, with the member as a guest. */
+      const roomOn = async (code: string, hostDevice: DeviceId, guestDevice: DeviceId) => {
+        const room = await run(fixture.owner, "rooms.create", {
+          profileId: fixture.ownerProfile,
+          deviceId: hostDevice,
+          titleId: serialId,
+          episodeId: episodeId(code),
+          positionMs: ms(0),
+        });
+
+        await run(fixture.member, "rooms.join", {
+          roomId: room.id,
+          profileId: fixture.memberProfile,
+          deviceId: guestDevice,
+        });
+
+        return room;
+      };
+
+      it("lets only the host move the room on, once per episode, across seasons", async () => {
+        const hostDevice = device("next-host");
+        const guestDevice = device("next-guest");
+        const room = await roomOn("s01e01", hostDevice, guestDevice);
+        const onHost = { roomId: room.id, deviceId: hostDevice };
+        const onGuest = { roomId: room.id, deviceId: guestDevice };
+
+        expect(room.next).toBeNull();
+
+        // Guests and the host's other devices cannot start, cancel, or skip the countdown.
+        const refused = await Promise.all(
+          (["rooms.startNextCountdown", "rooms.cancelNextCountdown"] as const).flatMap((name) => [
+            outcome(run(fixture.member, name, onGuest)),
+            outcome(run(fixture.owner, name, { ...onHost, deviceId: device("elsewhere") })),
+          ]),
+        );
+
+        expect(refused).toStrictEqual(["forbidden", "forbidden", "forbidden", "forbidden"]);
+
+        expect(
+          await outcome(
+            run(fixture.member, "rooms.playNext", {
+              ...onGuest,
+              fromEpisodeId: episodeId("s01e01"),
+            }),
+          ),
+        ).toBe("forbidden");
+
+        // A countdown names the next episode and a server time; starting it again keeps it.
+        const before = Date.now();
+        const counting = await run(fixture.owner, "rooms.startNextCountdown", onHost);
+
+        if (counting.next?.status !== "pending") throw new Error("No countdown started");
+        expect(counting.next.episode.id).toBe(episodeId("s01e02"));
+        expect(counting.next.nextAt).toBeGreaterThanOrEqual(before + NEXT_EPISODE_COUNTDOWN_MS);
+        expect((await run(fixture.member, "rooms.get", { roomId: room.id })).next).toStrictEqual(
+          counting.next,
+        );
+        expect((await run(fixture.owner, "rooms.startNextCountdown", onHost)).next).toStrictEqual(
+          counting.next,
+        );
+
+        // Play next racing itself moves the room on once, paused at the start of the next episode.
+        const revision = counting.clock.revision;
+        const fromFirst = { ...onHost, fromEpisodeId: episodeId("s01e01") };
+
+        const raced = await Promise.all([
+          run(fixture.owner, "rooms.playNext", fromFirst),
+          run(fixture.owner, "rooms.playNext", fromFirst),
+        ]);
+
+        for (const answer of raced) expect(answer.episode?.id).toBe(episodeId("s01e02"));
+        const moved = await run(fixture.owner, "rooms.get", { roomId: room.id });
+
+        expect(moved.episode?.id).toBe(episodeId("s01e02"));
+        expect(moved.clock).toMatchObject({
+          status: "paused",
+          positionAtAnchorMs: 0,
+          revision: revision + 1,
+        });
+        expect(moved.next).toBeNull();
+
+        // A stale Play next from the episode before changes nothing.
+        expect((await run(fixture.owner, "rooms.playNext", fromFirst)).clock.revision).toBe(
+          revision + 1,
+        );
+
+        // The guest's stream plays the room's new file, with a session of the guest's own.
+        const guestStream = await run(fixture.member, "playback.createSession", {
+          profileId: fixture.memberProfile,
+          deviceId: guestDevice,
+          titleId: serialId,
+          roomId: room.id,
+        });
+
+        expect(guestStream.episode?.id).toBe(episodeId("s01e02"));
+        expect(guestStream.file.id).toBe(moved.fileId);
+
+        // The last episode of a season moves on to the first of the next.
+        const nextSeason = await run(fixture.owner, "rooms.playNext", {
+          ...onHost,
+          fromEpisodeId: episodeId("s01e02"),
+        });
+
+        expect(nextSeason.episode?.id).toBe(episodeId("s02e01"));
+
+        // An episode whose next one lost its file cannot move on, nor count down to it.
+        expect(await outcome(run(fixture.owner, "rooms.startNextCountdown", onHost))).toBe(
+          "conflict",
+        );
+        expect(
+          await outcome(
+            run(fixture.owner, "rooms.playNext", {
+              ...onHost,
+              fromEpisodeId: episodeId("s02e01"),
+            }),
+          ),
+        ).toBe("conflict");
+        expect((await run(fixture.owner, "rooms.get", { roomId: room.id })).next).toBeNull();
+        await run(fixture.owner, "rooms.end", onHost);
+
+        // After the room ends nothing moves it on.
+        expect(await outcome(run(fixture.owner, "rooms.startNextCountdown", onHost))).toBe(
+          "conflict",
+        );
+      });
+
+      it("refuses a countdown after the last episode and for a movie", async () => {
+        const [, last] = await run(fixture.owner, "titles.episodes", {
+          profileId: fixture.ownerProfile,
+          titleId: fixture.titles.show,
+          seasonNumber: 1,
+        });
+
+        if (last === undefined) throw new Error("The show has no second episode");
+        const hostDevice = device("next-last");
+
+        const onLast = await run(fixture.owner, "rooms.create", {
+          profileId: fixture.ownerProfile,
+          deviceId: hostDevice,
+          titleId: fixture.titles.show,
+          episodeId: last.id,
+          positionMs: ms(0),
+        });
+
+        const onHost = { roomId: onLast.id, deviceId: hostDevice };
+
+        expect(await outcome(run(fixture.owner, "rooms.startNextCountdown", onHost))).toBe(
+          "not_found",
+        );
+        expect(
+          await outcome(
+            run(fixture.owner, "rooms.playNext", { ...onHost, fromEpisodeId: last.id }),
+          ),
+        ).toBe("not_found");
+
+        const film = await run(fixture.owner, "rooms.create", {
+          profileId: fixture.ownerProfile,
+          deviceId: hostDevice,
+          titleId: fixture.titles.allAges,
+          positionMs: ms(0),
+        });
+
+        expect(
+          await outcome(
+            run(fixture.owner, "rooms.startNextCountdown", {
+              roomId: film.id,
+              deviceId: hostDevice,
+            }),
+          ),
+        ).toBe("invalid_args");
+        await run(fixture.owner, "rooms.end", { roomId: film.id, deviceId: hostDevice });
+      });
+
+      it("moves the room on when the countdown ends, without the host, unless it was cancelled or the room moved", async () => {
+        const due = await roomOn("s01e01", device("due-host"), device("due-guest"));
+        const cancelled = await roomOn("s01e01", device("cancel-host"), device("cancel-guest"));
+        const picked = await roomOn("s01e01", device("pick-host"), device("pick-guest"));
+        const onDue = { roomId: due.id, deviceId: device("due-host") };
+        const onCancelled = { roomId: cancelled.id, deviceId: device("cancel-host") };
+        const onPicked = { roomId: picked.id, deviceId: device("pick-host") };
+
+        const counting = await Promise.all(
+          [onDue, onCancelled, onPicked].map((args) =>
+            run(fixture.owner, "rooms.startNextCountdown", args),
+          ),
+        );
+
+        // Watch credits cancels for everyone, and a later start keeps it cancelled.
+        const watching = await run(fixture.owner, "rooms.cancelNextCountdown", onCancelled);
+
+        expect(watching.next).toStrictEqual({ status: "cancelled" });
+        expect(
+          (await run(fixture.member, "rooms.get", { roomId: cancelled.id })).next,
+        ).toStrictEqual({ status: "cancelled" });
+        expect(
+          (await run(fixture.owner, "rooms.startNextCountdown", onCancelled)).next,
+        ).toStrictEqual({ status: "cancelled" });
+
+        // The host picks another episode during the countdown, which ends it.
+        const room = await run(fixture.owner, "rooms.get", { roomId: picked.id });
+
+        const pick = await run(fixture.owner, "rooms.setMedia", {
+          ...onPicked,
+          revision: room.clock.revision,
+          titleId: serialId,
+          episodeId: episodeId("s02e01"),
+        });
+
+        expect(pick).toMatchObject({ status: "paused", positionAtAnchorMs: 0 });
+        expect((await run(fixture.owner, "rooms.get", { roomId: picked.id })).next).toBeNull();
+
+        // No host heartbeats: the hosts have gone quiet, and the countdown still ends on time.
+        const nextAt = Math.max(
+          ...counting.map((each) => (each.next?.status === "pending" ? each.next.nextAt : 0)),
+        );
+
+        await sleep(nextAt - Date.now() + 2_000);
+
+        const [afterDue, afterCancelled, afterPicked] = await Promise.all([
+          run(fixture.owner, "rooms.get", { roomId: due.id }),
+          run(fixture.owner, "rooms.get", { roomId: cancelled.id }),
+          run(fixture.owner, "rooms.get", { roomId: picked.id }),
+        ]);
+
+        expect(afterDue.episode?.id).toBe(episodeId("s01e02"));
+        expect(afterDue.clock.revision).toBe(due.clock.revision + 1);
+        expect(afterDue.next).toBeNull();
+        expect(afterCancelled.episode?.id).toBe(episodeId("s01e01"));
+        expect(afterCancelled.next).toStrictEqual({ status: "cancelled" });
+        expect(afterPicked.episode?.id).toBe(episodeId("s02e01"));
+        expect(afterPicked.clock.revision).toBe(pick.revision);
+
+        // The host can still play the next episode after cancelling.
+        const skipped = await run(fixture.owner, "rooms.playNext", {
+          ...onCancelled,
+          fromEpisodeId: episodeId("s01e01"),
+        });
+
+        expect(skipped.episode?.id).toBe(episodeId("s01e02"));
+        await Promise.all(
+          [onDue, onCancelled, onPicked].map((args) => run(fixture.owner, "rooms.end", args)),
+        );
+      }, 60_000);
+
+      it("switches media only for the host, at the current revision, out of sight of a guest who cannot see it", async () => {
+        const hostDevice = device("media-host");
+        const kidDevice = device("media-kid");
+
+        const room = await run(fixture.owner, "rooms.create", {
+          profileId: fixture.ownerProfile,
+          deviceId: hostDevice,
+          titleId: serialId,
+          episodeId: episodeId("s01e01"),
+          positionMs: ms(0),
+        });
+
+        await run(fixture.member, "rooms.join", {
+          roomId: room.id,
+          profileId: fixture.kidsProfile,
+          deviceId: kidDevice,
+        });
+
+        const change = {
+          roomId: room.id,
+          deviceId: hostDevice,
+          revision: room.clock.revision,
+          titleId: fixture.titles.adult,
+        };
+
+        expect(
+          await outcome(run(fixture.member, "rooms.setMedia", { ...change, deviceId: kidDevice })),
+        ).toBe("forbidden");
+        expect(
+          await outcome(
+            run(fixture.owner, "rooms.setMedia", { ...change, deviceId: device("media-other") }),
+          ),
+        ).toBe("forbidden");
+        expect(
+          await outcome(
+            run(fixture.owner, "rooms.setMedia", { ...change, revision: change.revision + 1 }),
+          ),
+        ).toBe("stale_revision");
+
+        const switched = await run(fixture.owner, "rooms.setMedia", change);
+
+        expect(switched).toMatchObject({
+          status: "paused",
+          positionAtAnchorMs: 0,
+          revision: change.revision + 1,
+        });
+
+        // The kids profile cannot see the new film: the room reads as missing for it, but its place
+        // stays, and comes back when the room plays something it may watch again.
+        expect(await outcome(run(fixture.member, "rooms.get", { roomId: room.id }))).toBe(
+          "not_found",
+        );
+        expect(await run(fixture.member, "rooms.current", { deviceId: kidDevice })).toBeNull();
+        await run(fixture.member, "rooms.heartbeat", {
+          roomId: room.id,
+          deviceId: kidDevice,
+          presence: "away",
+        });
+        await run(fixture.owner, "rooms.setMedia", {
+          ...change,
+          revision: switched.revision,
+          titleId: serialId,
+          episodeId: episodeId("s01e02"),
+        });
+
+        const back = await run(fixture.member, "rooms.get", { roomId: room.id });
+
+        expect(back.episode?.id).toBe(episodeId("s01e02"));
+        expect(back.members.some((member) => member.deviceId === kidDevice)).toBe(true);
+        await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
+      });
+    });
 
     it("keeps kids profiles out of rooms for titles they cannot see", async () => {
       const room = await run(fixture.owner, "rooms.create", {

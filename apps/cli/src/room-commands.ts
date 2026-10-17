@@ -239,9 +239,21 @@ const leave: ShortcutCommand = {
     }),
 };
 
-const describeRoom = (room: Room, liveMs: number): string =>
+/** The room's next-episode countdown in a line, or null while there is none. */
+const describeNext = (room: Room, serverNow: number): string | null => {
+  if (room.next === null) return null;
+
+  if (room.next.status === "cancelled") return "  next episode: cancelled (watching the credits)";
+  const { episode, nextAt } = room.next;
+  const seconds = Math.ceil(Math.max(0, nextAt - serverNow) / 1000);
+
+  return `  next episode: S${String(episode.seasonNumber)}:E${String(episode.episodeNumber)} ${episode.name} in ${String(seconds)}s`;
+};
+
+const describeRoom = (room: Room, liveMs: number, serverNow: number): string =>
   [
-    `${room.title.name} · ${room.clock.status} at ${formatDuration(liveMs)} · revision ${String(room.clock.revision)}${room.hostAway ? " · host away" : ""}`,
+    `${room.title.name}${room.episode === null ? "" : ` S${String(room.episode.seasonNumber)}:E${String(room.episode.episodeNumber)} ${room.episode.name}`} · ${room.clock.status} at ${formatDuration(liveMs)} · revision ${String(room.clock.revision)}${room.hostAway ? " · host away" : ""}`,
+    ...[describeNext(room, serverNow)].filter((line) => line !== null),
     ...room.members.map(
       (member) =>
         `  ${member.role === "host" ? "host " : "guest"} ${member.profileName} (${member.deviceId})${member.presence === "away" ? " · away" : ""}`,
@@ -281,11 +293,13 @@ const status: ShortcutCommand = {
       });
 
       const snapshot = Effect.fn("Rooms.snapshot")(function* (current: Room) {
-        const live = yield* livePosition(yield* currentOffset, current.clock);
+        const offset = yield* currentOffset;
+        const live = yield* livePosition(offset, current.clock);
+        const serverNow = toServerTime(yield* Clock.currentTimeMillis, offset);
 
         return {
           json: { room: yield* encodeResult("rooms.get", command, current), livePositionMs: live },
-          human: describeRoom(current, live),
+          human: describeRoom(current, live, serverNow),
         };
       });
 
@@ -311,6 +325,40 @@ const status: ShortcutCommand = {
     }),
 };
 
+type NextCommand = "rooms.startNextCountdown" | "rooms.cancelNextCountdown" | "rooms.playNext";
+
+/**
+ * A host's next-episode command on the named room or the one this device is in. Play next names
+ * the episode the room plays, so it moves the room on once however often it runs.
+ */
+const nextControl = (path: string, name: NextCommand): ShortcutCommand => ({
+  path,
+  options: {},
+  positionals: true,
+  run: (invocation) =>
+    Effect.gen(function* () {
+      const connection = yield* connect(invocation.env, invocation.target, "required");
+      const room = yield* resolveRoom(invocation, connection, connection.viewingProfileId);
+      const onDevice = { roomId: room.id, deviceId: connection.deviceId };
+
+      if (name !== "rooms.playNext") {
+        const changed = yield* connection.withSession(connection.client.mutate(name, onDevice));
+
+        return resultOutcome(commands[name], yield* encodeResult(name, commands[name], changed));
+      }
+
+      if (room.episode === null) {
+        return yield* usage(invocation, `${path} needs a room playing an episode`);
+      }
+
+      const moved = yield* connection.withSession(
+        connection.client.mutate(name, { ...onDevice, fromEpisodeId: room.episode.id }),
+      );
+
+      return resultOutcome(commands[name], yield* encodeResult(name, commands[name], moved));
+    }),
+});
+
 /** The room shortcuts. */
 export const roomCommands: ReadonlyArray<ShortcutCommand> = [
   create,
@@ -318,6 +366,9 @@ export const roomCommands: ReadonlyArray<ShortcutCommand> = [
   hostControl("rooms play", "rooms.play", false),
   hostControl("rooms pause", "rooms.pause", false),
   hostControl("rooms seek", "rooms.seek", true),
+  nextControl("rooms next", "rooms.playNext"),
+  nextControl("rooms countdown", "rooms.startNextCountdown"),
+  nextControl("rooms cancel-countdown", "rooms.cancelNextCountdown"),
   leave,
   status,
 ];

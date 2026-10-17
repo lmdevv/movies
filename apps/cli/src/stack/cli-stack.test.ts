@@ -22,7 +22,7 @@ import {
   startMovies,
   writeText,
 } from "../testing/process";
-import { scanMovie, signUp } from "../testing/stack-seed";
+import { scanMovie, scanShow, signUp } from "../testing/stack-seed";
 import { findStack } from "../testing/stack-env";
 
 const stack = findStack();
@@ -70,6 +70,25 @@ const Created = parse(Schema.Struct({ libraryId: Schema.String }));
 const InviteCode = parse(Schema.Struct({ code: Schema.String }));
 
 const RoomCreated = parse(Schema.Struct({ id: Schema.String }));
+
+/** A room's episode and next-episode countdown, from a next-episode command. */
+const NextOf = parse(
+  Schema.Struct({
+    episode: Schema.NullOr(Schema.Struct({ id: Schema.String })),
+    next: Schema.NullOr(
+      Schema.Union([
+        Schema.Struct({
+          status: Schema.Literal("pending"),
+          episode: Schema.Struct({ id: Schema.String }),
+          nextAt: Schema.Finite,
+        }),
+        Schema.Struct({ status: Schema.Literal("cancelled") }),
+      ]),
+    ),
+  }),
+);
+
+const Episodes = parse(Schema.Array(Schema.Struct({ id: Schema.String })));
 
 const Clock = parse(Schema.Struct({ status: Schema.String, positionAtAnchorMs: Schema.Finite }));
 
@@ -352,6 +371,69 @@ describe.skipIf(stack === undefined)("the movies CLI against a real stack", () =
     const lines = (watched?.stdout ?? "").trimEnd().split("\n").map(WatchLine);
 
     expect(lines.at(-1)?.room.clock.status).toBe("ended");
+  }, 120_000);
+
+  it("moves a room on to the next episode: a countdown, its cancel, and Play next", async () => {
+    const folder = await makeTempDir("movies-cli-show-");
+
+    homes.push(folder);
+
+    const library = await runMovies(
+      ["libraries", "create", "--name", `CLI shows ${id}`, "--kind", "shows", "--roots", folder],
+      owner,
+    );
+
+    const name = `CLI Room Show ${id}`;
+
+    await scanShow(
+      url,
+      stack?.mediaServiceKey ?? "",
+      Created(library.stdout).libraryId,
+      folder,
+      name,
+      [
+        { season: 1, episode: 1 },
+        { season: 1, episode: 2 },
+      ],
+    );
+
+    const [show] = Titles((await runMovies(["search", name], owner)).stdout);
+
+    const [first, second] = Episodes(
+      (
+        await runMovies(
+          ["titles", "episodes", "--title-id", show?.id ?? "", "--season-number", "1"],
+          owner,
+        )
+      ).stdout,
+    );
+
+    const room = await runMovies(
+      ["rooms", "create", show?.id ?? "", "--episode-id", first?.id ?? ""],
+      owner,
+    );
+
+    expect(room.code).toBe(ExitCode.ok);
+    const roomId = RoomCreated(room.stdout).id;
+
+    const counting = NextOf((await runMovies(["rooms", "countdown"], owner)).stdout);
+
+    expect(counting.next).toMatchObject({ status: "pending", episode: { id: second?.id } });
+    expect((await runMovies(["rooms", "status", roomId, "--human"], owner)).stdout).toMatch(
+      /next episode: S1:E2 Episode 2 in \d+s/u,
+    );
+    expect(
+      NextOf((await runMovies(["rooms", "cancel-countdown"], owner)).stdout).next,
+    ).toStrictEqual({ status: "cancelled" });
+
+    const moved = NextOf((await runMovies(["rooms", "next"], owner)).stdout);
+
+    expect(moved.episode?.id).toBe(second?.id);
+    expect(moved.next).toBeNull();
+
+    // The second episode is the last.
+    expect((await runMovies(["rooms", "next"], owner)).code).toBe(ExitCode.notFound);
+    expect((await runMovies(["rooms", "leave"], owner)).code).toBe(ExitCode.ok);
   }, 120_000);
 
   it("plays the version a play names by its name or number, and says which ones exist", async () => {

@@ -439,6 +439,34 @@ choices made while implementing them. Update it in the same PR that changes a de
   can switch to a title a guest's kids profile may not see). A room link (`/r/<roomId>`) reads the
   room before joining by naming the profile that would join: when it may see the title, the room
   comes back without its members. Everyone else gets `not_found`.
+- Shows move on together, and only the host moves them (no delegated control exists yet). When
+  the host's player reaches the credits (the episode's last tenth, at most 30 s, as solo), it calls
+  `rooms.startNextCountdown`; the server stores `next: { status: "pending", episodeId, nextAt }`
+  and schedules `rooms.nextEpisodeDue` for `nextAt`, ten seconds on. Every member renders the
+  same seconds from `nextAt` and its own server clock offset, so a guest who reloads mid-countdown
+  picks it up where the others are. The scheduled function is the countdown's only writer: it
+  runs whether or not the host is still there (a heartbeat-driven advance would wait for a host
+  who left), and it changes the room only while it still plays the episode it counted down from
+  with that countdown pending, so it moves a room on at most once. The host's Play next, Next
+  button, ⌘K, and media-session next call `rooms.playNext` with the episode they move on from;
+  one that finds the room already moved changes nothing, so a double click, a race with the
+  countdown, or a stale tab advances once. Watch credits is `rooms.cancelNextCountdown`: the card
+  goes away for everyone and the countdown cannot start again for that episode. A guest's Close
+  hides only their own card; they still move on with the room.
+- Moving on (and the host's Episodes picker, which uses `rooms.setMedia`) switches the room's
+  media paused at the start with the next revision and clears its countdown. Each member's player
+  sees the new media in the room record and opens it in place (`/watch/...?room=`), keeping the
+  room, its link, and its membership; it never starts solo playback. Every member plays it with a
+  session of their own, so progress stays per profile, with their own quality and track choices.
+  The room plays when the host's player does; members slower to load join at the live position,
+  as late joiners do, and nobody waits for them. A countdown due while the host is away still
+  moves the room on, paused, until the host's player is back.
+- Episodes share their show's rating and library, so a member who may watch one episode may watch
+  the next. The next episode's file missing from disk stops the countdown (`conflict`): the host's
+  card says so and only closes. After the last episode there is no card. A member whose profile
+  cannot see what the host switched to (another title, through `setMedia`) gets "Not available on
+  this profile" instead of the player, keeps their place with away heartbeats, and is taken back
+  to the room once it plays something they may watch.
 
 ## Backups and restore
 

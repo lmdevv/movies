@@ -12,6 +12,9 @@
  *   saw. A stall freezes the room, and recovery publishes a fresh playing anchor. Only a command
  *   rejected as stale, or a reconnect, moves the host's player onto the committed clock, apart
  *   from a host starting far from a playing room's live position, which catches up with it first.
+ * - **Next episode.** The room's countdown is part of its record (`room.next`), due at a server
+ *   time; `nextEpisodeCountdownMs` reads it with this device's clock offset. The server moves the
+ *   room on, and each player opens the new media itself.
  * - **Presence.** Heartbeats every few seconds; the host's carry its position so the server can
  *   re-anchor drift, and a following guest's carry its measured drift so the room can show it. An unanswered heartbeat marks the connection lost and disables host controls
  *   until the room has been read again.
@@ -22,6 +25,7 @@
 import type { ClockOffset, ClockSample } from "@movies/contracts/clock";
 import type { CommandArgs } from "@movies/contracts/commands";
 import {
+  countdownRemaining,
   estimateClockOffset,
   isNewerRevision,
   targetPosition,
@@ -30,7 +34,7 @@ import {
 import type { DeviceId, RoomId } from "@movies/contracts/ids";
 import type { Room, RoomClock } from "@movies/contracts/models/rooms";
 import type { EpochMillis } from "@movies/contracts/units";
-import { Milliseconds } from "@movies/contracts/units";
+import { EpochMillis as EpochMillisSchema, Milliseconds } from "@movies/contracts/units";
 import {
   Clock,
   Duration,
@@ -85,6 +89,28 @@ export const hostControlsEnabled = (state: RoomSyncState): boolean =>
   state.connection === "connected" &&
   state.offset !== null &&
   state.clock.status !== "ended";
+
+/**
+ * How long is left on the room's next-episode countdown at `deviceNow`, by the server's clock as
+ * this device estimates it (its own clock until the offset is known), or null while none runs.
+ * Every member computes it from the same `nextAt`, so they all count down together, and a member
+ * who reloads mid-countdown picks it up where the others are.
+ */
+export const nextEpisodeCountdownMs = (
+  state: Pick<RoomSyncState, "room" | "offset">,
+  deviceNow: number,
+): Milliseconds | null => {
+  const { next } = state.room;
+
+  if (next?.status !== "pending") return null;
+
+  const serverNow =
+    state.offset === null
+      ? EpochMillisSchema.make(deviceNow)
+      : toServerTime(deviceNow, state.offset);
+
+  return countdownRemaining(next.nextAt, serverNow);
+};
 
 /** What to synchronize. */
 export interface RoomSyncOptions {

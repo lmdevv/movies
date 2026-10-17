@@ -5,6 +5,7 @@ import {
 } from "@movies/contracts/clock";
 import { DeviceId } from "@movies/contracts/ids";
 import type { RoomClock } from "@movies/contracts/models/rooms";
+import type { RoomNext } from "@movies/contracts/models/rooms";
 import { Room, RoomClock as RoomClockSchema } from "@movies/contracts/models/rooms";
 import { EpochMillis, Milliseconds } from "@movies/contracts/units";
 import { Deferred, Effect, Fiber, Layer, Option, Schema } from "effect";
@@ -24,7 +25,7 @@ import type { MemoryRooms } from "../testing/memory-rooms";
 import { makeMemoryRooms } from "../testing/memory-rooms";
 import { keepAway } from "./room-presence";
 import type { RoomSync } from "./room-sync";
-import { hostControlsEnabled, run } from "./room-sync";
+import { hostControlsEnabled, nextEpisodeCountdownMs, run } from "./room-sync";
 import { DEFAULT_TUNABLES } from "./sync-policy";
 import * as TokenStorage from "../token-storage";
 
@@ -41,7 +42,10 @@ const GUEST = DeviceId.make("guest-device");
 
 const decodeRoom = Schema.decodeUnknownSync(Room);
 
-const roomWith = (clock: Partial<RoomClock>): Room =>
+const roomWith = (
+  clock: Partial<RoomClock>,
+  next: (typeof RoomNext)["Encoded"] | null = null,
+): Room =>
   decodeRoom({
     id: "room-1",
     title: {
@@ -64,6 +68,7 @@ const roomWith = (clock: Partial<RoomClock>): Room =>
     hostDeviceId: HOST,
     hostProfileName: "Alex",
     hostAway: false,
+    next,
     clock: {
       status: "paused",
       positionAtAnchorMs: 0,
@@ -855,4 +860,45 @@ describe("a host coming back to a playing room", () => {
         expect((yield* rooms.room).clock.status).toBe("paused");
       }),
     ));
+});
+
+describe("nextEpisodeCountdownMs", () => {
+  const episode = {
+    id: "episode-2",
+    titleId: "title-1",
+    seasonId: "season-1",
+    seasonNumber: 1,
+    episodeNumber: 2,
+    name: "Slack Tide",
+    overview: null,
+    airDate: null,
+    runtimeMs: null,
+    still: null,
+    rating: null,
+    externalIds: { tmdb: null, imdb: null, tvdb: null },
+    available: true,
+    progress: null,
+  };
+
+  const nextAt = START + SERVER_OFFSET_MS + 10_000;
+
+  it("counts down to the server time the room moves on, with this device's offset", () => {
+    const room = roomWith({}, { status: "pending", episode, nextAt });
+    const offset = { offsetMs: SERVER_OFFSET_MS, roundTripMs: 2 * LATENCY_MS };
+
+    expect(nextEpisodeCountdownMs({ room, offset }, START)).toBe(10_000);
+    expect(nextEpisodeCountdownMs({ room, offset }, START + 7_250)).toBe(2_750);
+    expect(nextEpisodeCountdownMs({ room, offset }, START + 60_000)).toBe(0);
+    // Until the offset is known, the device's own clock stands in for the server's.
+    expect(nextEpisodeCountdownMs({ room, offset: null }, START + SERVER_OFFSET_MS)).toBe(10_000);
+  });
+
+  it("has nothing to count without a pending countdown", () => {
+    const offset = { offsetMs: 0, roundTripMs: 0 };
+
+    expect(nextEpisodeCountdownMs({ room: roomWith({}), offset }, START)).toBeNull();
+    expect(
+      nextEpisodeCountdownMs({ room: roomWith({}, { status: "cancelled" }), offset }, START),
+    ).toBeNull();
+  });
 });

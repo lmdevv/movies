@@ -74,6 +74,11 @@ buffering as room commands at the current revision, reverts the host to the comm
 a command is stale or after a reconnect, and disables host controls while heartbeats go
 unanswered. Tunables live in `RoomSyncPolicy.DEFAULT_TUNABLES`.
 
+A room's next-episode countdown is part of its record (`room.next`), due at a server time.
+`RoomSync.nextEpisodeCountdownMs(state, Date.now())` gives the time left with the engine's clock
+offset, the same on every member. The server moves the room on; the app then opens the room's new
+media.
+
 ## Tests
 
 `pnpm test` runs the unit suites, including the room engine against an in-memory backend and a

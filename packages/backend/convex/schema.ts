@@ -39,6 +39,7 @@ import {
   roomStatus,
   scope,
   showStatus,
+  storedRoomNext,
   titleKind,
   trailer,
   trickplayState,
@@ -408,6 +409,12 @@ export default defineSchema({
     hostAway: v.boolean(),
     /** The length of `fileId`, for an away host's end-of-file pause; absent on older rooms. */
     fileDurationMs: v.optional(v.number()),
+    /**
+     * The next-episode countdown for what the room plays now: pending until `nextAt`, when a
+     * scheduled `rooms.nextEpisodeDue` moves the room on, or cancelled by the host. Absent when
+     * there is none; every change of media clears it.
+     */
+    next: v.optional(storedRoomNext),
     endedAt: v.optional(v.number()),
   })
     .index("by_status", ["status"])

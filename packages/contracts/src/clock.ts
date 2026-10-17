@@ -49,6 +49,16 @@ export const HOST_REANCHOR_THRESHOLD_MS = 50;
  */
 export const UNTIMED_HOST_REANCHOR_THRESHOLD_MS = 250;
 
+/**
+ * How long a room's next-episode countdown runs: from the host's player reaching the credits to the
+ * whole room moving on, unless the host cancels it first. Solo playback counts down as long.
+ */
+export const NEXT_EPISODE_COUNTDOWN_MS = 10_000;
+
+/** How long is left on a countdown due at `nextAt`, at `serverNow`; never below zero. */
+export const countdownRemaining = (nextAt: EpochMillis, serverNow: EpochMillis): Milliseconds =>
+  Milliseconds.make(Math.max(0, nextAt - serverNow));
+
 /** Drift correction thresholds for a following player. */
 export const DRIFT_THRESHOLDS = {
   /** Within this distance the player is in sync and left alone. */

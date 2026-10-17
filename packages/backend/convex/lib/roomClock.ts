@@ -22,6 +22,9 @@ export const PLAYER_SILENCE_MS = 2 * HEARTBEAT_INTERVAL_MS;
  */
 export const AWAY_REFRESH_MS = 2 * HEARTBEAT_INTERVAL_MS;
 
+/** How long a room's next-episode countdown runs before the room moves on. */
+export const NEXT_EPISODE_COUNTDOWN_MS = 10_000;
+
 /** A host silent this long is away and the room pauses. */
 export const HOST_PRESENCE_TIMEOUT_MS = 20_000;
 

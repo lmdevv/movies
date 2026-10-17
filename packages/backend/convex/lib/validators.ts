@@ -769,6 +769,21 @@ const roomMember = v.object({
   driftMs: nullable(v.number()),
 });
 
+/** Mirrors `RoomNext` in `@movies/contracts`. */
+const roomNext = v.union(
+  v.object({ status: v.literal("pending"), episode, nextAt: v.number() }),
+  v.object({ status: v.literal("cancelled") }),
+);
+
+/**
+ * A room's stored next-episode countdown (`rooms.next`): the episode it moves on to rather than
+ * the presented one.
+ */
+export const storedRoomNext = v.union(
+  v.object({ status: v.literal("pending"), episodeId: v.id("episodes"), nextAt: v.number() }),
+  v.object({ status: v.literal("cancelled") }),
+);
+
 /** Mirrors `Room` in `@movies/contracts`. */
 export const room = v.object({
   id: v.id("rooms"),
@@ -781,6 +796,7 @@ export const room = v.object({
   hostProfileName: v.string(),
   hostAway: v.boolean(),
   clock: roomClock,
+  next: nullable(roomNext),
   members: v.array(roomMember),
   createdAt: v.number(),
 });
