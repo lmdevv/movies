@@ -57,6 +57,7 @@ const trackPage = (
 export const playbackCommands = (player: PlayerCommands | null): CommandContribution => {
   if (player === null) return { groups: [] };
 
+  // Guests follow the room's timeline, so only those who move it get transport and the next episode.
   const timeline: ReadonlyArray<CommandItem> = player.controlsTimeline
     ? [
         {
@@ -85,25 +86,22 @@ export const playbackCommands = (player: PlayerCommands | null): CommandContribu
           keycaps: playerKeymap.keycaps("player.forward-10"),
           perform: () => player.skip(10),
         },
+        ...(player.nextEpisode === null
+          ? []
+          : [
+              {
+                kind: "action" as const,
+                id: "player:next",
+                title: "Next episode",
+                leading: { kind: "icon" as const, icon: SkipForwardIcon },
+                perform: player.nextEpisode,
+              },
+            ]),
       ]
     : [];
 
-  const next: ReadonlyArray<CommandItem> =
-    player.nextEpisode === null || !player.controlsTimeline
-      ? []
-      : [
-          {
-            kind: "action",
-            id: "player:next",
-            title: "Next episode",
-            leading: { kind: "icon", icon: SkipForwardIcon },
-            perform: player.nextEpisode,
-          },
-        ];
-
   const items: ReadonlyArray<CommandItem> = [
     ...timeline,
-    ...next,
     {
       kind: "submenu",
       id: "player:subtitles",

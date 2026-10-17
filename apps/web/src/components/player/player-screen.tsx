@@ -956,10 +956,14 @@ export function PlayerScreen({
     "backdrop",
   );
 
+  // Where menus, popovers, and dialogs render: inside the player while it is full screen, where
+  // nothing outside it shows; the body otherwise.
+  const overlayContainer = fullscreen && frame !== null ? frame : undefined;
+
   const tracks = (trigger: React.ReactElement) => (
     <TrackPopover
       trigger={trigger}
-      container={fullscreen ? frame : undefined}
+      container={overlayContainer}
       label={TRACKS_LABEL}
       choices={[
         ...(versionOptions.length === 0
@@ -1001,7 +1005,7 @@ export function PlayerScreen({
   const chapterMenu = (trigger: React.ReactElement) => (
     <ChapterPopover
       trigger={trigger}
-      container={fullscreen ? frame : undefined}
+      container={overlayContainer}
       chapters={scrubbing.chapters}
       currentId={currentChapter?.id ?? null}
       onSelect={(chapter) => seekTo(chapter.startSeconds)}
@@ -1039,7 +1043,7 @@ export function PlayerScreen({
     castTargets.otherDevices !== null;
 
   const castMenu = (trigger: React.ReactElement) => (
-    <CastMenu trigger={trigger} container={fullscreen ? frame : undefined} {...castTargets} />
+    <CastMenu trigger={trigger} container={overlayContainer} {...castTargets} />
   );
 
   const scrubProps = {
@@ -1431,7 +1435,7 @@ export function PlayerScreen({
         link={
           startDialog?.roomId === null || startDialog === null ? null : roomLink(startDialog.roomId)
         }
-        container={fullscreen ? frame : null}
+        container={overlayContainer ?? null}
         onCopy={() => {
           if (startDialog?.roomId != null) copyLink(startDialog.roomId);
         }}
@@ -1446,7 +1450,7 @@ export function PlayerScreen({
       />
       <CommandMenu
         open={menu}
-        container={fullscreen && frame !== null ? frame : undefined}
+        container={overlayContainer}
         onOpenChange={(open) => {
           setMenu(open);
 
