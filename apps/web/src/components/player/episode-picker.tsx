@@ -13,8 +13,9 @@ import type { ReactElement } from "react";
 
 import { artworkUrl } from "@/lib/artwork";
 import { episodeRuntimeFacts, progressFraction } from "@/lib/format";
+import { listOrLoading } from "@/lib/query-state";
 
-/** `24m · 12m left`, or `File missing` for an episode with nothing on disk. */
+/** `24m · 12m left` or `24m · File missing`; undefined when there is nothing to say. */
 const episodeDetail = (episode: SeasonEpisode): string | undefined => {
   const parts = episodeRuntimeFacts(episode);
 
@@ -36,7 +37,7 @@ const episodeOption = (episode: SeasonEpisode): EpisodeOption => ({
  *
  * @param current - The episode playing; the panel opens on its season, with it marked.
  * @param currentSeason - The episodes of the season playing, which the player already has; null
- *   while they load. Only other seasons are fetched here.
+ *   while they load, empty if they could not. Only other seasons are fetched here.
  * @param onPlay - Plays another episode; choosing the one playing only closes the panel.
  */
 export function EpisodePicker({
@@ -73,14 +74,8 @@ export function EpisodePicker({
     browsingOther ? { profileId, titleId, seasonNumber } : "skip",
   );
 
-  const loaded = browsingOther ? (other.status === "success" ? other.data : null) : currentSeason;
-  const failed = browsingOther && other.status === "error";
-
-  // A season that cannot load lists nothing rather than loading forever.
-  const episodes = useMemo(
-    () => (failed ? [] : (loaded?.map(episodeOption) ?? null)),
-    [failed, loaded],
-  );
+  const loaded = browsingOther ? listOrLoading(other) : currentSeason;
+  const episodes = useMemo(() => loaded?.map(episodeOption) ?? null, [loaded]);
 
   const seasonOptions = useMemo(
     (): ReadonlyArray<SeasonOption> =>

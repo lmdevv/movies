@@ -351,21 +351,27 @@ function VolumeControl({
       release("drag");
     };
 
+    // A drag the system takes over, or the window losing focus, settles nowhere.
+    const cancelled = (): void => {
+      dropped();
+      setMoving(null);
+    };
+
     const outside = (event: globalThis.PointerEvent): void => {
       if (event.target instanceof Node && group.current?.contains(event.target) === true) return;
       release("touch");
     };
 
     window.addEventListener("pointerup", dropped);
-    window.addEventListener("pointercancel", dropped);
+    window.addEventListener("pointercancel", cancelled);
     // A release the window never hears, as when it loses focus mid-drag, ends the drag too.
-    window.addEventListener("blur", dropped);
+    window.addEventListener("blur", cancelled);
     window.addEventListener("pointerdown", outside);
 
     return () => {
       window.removeEventListener("pointerup", dropped);
-      window.removeEventListener("pointercancel", dropped);
-      window.removeEventListener("blur", dropped);
+      window.removeEventListener("pointercancel", cancelled);
+      window.removeEventListener("blur", cancelled);
       window.removeEventListener("pointerdown", outside);
       unmount();
     };

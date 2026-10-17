@@ -16,7 +16,6 @@ import type { MediaVersion } from "@movies/contracts/models/catalog";
 import { EpochMillis, Milliseconds } from "@movies/contracts/units";
 import { Playback, Versions } from "@movies/sdk/effect";
 import { useCommand, useCommandQuery, useMoviesRuntime, useRoomSync } from "@movies/sdk/react";
-import type { QueryState } from "@movies/sdk/react";
 import { ChapterPopover } from "@movies/ui/components/chapter-popover";
 import { CommandMenu } from "@movies/ui/components/command-menu";
 import {
@@ -56,6 +55,7 @@ import { copyText } from "@/lib/secure-context";
 import { episodeCode } from "@/lib/format";
 import { playerKeymap } from "@/lib/keymap";
 import { audioTrackLabel, subtitleTrackLabels } from "@/lib/media-facts";
+import { listOrLoading } from "@/lib/query-state";
 import { useLatest } from "@/lib/use-latest";
 import { volumeIsSettable } from "@/playback/browser-support";
 import { PlaybackPhase, StartChoice } from "@/playback/playback-controller";
@@ -123,13 +123,6 @@ const VOLUME_STEP = 0.1;
 
 /** Where unmuting a TV that is silent returns to when this player never set its level. */
 const CAST_UNMUTE_LEVEL = 0.5;
-
-/** A list query's rows, null while it loads; one that failed lists nothing rather than loading forever. */
-const listOrLoading = <A,>(state: QueryState<ReadonlyArray<A>>): ReadonlyArray<A> | null => {
-  if (state.status === "success") return state.data;
-
-  return state.status === "error" ? [] : null;
-};
 
 /** A volume from 0 to 1 in whole percent, so steps of a tenth land on silence exactly. */
 const volumeLevel = (value: number): number =>
@@ -476,14 +469,14 @@ export function PlayerScreen({
   // down to nothing and unmuting restores where it started.
   const audibleVolume = useRef<{ readonly on: string; readonly level: number } | null>(null);
   const volumeOutput = casting === null ? "" : casting.deviceName;
-  const audibleNow = media.muted ? 0 : media.volume;
+  const levelNow = media.volume;
 
-  // Before the first change on an output, what plays there now is where it started.
+  // Before the first change on an output, its level now (under mute, too) is where it started.
   const rememberStart = useCallback(() => {
-    if (audibleVolume.current?.on !== volumeOutput && audibleNow > 0) {
-      audibleVolume.current = { on: volumeOutput, level: audibleNow };
+    if (audibleVolume.current?.on !== volumeOutput && levelNow > 0) {
+      audibleVolume.current = { on: volumeOutput, level: levelNow };
     }
-  }, [volumeOutput, audibleNow]);
+  }, [volumeOutput, levelNow]);
 
   const commitVolume = useCallback(
     (value: number) => {
@@ -815,14 +808,22 @@ export function PlayerScreen({
     duration > 0 &&
     (media.ended || remaining <= creditsSeconds(duration));
 
+  // Another episode of this show, in the player; it resumes where the profile stopped, or starts
+  // over once watched.
+  const playEpisode = useCallback(
+    (id: EpisodeId) => {
+      void navigate({
+        to: "/watch/$titleId",
+        params: { titleId },
+        search: { episodeId: id, start: "resume" },
+      });
+    },
+    [navigate, titleId],
+  );
+
   const playNext = useCallback(() => {
-    if (nextEpisode === null) return;
-    void navigate({
-      to: "/watch/$titleId",
-      params: { titleId },
-      search: { episodeId: nextEpisode.id, start: "resume" },
-    });
-  }, [navigate, nextEpisode, titleId]);
+    if (nextEpisode !== null) playEpisode(nextEpisode.id);
+  }, [nextEpisode, playEpisode]);
 
   // The episode before this one in its season, for the system's previous-track button.
   const seasonEpisodes = useCommandQuery(
@@ -842,17 +843,6 @@ export function PlayerScreen({
 
     return at > 0 ? (seasonEpisodes.data[at - 1] ?? null) : null;
   })();
-
-  const playEpisode = useCallback(
-    (id: EpisodeId) => {
-      void navigate({
-        to: "/watch/$titleId",
-        params: { titleId },
-        search: { episodeId: id, start: "resume" },
-      });
-    },
-    [navigate, titleId],
-  );
 
   const playPrevious = useCallback(() => {
     if (previousEpisode !== null) playEpisode(previousEpisode.id);

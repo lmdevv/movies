@@ -116,7 +116,11 @@ function SideSlider({
         }}
         className="h-33"
       >
-        <Slider.Control className="flex h-full w-9 cursor-pointer touch-none justify-center">
+        <Slider.Control
+          // A drag the system takes over (an edge swipe, a call) settles nowhere.
+          onPointerCancel={() => setMoving(null)}
+          className="flex h-full w-9 cursor-pointer touch-none justify-center"
+        >
           <Slider.Track className="relative h-full w-1 rounded-bar bg-text/30">
             <Slider.Indicator className="w-1 rounded-bar bg-text" />
             <Slider.Thumb aria-label={label} className="size-4 rounded-pill opacity-0" />
