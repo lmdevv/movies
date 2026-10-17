@@ -124,7 +124,7 @@ function TitleDetailView({
           </View>
         }
         ListFooterComponent={
-          <View className="gap-6 pt-6">
+          <View className="gap-6 pt-2">
             <View className="gap-6 px-5">
               {show ? <AboutRow title={title} /> : null}
               <CastAndCrew title={title} />
