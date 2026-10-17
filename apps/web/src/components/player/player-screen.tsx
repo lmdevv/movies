@@ -1622,7 +1622,7 @@ export function PlayerScreen({
           phoneControls
         )}
         {center}
-        {subtitleDelay.notice === null ? null : <SubtitleDelayNotice text={subtitleDelay.notice} />}
+        <SubtitleDelayNotice text={subtitleDelay.notice} />
         {showNext ? (
           <AutoplayNext
             current={heading}

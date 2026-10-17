@@ -252,17 +252,22 @@ export function PressPlay({ onPlay }: { readonly onPlay: () => void }) {
 
 /**
  * A moment's notice at the top of the frame after G or H, or a command, moved the subtitle delay:
- * the delay now, such as `+0.5 s`, or why it cannot apply.
+ * the delay now, such as `+0.5 s`, or why it cannot apply. The live region stays mounted and only
+ * its content comes and goes, so screen readers announce each change.
  */
-export function SubtitleDelayNotice({ text }: { readonly text: string }) {
+export function SubtitleDelayNotice({ text }: { readonly text: string | null }) {
   return (
     <div
       role="status"
-      className="on-media pointer-events-none absolute top-8 left-1/2 flex h-10 -translate-x-1/2 items-center gap-2 rounded-pill border border-text/10 bg-glass px-4 font-sans text-label/label text-text shadow-glass backdrop-blur-xl [&_svg]:size-4"
+      className="on-media pointer-events-none absolute top-8 left-1/2 -translate-x-1/2"
     >
-      <CaptionsIcon strokeWidth={1.75} aria-hidden />
-      <span className="text-text-muted">Subtitle delay</span>
-      <span className="font-semibold tabular-nums">{text}</span>
+      {text === null ? null : (
+        <div className="flex h-10 items-center gap-2 rounded-pill border border-text/10 bg-glass px-4 font-sans text-label/label text-text shadow-glass backdrop-blur-xl [&_svg]:size-4">
+          <CaptionsIcon strokeWidth={1.75} aria-hidden />
+          <span className="text-text-muted">Subtitle delay</span>
+          <span className="font-semibold tabular-nums">{text}</span>
+        </div>
+      )}
     </div>
   );
 }

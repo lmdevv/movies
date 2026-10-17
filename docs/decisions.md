@@ -395,11 +395,13 @@ choices made while implementing them. Update it in the same PR that changes a de
   its file says, a negative one earlier. Range ±30 s; Earlier and Later (and the player's G and H
   keys, and ⌘K's "Subtitles earlier/later") step 0.1 s; a typed entry keeps 0.01 s. A cue moved
   before 0 s is cut at 0 s.
-- Lifetime: the current playback only. It starts at 0, survives pause, seeks, quality and audio
-  changes, HLS playlist reloads, and token renewals, and turning subtitles Off and back on the same
-  track. Choosing another subtitle track or another version, opening another title or episode, or
-  reloading the page starts again at 0. Nothing is stored: not on the device, in Convex, or in the
-  profile.
+- Lifetime: the current playback only. The playback controller keeps the delay with the file and
+  text track it was set for and shows 0 while anything else shows. It survives pause, seeks,
+  quality and audio changes, HLS playlist reloads, token renewals, and a version switch that falls
+  back to the file that played; turning subtitles Off, or to a picture track, and back to the same
+  text track brings it back. Choosing another text track, a version that then plays, another title
+  or episode, or reloading the page starts again at 0. Nothing is stored: not on the device, in
+  Convex, or in the profile.
 - It is a client presentation setting and nothing else. The media service, Convex, the room
   engine, and the SDK never see it, and each member of a watch room has their own; the room's clock
   is untouched. So it is not in contracts, the SDK, or the CLI, which has no player.

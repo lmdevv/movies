@@ -72,11 +72,15 @@ export function SubtitleDelay({
   const [draft, setDraft] = useState<string | null>(null);
   const disabled = unavailable !== undefined;
 
+  // A field disabled while being typed in (subtitles turned off, casting started) drops the entry:
+  // a disabled field may never blur.
+  const typed = disabled ? null : draft;
+
   const commit = (): void => {
-    if (draft === null) return;
+    if (typed === null) return;
     setDraft(null);
 
-    if (draft !== value) onEntry(draft);
+    if (typed !== value) onEntry(typed);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
@@ -122,7 +126,7 @@ export function SubtitleDelay({
             inputMode="decimal"
             aria-label="Subtitle delay in seconds"
             disabled={disabled}
-            value={draft ?? value}
+            value={typed ?? value}
             onFocus={(event) => {
               setDraft(value);
               event.currentTarget.select();

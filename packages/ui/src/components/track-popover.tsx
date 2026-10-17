@@ -136,7 +136,7 @@ function TrackColumn({
         onValueChange={(next) => onValueChange(next)}
         className={cn(
           "relative flex min-h-0 scroll-py-1 flex-col gap-0.5 overflow-y-auto overscroll-y-contain px-5 pt-1",
-          footer === undefined ? "pb-5" : "pb-3",
+          footer === undefined || footer === null || footer === false ? "pb-5" : "pb-3",
         )}
       >
         {options.map((option) => (
