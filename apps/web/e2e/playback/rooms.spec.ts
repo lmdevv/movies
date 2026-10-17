@@ -526,6 +526,8 @@ test("a guest who browses away keeps their place, and the navbar pill takes them
   await expect(
     host.getByRole("region", { name: "Watching together" }).getByText("away", { exact: true }),
   ).toBeVisible();
+  await revealControls(host);
+  await capture(host, "08-11-member-away");
 
   // The app's own heartbeats keep the place, so the member timeout never passes.
   const heard = (await memberNamed(GUEST.name)).lastSeenAt;
