@@ -29,7 +29,13 @@ import { authorize } from "./lib/viewer";
 type RoomPatch = Partial<
   Pick<
     Doc<"rooms">,
-    "status" | "positionAtAnchorMs" | "anchorServerTime" | "titleId" | "episodeId" | "fileId"
+    | "status"
+    | "positionAtAnchorMs"
+    | "anchorServerTime"
+    | "titleId"
+    | "episodeId"
+    | "fileId"
+    | "fileDurationMs"
   >
 >;
 
@@ -228,6 +234,7 @@ export const create = mutation({
       titleId: title._id,
       episodeId: playable.episode?._id ?? null,
       fileId: playable.file._id,
+      fileDurationMs: playable.file.probe.durationMs,
       hostUserId: viewer.userId,
       hostProfileId: args.profileId,
       hostDeviceId: args.deviceId,
@@ -497,19 +504,22 @@ export const heartbeat = mutation({
     const watchedAt = member.watchedAt ?? member.lastSeenAt;
     const playerReported = now - watchedAt < PLAYER_SILENCE_MS;
 
+    if (away && playerReported) {
+      // The device's player reports for it, keeping its place: nothing to write but a legacy
+      // row's last player report, so later away heartbeats cannot move it forward.
+      if (member.watchedAt === undefined) await ctx.db.patch(member._id, { watchedAt });
+
+      return presentRoomClock(found);
+    }
+
     if (away) {
       // Away clears any drift the device reported: it plays nothing.
-      await ctx.db.patch(
-        member._id,
-        playerReported
-          ? { lastSeenAt: now, watchedAt }
-          : {
-              lastSeenAt: now,
-              presence: "away",
-              driftMs: undefined,
-              watchedAt,
-            },
-      );
+      await ctx.db.patch(member._id, {
+        lastSeenAt: now,
+        presence: "away",
+        driftMs: undefined,
+        watchedAt,
+      });
     } else {
       // A guest that stopped reporting drift (buffering) clears the last value it reported.
       await ctx.db.patch(member._id, {
@@ -523,11 +533,14 @@ export const heartbeat = mutation({
     if (member.role !== "host" || found.status === "ended") return presentRoomClock(found);
 
     if (away) {
-      // Only a counted heartbeat in a playing room reads its file's length, to pause at the end.
-      const file =
-        !playerReported && found.status === "playing" ? await ctx.db.get(found.fileId) : null;
+      // Rooms from before `fileDurationMs` read their file's length, only while playing.
+      const durationMs =
+        found.fileDurationMs ??
+        (found.status === "playing"
+          ? ((await ctx.db.get(found.fileId))?.probe.durationMs ?? 0)
+          : 0);
 
-      const paused = playerReported ? null : awayHostClock(found, file?.probe.durationMs ?? 0, now);
+      const paused = awayHostClock(found, durationMs, now);
 
       await ctx.db.patch(
         found._id,
@@ -602,6 +615,7 @@ export const setMedia = mutation({
       titleId: title._id,
       episodeId: playable.episode?._id ?? null,
       fileId: playable.file._id,
+      fileDurationMs: playable.file.probe.durationMs,
       status: "paused",
       positionAtAnchorMs: 0,
       anchorServerTime: now,

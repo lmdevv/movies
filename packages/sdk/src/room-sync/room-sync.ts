@@ -133,11 +133,11 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
    */
   const catchingUpSince = yield* Ref.make(Option.none<number>());
   /**
-   * Where the engine last seeked the catching-up host's player. A `seeked` landing there is the
-   * engine's; one landing elsewhere is the host's own, even when it replaced the engine's seek
-   * before that one finished.
+   * Where the engine seeked the catching-up host's player, until a `seeked` lands there. A
+   * `seeked` landing on one is the engine's; one landing elsewhere is the host's own, even when it
+   * replaced an engine seek before that one finished.
    */
-  const catchUpSeek = yield* Ref.make(Option.none<number>());
+  const catchUpSeeks = yield* Ref.make<ReadonlyArray<number>>([]);
   const serial = yield* Semaphore.make(1);
 
   const state = yield* SubscriptionRef.make<RoomSyncState>({
@@ -185,7 +185,7 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
           const now = yield* Clock.currentTimeMillis;
 
           if (Option.isSome(yield* Ref.get(catchingUpSince))) {
-            yield* Ref.set(catchUpSeek, Option.some(positionMs));
+            yield* Ref.update(catchUpSeeks, (targets) => [...targets, positionMs]);
           }
 
           yield* Ref.set(lastSeekAt, Option.some(now));
@@ -253,11 +253,16 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     yield* Effect.forEach(decision.commands, execute, { discard: true });
   });
 
-  /** Ends the host's catch-up. */
-  const endCatchUp = Effect.andThen(
-    Ref.set(catchingUpSince, Option.none<number>()),
-    Ref.set(catchUpSeek, Option.none<number>()),
-  );
+  /** Ends the host's catch-up, putting back the room's rate a nudge may have changed. */
+  const endCatchUp = Effect.gen(function* () {
+    yield* Ref.set(catchingUpSince, Option.none<number>());
+    yield* Ref.set(catchUpSeeks, []);
+    const { clock } = yield* SubscriptionRef.get(state);
+
+    if (player.fixedRate !== true && player.playbackRate() !== clock.playbackRate) {
+      player.setPlaybackRate(clock.playbackRate);
+    }
+  });
 
   /** Whether the host is catching up, for no longer than `hostCatchUpMs`. */
   const isCatchingUp: Effect.Effect<boolean> = Effect.gen(function* () {
@@ -474,11 +479,17 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
         }
 
         if (event === "seeked") {
-          const pending = yield* Ref.getAndSet(catchUpSeek, Option.none<number>());
+          const landed = player.positionMs();
 
-          const echo =
-            Option.isSome(pending) &&
-            Math.abs(player.positionMs() - pending.value) <= tunables.hostSeekMs;
+          const echo = yield* Ref.modify(catchUpSeeks, (targets) => {
+            const at = targets.findIndex(
+              (target) => Math.abs(landed - target) <= tunables.hostSeekMs,
+            );
+
+            return at === -1
+              ? [false, targets]
+              : [true, targets.filter((_, index) => index !== at)];
+          });
 
           // The host seeked their own player: the catch-up ends, and the room seeks with them.
           if (!echo) {

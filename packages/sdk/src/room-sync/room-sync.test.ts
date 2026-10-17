@@ -835,4 +835,24 @@ describe("a host coming back to a playing room", () => {
         expect(host.isPaused()).toBe(true);
       }),
     ));
+
+  it("puts the room's rate back when the catch-up ends while nudging", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        // Behind by less than a seek: the catch-up nudges the rate instead.
+        const host = yield* makeFakePlayer((yield* sharedPosition(rooms)) - 1_300);
+
+        host.userPlay();
+        yield* start(rooms, HOST, host);
+        yield* advance(600);
+
+        expect(host.playbackRate()).not.toBe(1);
+
+        host.userPause();
+        yield* advance(500);
+
+        expect(host.playbackRate()).toBe(1);
+        expect((yield* rooms.room).clock.status).toBe("paused");
+      }),
+    ));
 });

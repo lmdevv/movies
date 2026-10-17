@@ -406,6 +406,8 @@ export default defineSchema({
     revision: v.number(),
     hostLastSeenAt: v.number(),
     hostAway: v.boolean(),
+    /** The length of `fileId`, for an away host's end-of-file pause; absent on older rooms. */
+    fileDurationMs: v.optional(v.number()),
     endedAt: v.optional(v.number()),
   })
     .index("by_status", ["status"])
