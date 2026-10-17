@@ -1,0 +1,82 @@
+/**
+ * An episode in a show's list (D04): a 128 × 76 still with a play glyph, `3. Who Is Alive?`, the
+ * runtime with the time left, a full red line once watched, and `…` for its actions. Tapping plays
+ * it from its saved position; a long press opens the actions too.
+ */
+import type { Episode } from "@movies/contracts/models/catalog";
+import { router } from "expo-router";
+import { Ellipsis, Play } from "lucide-react-native";
+import { Pressable, View } from "react-native";
+
+import { Icon } from "@/components/ui/icon";
+import { Image } from "@/components/ui/image";
+import { ProgressBar } from "@/components/ui/progress-bar";
+import { Text } from "@/components/ui/text";
+import { artworkUrl } from "@/lib/artwork";
+import { watchHref } from "@/lib/routes";
+import { useServer } from "@/session/connection";
+
+import { episodeLine } from "./title-model";
+
+/** The episode's actions sheet. */
+const actionsHref = (episode: Episode): string =>
+  `/title/${episode.titleId}/episode/${episode.id}?season=${episode.seasonNumber}`;
+
+/** One episode row. */
+export function EpisodeRow({ episode }: { readonly episode: Episode }) {
+  const { mediaUrl } = useServer();
+  const still = artworkUrl(mediaUrl, episode.still, "card");
+  const line = episodeLine(episode);
+  const openActions = () => router.push(actionsHref(episode));
+
+  return (
+    <View className="flex-row items-center gap-3 px-5">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={line.meta === "" ? line.heading : `${line.heading}, ${line.meta}`}
+        accessibilityHint="Plays the episode"
+        accessibilityState={{ disabled: !episode.available }}
+        disabled={!episode.available}
+        onPress={() => router.push(watchHref({ titleId: episode.titleId, episodeId: episode.id }))}
+        onLongPress={openActions}
+        className={`flex-1 flex-row items-center gap-3 active:opacity-70 ${
+          episode.available ? "" : "opacity-40"
+        }`}
+      >
+        <View className="h-19 w-32 overflow-hidden rounded-control bg-surface-raised">
+          {still === undefined ? null : (
+            <Image
+              source={{ uri: still }}
+              contentFit="cover"
+              transition={150}
+              className="size-full"
+            />
+          )}
+          <View className="absolute bottom-2 left-2">
+            <Icon icon={Play} tone="onMedia" size="inline" filled />
+          </View>
+        </View>
+        <View className="flex-1 gap-1">
+          <Text variant="labelStrong" numberOfLines={2}>
+            {line.heading}
+          </Text>
+          {line.meta === "" ? null : (
+            <Text variant="meta" tone="muted" numberOfLines={1}>
+              {line.meta}
+            </Text>
+          )}
+          {line.watched ? <ProgressBar value={1} /> : null}
+        </View>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`More for ${episode.name}`}
+        hitSlop={8}
+        onPress={openActions}
+        className="h-11 w-7 items-center justify-center active:opacity-60"
+      >
+        <Icon icon={Ellipsis} size="row" />
+      </Pressable>
+    </View>
+  );
+}

@@ -14,6 +14,8 @@ const VARIANTS = {
   display: "font-sans-bold text-ios-40 leading-ios-46 tracking-display",
   /** Large screen titles: 34/40 bold. */
   largeTitle: "font-sans-bold text-ios-34 leading-ios-40 tracking-display",
+  /** Titles inside a screen, such as File unavailable or a title on its About screen: 28/34 bold. */
+  title: "font-sans-bold text-ios-28 leading-8.5",
   /** Navigation titles beside a back button: 20/26 semibold. */
   navTitle: "font-sans-semibold text-heading leading-heading",
   /** Calm-state headings and invite titles: 28/34 bold. */
