@@ -212,12 +212,18 @@ const loadHostRoom = async (
  */
 const hostCommand = async (
   ctx: MutationCtx,
-  args: { roomId: Id<"rooms">; deviceId: string; revision: number },
+  args: {
+    roomId: Id<"rooms">;
+    deviceId: string;
+    revision: number;
+    fileId?: Id<"mediaFiles"> | undefined;
+  },
   change: (current: Doc<"rooms">, now: number) => RoomPatch,
 ): Promise<Infer<typeof roomClock>> => {
   const { room: current } = await loadHostRoom(ctx, args);
 
-  if (args.revision !== current.revision) {
+  // A player still on the file the room moved on from must not move the new one's clock.
+  if (args.revision !== current.revision || (args.fileId ?? current.fileId) !== current.fileId) {
     return fail("stale_revision", "The room changed; read its clock and try again");
   }
 
@@ -526,11 +532,11 @@ export const buffering = mutation({
  * the place. A watching guest's heartbeat records its reported drift for the room to show; an
  * away one clears it. Any host heartbeat keeps a live room from being marked `hostAway`; only a
  * watching one clears the mark, as the room stays paused for its guests until the host's player
- * is back. A watching host's heartbeat re-anchors the clock at the host's position,
- * carried forward from when the host read it, when the host's player drifted from the computed
- * position and the host saw the current revision. An away host has no player to drift: the room
- * plays on, except that one frozen for the host's buffering, or played past the end of its file,
- * pauses (`awayHostClock`).
+ * is back. A watching host's heartbeat re-anchors the clock at the host's position, carried
+ * forward from when the host read it, when the host's player drifted from the computed position,
+ * the host saw the current revision, and its player plays the room's file. An away host has no
+ * player to drift: the room plays on, except that one frozen for the host's buffering, or played
+ * past the end of its file, pauses (`awayHostClock`).
  */
 export const heartbeat = mutation({
   args: {
@@ -539,13 +545,23 @@ export const heartbeat = mutation({
     positionMs: v.optional(v.number()),
     atServerTime: v.optional(v.number()),
     revision: v.optional(v.number()),
+    fileId: v.optional(v.id("mediaFiles")),
     driftMs: v.optional(v.number()),
     presence: v.optional(roomPresence),
   },
   returns: roomClock,
   handler: async (
     ctx,
-    { roomId, deviceId, positionMs, atServerTime, revision, driftMs, presence = "watching" },
+    {
+      roomId,
+      deviceId,
+      positionMs,
+      atServerTime,
+      revision,
+      fileId,
+      driftMs,
+      presence = "watching",
+    },
   ) => {
     const viewer = await authorize(ctx, "play");
     const found = await loadRoom(ctx, roomId);
@@ -629,8 +645,12 @@ export const heartbeat = mutation({
     const readAt =
       atServerTime === undefined ? undefined : checkMilliseconds(atServerTime, "Server times");
 
+    // A position read on a file the room moved on from says nothing about the new one.
     const reading =
-      positionMs === undefined || revision !== found.revision || found.status !== "playing"
+      positionMs === undefined ||
+      revision !== found.revision ||
+      found.status !== "playing" ||
+      (fileId ?? found.fileId) !== found.fileId
         ? undefined
         : hostReading(found, positionMs, readAt, now);
 
@@ -770,14 +790,26 @@ const moveOn = async (
 };
 
 /**
+ * The arguments of the next-episode commands: the room, the host's device, and the episode the
+ * host moves on from. A command for an episode the room no longer plays changes nothing, so
+ * repeats, races with the countdown, and stale tabs act once, on the episode they meant.
+ */
+const fromEpisodeArgs = {
+  roomId: v.id("rooms"),
+  deviceId: v.string(),
+  fromEpisodeId: v.id("episodes"),
+};
+
+/**
  * Starts the room's countdown to its next episode: at `NEXT_EPISODE_COUNTDOWN_MS` from now by the
  * server's clock, a scheduled function moves the whole room on, whether or not the host is still
- * there. Host's device only. A countdown already running, or one the host cancelled, stays as it
- * is, so a repeat or a reload never restarts it. Fails with `not_found` after the last episode,
+ * there. Host's device only, from the episode the room plays. A countdown already running, or one
+ * the host cancelled, stays as it is, so a repeat or a reload never restarts it, and a call from
+ * an episode the room moved on from changes nothing. Fails with `not_found` after the last episode,
  * `conflict` when the next episode's file is missing, and `invalid_args` for a movie.
  */
 export const startNextCountdown = mutation({
-  args: { roomId: v.id("rooms"), deviceId: v.string() },
+  args: fromEpisodeArgs,
   returns: roomResult,
   handler: async (ctx, args) => {
     const { viewer, room } = await loadHostRoom(ctx, args);
@@ -786,7 +818,11 @@ export const startNextCountdown = mutation({
 
     if (room.episodeId === null) return fail("invalid_args", "A movie has no next episode");
 
-    if (room.next !== undefined) return presentRoom(ctx, room);
+    // A room that moved on, or already counts down or was cancelled, stays as it is.
+    if (room.episodeId !== args.fromEpisodeId || room.next !== undefined) {
+      return presentRoom(ctx, room);
+    }
+
     const target = await requireNextPlayable(ctx, room);
 
     if (target.episode === null) return fail("invalid_args", "A movie has no next episode");
@@ -811,12 +847,13 @@ export const startNextCountdown = mutation({
  * next episode. Host's device only; cancelling twice is harmless.
  */
 export const cancelNextCountdown = mutation({
-  args: { roomId: v.id("rooms"), deviceId: v.string() },
+  args: fromEpisodeArgs,
   returns: roomResult,
   handler: async (ctx, args) => {
     const { room } = await loadHostRoom(ctx, args);
 
-    if (room.next?.status !== "cancelled") {
+    // A cancel meant for an episode the room moved on from leaves the new one's countdown alone.
+    if (room.episodeId === args.fromEpisodeId && room.next?.status !== "cancelled") {
       await ctx.db.patch(room._id, { next: { status: "cancelled" } });
     }
 
@@ -831,7 +868,7 @@ export const cancelNextCountdown = mutation({
  * on once. Fails as `startNextCountdown` does when there is no next episode to play.
  */
 export const playNext = mutation({
-  args: { roomId: v.id("rooms"), deviceId: v.string(), fromEpisodeId: v.id("episodes") },
+  args: fromEpisodeArgs,
   returns: roomResult,
   handler: async (ctx, args) => {
     const { viewer, room } = await loadHostRoom(ctx, args);

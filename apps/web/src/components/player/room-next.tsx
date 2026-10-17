@@ -1,0 +1,55 @@
+/**
+ * A watch room's next-episode card: the shared countdown, ticking on this device's estimate of the
+ * server clock, so every member shows the same seconds.
+ */
+import type { ClockOffset } from "@movies/contracts/clock";
+import type { Room } from "@movies/contracts/models/rooms";
+import { RoomSync } from "@movies/sdk/effect";
+
+import { artworkUrl } from "@/lib/artwork";
+import { useNow } from "@/lib/use-now";
+
+import { AutoplayNext } from "./autoplay-next";
+import type { NextEpisodeActions } from "./autoplay-next";
+import type { RoomNextCard } from "./use-room-next";
+
+/** How often the countdown redraws: often enough that the seconds change on time. */
+const TICK_MS = 250;
+
+/**
+ * The card for `card` in `room`, its countdown read with `offset` (null until the engine has
+ * estimated it, when the device's clock stands in).
+ */
+export function RoomNextEpisode({
+  room,
+  offset,
+  card,
+  onPlayNext,
+  onWatchCredits,
+  onClose,
+}: {
+  readonly room: Room;
+  readonly offset: ClockOffset | null;
+  readonly card: RoomNextCard;
+  readonly onPlayNext: () => void;
+  readonly onWatchCredits: () => void;
+  readonly onClose: () => void;
+}) {
+  const now = useNow(TICK_MS);
+  const countdownMs = RoomSync.nextEpisodeCountdownMs({ room, offset }, now) ?? 0;
+
+  const actions: NextEpisodeActions =
+    card.kind === "unavailable"
+      ? { kind: "unavailable", reason: card.reason, onClose }
+      : card.role === "host"
+        ? { kind: "advance", countdownMs, onPlayNext, onWatchCredits }
+        : { kind: "follow", countdownMs, onClose };
+
+  return (
+    <AutoplayNext
+      next={card.episode}
+      still={artworkUrl(card.episode.still, "card")}
+      actions={actions}
+    />
+  );
+}

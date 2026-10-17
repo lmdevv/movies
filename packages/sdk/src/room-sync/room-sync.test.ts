@@ -3,7 +3,7 @@ import {
   PLAYER_SILENCE_MS,
   targetPosition,
 } from "@movies/contracts/clock";
-import { DeviceId } from "@movies/contracts/ids";
+import { DeviceId, MediaFileId } from "@movies/contracts/ids";
 import type { RoomClock } from "@movies/contracts/models/rooms";
 import type { RoomNext } from "@movies/contracts/models/rooms";
 import { Room, RoomClock as RoomClockSchema } from "@movies/contracts/models/rooms";
@@ -465,6 +465,39 @@ describe("room sync", () => {
         // Less than a seek's worth behind: the rate nudge closes the gap.
         yield* advance(25_000);
         expect(Math.abs(yield* driftOf(rooms, guest))).toBeLessThanOrEqual(120);
+      }),
+    ));
+
+  it("leaves players the room moved on from alone, and they never move the new file's clock", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        const host = yield* makeFakePlayer(60_000);
+        const guest = yield* makeFakePlayer(60_000);
+        const hostSync = yield* start(rooms, HOST, host);
+        const guestSync = yield* start(rooms, GUEST, guest);
+
+        host.userPlay();
+        guest.userPlay();
+        yield* advance(3_000);
+
+        // The room moves on to the next episode, paused at its start.
+        yield* rooms.moveTo(MediaFileId.make("file-2"));
+        yield* advance(1_000);
+
+        const moved = (yield* rooms.room).clock;
+
+        expect((yield* current(hostSync)).follow).toBe("moved");
+        expect(hostControlsEnabled(yield* current(hostSync))).toBe(false);
+        expect((yield* current(guestSync)).follow).toBe("moved");
+
+        // The old players are left where they were, and the host's pause or seek on the old file
+        // never reaches the new one's clock, nor do its heartbeats.
+        expect(guest.positionMs()).toBeGreaterThan(60_000);
+        host.userPause();
+        yield* advance(1_000);
+        host.userSeek(30_000);
+        yield* advance(12_000);
+        expect((yield* rooms.room).clock).toStrictEqual(moved);
       }),
     ));
 

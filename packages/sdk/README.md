@@ -77,7 +77,9 @@ unanswered. Tunables live in `RoomSyncPolicy.DEFAULT_TUNABLES`.
 A room's next-episode countdown is part of its record (`room.next`), due at a server time.
 `RoomSync.nextEpisodeCountdownMs(state, Date.now())` gives the time left with the engine's clock
 offset, the same on every member. The server moves the room on; the app then opens the room's new
-media.
+media with a new engine. Pass `fileId` (the file the player plays) to `RoomSync.run`: once the
+room plays another file the engine goes `moved` and leaves the old player alone, and its host
+controls and heartbeats name that file, so the server refuses them for the new one.
 
 ## Tests
 

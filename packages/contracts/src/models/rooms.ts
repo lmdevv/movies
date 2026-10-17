@@ -98,12 +98,21 @@ export const Room = Schema.Struct({
 /** A watch room. */
 export interface Room extends Schema.Schema.Type<typeof Room> {}
 
-/** Host control arguments: the room, the host's device, the revision the host last saw, and its position. */
+/**
+ * Host control arguments: the room, the host's device, the revision the host last saw, and its
+ * position, with the file the host's player plays.
+ */
 export const HostControlArgs = Schema.Struct({
   roomId: RoomId,
   deviceId: DeviceId,
   revision: Schema.Int,
   positionMs: Milliseconds,
+  /**
+   * The file the host's player plays. A control from a player still on a file the room moved on
+   * from fails with `stale_revision`, so it never moves the new media's clock; omit it to act on
+   * whatever the room plays.
+   */
+  fileId: Schema.optionalKey(MediaFileId),
 });
 
 /** What a host playback control takes. */

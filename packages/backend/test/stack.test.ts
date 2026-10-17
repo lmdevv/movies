@@ -2727,8 +2727,15 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         const hostDevice = device("next-host");
         const guestDevice = device("next-guest");
         const room = await roomOn("s01e01", hostDevice, guestDevice);
+
+        const fromFirst = {
+          roomId: room.id,
+          deviceId: hostDevice,
+          fromEpisodeId: episodeId("s01e01"),
+        };
+
         const onHost = { roomId: room.id, deviceId: hostDevice };
-        const onGuest = { roomId: room.id, deviceId: guestDevice };
+        const onGuest = { ...fromFirst, deviceId: guestDevice };
 
         expect(room.next).toBeNull();
 
@@ -2736,24 +2743,17 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         const refused = await Promise.all(
           (["rooms.startNextCountdown", "rooms.cancelNextCountdown"] as const).flatMap((name) => [
             outcome(run(fixture.member, name, onGuest)),
-            outcome(run(fixture.owner, name, { ...onHost, deviceId: device("elsewhere") })),
+            outcome(run(fixture.owner, name, { ...fromFirst, deviceId: device("elsewhere") })),
           ]),
         );
 
         expect(refused).toStrictEqual(["forbidden", "forbidden", "forbidden", "forbidden"]);
 
-        expect(
-          await outcome(
-            run(fixture.member, "rooms.playNext", {
-              ...onGuest,
-              fromEpisodeId: episodeId("s01e01"),
-            }),
-          ),
-        ).toBe("forbidden");
+        expect(await outcome(run(fixture.member, "rooms.playNext", onGuest))).toBe("forbidden");
 
         // A countdown names the next episode and a server time; starting it again keeps it.
         const before = Date.now();
-        const counting = await run(fixture.owner, "rooms.startNextCountdown", onHost);
+        const counting = await run(fixture.owner, "rooms.startNextCountdown", fromFirst);
 
         if (counting.next?.status !== "pending") throw new Error("No countdown started");
         expect(counting.next.episode.id).toBe(episodeId("s01e02"));
@@ -2761,13 +2761,12 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         expect((await run(fixture.member, "rooms.get", { roomId: room.id })).next).toStrictEqual(
           counting.next,
         );
-        expect((await run(fixture.owner, "rooms.startNextCountdown", onHost)).next).toStrictEqual(
-          counting.next,
-        );
+        expect(
+          (await run(fixture.owner, "rooms.startNextCountdown", fromFirst)).next,
+        ).toStrictEqual(counting.next);
 
         // Play next racing itself moves the room on once, paused at the start of the next episode.
         const revision = counting.clock.revision;
-        const fromFirst = { ...onHost, fromEpisodeId: episodeId("s01e01") };
 
         const raced = await Promise.all([
           run(fixture.owner, "rooms.playNext", fromFirst),
@@ -2785,10 +2784,12 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         });
         expect(moved.next).toBeNull();
 
-        // A stale Play next from the episode before changes nothing.
+        // A stale Play next, countdown, or cancel from the episode before changes nothing.
         expect((await run(fixture.owner, "rooms.playNext", fromFirst)).clock.revision).toBe(
           revision + 1,
         );
+        expect((await run(fixture.owner, "rooms.startNextCountdown", fromFirst)).next).toBeNull();
+        expect((await run(fixture.owner, "rooms.cancelNextCountdown", fromFirst)).next).toBeNull();
 
         // The guest's stream plays the room's new file, with a session of the guest's own.
         const guestStream = await run(fixture.member, "playback.createSession", {
@@ -2810,7 +2811,9 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         expect(nextSeason.episode?.id).toBe(episodeId("s02e01"));
 
         // An episode whose next one lost its file cannot move on, nor count down to it.
-        expect(await outcome(run(fixture.owner, "rooms.startNextCountdown", onHost))).toBe(
+        const fromLast = { ...onHost, fromEpisodeId: episodeId("s02e01") };
+
+        expect(await outcome(run(fixture.owner, "rooms.startNextCountdown", fromLast))).toBe(
           "conflict",
         );
         expect(
@@ -2825,7 +2828,7 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         await run(fixture.owner, "rooms.end", onHost);
 
         // After the room ends nothing moves it on.
-        expect(await outcome(run(fixture.owner, "rooms.startNextCountdown", onHost))).toBe(
+        expect(await outcome(run(fixture.owner, "rooms.startNextCountdown", fromLast))).toBe(
           "conflict",
         );
       });
@@ -2848,16 +2851,12 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           positionMs: ms(0),
         });
 
-        const onHost = { roomId: onLast.id, deviceId: hostDevice };
+        const fromLast = { roomId: onLast.id, deviceId: hostDevice, fromEpisodeId: last.id };
 
-        expect(await outcome(run(fixture.owner, "rooms.startNextCountdown", onHost))).toBe(
+        expect(await outcome(run(fixture.owner, "rooms.startNextCountdown", fromLast))).toBe(
           "not_found",
         );
-        expect(
-          await outcome(
-            run(fixture.owner, "rooms.playNext", { ...onHost, fromEpisodeId: last.id }),
-          ),
-        ).toBe("not_found");
+        expect(await outcome(run(fixture.owner, "rooms.playNext", fromLast))).toBe("not_found");
 
         const film = await run(fixture.owner, "rooms.create", {
           profileId: fixture.ownerProfile,
@@ -2869,8 +2868,8 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         expect(
           await outcome(
             run(fixture.owner, "rooms.startNextCountdown", {
+              ...fromLast,
               roomId: film.id,
-              deviceId: hostDevice,
             }),
           ),
         ).toBe("invalid_args");
@@ -2884,22 +2883,27 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         const onDue = { roomId: due.id, deviceId: device("due-host") };
         const onCancelled = { roomId: cancelled.id, deviceId: device("cancel-host") };
         const onPicked = { roomId: picked.id, deviceId: device("pick-host") };
+        const fromFirst = { fromEpisodeId: episodeId("s01e01") };
 
         const counting = await Promise.all(
           [onDue, onCancelled, onPicked].map((args) =>
-            run(fixture.owner, "rooms.startNextCountdown", args),
+            run(fixture.owner, "rooms.startNextCountdown", { ...args, ...fromFirst }),
           ),
         );
 
         // Watch credits cancels for everyone, and a later start keeps it cancelled.
-        const watching = await run(fixture.owner, "rooms.cancelNextCountdown", onCancelled);
+        const watching = await run(fixture.owner, "rooms.cancelNextCountdown", {
+          ...onCancelled,
+          ...fromFirst,
+        });
 
         expect(watching.next).toStrictEqual({ status: "cancelled" });
         expect(
           (await run(fixture.member, "rooms.get", { roomId: cancelled.id })).next,
         ).toStrictEqual({ status: "cancelled" });
         expect(
-          (await run(fixture.owner, "rooms.startNextCountdown", onCancelled)).next,
+          (await run(fixture.owner, "rooms.startNextCountdown", { ...onCancelled, ...fromFirst }))
+            .next,
         ).toStrictEqual({ status: "cancelled" });
 
         // The host picks another episode during the countdown, which ends it.

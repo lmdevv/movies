@@ -5,7 +5,7 @@
  * reject with the SDK's tagged errors.
  */
 import type { CommandArgs, CommandName, CommandResult } from "@movies/contracts/commands";
-import type { DeviceId, RoomId } from "@movies/contracts/ids";
+import type { DeviceId, MediaFileId, RoomId } from "@movies/contracts/ids";
 import type { ConvexReactClient } from "convex/react";
 import { ConvexProvider } from "convex/react";
 import {
@@ -313,6 +313,8 @@ export const useRoomPresence = (input: RoomPresence.RoomPresenceOptions | null):
 export interface RoomSyncInput {
   readonly roomId: RoomId;
   readonly deviceId: DeviceId;
+  /** The file the player plays, so the engine knows when the room moved on from it. */
+  readonly fileId?: MediaFileId | undefined;
   readonly tunables?: RoomSyncTunables;
 }
 
@@ -326,7 +328,11 @@ export const useRoomSync = (
 ): Result.Result<RoomSyncState, CallError> | null => {
   const runtime = useMoviesRuntime();
   const [state, setState] = useState<RoomSyncState | null>(null);
-  const key = player === null || input === null ? null : `${input.roomId}:${input.deviceId}`;
+
+  const key =
+    player === null || input === null
+      ? null
+      : `${input.roomId}:${input.deviceId}:${input.fileId ?? ""}`;
 
   const started = useScoped(key, () =>
     Effect.gen(function* () {
@@ -337,6 +343,7 @@ export const useRoomSync = (
         deviceId: input.deviceId,
         player,
         tunables: input.tunables ?? DEFAULT_TUNABLES,
+        fileId: input.fileId,
       });
 
       yield* Effect.forkScoped(

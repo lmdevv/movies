@@ -807,6 +807,7 @@ export const hostControlArgs = {
   deviceId: v.string(),
   revision: v.number(),
   positionMs: v.number(),
+  fileId: v.optional(v.id("mediaFiles")),
 };
 
 // Jobs and backups.

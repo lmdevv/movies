@@ -15,7 +15,13 @@ import type { NegotiateResponse } from "@movies/contracts/media-playback";
 import type { MediaVersion } from "@movies/contracts/models/catalog";
 import { EpochMillis, Milliseconds } from "@movies/contracts/units";
 import { Playback, Versions } from "@movies/sdk/effect";
-import { useCommand, useCommandQuery, useMoviesRuntime, useRoomSync } from "@movies/sdk/react";
+import {
+  useCommand,
+  useCommandQuery,
+  useMoviesRuntime,
+  useRoomPresence,
+  useRoomSync,
+} from "@movies/sdk/react";
 import { ChapterPopover } from "@movies/ui/components/chapter-popover";
 import { CommandMenu } from "@movies/ui/components/command-menu";
 import {
@@ -76,6 +82,7 @@ import { useScopes } from "@/session/viewer";
 
 import { AUTOPLAY_COUNTDOWN } from "./autoplay";
 import { AutoplayNext } from "./autoplay-next";
+import { RoomNextEpisode } from "./room-next";
 import { CastMenu, CastingState } from "./cast-menu";
 import { EpisodePicker } from "./episode-picker";
 import { LeaveDialog } from "./leave-dialog";
@@ -109,6 +116,7 @@ import { StreamInfo } from "./stream-info";
 import { useControlsVisible, useFullscreen, usePlayerLayout } from "./use-player-frame";
 import type { PlayerLayout } from "./use-player-frame";
 import { useSubtitleDelay } from "./use-subtitle-delay";
+import { useRoomNext } from "./use-room-next";
 import { useWatchRoom } from "./use-watch-room";
 
 /** Seconds of buffer that count as a full buffering ring. */
@@ -252,6 +260,11 @@ export function PlayerScreen({
 
   const watch = useWatchRoom(roomId ?? null, profile.id, deviceId);
 
+  // While the room plays something this profile may not watch, the device keeps its place, away.
+  const outOfReach = watch?.join.status === "denied" && watch.join.denial.kind === "unavailable";
+
+  useRoomPresence(outOfReach && roomId !== undefined ? { roomId, deviceId } : null);
+
   // Leaving the room the stream belongs to drops it from the URL; the stream plays on alone.
   const leftRoom = openedRoom !== null && roomId === undefined;
   const joined = openedRoom === null || leftRoom || watch?.join.status === "joined";
@@ -357,7 +370,7 @@ export function PlayerScreen({
   // The room engine starts once the stream shows frames, so it never drives an empty element.
   const engine = useRoomSync(
     isPlaying && joined ? output : null,
-    roomId === undefined || !joined ? null : { roomId, deviceId },
+    roomId === undefined || !joined ? null : { roomId, deviceId, fileId: started?.file.id },
   );
 
   const sync = engine !== null && Result.isSuccess(engine) ? engine.success : null;
@@ -814,20 +827,37 @@ export function PlayerScreen({
     return false;
   }, [frame]);
 
-  // Autoplay next: near the end of an episode, outside rooms.
+  // Autoplay next: near the end of an episode. Not while "Leave playback?" asks, so a countdown
+  // cannot move on to the next episode behind it, nor while the viewer has paused the credits (a
+  // click on them pauses); playing again starts it over.
   const remaining = Math.max(0, duration - media.positionSeconds);
 
-  // Not while "Leave playback?" asks, so the countdown cannot move on to the next episode behind it,
-  // nor while the viewer has paused the credits (a click on them pauses); playing again starts it over.
-  const showNext =
+  const inCredits =
     isPlaying &&
     leaving === null &&
     (!media.paused || media.ended) &&
-    !inRoom &&
-    nextEpisode !== null &&
-    !creditsDismissed &&
     duration > 0 &&
     (media.ended || remaining <= creditsSeconds(duration));
+
+  // Alone, the player counts down itself. A page opened in a room never does, also while it joins:
+  // the room moves on together (`useRoomNext`), and never into a solo episode.
+  const solo = roomId === undefined;
+  const showNext = inCredits && solo && nextEpisode !== null && !creditsDismissed;
+
+  const roomNext = useRoomNext({
+    room: inRoom ? room : null,
+    deviceId,
+    role: host ? "host" : guest ? "guest" : null,
+    page: { titleId, episodeId },
+    episodeId: episode?.id ?? null,
+    nextEpisode,
+    credits: inCredits,
+    canCommand: sync !== null && sync.connection === "connected" && sync.offset !== null,
+  });
+
+  const roomCard = leaving === null ? roomNext.card : null;
+  // A next-episode card, alone or in a room, holds the controls away while it shows.
+  const nextShown = showNext || roomCard !== null;
 
   // Another episode of this show, in the player; it resumes where the profile stopped, or starts
   // over once watched.
@@ -846,10 +876,13 @@ export function PlayerScreen({
     if (nextEpisode !== null) playEpisode(nextEpisode.id);
   }, [nextEpisode, playEpisode]);
 
+  // Next episode now: alone, this player opens it; a room's host moves the whole room on.
+  const nextAction = solo ? (nextEpisode === null ? null : playNext) : roomNext.playNext;
+
   // The episode before this one in its season, for the system's previous-track button.
   const seasonEpisodes = useCommandQuery(
     "titles.episodes",
-    episode === null || inRoom
+    episode === null || guest
       ? "skip"
       : {
           profileId: profile.id,
@@ -869,10 +902,11 @@ export function PlayerScreen({
     if (previousEpisode !== null) playEpisode(previousEpisode.id);
   }, [playEpisode, previousEpisode]);
 
-  // The episode picker: a show's episode, outside rooms. A room plays one episode for everyone; only
-  // its host could change it, and the room cannot carry its members along yet. Once left, the stream
-  // is this player's own again, and another episode starts without the room.
-  const pickable = episode !== null && roomId === undefined;
+  // The episode picker: a show's episode, alone or for a room's host. A room plays one episode for
+  // everyone, so the host's pick moves the whole room (`useRoomNext`) and guests get no picker. Once
+  // left, the stream is this player's own again, and another episode starts without the room.
+  const pickable = episode !== null && (solo || roomNext.pick !== null);
+  const pickEpisode = roomNext.pick ?? playEpisode;
   const episodeIdNow = episode?.id ?? null;
   const seasonNow = episode?.seasonNumber ?? null;
   const seasons = detail?.seasons ?? null;
@@ -926,9 +960,9 @@ export function PlayerScreen({
           ? seasonEpisodes.data.find((candidate) => candidate.id === id)
           : undefined;
 
-      if (chosen !== undefined && chosen.id !== episode?.id) playEpisode(chosen.id);
+      if (chosen !== undefined && chosen.id !== episode?.id) pickEpisode(chosen.id);
     },
-    [seasonEpisodes, episode?.id, playEpisode],
+    [seasonEpisodes, episode?.id, pickEpisode],
   );
 
   useMediaSession(
@@ -949,8 +983,8 @@ export function PlayerScreen({
             if (output?.isPaused() === false) togglePlay();
           },
           seekTo,
-          previous: previousEpisode === null || inRoom ? null : playPrevious,
-          next: nextEpisode === null || inRoom ? null : playNext,
+          previous: previousEpisode === null || !solo ? null : playPrevious,
+          next: nextAction,
         },
   );
 
@@ -1006,7 +1040,7 @@ export function PlayerScreen({
     (volumeOpen && volumeSettable) ||
     startDialog !== null ||
     leaving !== null ||
-    showNext ||
+    nextShown ||
     scrub !== null;
 
   const controlsVisible = useControlsVisible(frame, hold);
@@ -1073,7 +1107,7 @@ export function PlayerScreen({
       versions: versionOptions,
       versionId,
       selectVersion,
-      nextEpisode: nextEpisode === null || inRoom ? null : playNext,
+      nextEpisode: nextAction,
       episodes: episodeOptions,
       episodeId: episode?.id ?? "",
       selectEpisode,
@@ -1107,9 +1141,8 @@ export function PlayerScreen({
       versionOptions,
       versionId,
       selectVersion,
-      nextEpisode,
+      nextAction,
       inRoom,
-      playNext,
       episodeOptions,
       episode?.id,
       selectEpisode,
@@ -1223,7 +1256,7 @@ export function PlayerScreen({
         seasons={picking.seasons}
         current={picking.current}
         currentSeason={picking.currentSeason}
-        onPlay={playEpisode}
+        onPlay={pickEpisode}
       />
     );
 
@@ -1386,7 +1419,7 @@ export function PlayerScreen({
     return null;
   })();
 
-  const showChrome = isPlaying && center === null && !showNext;
+  const showChrome = isPlaying && center === null && !nextShown;
   const portraitRoom = layout === "phone-portrait" && inRoom;
   const sidePanel = layout === "desktop" && inRoom && panel;
 
@@ -1480,7 +1513,7 @@ export function PlayerScreen({
           className="absolute top-21 right-10"
         />
       ) : null}
-      {showChrome || (isPlaying && guest && center === null) ? (
+      {showChrome || (isPlaying && guest && center === null && !nextShown) ? (
         <PlayerControls
           className={cn(
             "absolute inset-x-0 bottom-0 transition-opacity duration-300",
@@ -1521,7 +1554,7 @@ export function PlayerScreen({
           onVolumeChange={followVolume}
           onVolumeCommit={commitVolume}
           onVolumeOpenChange={setVolumeOpen}
-          onNext={nextEpisode === null || inRoom ? undefined : playNext}
+          onNext={nextAction ?? undefined}
           onRoom={inRoom ? () => setPanel((open) => !open) : openStartRoom}
           onFullscreen={toggleFullscreen}
         />
@@ -1530,7 +1563,7 @@ export function PlayerScreen({
   );
 
   const phoneControls =
-    isPlaying && center === null && !showNext ? (
+    isPlaying && center === null && !nextShown ? (
       <div
         className={cn(
           "transition-opacity duration-300",
@@ -1629,14 +1662,24 @@ export function PlayerScreen({
           <AutoplayNext
             next={nextEpisode}
             still={artworkUrl(nextEpisode.still, "card")}
-            countdownMs={countdown ?? AUTOPLAY_COUNTDOWN.totalMs}
             actions={{
               kind: "advance",
+              countdownMs: countdown ?? AUTOPLAY_COUNTDOWN.totalMs,
               onPlayNext: playNext,
               onWatchCredits: () => setCreditsDismissed(true),
             }}
           />
         ) : null}
+        {roomCard === null || room === null ? null : (
+          <RoomNextEpisode
+            room={room}
+            offset={sync?.offset ?? null}
+            card={roomCard}
+            onPlayNext={roomNext.moveOn}
+            onWatchCredits={roomNext.cancel}
+            onClose={roomNext.close}
+          />
+        )}
       </div>
       {portraitRoom ? (
         <PhoneRoomDetails

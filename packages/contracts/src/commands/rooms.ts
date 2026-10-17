@@ -20,6 +20,13 @@ import { mutation, query } from "./command";
 
 const OnDevice = Schema.Struct({ roomId: RoomId, deviceId: DeviceId });
 
+/**
+ * A next-episode command: the room, the host's device, and the episode the host is moving on from.
+ * When the room already plays another, it moved on before the command, which then changes nothing:
+ * repeats, races with the countdown, and stale tabs act once, on the episode they meant.
+ */
+const FromEpisode = Schema.Struct({ ...OnDevice.fields, fromEpisodeId: EpisodeId });
+
 /** Watch room commands. */
 export const roomCommands = {
   "rooms.create": mutation({
@@ -114,6 +121,11 @@ export const roomCommands = {
        */
       atServerTime: Schema.optionalKey(EpochMillis),
       revision: Schema.optionalKey(Schema.Int),
+      /**
+       * The file the host's player plays; a position read on a file the room moved on from never
+       * re-anchors the new one's clock.
+       */
+      fileId: Schema.optionalKey(MediaFileId),
       /** A guest's distance from the shared position, shown to the room; omit while buffering. */
       driftMs: Schema.optionalKey(Schema.Finite),
       /**
@@ -146,7 +158,7 @@ export const roomCommands = {
       "Host: start the room's countdown to the next episode; the server moves everyone on when it ends",
     group: "rooms",
     scope: "play",
-    args: OnDevice,
+    args: FromEpisode,
     result: Room,
     function: "rooms:startNextCountdown",
   }),
@@ -154,7 +166,7 @@ export const roomCommands = {
     summary: "Host: cancel the next-episode countdown for everyone, to watch the credits",
     group: "rooms",
     scope: "play",
-    args: OnDevice,
+    args: FromEpisode,
     result: Room,
     function: "rooms:cancelNextCountdown",
   }),
@@ -162,14 +174,7 @@ export const roomCommands = {
     summary: "Host: move the room on to the next episode now; once per episode",
     group: "rooms",
     scope: "play",
-    args: Schema.Struct({
-      ...OnDevice.fields,
-      /**
-       * The episode the host is moving on from. When the room already plays another, it moved on
-       * before this call, which then changes nothing: repeats and races advance once.
-       */
-      fromEpisodeId: EpisodeId,
-    }),
+    args: FromEpisode,
     result: Room,
     function: "rooms:playNext",
   }),

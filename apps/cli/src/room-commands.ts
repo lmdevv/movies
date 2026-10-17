@@ -328,8 +328,8 @@ const status: ShortcutCommand = {
 type NextCommand = "rooms.startNextCountdown" | "rooms.cancelNextCountdown" | "rooms.playNext";
 
 /**
- * A host's next-episode command on the named room or the one this device is in. Play next names
- * the episode the room plays, so it moves the room on once however often it runs.
+ * A host's next-episode command on the named room or the one this device is in, from the episode
+ * the room plays as it reads it, so racing the countdown acts once.
  */
 const nextControl = (path: string, name: NextCommand): ShortcutCommand => ({
   path,
@@ -339,23 +339,20 @@ const nextControl = (path: string, name: NextCommand): ShortcutCommand => ({
     Effect.gen(function* () {
       const connection = yield* connect(invocation.env, invocation.target, "required");
       const room = yield* resolveRoom(invocation, connection, connection.viewingProfileId);
-      const onDevice = { roomId: room.id, deviceId: connection.deviceId };
-
-      if (name !== "rooms.playNext") {
-        const changed = yield* connection.withSession(connection.client.mutate(name, onDevice));
-
-        return resultOutcome(commands[name], yield* encodeResult(name, commands[name], changed));
-      }
 
       if (room.episode === null) {
         return yield* usage(invocation, `${path} needs a room playing an episode`);
       }
 
-      const moved = yield* connection.withSession(
-        connection.client.mutate(name, { ...onDevice, fromEpisodeId: room.episode.id }),
+      const changed = yield* connection.withSession(
+        connection.client.mutate(name, {
+          roomId: room.id,
+          deviceId: connection.deviceId,
+          fromEpisodeId: room.episode.id,
+        }),
       );
 
-      return resultOutcome(commands[name], yield* encodeResult(name, commands[name], moved));
+      return resultOutcome(commands[name], yield* encodeResult(name, commands[name], changed));
     }),
 });
 

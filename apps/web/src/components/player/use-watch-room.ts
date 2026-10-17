@@ -38,6 +38,21 @@ export const useWatchRoom = (
   const record = useCommandQuery("rooms.get", roomId === null ? "skip" : { roomId, profileId });
   const room = record.status === "success" ? record.data : null;
 
+  // A joined room that stops answering moved on out of this profile's reach. A failed read stays
+  // failed, so the device's room, which answers null until then, says when to read it again.
+  const outOfReach =
+    record.status === "error" &&
+    Predicate.isTagged(record.error, "NotFound") &&
+    join.status === "joined";
+
+  const reachable = useCommandQuery("rooms.current", outOfReach ? { deviceId } : "skip");
+  const back = outOfReach && reachable.status === "success" && reachable.data?.id === roomId;
+  const retry = record.status === "error" ? record.retry : null;
+
+  useEffect(() => {
+    if (back) retry?.();
+  }, [back, retry]);
+
   useEffect(() => {
     if (roomId === null) return undefined;
 
@@ -69,16 +84,26 @@ export const useWatchRoom = (
 
   if (roomId === null) return null;
 
-  // A room this account cannot read at all belongs to another household.
+  // A room this account cannot read at all belongs to another household. One this device joined
+  // that stops answering moved on to something the profile it joined with may not watch; it
+  // answers again once the room plays something that profile may.
   if (record.status === "error" && Predicate.isTagged(record.error, "NotFound")) {
     return {
-      join: { status: "denied", denial: { kind: "household", hostName: null } },
+      join: {
+        status: "denied",
+        denial: outOfReach
+          ? { kind: "unavailable", hostName: null }
+          : { kind: "household", hostName: null },
+      },
       room: null,
     };
   }
 
+  // A join refused as ended or for another household names the host once the room could be read.
   const named = (denial: RoomDenial): RoomDenial =>
-    room === null ? denial : { ...denial, hostName: room.hostProfileName };
+    room === null || denial.kind === "unavailable"
+      ? denial
+      : { ...denial, hostName: room.hostProfileName };
 
   return {
     join: join.status === "denied" ? { status: "denied", denial: named(join.denial) } : join,

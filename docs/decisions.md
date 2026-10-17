@@ -460,13 +460,18 @@ choices made while implementing them. Update it in the same PR that changes a de
   session of their own, so progress stays per profile, with their own quality and track choices.
   The room plays when the host's player does; members slower to load join at the live position,
   as late joiners do, and nobody waits for them. A countdown due while the host is away still
-  moves the room on, paused, until the host's player is back.
+  moves the room on, paused, until the host's player is back. The room engine of a player still on
+  the old file goes `moved` and stops following and commanding, and host controls and heartbeats
+  name their file (`fileId`), so a player the room moved on from never moves the new file's clock;
+  the server refuses such a control as `stale_revision`. The countdown, its cancel, and Play next
+  name the episode they act on (`fromEpisodeId`) for the same reason.
 - Episodes share their show's rating and library, so a member who may watch one episode may watch
   the next. The next episode's file missing from disk stops the countdown (`conflict`): the host's
   card says so and only closes. After the last episode there is no card. A member whose profile
   cannot see what the host switched to (another title, through `setMedia`) gets "Not available on
   this profile" instead of the player, keeps their place with away heartbeats, and is taken back
-  to the room once it plays something they may watch.
+  to the room once it plays something they may watch (`rooms.current` says when, as a failed
+  `rooms.get` stays failed until read again).
 
 ## Backups and restore
 
