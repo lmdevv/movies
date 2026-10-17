@@ -24,7 +24,7 @@ fail() {
 # --- The Convex backend image -------------------------------------------------------------------
 
 pinned="$(<deploy/convex-backend.image)"
-if ! [[ "$pinned" =~ ^ghcr\.io/get-convex/convex-backend:[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]]; then
+if ! [[ "$pinned" =~ ^ghcr\.io/convex/convex-backend:[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]]; then
   fail "deploy/convex-backend.image must hold one image reference with a digest; got '$pinned'"
 fi
 

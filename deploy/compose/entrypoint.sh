@@ -53,8 +53,11 @@ convex_up() {
     "fetch(process.env.CONVEX_VERSION_URL).then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 }
 
+# Compared by digest: the same backend may be pulled from a renamed repository (ghcr.io/get-convex
+# became ghcr.io/convex).
 built_for="$(cat /app/convex/image 2>/dev/null || true)"
-if [ -n "${CONVEX_BACKEND_IMAGE:-}" ] && [ -n "$built_for" ] && [ "$CONVEX_BACKEND_IMAGE" != "$built_for" ]; then
+if [ -n "${CONVEX_BACKEND_IMAGE:-}" ] && [ -n "$built_for" ] &&
+  [ "${CONVEX_BACKEND_IMAGE##*@}" != "${built_for##*@}" ]; then
   log "warning: this image was built for the Convex backend $built_for, but compose.yaml runs"
   log "$CONVEX_BACKEND_IMAGE; use the compose.yaml of the release the image comes from"
 fi
