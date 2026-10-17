@@ -5,6 +5,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { CloudOff } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { Alert } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useUniwind } from "uniwind";
 
@@ -142,7 +143,9 @@ function ConnectionTrouble({
               label="Sign Out"
               variant="plain"
               onPress={() => {
-                void signOut().catch(() => undefined);
+                void signOut().catch((cause: unknown) => {
+                  Alert.alert("Couldn't Sign Out", describeFailure(cause));
+                });
               }}
             />
           </>

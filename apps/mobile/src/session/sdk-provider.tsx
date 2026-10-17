@@ -4,11 +4,11 @@
  */
 import { MoviesProvider } from "@movies/sdk/react";
 import { ConvexReactClient } from "convex/react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import type { ServerConnection } from "@/lib/connection";
-import { sessionStore } from "@/lib/secure-storage";
+import { SESSION_KEY, sessionStore } from "@/lib/secure-storage";
 
 /** The SDK and Convex client for `connection`, provided to everything below. */
 export function SdkProvider({
@@ -18,21 +18,30 @@ export function SdkProvider({
   readonly connection: ServerConnection;
   readonly children: ReactNode;
 }) {
-  // React Native has no page to unload, so the browser's unsaved-changes prompt is off.
-  const client = useMemo(
-    () => new ConvexReactClient(connection.convexUrl, { unsavedChangesWarning: false }),
-    [connection.convexUrl],
-  );
+  const [client, setClient] = useState<ConvexReactClient | null>(null);
 
-  useEffect(
-    () => () => {
-      void client.close();
-    },
-    [client],
-  );
+  // One effect makes and closes the client, so React's development double mount never leaves a
+  // closed client in use. React Native has no page to unload, so the unsaved-changes prompt is off.
+  useEffect(() => {
+    const created = new ConvexReactClient(connection.convexUrl, { unsavedChangesWarning: false });
+
+    setClient(created);
+
+    return () => {
+      setClient(null);
+      void created.close();
+    };
+  }, [connection.convexUrl]);
+
+  if (client === null) return null;
 
   return (
-    <MoviesProvider client={client} mediaUrl={connection.mediaUrl} storage={sessionStore}>
+    <MoviesProvider
+      client={client}
+      mediaUrl={connection.mediaUrl}
+      storage={sessionStore}
+      storageKey={SESSION_KEY}
+    >
       {children}
     </MoviesProvider>
   );

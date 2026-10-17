@@ -89,7 +89,7 @@ export default function Home() {
               icon={Play}
               iconFilled
               className="w-40"
-              onPress={() => router.push(`/title/${featured.id}`)}
+              onPress={() => router.push(`/watch/${featured.id}`)}
             />
           </View>
         </View>

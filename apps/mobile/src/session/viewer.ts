@@ -9,8 +9,13 @@ export const useSignOut = (): (() => Promise<void>) => {
   const { signOut } = useAuth();
   const { choose } = useProfileChoice();
 
+  // The local session ends even when the server cannot be told, so the profile choice is
+  // forgotten either way.
   return useCallback(async () => {
-    await signOut();
-    await choose(null);
+    try {
+      await signOut();
+    } finally {
+      await choose(null);
+    }
   }, [signOut, choose]);
 };

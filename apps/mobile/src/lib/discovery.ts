@@ -56,7 +56,7 @@ export const normalizeServerUrl = (text: string): string | null => {
   }
 };
 
-const TIMEOUT_MS = 8000;
+const TIMEOUT_MS = 5000;
 
 /**
  * Fetches `url` and decodes its JSON body with `schema`'s JSON codec, as the media service encodes
@@ -95,11 +95,46 @@ const convexAnswers = async (convexUrl: string): Promise<boolean> => {
   }
 };
 
-/** Asks one media service base URL where accounts live, and checks that address answers. */
-const discoverAt = async (mediaUrl: string): Promise<ConnectResult> => {
-  const health = await getDecoded(`${mediaUrl}${MEDIA_ROUTES.health}`, HealthResponse);
+/** Whether a [movies] media service answers its health check at `mediaUrl`. */
+const mediaAnswers = async (mediaUrl: string): Promise<boolean> =>
+  Option.isSome(await getDecoded(`${mediaUrl}${MEDIA_ROUTES.health}`, HealthResponse));
 
-  if (Option.isNone(health)) return { ok: false, failure: "unreachable" };
+/**
+ * The base URLs to try for typed text: as typed when it names a scheme, else `https://` and then
+ * `http://`, the way home servers often run. Null when the text is not an address.
+ */
+const candidatesFor = (text: string): ReadonlyArray<string> | null => {
+  const normalized = normalizeServerUrl(text);
+
+  if (normalized === null) return null;
+
+  return hasSchemePrefix.test(text.trim())
+    ? [normalized]
+    : [normalized, normalized.replace(/^https:/u, "http:")];
+};
+
+/**
+ * The first candidate, in order, for which `answers` holds. Candidates are probed at once, so an
+ * address whose https port silently drops packets costs one timeout, not two.
+ */
+const firstAnswering = async (
+  candidates: ReadonlyArray<string>,
+  answers: (url: string) => Promise<boolean>,
+): Promise<string | null> => {
+  const results = await Promise.all(candidates.map(answers));
+
+  return candidates.find((_, index) => results[index] === true) ?? null;
+};
+
+/** Checks that `text` is a [movies] media service, asks it where accounts live, and probes that. */
+export const discoverServer = async (text: string): Promise<ConnectResult> => {
+  const candidates = candidatesFor(text);
+
+  if (candidates === null) return { ok: false, failure: "invalid" };
+
+  const mediaUrl = await firstAnswering(candidates, mediaAnswers);
+
+  if (mediaUrl === null) return { ok: false, failure: "unreachable" };
 
   const config = await getDecoded(`${mediaUrl}${MEDIA_ROUTES.clientConfig}`, ClientConfigResponse);
   const convexUrl = Option.flatMapNullishOr(config, (value) => value.convexUrl);
@@ -111,44 +146,32 @@ const discoverAt = async (mediaUrl: string): Promise<ConnectResult> => {
     : { ok: false, failure: "accountsUnreachable" };
 };
 
-const hasScheme = (text: string): boolean => hasSchemePrefix.test(text.trim());
-
-/**
- * Checks that `text` is a [movies] media service and asks it where accounts live. An address
- * typed without a scheme tries `https://` first, then `http://`, the way home servers often run.
- */
-export const discoverServer = async (text: string): Promise<ConnectResult> => {
-  const normalized = normalizeServerUrl(text);
-
-  if (normalized === null) return { ok: false, failure: "invalid" };
-
-  const secure = await discoverAt(normalized);
-
-  if (secure.ok || secure.failure !== "unreachable" || hasScheme(text)) return secure;
-
-  return discoverAt(normalized.replace(/^https:/u, "http:"));
-};
-
 /**
  * Checks both addresses typed on Connection Details: the media service must answer its health
- * check and the account server its version endpoint.
+ * check and the account server its version endpoint. Each address without a scheme tries https,
+ * then http.
  */
 export const connectManually = async (
   mediaText: string,
   convexText: string,
 ): Promise<ConnectResult> => {
-  const mediaUrl = normalizeServerUrl(mediaText);
-  const convexUrl = normalizeServerUrl(convexText);
+  const mediaCandidates = candidatesFor(mediaText);
+  const convexCandidates = candidatesFor(convexText);
 
-  if (mediaUrl === null || convexUrl === null) return { ok: false, failure: "invalid" };
+  if (mediaCandidates === null || convexCandidates === null) {
+    return { ok: false, failure: "invalid" };
+  }
 
-  const health = await getDecoded(`${mediaUrl}${MEDIA_ROUTES.health}`, HealthResponse);
+  const [mediaUrl, convexUrl] = await Promise.all([
+    firstAnswering(mediaCandidates, mediaAnswers),
+    firstAnswering(convexCandidates, convexAnswers),
+  ]);
 
-  if (Option.isNone(health)) return { ok: false, failure: "unreachable" };
+  if (mediaUrl === null) return { ok: false, failure: "unreachable" };
 
-  return (await convexAnswers(convexUrl))
-    ? { ok: true, connection: { mediaUrl, convexUrl } }
-    : { ok: false, failure: "accountsUnreachable" };
+  if (convexUrl === null) return { ok: false, failure: "accountsUnreachable" };
+
+  return { ok: true, connection: { mediaUrl, convexUrl } };
 };
 
 const FAILURE_LINES = {
