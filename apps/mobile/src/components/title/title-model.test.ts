@@ -12,6 +12,7 @@ import {
   episodeSubtitle,
   formatLongDate,
   initialSeason,
+  optimisticValue,
   playAction,
   resumeOf,
   seasonDetail,
@@ -271,6 +272,10 @@ describe("seasons", () => {
     expect(initialSeason(show())).toBe(2);
     expect(initialSeason(show({ nextEpisode: null }))).toBe(1);
     expect(initialSeason(movie())).toBeNull();
+    expect(initialSeason(show({ nextEpisode: null, seasons: [season(0, 3), season(1, 9)] }))).toBe(
+      1,
+    );
+    expect(initialSeason(show({ nextEpisode: null, seasons: [season(0, 3)] }))).toBe(0);
   });
 });
 
@@ -383,5 +388,31 @@ describe("castAndCrew", () => {
       ["Zendaya", "Chani"],
       ["Denis Villeneuve", "Director"],
     ]);
+  });
+});
+
+describe("optimisticValue", () => {
+  it("shows the change until the server moves off its base, then spends it", () => {
+    const pending = { from: false, to: true };
+
+    expect(optimisticValue(null, false)).toEqual({ value: false, spent: false });
+    expect(optimisticValue(pending, false)).toEqual({ value: true, spent: false });
+    expect(optimisticValue(pending, true)).toEqual({ value: true, spent: true });
+  });
+
+  it("never revives a spent change: once dropped, the server's value shows", () => {
+    fc.assert(
+      fc.property(fc.boolean(), fc.array(fc.boolean()), (from, serverValues) => {
+        let pending: { from: boolean; to: boolean } | null = { from, to: !from };
+
+        for (const server of serverValues) {
+          const shown = optimisticValue(pending, server);
+
+          if (shown.spent) pending = null;
+
+          if (pending === null) expect(shown.value).toBe(server);
+        }
+      }),
+    );
   });
 });

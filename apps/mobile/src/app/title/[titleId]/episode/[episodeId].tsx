@@ -43,7 +43,7 @@ function EpisodeActions({ episode }: { readonly episode: SeasonEpisode }) {
   };
 
   return (
-    <Sheet title={episode.name} subtitle={episodeSubtitle(episode)} error={mark.error}>
+    <Sheet title={episode.name} subtitle={episodeSubtitle(episode)} error={mark.error} exit={exit}>
       <ListRow
         icon={Play}
         title={resume === null ? "Play" : "Resume"}

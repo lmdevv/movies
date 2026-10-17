@@ -9,6 +9,9 @@ import { useRef, useState } from "react";
 
 import { describeFailure } from "@/lib/failure";
 
+import { optimisticValue } from "./title-model";
+import type { Pending } from "./title-model";
+
 /** A title's My List membership and the way to flip it. */
 export interface MyListToggle {
   readonly inList: boolean;
@@ -36,13 +39,12 @@ export const useMyListToggle = (
   const running = useRef(false);
   const [busy, setBusy] = useState(false);
 
-  const [optimistic, setOptimistic] = useState<{
-    readonly from: boolean;
-    readonly to: boolean;
-  } | null>(null);
+  const [optimistic, setOptimistic] = useState<Pending<boolean> | null>(null);
+  const { value: inList, spent } = optimisticValue(optimistic, inMyList);
 
-  // The optimistic value holds only until the server's answer moves past what it was based on.
-  const inList = optimistic !== null && optimistic.from === inMyList ? optimistic.to : inMyList;
+  // Once the server moves past the change, drop it, so a later return to the old value (another
+  // sheet or device undoing it) shows as it is rather than reviving the stale change.
+  if (spent) setOptimistic(null);
 
   const toggle = async (): Promise<boolean> => {
     if (running.current) return false;

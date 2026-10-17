@@ -17,7 +17,7 @@ import { NavHeader } from "@/components/ui/nav-header";
 import { Screen } from "@/components/ui/screen";
 import { Text } from "@/components/ui/text";
 import { artworkUrl } from "@/lib/artwork";
-import { describeFailure } from "@/lib/failure";
+import { describeFailure, isFailure } from "@/lib/failure";
 import { useActiveProfile } from "@/session/active-profile";
 import { useServer } from "@/session/connection";
 
@@ -85,13 +85,19 @@ export default function AboutTitle() {
   }
 
   if (title.status === "error") {
+    const missing = isFailure(title.error, "NotFound");
+
     return (
       <Screen header={<NavHeader title="About" />}>
         <CalmState
           icon={CircleAlert}
-          title="Couldn't Load This Title"
-          description={describeFailure(title.error)}
-          actions={<Button label="Try Again" onPress={title.retry} />}
+          title={missing ? "Title Not Found" : "Couldn't Load This Title"}
+          {...(missing
+            ? {}
+            : {
+                description: describeFailure(title.error),
+                actions: <Button label="Try Again" onPress={title.retry} />,
+              })}
         />
       </Screen>
     );

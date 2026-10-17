@@ -45,6 +45,7 @@ export default function ChooseVersion() {
   return (
     <Sheet
       title="Choose Version"
+      exit={exit}
       loading={versions.status === "loading"}
       error={versions.status === "error" ? describeFailure(versions.error) : null}
     >

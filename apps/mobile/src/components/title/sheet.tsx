@@ -5,7 +5,7 @@
  */
 import { router } from "expo-router";
 import { X } from "lucide-react-native";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { ActivityIndicator, View } from "react-native";
 
@@ -20,12 +20,15 @@ export interface SheetProps {
   readonly error?: string | null;
   /** Shows a spinner in place of the rows while their data loads. */
   readonly loading?: boolean;
+  /** The screen's own exits, so Close and its rows leave through one guard. */
+  readonly exit?: SheetExit;
   readonly children?: ReactNode;
 }
 
 /** A form sheet's content. */
-export function Sheet({ title, subtitle, error, loading = false, children }: SheetProps) {
-  const exit = useSheetExit();
+export function Sheet({ title, subtitle, error, loading = false, exit, children }: SheetProps) {
+  const own = useSheetExit();
+  const { close } = exit ?? own;
 
   return (
     <View className="gap-4 bg-surface-raised px-5 pt-6 pb-4">
@@ -33,7 +36,7 @@ export function Sheet({ title, subtitle, error, loading = false, children }: She
         <Text variant="heading" className="flex-1" numberOfLines={2} accessibilityRole="header">
           {title}
         </Text>
-        <IconButton icon={X} label="Close" variant="plain" onPress={exit.close} />
+        <IconButton icon={X} label="Close" variant="plain" onPress={close} />
       </View>
       {subtitle === undefined ? null : (
         <Text variant="secondary" tone="muted">
@@ -65,11 +68,19 @@ export interface SheetExit {
 }
 
 /**
- * A sheet's exits. Only the first one runs: a double tap would otherwise go back twice and also
- * close the title page under the sheet.
+ * A sheet's exits. Only the first one runs, and none once the sheet is gone (swiped down or
+ * closed): a double tap or an action that finishes late would otherwise go back again and close
+ * the title page under the sheet.
  */
 export const useSheetExit = (): SheetExit => {
   const left = useRef(false);
+
+  useEffect(
+    () => () => {
+      left.current = true;
+    },
+    [],
+  );
 
   const once = (go: () => void): void => {
     if (left.current) return;

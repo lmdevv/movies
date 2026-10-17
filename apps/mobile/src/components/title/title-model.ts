@@ -111,6 +111,13 @@ export const titleFacts = (title: TitleDetail): string =>
         title.certification,
       );
 
+/**
+ * The first regular season, else the first listed (a show with only specials). Specials (season 0)
+ * sort first on the server but come after the regular seasons in viewing order.
+ */
+const firstSeason = (title: TitleDetail): number | undefined =>
+  (title.seasons.find((season) => season.seasonNumber > 0) ?? title.seasons[0])?.seasonNumber;
+
 /** Which watched marks a title's More sheet offers. */
 export interface WatchedMarks {
   readonly markWatched: boolean;
@@ -132,9 +139,7 @@ export const watchedMarks = (title: TitleDetail): WatchedMarks => {
 
   const next = title.nextEpisode;
 
-  // Specials (season 0) come after the regular seasons in viewing order.
-  const first = (title.seasons.find((season) => season.seasonNumber > 0) ?? title.seasons[0])
-    ?.seasonNumber;
+  const first = firstSeason(title);
 
   const started =
     next === null
@@ -184,9 +189,29 @@ export const episodeSubtitle = (episode: Episode): string =>
 export const seasonDetail = (season: Season, selected: boolean): string =>
   facts(countOf(season.episodeCount, "Episode", "Episodes"), selected ? "Selected" : null);
 
-/** The season the episode list opens on: the next episode's, else the first. */
+/** The season the episode list opens on: the next episode's, else the first regular one. */
 export const initialSeason = (title: TitleDetail): number | null =>
-  title.nextEpisode?.seasonNumber ?? title.seasons[0]?.seasonNumber ?? null;
+  title.nextEpisode?.seasonNumber ?? firstSeason(title) ?? null;
+
+/** An optimistic change waiting on the server: the value it was made from and the one it shows. */
+export interface Pending<A> {
+  readonly from: A;
+  readonly to: A;
+}
+
+/**
+ * What to show while `pending` waits on the server's `server` value: the pending value until the
+ * server moves off the value it was made from; then the server's, and the pending change is spent.
+ */
+export const optimisticValue = <A>(
+  pending: Pending<A> | null,
+  server: A,
+): { readonly value: A; readonly spent: boolean } =>
+  pending === null
+    ? { value: server, spent: false }
+    : pending.from === server
+      ? { value: pending.to, spent: false }
+      : { value: server, spent: true };
 
 /** The version offered first: the one this profile last played, else the best quality. */
 export const defaultVersion = (versions: ReadonlyArray<MediaVersion>): MediaVersion | undefined =>

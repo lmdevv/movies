@@ -50,7 +50,7 @@ function TitleActions({ title }: { readonly title: TitleDetail }) {
   };
 
   return (
-    <Sheet title={title.name} error={myList.error ?? mark.error}>
+    <Sheet title={title.name} error={myList.error ?? mark.error} exit={exit}>
       <ListRow
         icon={myList.inList ? Minus : Plus}
         title={myList.inList ? "Remove from My List" : "Add to My List"}
