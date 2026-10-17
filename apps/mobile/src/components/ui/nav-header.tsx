@@ -1,0 +1,44 @@
+/**
+ * The header of pushed screens (A02 Connect to Server): a raised back circle and a 20pt semibold
+ * title in a 64pt row, below the safe area.
+ */
+import { router } from "expo-router";
+import { ChevronLeft } from "lucide-react-native";
+import type { ReactNode } from "react";
+import { View } from "react-native";
+
+import { IconButton } from "./icon-button";
+import { Text } from "./text";
+
+/** Props for `NavHeader`. */
+export interface NavHeaderProps {
+  readonly title?: string;
+  /** Overrides going back, such as closing a flow. */
+  readonly onBack?: () => void;
+  /** Hides the back button on the first screen of a stack. */
+  readonly back?: boolean;
+  readonly trailing?: ReactNode;
+}
+
+/** A back button and a title. */
+export function NavHeader({ title, onBack, back = true, trailing }: NavHeaderProps) {
+  return (
+    <View className="h-16 flex-row items-center gap-3 px-5">
+      {back ? (
+        <IconButton
+          icon={ChevronLeft}
+          label="Back"
+          onPress={onBack ?? (() => (router.canGoBack() ? router.back() : router.replace("/")))}
+        />
+      ) : null}
+      {title === undefined ? (
+        <View className="flex-1" />
+      ) : (
+        <Text variant="navTitle" className="flex-1" numberOfLines={1} accessibilityRole="header">
+          {title}
+        </Text>
+      )}
+      {trailing}
+    </View>
+  );
+}
