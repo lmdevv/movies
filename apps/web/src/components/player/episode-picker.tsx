@@ -12,14 +12,11 @@ import { useMemo, useState } from "react";
 import type { ReactElement } from "react";
 
 import { artworkUrl } from "@/lib/artwork";
-import { facts, formatRuntime, progressFraction, progressLabel } from "@/lib/format";
+import { episodeRuntimeFacts, progressFraction } from "@/lib/format";
 
 /** `24m · 12m left`, or `File missing` for an episode with nothing on disk. */
 const episodeDetail = (episode: SeasonEpisode): string | undefined => {
-  const parts = facts(
-    episode.runtimeMs === null ? null : formatRuntime(episode.runtimeMs),
-    episode.available ? progressLabel(episode.progress) : "File missing",
-  );
+  const parts = episodeRuntimeFacts(episode);
 
   return parts === "" ? undefined : parts;
 };
@@ -38,6 +35,8 @@ const episodeOption = (episode: SeasonEpisode): EpisodeOption => ({
  * The Episodes popover on `trigger`.
  *
  * @param current - The episode playing; the panel opens on its season, with it marked.
+ * @param currentSeason - The episodes of the season playing, which the player already has; null
+ *   while they load. Only other seasons are fetched here.
  * @param onPlay - Plays another episode; choosing the one playing only closes the panel.
  */
 export function EpisodePicker({
@@ -49,6 +48,7 @@ export function EpisodePicker({
   titleId,
   seasons,
   current,
+  currentSeason,
   onPlay,
 }: {
   readonly trigger: ReactElement;
@@ -59,23 +59,27 @@ export function EpisodePicker({
   readonly titleId: TitleId;
   readonly seasons: TitleDetail["seasons"];
   readonly current: { readonly id: EpisodeId; readonly seasonNumber: number };
+  readonly currentSeason: ReadonlyArray<SeasonEpisode> | null;
   readonly onPlay: (episodeId: EpisodeId) => void;
 }) {
   // The season browsed to, until the panel closes; it opens on the current episode's again.
   const [browsing, setBrowsing] = useState<number | null>(null);
   const seasonNumber = browsing ?? current.seasonNumber;
 
-  const list = useCommandQuery(
+  const browsingOther = seasonNumber !== current.seasonNumber;
+
+  const other = useCommandQuery(
     "titles.episodes",
-    open ? { profileId, titleId, seasonNumber } : "skip",
+    open && browsingOther ? { profileId, titleId, seasonNumber } : "skip",
   );
 
-  const loaded = list.status === "success" ? list.data : null;
+  const loaded = browsingOther ? (other.status === "success" ? other.data : null) : currentSeason;
+  const failed = browsingOther && other.status === "error";
 
   // A season that cannot load lists nothing rather than loading forever.
   const episodes = useMemo(
-    () => (list.status === "error" ? [] : (loaded?.map(episodeOption) ?? null)),
-    [list.status, loaded],
+    () => (failed ? [] : (loaded?.map(episodeOption) ?? null)),
+    [failed, loaded],
   );
 
   const seasonOptions = useMemo(

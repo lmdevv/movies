@@ -12,12 +12,15 @@ const ANY_CHANGE = "anyChanged";
 
 /**
  * A receiver whose mirror lags its commands, as a real one does over the network: `playOrPause`
- * reaches it at once, but the mirror only reports the new state on `deliver`.
+ * reaches it at once, but the mirror only reports the new state on `deliver`. Mute toggles lag the
+ * same way until `deliverMute`.
  */
-const laggingReceiver = () => {
+const laggingReceiver = ({ muted = false }: { readonly muted?: boolean } = {}) => {
   const handlers = new Set<(event: RemotePlayerChange) => void>();
   let receiverPaused = false;
   let mirrorPaused = false;
+  let receiverMuted = muted;
+  let mirrorMuted = muted;
   // The receiver's state after each command, in order, until the mirror reports it.
   const unreported: Array<boolean> = [];
   let toggles = 0;
@@ -30,7 +33,10 @@ const laggingReceiver = () => {
       return mirrorPaused;
     }
 
-    readonly isMuted = false;
+    get isMuted(): boolean {
+      return mirrorMuted;
+    }
+
     readonly duration = 600;
     readonly playerState = "PLAYING";
     currentTime = 30;
@@ -49,7 +55,9 @@ const laggingReceiver = () => {
 
     stop(): void {}
 
-    muteOrUnmute(): void {}
+    muteOrUnmute(): void {
+      receiverMuted = !receiverMuted;
+    }
 
     setVolumeLevel(): void {}
 
@@ -100,6 +108,14 @@ const laggingReceiver = () => {
       receiverPaused = !receiverPaused;
     },
     receiverPaused: () => receiverPaused,
+    receiverMuted: () => receiverMuted,
+    /** The mirror reports whether the receiver is muted now. */
+    deliverMute: () => {
+      if (mirrorMuted === receiverMuted) return;
+      mirrorMuted = receiverMuted;
+
+      for (const handler of handlers) handler({ field: "isMuted", value: mirrorMuted });
+    },
     toggles: () => toggles,
   };
 };
@@ -285,5 +301,30 @@ describe("CastPlayer", () => {
     receiver.deliver();
 
     expect(receiver.receiverPaused()).toBe(true);
+  });
+
+  it("unmutes once for a run of volume changes, before the mirror has caught up", () => {
+    const receiver = laggingReceiver({ muted: true });
+    const player = castPlayer(receiver.framework);
+
+    // A slider drag: each step sets the volume while the mirror still says muted.
+    player.setVolume(0.2);
+    player.setVolume(0.3);
+    expect(receiver.receiverMuted()).toBe(false);
+    receiver.deliverMute();
+    player.setVolume(0.5);
+    expect(receiver.receiverMuted()).toBe(false);
+  });
+
+  it("mutes after a volume change the mirror has not shown yet", () => {
+    const receiver = laggingReceiver({ muted: true });
+    const player = castPlayer(receiver.framework);
+
+    player.setVolume(0.4);
+    player.setMuted(true);
+    expect(receiver.receiverMuted()).toBe(true);
+    player.setMuted(true);
+    receiver.deliverMute();
+    expect(receiver.receiverMuted()).toBe(true);
   });
 });

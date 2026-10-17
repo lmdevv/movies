@@ -279,7 +279,8 @@ const percent = (level: number): number => Math.round(Math.min(1, Math.max(0, le
  *   whose hardware buttons own it): then there is only the mute button.
  * @param onVolumeChange - Follows the slider as it moves; `onVolumeCommit` gets where it settled,
  *   at the end of a drag or after each key.
- * @param onOpenChange - Whether the slider is open, so the player can keep its controls up meanwhile.
+ * @param onOpenChange - Whether the pointer, focus, a drag, or a tap holds the slider open, so the
+ *   player can keep its controls up meanwhile; it shows only while `volume` is not null.
  */
 function VolumeControl({
   volume,
@@ -310,7 +311,8 @@ function VolumeControl({
     if (on) reasons.current.add(reason);
     else reasons.current.delete(reason);
 
-    const next = settable && reasons.current.size > 0;
+    // Kept whether or not the level can be set, so a change in that never strands a stale state.
+    const next = reasons.current.size > 0;
 
     if (next === openNow.current) return;
     openNow.current = next;
@@ -547,7 +549,7 @@ export function PlayerControls({
   readonly onMuteChange?: ((muted: boolean) => void) | undefined;
   readonly onVolumeChange?: ((volume: number) => void) | undefined;
   readonly onVolumeCommit?: ((volume: number) => void) | undefined;
-  /** Whether the volume slider is open, so the controls can stay up while it is in use. */
+  /** Whether something holds the volume slider open, so the controls can stay up meanwhile. */
   readonly onVolumeOpenChange?: ((open: boolean) => void) | undefined;
   readonly onNext?: (() => void) | undefined;
   readonly onRoom?: (() => void) | undefined;

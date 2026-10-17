@@ -437,15 +437,15 @@ export function PlayerScreen({
     else output.pause();
   }, [output, controlsTimeline, snapshot?.needsGesture, casting, play]);
 
-  // Silence mutes and any other level unmutes, so the mute button and the slider always agree.
+  // Silence mutes and any other level unmutes, so the mute button and the slider always agree. A TV
+  // keeps its level under mute, which unmuting returns to.
   const setVolume = useCallback(
     (value: number) => {
       const level = volumeLevel(value);
 
       if (casting !== null) {
-        casting.player.setVolume(level);
-
         if (level === 0) casting.player.setMuted(true);
+        else casting.player.setVolume(level);
 
         return;
       }
@@ -474,6 +474,9 @@ export function PlayerScreen({
   );
 
   const silent = media.volume === 0;
+
+  // The desktop slider shows where the page can set the level: here, or on a TV.
+  const volumeSettable = canSetVolume || casting !== null;
 
   const setMuted = useCallback(
     (muted: boolean) => {
@@ -815,7 +818,11 @@ export function PlayerScreen({
   // is this player's own again, and another episode starts without the room.
   const picking =
     episode !== null && roomId === undefined && detail !== null
-      ? { seasons: detail.seasons, current: { id: episode.id, seasonNumber: episode.seasonNumber } }
+      ? {
+          seasons: detail.seasons,
+          current: { id: episode.id, seasonNumber: episode.seasonNumber },
+          currentSeason: seasonEpisodes.status === "success" ? seasonEpisodes.data : null,
+        }
       : null;
 
   const canPick = picking !== null;
@@ -923,7 +930,7 @@ export function PlayerScreen({
     infoShown ||
     menu ||
     episodesShown ||
-    volumeOpen ||
+    (volumeOpen && volumeSettable) ||
     startDialog !== null ||
     leaving !== null ||
     showNext ||
@@ -942,8 +949,8 @@ export function PlayerScreen({
       "player.forward-10": () => skipByKey(10),
       "player.back-5": () => skipByKey(-5),
       "player.forward-5": () => skipByKey(5),
-      "player.volume-up": () => commitVolume(media.volume + VOLUME_STEP),
-      // Muted is already silent; Down leaves it so.
+      // Muted counts as silence, as the slider shows it.
+      "player.volume-up": () => commitVolume((media.muted ? 0 : media.volume) + VOLUME_STEP),
       "player.volume-down": () => {
         if (!media.muted) commitVolume(media.volume - VOLUME_STEP);
       },
@@ -1128,6 +1135,7 @@ export function PlayerScreen({
         titleId={titleId}
         seasons={picking.seasons}
         current={picking.current}
+        currentSeason={picking.currentSeason}
         onPlay={playEpisode}
       />
     );
@@ -1396,7 +1404,7 @@ export function PlayerScreen({
           position={position}
           duration={duration}
           muted={media.muted}
-          volume={canSetVolume || casting !== null ? media.volume : null}
+          volume={volumeSettable ? media.volume : null}
           locked={guest ? `Only ${hostName} can pause or seek` : undefined}
           roomActive={sidePanel}
           tracks={tracks(
@@ -1486,6 +1494,7 @@ export function PlayerScreen({
           scrub={scrubProps}
           onBrightness={setBrightness}
           onVolume={setVolume}
+          onVolumeCommit={commitVolume}
           onRoom={inRoom ? undefined : openStartRoom}
           castMenu={canCast ? castMenu : undefined}
         />

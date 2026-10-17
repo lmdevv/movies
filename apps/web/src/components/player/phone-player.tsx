@@ -82,12 +82,15 @@ function SideSlider({
   label,
   value,
   onChange,
+  onCommit,
   icon,
   className,
 }: {
   readonly label: string;
   readonly value: number;
   readonly onChange: (value: number) => void;
+  /** Where the slider settled, at the end of a drag. */
+  readonly onCommit?: ((value: number) => void) | undefined;
   readonly icon: ReactNode;
   readonly className?: string;
 }) {
@@ -100,6 +103,7 @@ function SideSlider({
         step={0.05}
         value={value}
         onValueChange={(next) => onChange(next)}
+        onValueCommitted={(next) => onCommit?.(next)}
         className="h-33"
       >
         <Slider.Control className="flex h-full w-9 cursor-pointer touch-none justify-center">
@@ -168,6 +172,7 @@ export function PhoneControls({
   scrub,
   onBrightness,
   onVolume,
+  onVolumeCommit,
   onRoom,
   castMenu,
 }: {
@@ -190,6 +195,8 @@ export function PhoneControls({
   >;
   readonly onBrightness: (value: number) => void;
   readonly onVolume: (value: number) => void;
+  /** Where the volume slider settled, which unmuting from silence returns to. */
+  readonly onVolumeCommit: (value: number) => void;
   readonly onRoom?: (() => void) | undefined;
   /** Wraps the cast button in the cast menu, where this browser can play elsewhere. */
   readonly castMenu?: ((trigger: ReactElement) => ReactNode) | undefined;
@@ -266,6 +273,7 @@ export function PhoneControls({
           label="Volume"
           value={volume}
           onChange={onVolume}
+          onCommit={onVolumeCommit}
           icon={<Volume2Icon className="size-5 text-text" strokeWidth={1.75} aria-hidden />}
           className="right-14"
         />

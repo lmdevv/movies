@@ -13,7 +13,14 @@ import { ChevronDownIcon } from "lucide-react";
 import { useState } from "react";
 
 import { artworkUrl } from "@/lib/artwork";
-import { facts, formatRuntime, plural, progressFraction, progressLabel } from "@/lib/format";
+import {
+  episodeRuntimeFacts,
+  facts,
+  formatRuntime,
+  plural,
+  progressFraction,
+  progressLabel,
+} from "@/lib/format";
 import { creditLines, formatDate } from "@/lib/metadata";
 
 import { SelectMenu } from "./select-menu";
@@ -260,12 +267,7 @@ function PhoneEpisode({
         <span className="truncate text-body/5 font-semibold text-text">
           {episode.episodeNumber}. {episode.name}
         </span>
-        <span className="text-label/label text-text-muted">
-          {facts(
-            episode.runtimeMs === null ? null : formatRuntime(episode.runtimeMs),
-            episode.available ? progressLabel(episode.progress) : "File missing",
-          )}
-        </span>
+        <span className="text-label/label text-text-muted">{episodeRuntimeFacts(episode)}</span>
       </span>
     </Link>
   );

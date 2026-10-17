@@ -59,6 +59,13 @@ export class CastPlayer implements PlayerPort {
   #reported: boolean | null = null;
   /** A toggle is on its way; the next pause or play the mirror reports is its outcome. */
   #toggling: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Whether the receiver was last asked to be muted, until its mirror shows it. Mute, like play,
+   * only toggles and the mirror lags, so toggling by the mirror alone would undo a toggle still on
+   * its way. A toggle whose outcome never shows is forgotten after a while.
+   */
+  #muteAsked: { readonly muted: boolean; readonly timer: ReturnType<typeof setTimeout> } | null =
+    null;
   #moving: AbortController | null = null;
   #ended = false;
   /** Where the receiver was when this player was disposed; reports read it from then on. */
@@ -100,6 +107,7 @@ export class CastPlayer implements PlayerPort {
     this.#final = this.positionMs();
     this.#moving?.abort();
     this.#settleToggle();
+    this.#forgetMute();
     this.#wanted = null;
     this.#controller.removeEventListener(this.#changeEvent, this.#onChange);
     this.#listeners.clear();
@@ -156,6 +164,8 @@ export class CastPlayer implements PlayerPort {
       this.#settleToggle();
       this.#reconcile();
     }
+
+    if (change.field === "isMuted" && change.value === this.#muteAsked?.muted) this.#forgetMute();
 
     // Every pause and play the receiver goes through is reported, even one it is being toggled
     // away from: the room engine hears one echo for each pause it asks for.
@@ -293,13 +303,20 @@ export class CastPlayer implements PlayerPort {
   setVolume(volume: number): void {
     this.#remote.volumeLevel = Math.min(1, Math.max(0, volume));
     this.#controller.setVolumeLevel();
-
-    if (this.#remote.isMuted) this.#controller.muteOrUnmute();
+    this.setMuted(false);
   }
 
-  /** Mutes or unmutes the receiver. */
+  /** Mutes or unmutes the receiver, counting a toggle still on its way as done. */
   setMuted(muted: boolean): void {
-    if (this.#remote.isMuted !== muted) this.#controller.muteOrUnmute();
+    if ((this.#muteAsked?.muted ?? this.#remote.isMuted) === muted) return;
+    this.#forgetMute();
+    this.#controller.muteOrUnmute();
+    this.#muteAsked = { muted, timer: setTimeout(() => this.#forgetMute(), TOGGLE_TIMEOUT_MS) };
+  }
+
+  #forgetMute(): void {
+    if (this.#muteAsked !== null) clearTimeout(this.#muteAsked.timer);
+    this.#muteAsked = null;
   }
 
   readonly subscribe = (listener: (event: PlayerEvent) => void): (() => void) => {
