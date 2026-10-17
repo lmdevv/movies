@@ -14,6 +14,34 @@ export type TrackOption = {
   readonly detail?: string | undefined;
 };
 
+/** Scrolls `list` the least that shows its checked option whole. */
+function revealChecked(list: HTMLElement): void {
+  const checked = list.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]');
+
+  if (checked === null) return;
+
+  // Offsets, unlike client rects, ignore the popup's opening scale.
+  const top = checked.offsetTop;
+  const bottom = top + checked.offsetHeight;
+
+  if (top < list.scrollTop) list.scrollTop = top;
+  else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+}
+
+/**
+ * Keeps the checked option of a scrolling list in view whenever the list changes size: when it
+ * first shows, and when a smaller window or a rotated phone shortens it.
+ */
+function keepCheckedInView(list: HTMLElement | null): (() => void) | undefined {
+  if (list === null) return undefined;
+
+  const observer = new ResizeObserver(() => revealChecked(list));
+
+  observer.observe(list);
+
+  return () => observer.disconnect();
+}
+
 function TrackColumn({
   label,
   options,
@@ -27,28 +55,27 @@ function TrackColumn({
 }) {
   const labelId = useId();
 
+  // The heading stays put while the options under it scroll, each column on its own.
   return (
-    <div className="flex flex-1 flex-col gap-0.5 p-5">
+    <div className="flex min-h-0 min-w-50 flex-1 flex-col gap-0.5 pt-5">
       <span
         id={labelId}
-        className="pb-2.5 font-sans text-caption/caption font-medium tracking-caps text-text-muted uppercase"
+        className="shrink-0 px-5 pb-2.5 font-sans text-caption/caption font-medium tracking-caps text-text-muted uppercase"
       >
         {label}
       </span>
       <RadioGroup
+        ref={keepCheckedInView}
         aria-labelledby={labelId}
         value={value}
         onValueChange={(next) => onValueChange(next)}
-        className="flex flex-col gap-0.5"
+        className="relative flex min-h-0 flex-col gap-0.5 overflow-y-auto overscroll-contain px-5 pb-5"
       >
         {options.map((option) => (
           <Radio.Root
             key={option.id}
             value={option.id}
-            className={cn(
-              "group/track flex cursor-pointer items-center gap-2.5 rounded-bar text-left font-sans text-body/label text-text-muted transition-colors hover:text-text data-checked:font-semibold data-checked:text-text",
-              option.detail === undefined ? "h-10" : "min-h-10 py-1.5",
-            )}
+            className="group/track flex min-h-10 shrink-0 cursor-pointer items-center gap-2.5 rounded-bar py-1.5 text-left font-sans text-body/label text-text-muted transition-colors hover:text-text data-checked:font-semibold data-checked:text-text"
           >
             <span
               className={cn(
@@ -61,9 +88,9 @@ function TrackColumn({
               </Radio.Indicator>
             </span>
             {option.detail === undefined ? (
-              option.label
+              <span className="min-w-0 wrap-break-word">{option.label}</span>
             ) : (
-              <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="flex min-w-0 flex-col gap-0.5 wrap-break-word">
                 {option.label}
                 <span className="text-caption/caption font-regular text-text-muted">
                   {option.detail}
@@ -98,7 +125,9 @@ const PANEL_WIDTHS = ["w-60", "w-60", "w-115", "w-170", "w-225"] as const;
 /**
  * The player's chooser: one column per choice (the version when a title has several, audio,
  * subtitles, and quality in the player).
- * Each column is a radio group: arrow keys move the choice, Tab moves between columns.
+ * Each column is a radio group: arrow keys move the choice, Tab moves between columns. Given a
+ * `max-h-*`, each column's options scroll under its heading; given a `max-w-*`, the columns scroll
+ * sideways.
  */
 export function TrackPanel({
   className,
@@ -157,14 +186,21 @@ export function TrackPopover({
           sideOffset={76}
           alignOffset={-32}
           collisionPadding={16}
+          // Always above the controls: flipping below or beside the trigger would cover them, or
+          // leave the screen. A short window shortens the panel instead.
+          collisionAvoidance={{ side: "none", align: "shift" }}
           className="z-50"
         >
           <Popover.Popup
             aria-label={label}
             className="origin-(--transform-origin) shadow-overlay transition-[opacity,scale] data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
           >
-            {/* On a phone the panel can be wider than the screen: cap it there, and its columns scroll. */}
-            <TrackPanel choices={choices} className="max-w-(--available-width) overflow-x-auto" />
+            {/* Held to the room above the trigger, short of the top safe area: each column's
+                options scroll under its heading, and columns wider than the screen scroll sideways. */}
+            <TrackPanel
+              choices={choices}
+              className="max-h-[min(calc(var(--available-height)_-_env(safe-area-inset-top)),var(--spacing-track-panel))] max-w-(--available-width) overflow-x-auto overscroll-x-contain"
+            />
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>

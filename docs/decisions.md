@@ -525,7 +525,16 @@ choices made while implementing them. Update it in the same PR that changes a de
   results. Rows come from the web app's feature contributions (see Web app), which run registry
   commands through the SDK; registry entries are not mapped onto the menu one to one.
 - The component gallery at `/dev/kit` is development-only; production builds replace it with an
-  empty route and do not bundle it.
+  empty route and do not bundle it. So is the track menu bench at `/dev/tracks?columns=1|3|4`:
+  the player's track menu over a still frame with thirty-two subtitles and long labels, which the
+  `kit` E2E project checks at desktop, short, phone, rotated, doubled-text, and full screen sizes.
+- The player's track menu always opens above its trigger (`collisionAvoidance` `side: "none"`):
+  Base UI would otherwise flip a tall panel below or beside the trigger, over the controls or off
+  the screen. Its height is held to Base UI's `--available-height` (less the top safe area) and
+  `--spacing-track-panel`, its width to `--available-width`. Each column's heading stays fixed
+  while its options scroll on their own (`overscroll-contain`), columns wider than the screen
+  scroll sideways, and long labels wrap. Each column keeps its chosen option in view whenever it
+  changes size: when the menu opens, and when the window shrinks or a phone rotates.
 
 ## Web app
 
