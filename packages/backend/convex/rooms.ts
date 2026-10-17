@@ -475,9 +475,10 @@ export const buffering = mutation({
  * the room's player, `away` from a device browsing elsewhere in the app, which keeps its place
  * without counting as watching. An away heartbeat while the device's player reported within
  * `PLAYER_SILENCE_MS` (another tab, or a heartbeat sent just before the player opened) only keeps
- * the place. A watching guest's heartbeat records its reported drift for the
- * room to show; an away one clears it. The host's heartbeat also clears `hostAway`, as an away
- * host is still there. A watching host's heartbeat re-anchors the clock at the host's position,
+ * the place. A watching guest's heartbeat records its reported drift for the room to show; an
+ * away one clears it. Any host heartbeat keeps a live room from being marked `hostAway`; only a
+ * watching one clears the mark, as the room stays paused for its guests until the host's player
+ * is back. A watching host's heartbeat re-anchors the clock at the host's position,
  * carried forward from when the host read it, when the host's player drifted from the computed
  * position and the host saw the current revision. An away host has no player to drift: the room
  * plays on, except that one frozen for the host's buffering, or played past the end of its file,
@@ -554,7 +555,9 @@ export const heartbeat = mutation({
       // A missing file keeps 0, a length `awayHostClock` treats as unknown, so it is read once.
       const durationMs = found.fileDurationMs ?? read?.probe.durationMs ?? 0;
       const paused = awayHostClock(found, durationMs, now);
-      const patch: AwayHostPatch = { hostLastSeenAt: now, hostAway: false };
+      // An away host keeps a live room from being marked away; one the sweep already marked stays
+      // so for its guests until the host's player is back.
+      const patch: AwayHostPatch = { hostLastSeenAt: now };
 
       if (reading) patch.fileDurationMs = durationMs;
 
@@ -566,11 +569,7 @@ export const heartbeat = mutation({
       }
 
       // The host's presence too is refreshed only every `AWAY_REFRESH_MS`, inside the host timeout.
-      const quiet =
-        paused === null &&
-        !reading &&
-        !found.hostAway &&
-        now - found.hostLastSeenAt < AWAY_REFRESH_MS;
+      const quiet = paused === null && !reading && now - found.hostLastSeenAt < AWAY_REFRESH_MS;
 
       if (quiet) return presentRoomClock(found);
 

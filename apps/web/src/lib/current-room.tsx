@@ -29,8 +29,9 @@ export interface CurrentRoom {
   /** Whether the device hosts the room, so leaving it ends it for everyone. */
   readonly hosting: boolean;
   /**
-   * Whether returning lands in a live room: false while its host is away, when the server has
-   * paused it until the host comes back and the player would only say the host left.
+   * Whether returning lands in a live room: false for a guest while its host is away, when the
+   * server has paused it until the host comes back and the player would only say the host left.
+   * The host may always return.
    */
   readonly returnable: boolean;
 }
@@ -59,7 +60,8 @@ const useDeviceRoom = (
   const members = room?.members.length ?? 0;
   const mine = self !== undefined && self.profileId === profileId;
   const hosting = self?.role === "host";
-  const returnable = room !== null && !room.hostAway;
+  // The host's own return is what brings a paused, host-away room back.
+  const returnable = room !== null && (!room.hostAway || self?.role === "host");
 
   return useMemo(
     () =>

@@ -69,8 +69,9 @@ export const Room = Schema.Struct({
   /** The host profile's name, also once the host has left the room. */
   hostProfileName: Schema.String,
   /**
-   * The host stopped sending heartbeats; the server paused the room until the host returns. A host
-   * browsing elsewhere in the app still sends them, so it is not away here: its member is `away`.
+   * The host stopped sending heartbeats; the server paused the room until the host's player
+   * returns. A host browsing elsewhere in the app still sends them, so a live room is not marked
+   * (its member is `away`), but a room already marked stays so until the host's player is back.
    */
   hostAway: Schema.Boolean,
   clock: RoomClock,

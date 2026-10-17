@@ -2486,6 +2486,59 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
     });
 
+    it("keeps a room the sweep marked host-away marked while its host only browses", async () => {
+      const owner = await run(fixture.owner, "account.viewer", {});
+      const file = await fileAt(fixture, `/stack-${id}/open/all-ages.mp4`);
+      const now = Date.now();
+      const hostDevice = DeviceIdSchema.make(`marked-host-${id}`);
+
+      importDocuments("rooms", [
+        JSON.stringify({
+          titleId: fixture.titles.allAges,
+          episodeId: null,
+          fileId: file.fileId,
+          hostUserId: owner.user.id,
+          hostProfileId: fixture.ownerProfile,
+          hostDeviceId: hostDevice,
+          status: "paused",
+          positionAtAnchorMs: 60_000,
+          anchorServerTime: now - 30_000,
+          playbackRate: 1,
+          revision: 3,
+          hostLastSeenAt: now - 30_000,
+          hostAway: true,
+        }),
+      ]);
+
+      const roomId = roomOf(hostDevice);
+
+      importDocuments("roomMembers", [
+        JSON.stringify({
+          roomId,
+          userId: owner.user.id,
+          profileId: fixture.ownerProfile,
+          deviceId: hostDevice,
+          role: "host",
+          joinedAt: now - 120_000,
+          lastSeenAt: now - 30_000,
+          presence: "away",
+          watchedAt: now - 120_000,
+        }),
+      ]);
+
+      await run(fixture.owner, "rooms.heartbeat", {
+        roomId,
+        deviceId: hostDevice,
+        presence: "away",
+      });
+      expect((await run(fixture.owner, "rooms.get", { roomId })).hostAway).toBe(true);
+
+      // The host's player back: a watching heartbeat clears the mark.
+      await run(fixture.owner, "rooms.heartbeat", { roomId, deviceId: hostDevice });
+      expect((await run(fixture.owner, "rooms.get", { roomId })).hostAway).toBe(false);
+      await run(fixture.owner, "rooms.end", { roomId, deviceId: hostDevice });
+    });
+
     it("pauses a room once its host browses away from a stall or past the end", async () => {
       const hostDevice = device("stalled-host");
 

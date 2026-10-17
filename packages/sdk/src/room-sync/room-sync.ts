@@ -275,6 +275,14 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
   });
 
   /**
+   * Clears a catch-up whose time ran out but that no correction has ended yet, putting the rate
+   * back before the host publishes or reports its position again. Callers hold `serial`.
+   */
+  const settleExpiredCatchUp = Effect.gen(function* () {
+    if (Option.isSome(yield* Ref.get(catchingUpSince))) yield* endCatchUp;
+  });
+
+  /**
    * A catching-up host's correction. It ends once the host is in step with a playing clock, the
    * platform refuses to play, or `hostCatchUpMs` passes; the host then publishes its player's
    * state, which the catch-up held back. A clock that stopped playing (the server paused the room)
@@ -395,6 +403,7 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
       if (current.role !== "host" || current.connection !== "connected") return;
 
       if (yield* isCatchingUp) return;
+      yield* settleExpiredCatchUp;
       const now = yield* serverNow;
 
       if (Option.isNone(now)) return;
@@ -581,6 +590,12 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
       const current = yield* SubscriptionRef.get(state);
       const now = yield* serverNow;
       const catching = yield* isCatchingUp;
+
+      // A catch-up that ran out ends here first, publishing what it held back.
+      if (!catching && Option.isSome(yield* Ref.get(catchingUpSince))) {
+        yield* endCatchUp;
+        yield* publishNow(false);
+      }
 
       const clock = yield* client.mutate("rooms.heartbeat", heartbeatArgs(current, now, catching));
 

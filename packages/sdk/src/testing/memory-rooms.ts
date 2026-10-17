@@ -165,15 +165,12 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
       const guest = args.deviceId !== before.hostDeviceId;
       const lastWatched = (yield* Ref.get(watched)).get(args.deviceId);
 
-      // An away heartbeat while the device's player still reports only keeps the place; a guest's
-      // row write still publishes the room, as every guest heartbeat does.
+      // An away heartbeat while the device's player still reports writes nothing.
       if (
         args.presence === "away" &&
         lastWatched !== undefined &&
         now - lastWatched < PLAYER_SILENCE_MS
       ) {
-        if (guest) yield* commit(before);
-
         return before.clock;
       }
 
@@ -198,30 +195,24 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
           ),
       });
 
-      // Guests always publish, as the backend's row write does; a host only on a change.
-      if (guest || changed) yield* commit(room);
+      // A watching guest's row write always publishes, as on the backend; an away member's only
+      // when it turns away (the backend's periodic refresh is not modeled); a host's on a change.
+      if ((guest && presence === "watching") || changed) yield* commit(room);
 
       if (guest) return room.clock;
 
       if (presence === "away") {
-        // An away host is still there.
-        const present = room.hostAway ? { ...room, hostAway: false } : room;
-
-        if (present.clock.status !== "buffering") {
-          if (present !== room) yield* commit(present);
-
-          return present.clock;
-        }
+        if (room.clock.status !== "buffering") return room.clock;
 
         // An away host is not buffering any more: the frozen room pauses where it froze.
         const clock: RoomClock = {
-          ...present.clock,
+          ...room.clock,
           status: "paused",
           anchorServerTime: now,
-          revision: present.clock.revision + 1,
+          revision: room.clock.revision + 1,
         };
 
-        yield* commit(withClock(present, clock));
+        yield* commit(withClock(room, clock));
 
         return clock;
       }
