@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import type { ServerConnection } from "@/lib/connection";
-import { SESSION_KEY, sessionStore } from "@/lib/secure-storage";
+import { sessionKeyFor, sessionStore } from "@/lib/secure-storage";
 
 /** The SDK and Convex client for `connection`, provided to everything below. */
 export function SdkProvider({
@@ -40,7 +40,7 @@ export function SdkProvider({
       client={client}
       mediaUrl={connection.mediaUrl}
       storage={sessionStore}
-      storageKey={SESSION_KEY}
+      storageKey={sessionKeyFor(connection.convexUrl)}
     >
       {children}
     </MoviesProvider>

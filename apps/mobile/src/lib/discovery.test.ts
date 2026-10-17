@@ -4,7 +4,12 @@ import type { Server } from "node:http";
 import { Predicate } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { connectManually, discoverServer, normalizeServerUrl } from "./discovery";
+import {
+  connectManually,
+  discoverServer,
+  normalizeServerUrl,
+  reachableConvexUrl,
+} from "./discovery";
 
 /** A stand-in media service on a free port that answers `routes` with their JSON bodies. */
 const serve = async (routes: Readonly<Record<string, string>>): Promise<Server> => {
@@ -66,6 +71,29 @@ describe("normalizeServerUrl", () => {
     expect(normalizeServerUrl("")).toBeNull();
     expect(normalizeServerUrl("ftp://cinema.home")).toBeNull();
     expect(normalizeServerUrl("http://")).toBeNull();
+  });
+});
+
+describe("reachableConvexUrl", () => {
+  it("moves a loopback account server onto the media service's host", () => {
+    expect(reachableConvexUrl("http://localhost:3210", "http://192.168.1.20:8080")).toBe(
+      "http://192.168.1.20:3210",
+    );
+    expect(reachableConvexUrl("http://127.0.0.1:3210/api", "https://cinema.home")).toBe(
+      "http://cinema.home:3210/api",
+    );
+    expect(reachableConvexUrl("http://[::1]:3210", "http://[fd00::5]:8080")).toBe(
+      "http://[fd00::5]:3210",
+    );
+  });
+
+  it("keeps an account server that is not loopback, or a media service that is", () => {
+    expect(reachableConvexUrl("https://accounts.cinema.home", "https://cinema.home")).toBe(
+      "https://accounts.cinema.home",
+    );
+    expect(reachableConvexUrl("http://localhost:3210", "http://127.0.0.1:8080")).toBe(
+      "http://localhost:3210",
+    );
   });
 });
 

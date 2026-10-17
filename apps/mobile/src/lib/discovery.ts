@@ -115,15 +115,48 @@ const candidatesFor = (text: string): ReadonlyArray<string> | null => {
 
 /**
  * The first candidate, in order, for which `answers` holds. Candidates are probed at once, so an
- * address whose https port silently drops packets costs one timeout, not two.
+ * address whose https port silently drops packets costs one timeout, not two, and a preferred
+ * candidate that answers wins without waiting for the others.
  */
 const firstAnswering = async (
   candidates: ReadonlyArray<string>,
   answers: (url: string) => Promise<boolean>,
 ): Promise<string | null> => {
-  const results = await Promise.all(candidates.map(answers));
+  const probes = candidates.map(answers);
 
-  return candidates.find((_, index) => results[index] === true) ?? null;
+  const from = async (index: number): Promise<string | null> => {
+    const candidate = candidates[index];
+    const probe = probes[index];
+
+    if (candidate === undefined || probe === undefined) return null;
+
+    return (await probe) ? candidate : from(index + 1);
+  };
+
+  return from(0);
+};
+
+const authorityPattern = /^(https?:\/\/)(\[[^\]]+\]|[^:/]+)(:\d+)?(.*)$/u;
+
+const isLoopback = (host: string): boolean =>
+  host === "localhost" || host === "[::1]" || host.startsWith("127.");
+
+/**
+ * The account server's address as this phone reaches it. A server that names a loopback address,
+ * like the Compose default `http://localhost:3210`, means the machine its media service runs on,
+ * so the host becomes the media service's and the scheme, port, and path stay.
+ */
+export const reachableConvexUrl = (convexUrl: string, mediaUrl: string): string => {
+  const convex = authorityPattern.exec(convexUrl);
+  const media = authorityPattern.exec(mediaUrl);
+  const convexHost = convex?.[2];
+  const mediaHost = media?.[2];
+
+  if (convex === null || convexHost === undefined || mediaHost === undefined) return convexUrl;
+
+  if (!isLoopback(convexHost) || isLoopback(mediaHost)) return convexUrl;
+
+  return `${convex[1] ?? ""}${mediaHost}${convex[3] ?? ""}${convex[4] ?? ""}`;
 };
 
 /** Checks that `text` is a [movies] media service, asks it where accounts live, and probes that. */
@@ -132,17 +165,26 @@ export const discoverServer = async (text: string): Promise<ConnectResult> => {
 
   if (candidates === null) return { ok: false, failure: "invalid" };
 
+  // Each candidate's client config is asked for alongside its health check.
+  const configs = candidates.map((url) =>
+    getDecoded(`${url}${MEDIA_ROUTES.clientConfig}`, ClientConfigResponse),
+  );
+
   const mediaUrl = await firstAnswering(candidates, mediaAnswers);
+  const config = configs[candidates.findIndex((url) => url === mediaUrl)];
 
-  if (mediaUrl === null) return { ok: false, failure: "unreachable" };
+  if (mediaUrl === null || config === undefined) return { ok: false, failure: "unreachable" };
 
-  const config = await getDecoded(`${mediaUrl}${MEDIA_ROUTES.clientConfig}`, ClientConfigResponse);
-  const convexUrl = Option.flatMapNullishOr(config, (value) => value.convexUrl);
+  const advertised = Option.flatMapNullishOr(await config, (value) =>
+    normalizeServerUrl(value.convexUrl ?? ""),
+  );
 
-  if (Option.isNone(convexUrl)) return { ok: false, failure: "needsDetails" };
+  if (Option.isNone(advertised)) return { ok: false, failure: "needsDetails" };
 
-  return (await convexAnswers(convexUrl.value))
-    ? { ok: true, connection: { mediaUrl, convexUrl: convexUrl.value } }
+  const convexUrl = reachableConvexUrl(advertised.value, mediaUrl);
+
+  return (await convexAnswers(convexUrl))
+    ? { ok: true, connection: { mediaUrl, convexUrl } }
     : { ok: false, failure: "accountsUnreachable" };
 };
 

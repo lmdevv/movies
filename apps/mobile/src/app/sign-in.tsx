@@ -54,7 +54,10 @@ export default function SignIn() {
         label="Email"
         placeholder="alex@example.com"
         value={email}
-        onChangeText={setEmail}
+        onChangeText={(text) => {
+          setEmail(text);
+          setError(null);
+        }}
         autoCapitalize="none"
         keyboardType="email-address"
         textContentType="username"

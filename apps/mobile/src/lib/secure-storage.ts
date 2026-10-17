@@ -30,8 +30,12 @@ export const writeValue = (key: string, value: string | null): void => {
   }
 };
 
-/** Where the SDK keeps the Convex Auth session; cleared when the app leaves a server. */
-export const SESSION_KEY = "movies.session";
+/**
+ * Where the SDK keeps the Convex Auth session for the account server at `convexUrl`. Each server
+ * has its own key, so a token saved late for one server can never reach another.
+ */
+export const sessionKeyFor = (convexUrl: string): string =>
+  `movies.session.${convexUrl.replace(/[^\w.-]/gu, "_")}`;
 
 /** The SDK's session store: the Convex Auth tokens, kept in the keychain. */
 export const sessionStore: MoviesProviderProps["storage"] = {

@@ -5,7 +5,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { CloudOff } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Alert } from "react-native";
+import { Alert, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useUniwind } from "uniwind";
 
@@ -19,7 +19,7 @@ import { ActiveProfileContext } from "@/session/active-profile";
 import { ConnectionProvider, useConnection } from "@/session/connection";
 import { ProfileChoiceProvider } from "@/session/profile-choice";
 import { SdkProvider } from "@/session/sdk-provider";
-import { useSessionPhase } from "@/session/session-phase";
+import { SessionPhaseContext, useLiveSessionPhase, useSettledPhase } from "@/session/session-phase";
 import { useSignOut } from "@/session/viewer";
 import type { SessionPhase } from "@/session/session-phase";
 
@@ -155,26 +155,35 @@ function ConnectionTrouble({
   );
 }
 
-/** The connected app: the SDK on the server, the profile choice, and the phase's screens. */
+/**
+ * The connected app: the SDK on the server, the profile choice, and the phase's screens. Trouble
+ * covers the screens rather than replacing them, so Try Again returns to where people were.
+ */
 function ConnectedApp() {
-  const phase = useSessionPhase();
+  const phase = useLiveSessionPhase();
+  const settled = useSettledPhase(phase);
   const slow = useSlowLoad(phase.kind === "loading");
 
-  if (phase.kind === "loading") {
-    return slow ? (
-      <ConnectionTrouble description="The server isn't answering. Check the connection, or choose another server." />
-    ) : null;
-  }
+  let trouble: ReactNode = null;
 
   if (phase.kind === "unavailable") {
-    return <ConnectionTrouble description={describeFailure(phase.cause)} retry={phase.retry} />;
+    trouble = <ConnectionTrouble description={describeFailure(phase.cause)} retry={phase.retry} />;
+  } else if (phase.kind === "loading" && slow) {
+    trouble = (
+      <ConnectionTrouble description="The server isn't answering. Check the connection, or choose another server." />
+    );
   }
 
+  if (settled === null) return trouble;
+
   return (
-    <ActiveProfileContext.Provider value={phase.kind === "ready" ? phase.active : null}>
-      <HideSplash />
-      <RootStack phase={phase.kind} />
-    </ActiveProfileContext.Provider>
+    <SessionPhaseContext.Provider value={settled}>
+      <ActiveProfileContext.Provider value={settled.kind === "ready" ? settled.active : null}>
+        <HideSplash />
+        <RootStack phase={settled.kind} />
+        {trouble === null ? null : <View className="absolute inset-0">{trouble}</View>}
+      </ActiveProfileContext.Provider>
+    </SessionPhaseContext.Provider>
   );
 }
 
