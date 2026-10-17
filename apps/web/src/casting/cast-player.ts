@@ -46,6 +46,11 @@ export class CastPlayer implements PlayerPort {
   readonly #listeners = new Set<(event: PlayerEvent) => void>();
   readonly #watchers = new Set<() => void>();
   #pending: number | null = null;
+  /**
+   * Whether the receiver was last asked to pause (true) or play (false), until its mirror next
+   * reports a pause or play. Commands toggle, so they follow what was asked, not the lagging mirror.
+   */
+  #asked: boolean | null = null;
   #moving: AbortController | null = null;
   #ended = false;
   /** Where the receiver was when this player was disposed; reports read it from then on. */
@@ -137,6 +142,8 @@ export class CastPlayer implements PlayerPort {
       this.#last = { positionMs: this.#remote.currentTime * 1000, paused: this.#remote.isPaused };
     }
 
+    if (change.field === "isPaused") this.#asked = null;
+
     if (change.field === "isPaused" && this.#pending === null) {
       if (change.value === false) this.#ended = false;
       this.#emit(change.value === true ? "paused" : "playing");
@@ -205,14 +212,21 @@ export class CastPlayer implements PlayerPort {
   }
 
   readonly play = (): Promise<void> => {
-    if (this.#remote.isPaused) this.#controller.playOrPause();
+    this.#ask(false);
 
     return Promise.resolve();
   };
 
   readonly pause = (): void => {
-    if (!this.#remote.isPaused) this.#controller.playOrPause();
+    this.#ask(true);
   };
+
+  /** Toggles the receiver unless it is, or was last asked to be, `paused` already. */
+  #ask(paused: boolean): void {
+    if ((this.#asked ?? this.#remote.isPaused) === paused) return;
+    this.#asked = paused;
+    this.#controller.playOrPause();
+  }
 
   /** Stops the receiver's media; the device stays connected. */
   stopReceiver(): void {

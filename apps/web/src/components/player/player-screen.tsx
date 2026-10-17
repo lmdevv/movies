@@ -363,7 +363,7 @@ export function PlayerScreen({
     void navigate({ to: "/title/$titleId", params: { titleId } });
   }, [navigate, titleId]);
 
-  const { fullscreen, toggle: toggleFullscreen, takeEscape } = useFullscreen(frame, video);
+  const { toggle: toggleFullscreen, takeEscape } = useFullscreen(frame, video);
 
   const seekTo = useCallback(
     (seconds: number) => {
@@ -409,18 +409,20 @@ export function PlayerScreen({
 
   const currentChapter = chapterAt(scrubbing.chapters, media.positionSeconds);
 
+  // Plays from a user gesture: a stream that needs one resumes through the controller.
+  const play = useCallback(() => {
+    if (output === null || !controlsTimeline) return;
+
+    if (snapshot?.needsGesture === true && casting === null) controller?.resumeWithGesture();
+    else void output.play().catch(() => undefined);
+  }, [output, controlsTimeline, snapshot?.needsGesture, controller, casting]);
+
   const togglePlay = useCallback(() => {
     if (output === null || !controlsTimeline) return;
 
-    if (snapshot?.needsGesture === true && casting === null) {
-      controller?.resumeWithGesture();
-
-      return;
-    }
-
-    if (output.isPaused()) void output.play().catch(() => undefined);
+    if ((snapshot?.needsGesture === true && casting === null) || output.isPaused()) play();
     else output.pause();
-  }, [output, controlsTimeline, snapshot?.needsGesture, controller, casting]);
+  }, [output, controlsTimeline, snapshot?.needsGesture, casting, play]);
 
   const setVolume = useCallback(
     (value: number) => {
@@ -691,11 +693,12 @@ export function PlayerScreen({
     setLeaving({ resume: pause });
   }, [roomId, output]);
 
-  // Through `togglePlay`, which also covers a stream that now needs a gesture: Stay is one.
+  // Plays again from what asking paused, not from `isPaused()`, which lags on a cast receiver.
+  // Stay is a user gesture, so a stream that now needs one resumes too.
   const stay = useCallback(() => {
-    if (leaving?.resume === true && output?.isPaused() === true) togglePlay();
+    if (leaving?.resume === true) play();
     setLeaving(null);
-  }, [leaving, output, togglePlay]);
+  }, [leaving, play]);
 
   // Back to where focus was in the player, or to the player itself. The dialog would move focus
   // from the frame, which only script can focus, to its first button, so the frame is focused here.
@@ -856,8 +859,8 @@ export function PlayerScreen({
       "player.subtitles": toggleSubtitles,
       // One press does one thing: leaves full screen, closes Stream info, or asks to leave. Menus,
       // popovers, and dialogs take Escape before it gets here.
-      "player.exit": () => {
-        if (takeEscape()) return;
+      "player.exit": (event) => {
+        if (takeEscape(event)) return;
 
         if (info) setInfo(false);
         else askToLeave();
@@ -893,8 +896,9 @@ export function PlayerScreen({
         ? null
         : {
             copyLink: () => copyLink(roomId),
-            leave: host ? null : leaveAndExit,
-            end: host ? endAndStay : null,
+            ...(host
+              ? { role: "host" as const, end: endAndStay }
+              : { role: "guest" as const, leave: leaveAndExit }),
           },
     }),
     [
@@ -956,9 +960,9 @@ export function PlayerScreen({
     "backdrop",
   );
 
-  // Where menus, popovers, and dialogs render: inside the player while it is full screen, where
-  // nothing outside it shows; the body otherwise.
-  const overlayContainer = fullscreen && frame !== null ? frame : undefined;
+  // Where menus, popovers, and dialogs render: always inside the player, so they show in full
+  // screen, where nothing outside the player does, and stay put when full screen ends.
+  const overlayContainer = frame ?? undefined;
 
   const tracks = (trigger: React.ReactElement) => (
     <TrackPopover
@@ -1444,6 +1448,7 @@ export function PlayerScreen({
       />
       <LeaveDialog
         open={leaving !== null}
+        container={overlayContainer}
         returnFocus={focusAfterLeaving}
         onStay={stay}
         onLeave={backToDetails}

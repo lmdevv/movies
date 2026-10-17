@@ -72,29 +72,22 @@ export const useRoomCommands = (context: CommandContext): CommandContribution =>
                 leading: { kind: "icon", icon: LinkIcon },
                 perform: player.room.copyLink,
               },
-              ...(player.room.end === null
-                ? []
-                : [
-                    {
-                      kind: "action" as const,
-                      id: "room:end",
-                      title: "End room",
-                      keywords: ["close", "stop"],
-                      leading: { kind: "icon" as const, icon: SquareXIcon },
-                      perform: player.room.end,
-                    },
-                  ]),
-              ...(player.room.leave === null
-                ? []
-                : [
-                    {
-                      kind: "action" as const,
-                      id: "room:leave",
-                      title: "Leave room",
-                      leading: { kind: "icon" as const, icon: LogOutIcon },
-                      perform: player.room.leave,
-                    },
-                  ]),
+              player.room.role === "host"
+                ? {
+                    kind: "action",
+                    id: "room:end",
+                    title: "End room",
+                    keywords: ["close", "stop"],
+                    leading: { kind: "icon", icon: SquareXIcon },
+                    perform: player.room.end,
+                  }
+                : {
+                    kind: "action",
+                    id: "room:leave",
+                    title: "Leave room",
+                    leading: { kind: "icon", icon: LogOutIcon },
+                    perform: player.room.leave,
+                  },
             ];
 
       return { groups: [{ id: "room", label: "Room", items: inPlayer }], fallback: join };

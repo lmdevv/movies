@@ -548,10 +548,13 @@ choices made while implementing them. Update it in the same PR that changes a de
   rather than through React context, which a component cannot read from a provider it renders.
   In a room, guests get the track lists but no transport; the host gets End room and no Leave room.
 - Escape on the player does one thing per press. An open menu, popover, or dialog takes it first;
-  in full screen it only leaves full screen (or, just after the browser left full screen, nothing);
-  then it closes Stream info; otherwise it asks "Leave playback?". Solo playback pauses while it
-  asks and resumes on Stay; a room plays on. Stay, Escape, and a click outside keep playing, and
-  repeats of a held Escape never close it. The Back button and the phone's Close leave directly.
+  in full screen it only leaves full screen (a press made before full screen ended, by event
+  time, but delivered after counts as that one); then it closes Stream info; otherwise it asks
+  "Leave playback?". Solo playback pauses while it asks and resumes on Stay (a room, named in the
+  URL, plays on). Stay, Escape, and a click outside keep playing, and repeats of a held Escape
+  never close it. The Back button and the phone's Close leave directly. The player's menus,
+  popovers, and dialogs always render inside the player, so they show in full screen and stay put
+  when it ends.
 - Title search lives in the menu (results while typing) and on `/search` (the full page Paper
   draws; the phone tab bar's search circle opens it). Kids filtering is server-side; the web app
   shows no notice. The menu keeps earlier results on screen only while the same query is typed

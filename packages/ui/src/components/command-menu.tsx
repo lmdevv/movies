@@ -160,6 +160,13 @@ export function CommandMenu({
     }
   }
 
+  // The command this opening of the menu is running, if any.
+  const running = useRef<symbol | null>(null);
+
+  useEffect(() => {
+    if (open) running.current = null;
+  }, [open]);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const listboxId = useId();
   const frame = currentFrame(state);
@@ -225,10 +232,18 @@ export function CommandMenu({
       return;
     }
 
-    const finish = (): void => {
+    const run = Symbol(item.id);
+
+    running.current = run;
+
+    // A command that settles after the menu opened again belongs to an earlier opening: it neither
+    // clears another command's spinner nor closes the menu now open.
+    const settle = (close: boolean): void => {
+      if (running.current !== run) return;
+      running.current = null;
       setBusyId(null);
 
-      if (item.keepOpen !== true) onOpenChange(false);
+      if (close && item.keepOpen !== true) onOpenChange(false);
     };
 
     const result = item.perform();
@@ -236,12 +251,15 @@ export function CommandMenu({
     if (result instanceof Promise) {
       setBusyId(item.id);
       // A rejected command keeps the menu open; the command reports its own failure.
-      void result.then(finish, () => setBusyId(null));
+      void result.then(
+        () => settle(true),
+        () => settle(false),
+      );
 
       return;
     }
 
-    finish();
+    settle(true);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {

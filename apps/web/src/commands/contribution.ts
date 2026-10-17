@@ -9,14 +9,14 @@ import type { TrackOption } from "@movies/ui/components/track-popover";
 import type { CommandGroup, CommandItem } from "@movies/ui/lib/command-menu";
 import type { useNavigate } from "@tanstack/react-router";
 
-/** Room actions the player offers while it is in a room. */
-interface PlayerRoomCommands {
-  readonly copyLink: () => void;
-  /** Leaves the room and the player; null for the host, who ends the room instead. */
-  readonly leave: (() => void) | null;
-  /** Ends the room for everyone; null for guests. */
-  readonly end: (() => void) | null;
-}
+/**
+ * Room actions the player offers while it is in a room: the host ends the room for everyone, and a
+ * guest leaves it (and the player).
+ */
+type PlayerRoomCommands = { readonly copyLink: () => void } & (
+  | { readonly role: "host"; readonly end: () => void }
+  | { readonly role: "guest"; readonly leave: () => void }
+);
 
 /** What the open player lets the menu do. */
 export interface PlayerCommands {

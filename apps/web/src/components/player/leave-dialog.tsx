@@ -7,16 +7,19 @@ import { useRef } from "react";
  * Escape, and a click outside all keep playing; only Leave leaves. A held Escape repeats, and its
  * repeats never close the dialog its first press opened.
  *
+ * @param container - Where the dialog renders; the body when undefined.
  * @param returnFocus - Where focus goes when the dialog closes and playback continues, or false when
  *   the caller has moved it already.
  */
 export function LeaveDialog({
   open,
+  container,
   returnFocus,
   onStay,
   onLeave,
 }: {
   readonly open: boolean;
+  readonly container: HTMLElement | undefined;
   readonly returnFocus: () => HTMLElement | false;
   readonly onStay: () => void;
   readonly onLeave: () => void;
@@ -41,6 +44,7 @@ export function LeaveDialog({
       <DialogContent
         title="Leave playback?"
         size="sm"
+        container={container}
         initialFocus={stay}
         finalFocus={returnFocus}
         className="on-media bg-dark-surface"

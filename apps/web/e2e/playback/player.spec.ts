@@ -486,6 +486,27 @@ test("⌘K lists the player's audio, subtitles, and quality, and switches them a
       ),
     )
     .toBe(true);
+
+  // Full screen ending under the open menu (as the browser's own Escape does) leaves it open, with
+  // the keyboard still in its input.
+  const search = menu.getByRole("combobox");
+
+  await expect(search).toBeFocused();
+  await page.evaluate(() => document.exitFullscreen());
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await expect(playback).toBeVisible();
+  await expect(search).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(leaveDialog(page)).toBeHidden();
+
+  // Back to full screen: the menu's commands work there.
+  await page.getByTestId("player").press("f");
+  await expect
+    .poll(() => page.evaluate(() => document.fullscreenElement?.getAttribute("data-testid")))
+    .toBe("player");
+  await page.keyboard.press("ControlOrMeta+k");
   await playback.getByRole("option", { name: /^Pause/u }).click();
   await expect.poll(async () => (await videoState(page)).paused).toBe(true);
 

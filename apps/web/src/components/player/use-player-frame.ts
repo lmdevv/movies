@@ -41,68 +41,40 @@ export const useControlsVisible = (frame: HTMLElement | null, hold: boolean): bo
   return hold || awake;
 };
 
-const subscribeFullscreen = (onChange: () => void): (() => void) => {
-  document.addEventListener("fullscreenchange", onChange);
-
-  return () => document.removeEventListener("fullscreenchange", onChange);
-};
-
-const readFullscreen = (): boolean => document.fullscreenElement !== null;
-
-/**
- * How long after full screen ends an Escape still counts as the press that ended it, for browsers
- * that leave full screen first and deliver the key afterwards.
- */
-const FULLSCREEN_ESCAPE_MS = 300;
-
 /** Full screen as the player uses it. */
 export interface Fullscreen {
-  /** Whether the page is full screen. */
-  readonly fullscreen: boolean;
   /** Enters or leaves full screen. */
   readonly toggle: () => void;
   /**
    * Takes an Escape press that belongs to full screen: one pressed while full screen, which leaves
-   * it if the browser has not already, or one delivered just after the browser left it. Returns
-   * whether the press was taken, so nothing else acts on it.
+   * it if the browser has not already, or one pressed before full screen ended but delivered after
+   * (event times, not a window, tell them apart). Returns whether the press was taken, so nothing
+   * else acts on it.
    */
-  readonly takeEscape: () => boolean;
+  readonly takeEscape: (event: KeyboardEvent) => boolean;
 }
 
-/** Whether the page is full screen, and the toggle for `frame` (or the video on iPhones). */
+/** The toggle for full screen on `frame` (or the video on iPhones), and Escape's part in it. */
 export const useFullscreen = (
   frame: HTMLElement | null,
   video: HTMLVideoElement | null,
 ): Fullscreen => {
-  const fullscreen = useSyncExternalStore(subscribeFullscreen, readFullscreen, readFullscreen);
-  // When the browser last ended full screen by itself, as it does for Escape.
-  const exitedAt = useRef(Number.NEGATIVE_INFINITY);
-  // Whether the page itself is ending full screen (a taken Escape or the toggle), so no later
-  // Escape counts as the press that ended it.
-  const endedByPage = useRef(false);
+  // When full screen last ended, on the same clock as event times.
+  const endedAt = useRef(Number.NEGATIVE_INFINITY);
 
-  useEffect(
-    () =>
-      subscribeFullscreen(() => {
-        if (document.fullscreenElement !== null) return;
-        exitedAt.current = endedByPage.current ? Number.NEGATIVE_INFINITY : performance.now();
-        endedByPage.current = false;
-      }),
-    [],
-  );
+  useEffect(() => {
+    const onChange = (event: Event): void => {
+      if (document.fullscreenElement === null) endedAt.current = event.timeStamp;
+    };
 
-  // Leaves full screen as the page. If that fails (or the browser is already leaving), later exits
-  // are the browser's own again.
-  const endFullscreen = useCallback(() => {
-    endedByPage.current = true;
-    void document.exitFullscreen().catch(() => {
-      endedByPage.current = false;
-    });
+    document.addEventListener("fullscreenchange", onChange);
+
+    return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
 
   const toggle = useCallback(() => {
     if (document.fullscreenElement !== null) {
-      endFullscreen();
+      void document.exitFullscreen().catch(() => undefined);
 
       return;
     }
@@ -115,19 +87,20 @@ export const useFullscreen = (
     }
 
     video?.webkitEnterFullscreen?.();
-  }, [frame, video, endFullscreen]);
+  }, [frame, video]);
 
-  const takeEscape = useCallback((): boolean => {
+  const takeEscape = useCallback((event: KeyboardEvent): boolean => {
     if (document.fullscreenElement !== null) {
-      endFullscreen();
+      // The browser may be leaving already for this same press; then this call is refused.
+      void document.exitFullscreen().catch(() => undefined);
 
       return true;
     }
 
-    return performance.now() - exitedAt.current < FULLSCREEN_ESCAPE_MS;
-  }, [endFullscreen]);
+    return event.timeStamp <= endedAt.current;
+  }, []);
 
-  return { fullscreen, toggle, takeEscape };
+  return { toggle, takeEscape };
 };
 
 /** A touch screen too small for the desktop player: a phone in either orientation. */

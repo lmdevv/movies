@@ -15,11 +15,13 @@ export const DialogClose = DialogPrimitive.Close;
  *
  * @param size - `md` is the 560px dialog (Create API key); `sm` is the 480px confirmation.
  * @param description - Read by assistive technology with the title; render visible copy in the body.
+ * @param container - Where the dialog renders, such as a full-screen player; the body when undefined.
  */
 export function DialogContent({
   title,
   description,
   size = "md",
+  container,
   className,
   children,
   ...props
@@ -27,10 +29,11 @@ export function DialogContent({
   readonly title: string;
   readonly description?: string | undefined;
   readonly size?: "sm" | "md";
+  readonly container?: HTMLElement | undefined;
   readonly children: ReactNode;
 }) {
   return (
-    <DialogPrimitive.Portal>
+    <DialogPrimitive.Portal container={container}>
       <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-scrim transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
       <DialogPrimitive.Popup
         data-slot="dialog"
