@@ -81,6 +81,8 @@
   --color-video-track: rgb(255 255 255 / 30%);
   --color-video-muted: rgb(255 255 255 / 70%);
   --text-tab: 10px;
+  /* The top corners of sheets (C14, C15). */
+  --radius-sheet: 28px;
 }
 
 /* The profile avatar set, shared with the web app (`apps/web/public/avatars/<key>.svg`): each key
