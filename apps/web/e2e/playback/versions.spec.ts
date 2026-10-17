@@ -12,12 +12,13 @@ import { join } from "node:path";
 
 import type { MediaFileId, TitleId } from "@movies/contracts/ids";
 import { devices, expect, test } from "@playwright/test";
-import type { BrowserContext, Locator, Page } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
 
 import { NO_STACK, ownedStack, signInOwner, useSession } from "../admin/session";
 import type { Client } from "../admin/session";
 import { buildMediaService, startMediaService } from "../stack/media-service";
 import type { MediaService } from "../stack/media-service";
+import { expectAboveTrigger } from "../menu-geometry";
 import { recordStreams, refuseNextNegotiation } from "./negotiated-streams";
 import type { NegotiatedStream } from "./negotiated-streams";
 import {
@@ -82,7 +83,7 @@ const SUBTITLE_LANGUAGES = [
   "ar",
   "he",
   "fa",
-  "hi",
+  "hin",
   "ja",
   "ko",
   "zh",
@@ -241,20 +242,6 @@ const firstEpisode = async (): Promise<string> => {
   return episode.id;
 };
 
-/** `menu` lies inside the window and above `trigger`, clear of the controls under it. */
-const expectInside = async (target: Page, menu: Locator, trigger: Locator): Promise<void> => {
-  const viewport = target.viewportSize();
-  const box = await menu.boundingBox();
-  const anchor = await trigger.boundingBox();
-
-  if (viewport === null || box === null || anchor === null) throw new Error("Nothing to measure");
-
-  expect(box.x).toBeGreaterThanOrEqual(0);
-  expect(box.y).toBeGreaterThanOrEqual(0);
-  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
-  expect(box.y + box.height).toBeLessThanOrEqual(anchor.y);
-};
-
 /** The Version column of the player's tracks popover. */
 const versionGroup = (target: Page) =>
   target.getByRole("dialog", { name: TRACKS }).getByRole("radiogroup", { name: "Version" });
@@ -403,7 +390,7 @@ test("four columns and thirty-two subtitles stay inside a short full screen and 
   expect(await menu.evaluate((popup) => document.fullscreenElement?.contains(popup) ?? false)).toBe(
     true,
   );
-  await expectInside(page, menu, trigger);
+  await expectAboveTrigger(page, menu, trigger);
 
   await Promise.all(
     ["Version", "Audio", "Subtitles", "Quality"].map(async (heading) =>
@@ -456,12 +443,12 @@ test("four columns and thirty-two subtitles stay inside a short full screen and 
     const phoneMenu = handset.getByRole("dialog", { name: TRACKS });
 
     await expect(phoneMenu).toBeVisible();
-    await expectInside(handset, phoneMenu, pill);
+    await expectAboveTrigger(handset, phoneMenu, pill);
     await handset.setViewportSize(devices["iPhone 13"].viewport);
     await expect
       .poll(async () => (await phoneMenu.boundingBox())?.y ?? -1)
       .toBeGreaterThanOrEqual(0);
-    await expectInside(handset, phoneMenu, pill);
+    await expectAboveTrigger(handset, phoneMenu, pill);
   } finally {
     await phone.close();
   }

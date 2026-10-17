@@ -3,7 +3,7 @@ import { Radio } from "@base-ui/react/radio";
 import { RadioGroup } from "@base-ui/react/radio-group";
 import { cn } from "@movies/ui/lib/utils";
 import { CheckIcon } from "lucide-react";
-import { Fragment, useCallback, useId } from "react";
+import { Fragment, useCallback, useId, useLayoutEffect, useRef } from "react";
 import type { ReactElement } from "react";
 
 /** One choice in a column, such as an audio track or a version of the film. */
@@ -88,12 +88,23 @@ function TrackColumn({
 }) {
   const labelId = useId();
 
-  // A new choice, or new options, start following the chosen option again: React runs a ref with a
-  // new identity afresh.
-  const followChecked = useCallback(
-    (list: HTMLElement | null) => keepCheckedInView(list),
-    [value, options],
-  );
+  const list = useRef<HTMLElement | null>(null);
+
+  // One observer for the list's life, which keeps the chosen option in view as the list resizes.
+  const attachList = useCallback((element: HTMLElement | null) => {
+    list.current = element;
+
+    return keepCheckedInView(element);
+  }, []);
+
+  // A new choice, or a different list of options, shows the chosen one, as when the menu opened.
+  // The ids, not the array, say whether the options changed: the player rebuilds the array with
+  // each new stream.
+  const optionIds = options.map((option) => option.id).join("\n");
+
+  useLayoutEffect(() => {
+    if (list.current !== null) revealChecked(list.current);
+  }, [value, optionIds]);
 
   // The heading stays put while the options under it scroll, each column on its own.
   return (
@@ -105,7 +116,7 @@ function TrackColumn({
         {label}
       </span>
       <RadioGroup
-        ref={followChecked}
+        ref={attachList}
         aria-labelledby={labelId}
         value={value}
         onValueChange={(next) => onValueChange(next)}

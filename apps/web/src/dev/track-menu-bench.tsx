@@ -84,7 +84,8 @@ export function TrackMenuBench({ columns }: { readonly columns: "1" | "3" | "4" 
   const subtitles: TrackChoice = {
     id: "subtitles",
     label: "Subtitles",
-    options: SUBTITLES,
+    // A new array each render, as the player builds its options anew with each stream.
+    options: [...SUBTITLES],
     value: subtitle,
     onValueChange: setSubtitle,
   };

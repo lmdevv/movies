@@ -125,7 +125,7 @@
   /* The spaced uppercase line under a hero title. */
   --font-weight-tagline: 300;
   /* Popover lists: the chapter list, the player's track panel, and the command menu's results.
-     Each is also held to the room above its trigger. */
+     The track panel is also held to the room above its trigger. */
   --spacing-chapter-list: 28rem;
   --spacing-track-panel: 28rem;
   --spacing-command-list: 30rem;

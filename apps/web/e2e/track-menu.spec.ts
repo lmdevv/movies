@@ -7,6 +7,8 @@
 import { devices, expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
 
+import { expectAboveTrigger, settled } from "./menu-geometry";
+
 const LABEL = "Audio, subtitles, and quality";
 
 const HEADINGS = {
@@ -35,10 +37,7 @@ const openMenu = async (page: Page): Promise<Locator> => {
 
   const menu = page.getByRole("dialog", { name: LABEL });
 
-  await expect(menu).toBeVisible();
-  await menu.evaluate(async (popup) => {
-    await Promise.all(popup.getAnimations().map(async (animation) => animation.finished));
-  });
+  await settled(menu);
 
   return menu;
 };
@@ -72,18 +71,8 @@ const drag = async (
 };
 
 /** The menu lies inside the window and above its trigger, clear of the controls under it. */
-const expectContained = async (page: Page, menu: Locator): Promise<void> => {
-  const viewport = page.viewportSize();
-  const box = await menu.boundingBox();
-  const trigger = await page.getByRole("button", { name: LABEL }).boundingBox();
-
-  if (viewport === null || box === null || trigger === null) throw new Error("Nothing to measure");
-
-  expect(box.x).toBeGreaterThanOrEqual(0);
-  expect(box.y).toBeGreaterThanOrEqual(0);
-  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
-  expect(box.y + box.height).toBeLessThanOrEqual(trigger.y);
-};
+const expectContained = async (page: Page, menu: Locator): Promise<void> =>
+  expectAboveTrigger(page, menu, page.getByRole("button", { name: LABEL }));
 
 /**
  * Each heading comes whole into view inside the menu and the window, scrolling the columns
@@ -242,6 +231,20 @@ test("a window resized after the viewer scrolls keeps their place", async ({ pag
 
   await page.setViewportSize({ width: 1280, height: 420 });
   await expect.poll(async () => (await menu.boundingBox())?.height ?? 0).toBeLessThan(before);
+  await expect(subtitle(menu, FIRST_SUBTITLE)).toBeInViewport({ ratio: 1 });
+  await expect(subtitle(menu, CHOSEN_SUBTITLE)).not.toBeInViewport();
+});
+
+test("a choice in another column keeps a scrolled column's place", async ({ page }) => {
+  const menu = await open(page, "4");
+
+  await subtitle(menu, CHOSEN_SUBTITLE).hover();
+  await page.mouse.wheel(0, -8000);
+  await expect(subtitle(menu, FIRST_SUBTITLE)).toBeInViewport({ ratio: 1 });
+
+  // The bench, like the player, hands the subtitles over as a new array on every change.
+  await menu.getByRole("radio", { name: "720p", exact: true }).click();
+  await expect(menu.getByRole("radio", { name: "720p", exact: true })).toBeChecked();
   await expect(subtitle(menu, FIRST_SUBTITLE)).toBeInViewport({ ratio: 1 });
   await expect(subtitle(menu, CHOSEN_SUBTITLE)).not.toBeInViewport();
 });
