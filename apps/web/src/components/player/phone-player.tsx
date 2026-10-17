@@ -28,7 +28,7 @@ import {
   Volume2Icon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { ComponentProps, ReactElement, ReactNode } from "react";
 
 /** A 36px frosted circle button. */
@@ -97,14 +97,30 @@ function SideSlider({
 }) {
   // Where a drag has put the slider, until it settles; the level it reports can lag (a TV).
   const [moving, setMoving] = useState<number | null>(null);
+  const movingNow = useRef<number | null>(null);
 
-  // A drag the window never hears end, as when a call takes focus, settles nowhere.
+  const move = (next: number | null): void => {
+    movingNow.current = next;
+    setMoving(next);
+  };
+
+  // A drag cut off before it was let go (a call, an edge swipe) settles where it got to.
+  const settle = (): void => {
+    const last = movingNow.current;
+
+    if (last === null) return;
+    move(null);
+    onCommit?.(last);
+  };
+
+  const settleCut = useEffectEvent(settle);
+
   useEffect(() => {
-    const drop = (): void => setMoving(null);
+    const cut = (): void => settleCut();
 
-    window.addEventListener("blur", drop);
+    window.addEventListener("blur", cut);
 
-    return () => window.removeEventListener("blur", drop);
+    return () => window.removeEventListener("blur", cut);
   }, []);
 
   return (
@@ -116,18 +132,17 @@ function SideSlider({
         step={0.05}
         value={moving ?? value}
         onValueChange={(next) => {
-          setMoving(next);
+          move(next);
           onChange(next);
         }}
         onValueCommitted={(next) => {
-          setMoving(null);
+          move(null);
           onCommit?.(next);
         }}
         className="h-33"
       >
         <Slider.Control
-          // A drag the system takes over (an edge swipe, a call) settles nowhere.
-          onPointerCancel={() => setMoving(null)}
+          onPointerCancel={settle}
           className="flex h-full w-9 cursor-pointer touch-none justify-center"
         >
           <Slider.Track className="relative h-full w-1 rounded-bar bg-text/30">

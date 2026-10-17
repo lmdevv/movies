@@ -12,7 +12,7 @@ import {
   Volume2Icon,
   VolumeXIcon,
 } from "lucide-react";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import type { ComponentProps, FocusEvent, KeyboardEvent, PointerEvent, ReactNode } from "react";
 
 import { PauseGlyph, PlayGlyph, SkipNextGlyph } from "./icons";
@@ -312,6 +312,13 @@ function VolumeControl({
   // Closed with Escape, or left alone: keyboard focus inside does not open it again until it leaves.
   const dismissed = useRef(false);
   // Where a drag or key has put the slider, until it settles; the level it reports can lag (a TV).
+  // The latest callbacks, for timers and window listeners that outlive the render that set them
+  // (a commit after the output changed must reach the new one).
+  const latest = useRef({ onVolumeCommit, onOpenChange });
+
+  useLayoutEffect(() => {
+    latest.current = { onVolumeCommit, onOpenChange };
+  });
   const [moving, setMoving] = useState<number | null>(null);
   const movingNow = useRef<number | null>(null);
 
@@ -327,7 +334,7 @@ function VolumeControl({
 
     if (value === null) return;
     move(null);
-    onVolumeCommit?.(value / 100);
+    latest.current.onVolumeCommit?.(value / 100);
   };
 
   const silent = muted || volume === 0;
@@ -345,7 +352,7 @@ function VolumeControl({
     setOpen(next);
 
     if (!next) settle();
-    onOpenChange?.(next);
+    latest.current.onOpenChange?.(next);
   };
 
   // A press inside, until it is let go: focus it moves does not count as keyboard focus.

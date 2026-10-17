@@ -191,7 +191,8 @@ function EpisodeList<Id extends string>({
                     type="button"
                     data-slot="episode-row"
                     aria-current={current || undefined}
-                    disabled={!episode.available}
+                    // The episode playing stays focusable, even if its file went missing meanwhile.
+                    disabled={!episode.available && !current}
                     onClick={() => onSelect(episode)}
                     className="group/episode flex w-full cursor-pointer items-center gap-3 rounded-bar p-2 text-left font-sans text-body/label text-text-muted transition-colors outline-none hover:bg-text/8 hover:text-text focus-visible:bg-text/8 focus-visible:text-text disabled:cursor-default disabled:opacity-(--opacity-muted) disabled:hover:bg-transparent aria-current:bg-text/8 aria-current:text-text"
                   >
