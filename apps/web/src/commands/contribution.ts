@@ -31,6 +31,14 @@ export interface PlayerCommands {
   readonly subtitles: ReadonlyArray<TrackOption>;
   readonly subtitleId: string;
   readonly selectSubtitle: (id: string) => void;
+  /**
+   * The text subtitle's delay, while one shows here: `step(-1)` earlier, `step(1)` later,
+   * `step(0)` back to the file's timing. Null when there is nothing it could apply to.
+   */
+  readonly subtitleDelay: {
+    readonly delayMs: number;
+    readonly step: (direction: -1 | 0 | 1) => void;
+  } | null;
   readonly audio: ReadonlyArray<TrackOption>;
   readonly audioId: string;
   readonly selectAudio: (id: string) => void;

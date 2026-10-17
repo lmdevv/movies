@@ -389,6 +389,35 @@ choices made while implementing them. Update it in the same PR that changes a de
   the duration, or reporting `ended`, marks the item watched; watched stays set until someone marks
   it unwatched. Sessions silent for 30 minutes end.
 
+## Subtitle delay
+
+- The web player shifts text subtitles for the viewer: a positive delay shows each cue later than
+  its file says, a negative one earlier. Range ±30 s; Earlier and Later (and the player's G and H
+  keys, and ⌘K's "Subtitles earlier/later") step 0.1 s; a typed entry keeps 0.01 s. A cue moved
+  before 0 s is cut at 0 s.
+- Lifetime: the current playback only. It starts at 0, survives pause, seeks, quality and audio
+  changes, HLS playlist reloads, and token renewals, and turning subtitles Off and back on the same
+  track. Choosing another subtitle track or another version, opening another title or episode, or
+  reloading the page starts again at 0. Nothing is stored: not on the device, in Convex, or in the
+  profile.
+- It is a client presentation setting and nothing else. The media service, Convex, the room
+  engine, and the SDK never see it, and each member of a watch room has their own; the room's clock
+  is untouched. So it is not in contracts, the SDK, or the CLI, which has no player.
+- How: `SubtitleRetimer` (`apps/web/src/playback/subtitle-timing.ts`) moves the `startTime` and
+  `endTime` of the `<video>` element's text track cues, keeping each cue's file timing beside it
+  so changes never drift, and times cues that load later (a track shown the first time, or a new
+  stream's `<track>` elements). Text subtitles are WebVTT `<track>` elements beside the stream on
+  every path, so one mechanism covers direct play and native HLS (`<video src>`) and hls.js over
+  Media Source (its light build has no subtitle handling of its own); a new stream for another
+  quality never reloads them. Re-timing the WebVTT on the server was rejected: it would need a
+  new URL and a reload for every step and would leak a per-viewer setting into the media service.
+- Where it cannot apply, the control is disabled and says why: subtitles Off ("Subtitles are
+  off"); picture subtitles (PGS, VobSub, DVB), which the media service burns into a transcode
+  ("Burned into the video"; ASS/SSA convert to WebVTT text and do get the delay); Chromecast, whose
+  Default Media Receiver loads the WebVTT itself and offers no cue offset ("Not while casting");
+  and AirPlay or the Remote Playback API while they play the element on another screen ("Not on
+  another screen"), whose receivers fetch the media themselves.
+
 ## Watch rooms
 
 - A room stores `positionAtAnchorMs`, `anchorServerTime`, `status`, `playbackRate`, and

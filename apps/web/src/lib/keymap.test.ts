@@ -32,6 +32,8 @@ describe("playerKeymap", () => {
     expect(press("f")).toBe("player.fullscreen");
     expect(press("m")).toBe("player.mute");
     expect(press("c")).toBe("player.subtitles");
+    expect(press("g")).toBe("player.subtitles-earlier");
+    expect(press("h")).toBe("player.subtitles-later");
     expect(press("Escape")).toBe("player.exit");
   });
 
@@ -39,7 +41,8 @@ describe("playerKeymap", () => {
     // Tests run outside Apple platforms, where `mod` is Control.
     expect(press("k", { ctrlKey: true })).toBe("menu.toggle");
     expect(press("f", { shiftKey: true })).toBeNull();
-    expect(press("g")).toBeNull();
+    expect(press("g", { shiftKey: true })).toBeNull();
+    expect(press("n")).toBeNull();
   });
 
   it("draws keycaps for the menu", () => {
