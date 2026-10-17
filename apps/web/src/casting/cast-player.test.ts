@@ -18,6 +18,8 @@ const laggingReceiver = () => {
   const handlers = new Set<(event: RemotePlayerChange) => void>();
   let receiverPaused = false;
   let mirrorPaused = false;
+  // The receiver's state after each command, in order, until the mirror reports it.
+  const unreported: Array<boolean> = [];
 
   /** The Cast SDK's mirror of the receiver's player. */
   class FakeRemotePlayer implements RemotePlayer {
@@ -38,6 +40,7 @@ const laggingReceiver = () => {
   class FakeController implements RemotePlayerController {
     playOrPause(): void {
       receiverPaused = !receiverPaused;
+      unreported.push(receiverPaused);
     }
 
     seek(): void {}
@@ -71,12 +74,23 @@ const laggingReceiver = () => {
 
   return {
     framework,
-    /** The mirror catches up with the receiver, reporting a change if there is one. */
-    deliver: () => {
-      if (mirrorPaused === receiverPaused) return;
-      mirrorPaused = receiverPaused;
+    /** The mirror reports the receiver's next state, if one is on its way. */
+    deliverOne: () => {
+      const next = unreported.shift();
 
-      for (const handler of handlers) handler({ field: "isPaused", value: receiverPaused });
+      if (next === undefined || next === mirrorPaused) return;
+      mirrorPaused = next;
+
+      for (const handler of handlers) handler({ field: "isPaused", value: next });
+    },
+    /** The mirror reports every state on its way. */
+    deliver: () => {
+      for (const next of unreported.splice(0)) {
+        if (next === mirrorPaused) continue;
+        mirrorPaused = next;
+
+        for (const handler of handlers) handler({ field: "isPaused", value: next });
+      }
     },
     receiverPaused: () => receiverPaused,
   };
@@ -110,6 +124,36 @@ describe("CastPlayer", () => {
     player.pause();
     receiver.deliver();
     await player.play();
+    player.pause();
+    receiver.deliver();
+
+    expect(receiver.receiverPaused()).toBe(true);
+    expect(player.isPaused()).toBe(true);
+  });
+
+  it("keeps a play asked after a pause while the pause's report arrives", async () => {
+    const receiver = laggingReceiver();
+    const player = castPlayer(receiver.framework);
+
+    player.pause();
+    await player.play();
+    // The pause's report arrives; the play's is still on its way.
+    receiver.deliverOne();
+    await player.play();
+    receiver.deliver();
+
+    expect(receiver.receiverPaused()).toBe(false);
+    expect(player.isPaused()).toBe(false);
+  });
+
+  it("follows the mirror again once it has reported every command", async () => {
+    const receiver = laggingReceiver();
+    const player = castPlayer(receiver.framework);
+
+    player.pause();
+    receiver.deliver();
+    await player.play();
+    receiver.deliver();
     player.pause();
     receiver.deliver();
 

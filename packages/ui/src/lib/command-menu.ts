@@ -17,6 +17,12 @@ type CommandItemFields = {
   /** Extra search words that are not shown. */
   readonly keywords?: ReadonlyArray<string> | undefined;
   readonly leading?: CommandLeading | undefined;
+  /**
+   * Whether the row is the current choice of a list of choices, for assistive technology. Set it on
+   * every row of such a list (true or false) and leave it out elsewhere; draw the check with
+   * `leading`.
+   */
+  readonly checked?: boolean | undefined;
   /** Keycaps drawn at the right edge, such as `["G", "H"]`. Omit when the command has no shortcut. */
   readonly keycaps?: ReadonlyArray<string> | undefined;
   /** Fraction done, from 0 to 1, of a running job this row reports, such as a library scan. */

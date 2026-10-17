@@ -47,6 +47,7 @@ export const usePreferenceCommands = (): CommandContribution => {
                       id: choice.id,
                       title: choice.title,
                       leading: choice.id === current ? { kind: "check" } : undefined,
+                      checked: choice.id === current,
                       perform: () => setTheme(choice.id),
                     })),
                   },

@@ -34,6 +34,7 @@ export const useProfileCommands = (context: CommandContext): CommandContribution
             : image === undefined
               ? { kind: "icon", icon: UserRoundIcon }
               : { kind: "poster", src: image },
+        checked: candidate.id === profile.id,
         perform: () => {
           if (candidate.id === profile.id) return;
 

@@ -47,10 +47,12 @@ export class CastPlayer implements PlayerPort {
   readonly #watchers = new Set<() => void>();
   #pending: number | null = null;
   /**
-   * Whether the receiver was last asked to pause (true) or play (false), until its mirror next
-   * reports a pause or play. Commands toggle, so they follow what was asked, not the lagging mirror.
+   * Whether the receiver was last asked to pause (true) or play (false), while toggles it was sent
+   * are still unreported. Commands toggle, so they follow what was asked, not the lagging mirror.
    */
   #asked: boolean | null = null;
+  /** Toggles sent whose pause or play the mirror has not reported yet. */
+  #unreported = 0;
   #moving: AbortController | null = null;
   #ended = false;
   /** Where the receiver was when this player was disposed; reports read it from then on. */
@@ -142,7 +144,7 @@ export class CastPlayer implements PlayerPort {
       this.#last = { positionMs: this.#remote.currentTime * 1000, paused: this.#remote.isPaused };
     }
 
-    if (change.field === "isPaused") this.#asked = null;
+    if (change.field === "isPaused") this.#reported(change.value === true);
 
     if (change.field === "isPaused" && this.#pending === null) {
       if (change.value === false) this.#ended = false;
@@ -225,7 +227,21 @@ export class CastPlayer implements PlayerPort {
   #ask(paused: boolean): void {
     if ((this.#asked ?? this.#remote.isPaused) === paused) return;
     this.#asked = paused;
+    this.#unreported += 1;
     this.#controller.playOrPause();
+  }
+
+  /**
+   * The mirror reported a pause or play. What was asked stands until the mirror reaches it or has
+   * reported every toggle sent; an earlier toggle's report, on its way, does not undo a later ask.
+   */
+  #reported(paused: boolean): void {
+    this.#unreported = Math.max(0, this.#unreported - 1);
+
+    if (paused === this.#asked || this.#unreported === 0) {
+      this.#asked = null;
+      this.#unreported = 0;
+    }
   }
 
   /** Stops the receiver's media; the device stays connected. */

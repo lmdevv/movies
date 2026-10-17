@@ -102,6 +102,7 @@ describe("playbackCommands", () => {
 
       expect(list.map((option) => option.title)).toEqual(expected);
       expect(list.map((option) => option.leading?.kind === "check")).toEqual([true, false]);
+      expect(list.map((option) => option.checked)).toEqual([true, false]);
 
       const last = list.at(-1);
 

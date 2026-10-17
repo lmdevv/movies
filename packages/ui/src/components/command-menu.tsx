@@ -8,7 +8,7 @@ import {
 import type { CommandItem, CommandLeading, CommandPage } from "@movies/ui/lib/command-menu";
 import { cn } from "@movies/ui/lib/utils";
 import { CheckIcon } from "lucide-react";
-import { useEffect, useEffectEvent, useId, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useId, useReducer, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 import { Keycaps } from "./keycap";
@@ -53,7 +53,7 @@ function CommandRow({
   readonly item: CommandItem;
   readonly id: string;
   readonly active: boolean;
-  /** Whether the row is the current choice of a list of choices; undefined in other lists. */
+  /** Whether the row is the current choice of a list of choices; undefined elsewhere. */
   readonly checked: boolean | undefined;
   readonly busy: boolean;
   readonly onPoint: () => void;
@@ -176,18 +176,6 @@ export function CommandMenu({
   const count = visible.items.length;
   const active = count === 0 ? -1 : Math.min(frame.active, count - 1);
   const activeId = active === -1 ? undefined : `${listboxId}-${active}`;
-
-  // A group with a checked row is a list of choices, where every row is checked or not, even while
-  // typing hides the checked one.
-  const choiceGroups = useMemo(
-    () =>
-      new Set(
-        page.groups
-          .filter((group) => group.items.some((item) => item.leading?.kind === "check"))
-          .map((group) => group.id),
-      ),
-    [page],
-  );
 
   useEffect(() => {
     if (activeId !== undefined)
@@ -343,7 +331,6 @@ export function CommandMenu({
             ) : null}
             {visible.groups.map((group) => {
               const labelId = `${listboxId}-${group.id}`;
-              const choices = choiceGroups.has(group.id);
 
               return (
                 <div
@@ -371,7 +358,7 @@ export function CommandMenu({
                         id={`${listboxId}-${position}`}
                         item={item}
                         active={position === active}
-                        checked={choices ? item.leading?.kind === "check" : undefined}
+                        checked={item.checked}
                         busy={busyId === item.id}
                         onPoint={() => dispatch({ type: "point", index: position })}
                         onChoose={() => choose(item)}
