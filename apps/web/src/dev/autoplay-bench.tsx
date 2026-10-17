@@ -2,7 +2,7 @@ import { Milliseconds } from "@movies/contracts/units";
 import { useState } from "react";
 
 import { AutoplayNext } from "@/components/player/autoplay-next";
-import type { NextEpisode } from "@/components/player/autoplay-next";
+import type { NextEpisode, NextEpisodeActions } from "@/components/player/autoplay-next";
 
 import { ART } from "./sample-art";
 
@@ -29,8 +29,28 @@ export interface AutoplayBenchOptions {
   readonly title: "short" | "long";
   readonly overview: boolean;
   readonly seconds: number;
-  readonly role: "advance" | "follow";
+  readonly role: "advance" | "follow" | "unavailable";
 }
+
+/** The card's actions for `role`, each reporting what it did through `done`. */
+const actionsFor = (
+  role: AutoplayBenchOptions["role"],
+  countdownMs: number,
+  done: (what: string) => void,
+): NextEpisodeActions => {
+  if (role === "follow") return { kind: "follow", countdownMs, onClose: () => done("Closed") };
+
+  if (role === "unavailable") {
+    return { kind: "unavailable", reason: "File missing", onClose: () => done("Closed") };
+  }
+
+  return {
+    kind: "advance",
+    countdownMs,
+    onPlayNext: () => done("Played next"),
+    onWatchCredits: () => done("Watching credits"),
+  };
+};
 
 /**
  * The next-episode card over a still frame standing in for the credits, at the size of the window,
@@ -54,16 +74,7 @@ export function AutoplayBench({ still, title, overview, seconds, role }: Autopla
             overview: overview ? EPISODE.overview : null,
           }}
           still={STILLS[still]}
-          countdownMs={seconds * 1000}
-          actions={
-            role === "advance"
-              ? {
-                  kind: "advance",
-                  onPlayNext: () => setDone("Played next"),
-                  onWatchCredits: () => setDone("Watching credits"),
-                }
-              : { kind: "follow", onClose: () => setDone("Closed") }
-          }
+          actions={actionsFor(role, seconds * 1000, setDone)}
         />
       ) : (
         <p role="status" className="absolute top-4 left-4 text-body/body">

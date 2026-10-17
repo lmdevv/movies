@@ -11,6 +11,7 @@ import {
   HOST_PRESENCE_TIMEOUT_MS,
   HOST_REANCHOR_THRESHOLD_MS,
   MEMBER_PRESENCE_TIMEOUT_MS,
+  NEXT_EPISODE_COUNTDOWN_MS,
   PLAYER_SILENCE_MS,
   UNTIMED_HOST_REANCHOR_THRESHOLD_MS,
 } from "@movies/contracts/clock";
@@ -213,6 +214,7 @@ describe("constants shared across the seam", () => {
     expect(convexClock.HEARTBEAT_INTERVAL_MS).toBe(HEARTBEAT_INTERVAL_MS);
     expect(convexClock.PLAYER_SILENCE_MS).toBe(PLAYER_SILENCE_MS);
     expect(convexClock.AWAY_PRESENCE_TIMEOUT_MS).toBe(AWAY_PRESENCE_TIMEOUT_MS);
+    expect(convexClock.NEXT_EPISODE_COUNTDOWN_MS).toBe(NEXT_EPISODE_COUNTDOWN_MS);
   });
 
   it("uses the same kids default and batch limits", () => {

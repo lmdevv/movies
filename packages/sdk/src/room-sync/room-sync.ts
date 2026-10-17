@@ -12,6 +12,11 @@
  *   saw. A stall freezes the room, and recovery publishes a fresh playing anchor. Only a command
  *   rejected as stale, or a reconnect, moves the host's player onto the committed clock, apart
  *   from a host starting far from a playing room's live position, which catches up with it first.
+ * - **Next episode.** The room's countdown is part of its record (`room.next`), due at a server
+ *   time; `nextEpisodeCountdownMs` reads it with this device's clock offset. The server moves the
+ *   room on, and each player opens the new media itself. An engine whose player is on a file the
+ *   room moved on from goes `moved`: it applies no more clocks and sends no host commands, which
+ *   also name their file, so the old player can never move the new media's clock.
  * - **Presence.** Heartbeats every few seconds; the host's carry its position so the server can
  *   re-anchor drift, and a following guest's carry its measured drift so the room can show it. An unanswered heartbeat marks the connection lost and disables host controls
  *   until the room has been read again.
@@ -22,15 +27,16 @@
 import type { ClockOffset, ClockSample } from "@movies/contracts/clock";
 import type { CommandArgs } from "@movies/contracts/commands";
 import {
+  countdownRemaining,
   estimateClockOffset,
   isNewerRevision,
   targetPosition,
   toServerTime,
 } from "@movies/contracts/clock";
-import type { DeviceId, RoomId } from "@movies/contracts/ids";
+import type { DeviceId, MediaFileId, RoomId } from "@movies/contracts/ids";
 import type { Room, RoomClock } from "@movies/contracts/models/rooms";
 import type { EpochMillis } from "@movies/contracts/units";
-import { Milliseconds } from "@movies/contracts/units";
+import { EpochMillis as EpochMillisSchema, Milliseconds } from "@movies/contracts/units";
 import {
   Clock,
   Duration,
@@ -59,9 +65,11 @@ export type RoomRole = "host" | "guest";
 /**
  * How this device follows the room. `buffering`: stalled, catching up when it plays again.
  * `detached`: the guest paused their own player; following resumes when they play. `blocked`:
- * the platform refused to start playback until the user interacts. `ended`: the room is over.
+ * the platform refused to start playback until the user interacts. `moved`: the room plays another
+ * file now (the next episode, or the host's pick), so this player is left alone and never moves
+ * the room's clock until the app opens the new media with a new engine. `ended`: the room is over.
  */
-export type FollowState = "following" | "buffering" | "detached" | "blocked" | "ended";
+export type FollowState = "following" | "buffering" | "detached" | "blocked" | "moved" | "ended";
 
 /** Where the engine stands, for the UI. */
 export interface RoomSyncState {
@@ -84,7 +92,30 @@ export const hostControlsEnabled = (state: RoomSyncState): boolean =>
   state.role === "host" &&
   state.connection === "connected" &&
   state.offset !== null &&
+  state.follow !== "moved" &&
   state.clock.status !== "ended";
+
+/**
+ * How long is left on the room's next-episode countdown at `deviceNow`, by the server's clock as
+ * this device estimates it (its own clock until the offset is known), or null while none runs.
+ * Every member computes it from the same `nextAt`, so they all count down together, and a member
+ * who reloads mid-countdown picks it up where the others are.
+ */
+export const nextEpisodeCountdownMs = (
+  state: Pick<RoomSyncState, "room" | "offset">,
+  deviceNow: number,
+): Milliseconds | null => {
+  const { next } = state.room;
+
+  if (next?.status !== "pending") return null;
+
+  const serverNow =
+    state.offset === null
+      ? EpochMillisSchema.make(deviceNow)
+      : toServerTime(deviceNow, state.offset);
+
+  return countdownRemaining(next.nextAt, serverNow);
+};
 
 /** What to synchronize. */
 export interface RoomSyncOptions {
@@ -93,6 +124,11 @@ export interface RoomSyncOptions {
   readonly deviceId: DeviceId;
   readonly player: PlayerPort;
   readonly tunables: RoomSyncTunables;
+  /**
+   * The file `player` plays; the room's when the engine starts, by default. Once the room plays
+   * another, the engine stops following and commanding (`moved`).
+   */
+  readonly fileId?: MediaFileId | undefined;
 }
 
 /** A running engine. It stops when its scope closes. */
@@ -116,6 +152,7 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
   const client = yield* MoviesClient;
   const { player, tunables, roomId, deviceId } = options;
   const initial = yield* client.query("rooms.get", { roomId });
+  const fileId = options.fileId ?? initial.fileId;
   const role: RoomRole = initial.hostDeviceId === deviceId ? "host" : "guest";
   const window = Math.max(1, tunables.offsetSamples * 2);
   const samples = yield* Ref.make<ReadonlyArray<ClockSample>>([]);
@@ -147,7 +184,12 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     room: initial,
     clock: initial.clock,
     connection: "connected",
-    follow: initial.clock.status === "ended" ? "ended" : "following",
+    follow:
+      initial.clock.status === "ended"
+        ? "ended"
+        : initial.fileId === fileId
+          ? "following"
+          : "moved",
     offset: null,
     driftMs: null,
   });
@@ -333,6 +375,9 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     Effect.gen(function* () {
       const current = yield* SubscriptionRef.get(state);
 
+      // The room moved on from this player's file: nothing here to correct.
+      if (current.follow === "moved") return;
+
       // Before the ended check: a host's catch-up ends with the room too.
       if (current.role === "host") {
         yield* catchUp(current);
@@ -350,10 +395,15 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     }),
   );
 
-  /** Applies `clock` when it is newer than the applied one. Reports whether it was. */
+  /**
+   * Applies `clock` when it is newer than the applied one. Reports whether it was. A player the
+   * room moved on from applies no clock: the newer ones are the new media's.
+   */
   const applyClock = (clock: RoomClock): Effect.Effect<boolean> =>
     SubscriptionRef.modify(state, (current) => {
-      if (!isNewerRevision(clock, current.clock)) return [false, current];
+      if (current.follow === "moved" || !isNewerRevision(clock, current.clock)) {
+        return [false, current];
+      }
 
       const followState: FollowState =
         clock.status === "ended"
@@ -365,14 +415,38 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
       return [true, { ...current, clock, follow: followState }];
     });
 
+  /**
+   * Takes in a room record: its clock when the room still plays this player's file, or the news
+   * that it moved on, after which this player is left alone. Reports whether the clock was newer.
+   */
+  const adopt = (room: Room): Effect.Effect<boolean> =>
+    room.fileId === fileId
+      ? Effect.andThen(
+          // Back on this player's file before the app opened the other: follow it again.
+          update((current) => ({
+            ...current,
+            room,
+            follow: current.follow === "moved" ? "following" : current.follow,
+          })),
+          applyClock(room.clock),
+        )
+      : Effect.as(
+          update((current) => ({
+            ...current,
+            room,
+            follow: current.follow === "ended" ? "ended" : "moved",
+          })),
+          false,
+        );
+
   /** Reads the committed room and moves the player onto it. */
   const resync = serial.withPermits(1)(
     Effect.gen(function* () {
       const room = yield* client.query("rooms.get", { roomId });
 
-      yield* update((current) => ({ ...current, room }));
-      yield* applyClock(room.clock);
-      yield* align();
+      yield* adopt(room);
+
+      if (room.fileId === fileId) yield* align();
     }),
   );
 
@@ -387,6 +461,7 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
       deviceId,
       revision,
       positionMs: intent.positionMs,
+      fileId,
     });
 
     yield* applyClock(result);
@@ -401,6 +476,9 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
       const current = yield* SubscriptionRef.get(state);
 
       if (current.role !== "host" || current.connection !== "connected") return;
+
+      // A player the room moved on from never moves the new media's clock.
+      if (current.follow === "moved") return;
 
       if (yield* isCatchingUp) return;
       yield* settleExpiredCatchUp;
@@ -422,9 +500,9 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
 
             const room = yield* client.query("rooms.get", { roomId });
 
-            yield* update((latest) => ({ ...latest, room }));
-            yield* applyClock(room.clock);
-            yield* align();
+            yield* adopt(room);
+
+            if (room.fileId === fileId) yield* align();
           }).pipe(Effect.catch(() => markReconnecting)),
         ),
       );
@@ -467,6 +545,9 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
   const onPlayerEvent = (event: PlayerEvent): Effect.Effect<void> =>
     Effect.gen(function* () {
       const current = yield* SubscriptionRef.get(state);
+
+      // A player the room moved on from is the app's to replace; its events mean nothing here.
+      if (current.follow === "moved") return;
 
       if (current.role === "host") {
         if (!(yield* isCatchingUp)) {
@@ -561,6 +642,10 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     now: Option.Option<EpochMillis>,
     catching: boolean,
   ): CommandArgs<"rooms.heartbeat"> => {
+    // A player the room moved on from plays nothing of the room's: it keeps the place, away, so it
+    // never counts as the host watching the new media.
+    if (current.follow === "moved") return { roomId, deviceId, presence: "away" };
+
     if (current.role === "host" && catching) return { roomId, deviceId };
 
     if (current.role === "host") {
@@ -570,6 +655,7 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
         positionMs: Milliseconds.make(Math.max(0, player.positionMs())),
         ...Option.match(now, { onNone: () => ({}), onSome: (atServerTime) => ({ atServerTime }) }),
         revision: current.clock.revision,
+        fileId,
       };
     }
 
@@ -642,8 +728,7 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
   const subscription = client.subscribe("rooms.get", { roomId }).pipe(
     Stream.runForEach((room) =>
       Effect.gen(function* () {
-        yield* update((current) => ({ ...current, room }));
-        const newer = yield* applyClock(room.clock);
+        const newer = yield* adopt(room);
 
         // The host reverts only on a rejected command or a reconnect: its own commands reach the
         // subscription before their results do, and aligning to them would echo them back.

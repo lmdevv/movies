@@ -1,8 +1,9 @@
 /**
  * The next-episode card: near the end of an episode, the credits keep playing in the full frame
  * while a compact card in the corner names the next episode and counts down to it. Play next plays
- * it now; Watch credits cancels the countdown and closes the card. Paper 07 · 05 still draws the
- * earlier layout (the video shrunk beside a large still); this one awaits its Paper check.
+ * it now; Watch credits cancels the countdown and closes the card. In a watch room the host's card
+ * acts for everyone, and a guest's only follows. Paper 07 · 05 still draws the earlier layout (the
+ * video shrunk beside a large still); this one awaits its Paper check.
  */
 import type { Episode } from "@movies/contracts/models/catalog";
 import { Button } from "@movies/ui/components/button";
@@ -15,18 +16,21 @@ import { episodeCode, facts, formatRuntime } from "@/lib/format";
 import { AUTOPLAY_COUNTDOWN } from "./autoplay";
 
 /**
- * What this viewer can do about the countdown. `advance`: playing on their own, they play the next
- * episode now or watch the credits instead. `follow`: for rooms, which show no card yet (ADS-154
- * brings it to them, with `advance` for the host): a guest sees the host's countdown and can only
- * close the card on this screen.
+ * What this viewer can do about the countdown, `countdownMs` before the next episode starts.
+ * `advance`: playing on their own, or hosting a room (for everyone in it), they play the next
+ * episode now or watch the credits instead. `follow`: a room's guest sees the host's countdown and
+ * can only close the card on this screen. `unavailable`: the next episode cannot play (`reason`),
+ * so nothing counts down and the card only closes.
  */
 export type NextEpisodeActions =
   | {
       readonly kind: "advance";
+      readonly countdownMs: number;
       readonly onPlayNext: () => void;
       readonly onWatchCredits: () => void;
     }
-  | { readonly kind: "follow"; readonly onClose: () => void };
+  | { readonly kind: "follow"; readonly countdownMs: number; readonly onClose: () => void }
+  | { readonly kind: "unavailable"; readonly reason: string; readonly onClose: () => void };
 
 /** The parts of the next episode the card shows. */
 export type NextEpisode = Pick<
@@ -40,23 +44,16 @@ export type NextEpisode = Pick<
  *
  * @param still - The next episode's still, sized for a card; without one, or while it fails to
  *   load, the tile shows a glyph.
- * @param countdownMs - Time left before the next episode starts.
  */
 export function AutoplayNext({
   next,
   still,
-  countdownMs,
   actions,
 }: {
   readonly next: NextEpisode;
   readonly still: string | undefined;
-  readonly countdownMs: number;
   readonly actions: NextEpisodeActions;
 }) {
-  const seconds = Math.max(0, Math.ceil(countdownMs / 1000));
-  const startsIn = `Starts in ${String(seconds)} ${seconds === 1 ? "second" : "seconds"}`;
-  const describedBy = useId();
-
   return (
     <div className="on-media pointer-events-none absolute inset-0 p-4 font-sans md:p-12 short:p-4">
       {/* The safe areas pad this box rather than the card, so the card's full width stays inside. */}
@@ -101,53 +98,85 @@ export function AutoplayNext({
               {next.overview}
             </p>
           )}
-          {actions.kind === "advance" ? (
-            <div className="flex flex-wrap gap-3">
-              <Button
-                variant="inverse"
-                size="md"
-                className="relative isolate grow overflow-hidden bg-text/70 hover:bg-text/80"
-                autoFocus
-                aria-describedby={describedBy}
-                onClick={actions.onPlayNext}
-              >
-                <CountdownFill countdownMs={countdownMs} className="bg-text" />
-                <PlayIcon aria-hidden className="fill-current" />
-                <span>Play next</span>
-                <Seconds value={seconds} />
-              </Button>
-              {/* Outside the button, so it describes Play next without joining its name; hidden,
-                so it is read only as that description. */}
-              <span id={describedBy} hidden>
-                {startsIn}
-              </span>
-              <Button
-                variant="secondary"
-                size="md"
-                className="grow"
-                onClick={actions.onWatchCredits}
-              >
-                Watch credits
-              </Button>
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-3">
-              <p
-                role="timer"
-                aria-label={startsIn}
-                className="relative isolate flex h-11 grow items-center justify-center gap-2 overflow-hidden rounded-control bg-text/10 px-5 text-body/4.5 font-semibold text-text"
-              >
-                <CountdownFill countdownMs={countdownMs} className="bg-text/15" />
-                Starts in
-                <Seconds value={seconds} />
-              </p>
-              <Button variant="secondary" size="md" className="grow" onClick={actions.onClose}>
-                Close
-              </Button>
-            </div>
-          )}
+          <CardActions actions={actions} />
         </section>
       </div>
+    </div>
+  );
+}
+
+/** "Starts in 7 seconds", for `countdownMs` left. */
+const startsIn = (countdownMs: number): string => {
+  const seconds = secondsLeft(countdownMs);
+
+  return `Starts in ${String(seconds)} ${seconds === 1 ? "second" : "seconds"}`;
+};
+
+/** The whole seconds left, as the card shows them. */
+const secondsLeft = (countdownMs: number): number => Math.max(0, Math.ceil(countdownMs / 1000));
+
+/** The card's buttons, or a guest's countdown, or why the next episode cannot play. */
+function CardActions({ actions }: { readonly actions: NextEpisodeActions }) {
+  const describedBy = useId();
+
+  if (actions.kind === "unavailable") {
+    return (
+      <div className="flex flex-wrap items-center gap-3">
+        <p
+          data-slot="next-episode-reason"
+          className="min-w-0 grow text-body/4.5 font-semibold text-text"
+        >
+          {actions.reason}
+        </p>
+        <Button variant="secondary" size="md" onClick={actions.onClose}>
+          Close
+        </Button>
+      </div>
+    );
+  }
+
+  if (actions.kind === "follow") {
+    return (
+      <div className="flex flex-wrap gap-3">
+        <p
+          role="timer"
+          aria-label={startsIn(actions.countdownMs)}
+          className="relative isolate flex h-11 grow items-center justify-center gap-2 overflow-hidden rounded-control bg-text/10 px-5 text-body/4.5 font-semibold text-text"
+        >
+          <CountdownFill countdownMs={actions.countdownMs} className="bg-text/15" />
+          Starts in
+          <Seconds value={secondsLeft(actions.countdownMs)} />
+        </p>
+        <Button variant="secondary" size="md" className="grow" onClick={actions.onClose}>
+          Close
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap gap-3">
+      <Button
+        variant="inverse"
+        size="md"
+        className="relative isolate grow overflow-hidden bg-text/70 hover:bg-text/80"
+        autoFocus
+        aria-describedby={describedBy}
+        onClick={actions.onPlayNext}
+      >
+        <CountdownFill countdownMs={actions.countdownMs} className="bg-text" />
+        <PlayIcon aria-hidden className="fill-current" />
+        <span>Play next</span>
+        <Seconds value={secondsLeft(actions.countdownMs)} />
+      </Button>
+      {/* Outside the button, so it describes Play next without joining its name; hidden, so it is
+          read only as that description. */}
+      <span id={describedBy} hidden>
+        {startsIn(actions.countdownMs)}
+      </span>
+      <Button variant="secondary" size="md" className="grow" onClick={actions.onWatchCredits}>
+        Watch credits
+      </Button>
     </div>
   );
 }

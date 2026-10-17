@@ -34,6 +34,13 @@ const isJsonObject = (value: Json): value is Schema.JsonObject =>
 
 const pad = (part: number): string => String(part).padStart(2, "0");
 
+/** An episode as the CLI names it: `S1E2 The Name`. */
+export const episodeLabel = (episode: {
+  readonly seasonNumber: number;
+  readonly episodeNumber: number;
+  readonly name: string;
+}): string => `S${String(episode.seasonNumber)}E${String(episode.episodeNumber)} ${episode.name}`;
+
 /** `61_000` → `1:01`; `3_723_000` → `1:02:03`. */
 export const formatDuration = (ms: number): string => {
   const total = Math.max(0, Math.floor(ms / 1000));

@@ -154,6 +154,26 @@ export const shortcuts: ReadonlyArray<Shortcut> = [
     section: "Rooms",
   },
   {
+    path: "rooms next",
+    synopsis: "rooms next [<room-id>]",
+    summary:
+      "Host: move the whole room on to the next episode now; racing the countdown moves it on once",
+    section: "Rooms",
+  },
+  {
+    path: "rooms countdown",
+    synopsis: "rooms countdown [<room-id>]",
+    summary:
+      "Host: start the room's 10-second next-episode countdown; the server moves everyone on when it ends",
+    section: "Rooms",
+  },
+  {
+    path: "rooms cancel-countdown",
+    synopsis: "rooms cancel-countdown [<room-id>]",
+    summary: "Host: cancel the next-episode countdown for everyone, to watch the credits",
+    section: "Rooms",
+  },
+  {
     path: "rooms leave",
     synopsis: "rooms leave [<room-id>]",
     summary: "Leave the room; a host leaving ends it",

@@ -94,6 +94,7 @@ const ROOM = {
   hostDeviceId: "host-device",
   hostProfileName: "Alex",
   hostAway: false,
+  next: null,
   clock: {
     status: "paused",
     positionAtAnchorMs: 0,
