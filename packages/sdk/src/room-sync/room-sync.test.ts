@@ -811,4 +811,28 @@ describe("a host coming back to a playing room", () => {
         expect((yield* rooms.room).clock.status).toBe("buffering");
       }),
     ));
+
+  it("follows a pause the server makes during the catch-up instead of undoing it", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        const host = yield* makeFakePlayer((yield* sharedPosition(rooms)) - 4_000);
+
+        host.userPlay();
+        yield* start(rooms, HOST, host);
+        host.stall();
+        yield* advance(500);
+
+        // As the sweep or an end-of-file pause does: the host learns of it from a heartbeat.
+        yield* rooms.changeSilently({
+          status: "paused",
+          positionAtAnchorMs: yield* sharedPosition(rooms),
+          revision: 5,
+        });
+        host.recover();
+        yield* advance(DEFAULT_TUNABLES.heartbeatIntervalMs + 1_000);
+
+        expect((yield* rooms.room).clock).toMatchObject({ status: "paused", revision: 5 });
+        expect(host.isPaused()).toBe(true);
+      }),
+    ));
 });

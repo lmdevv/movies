@@ -78,9 +78,8 @@ const presentRoom = async (ctx: QueryCtx, doc: Doc<"rooms">): Promise<Infer<type
       joinedAt: member.joinedAt,
       lastSeenAt: member.lastSeenAt,
       presence: member.presence ?? "watching",
-      // A device browsing elsewhere plays nothing, so whatever it last reported is no drift.
-      driftMs:
-        member.role === "guest" && member.presence !== "away" ? (member.driftMs ?? null) : null,
+      // A counted away heartbeat clears the drift, so an away member has none.
+      driftMs: member.role === "guest" ? (member.driftMs ?? null) : null,
     })),
     createdAt: createdAt(doc),
   };

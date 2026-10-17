@@ -7,7 +7,7 @@
  */
 import { HEARTBEAT_INTERVAL_MS } from "@movies/contracts/clock";
 import type { DeviceId, RoomId } from "@movies/contracts/ids";
-import { Duration, Effect, Schedule } from "effect";
+import { Duration, Effect, Predicate, Schedule } from "effect";
 
 import { MoviesClient } from "../movies-client";
 import type { CallError } from "../sdk-errors";
@@ -35,10 +35,12 @@ export const keepAway = Effect.fn("RoomPresence.keepAway")(function* (
 
   const beat = client.mutate("rooms.heartbeat", { roomId, deviceId, presence: "away" }).pipe(
     Effect.asVoid,
+    // The membership or the room gone, until the caller stops: expected, so not a warning.
     Effect.catch((error: CallError) =>
-      Effect.logWarning("RoomPresence.heartbeatFailed", error).pipe(
-        Effect.annotateLogs({ roomId }),
-      ),
+      (Predicate.isTagged(error, "Forbidden") || Predicate.isTagged(error, "NotFound")
+        ? Effect.logDebug("RoomPresence.heartbeatRefused", error)
+        : Effect.logWarning("RoomPresence.heartbeatFailed", error)
+      ).pipe(Effect.annotateLogs({ roomId })),
     ),
   );
 

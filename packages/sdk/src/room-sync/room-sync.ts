@@ -270,13 +270,21 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
 
   /**
    * A catching-up host's correction. It ends once the host is in step with a playing clock, the
-   * clock stops playing, the platform refuses to play, or `hostCatchUpMs` passes. Ending, the host
-   * publishes its player's state, which the catch-up held back. Callers hold `serial`.
+   * platform refuses to play, or `hostCatchUpMs` passes; the host then publishes its player's
+   * state, which the catch-up held back. A clock that stopped playing (the server paused the room)
+   * ends it too, and the player follows that clock rather than undo it. Callers hold `serial`.
    */
   const catchUp = Effect.fn("RoomSync.catchUp")(function* (current: RoomSyncState) {
     if (Option.isNone(yield* Ref.get(catchingUpSince))) return;
 
-    if (!(yield* isCatchingUp) || current.clock.status !== "playing") {
+    if (current.clock.status !== "playing") {
+      yield* endCatchUp;
+      yield* align();
+
+      return;
+    }
+
+    if (!(yield* isCatchingUp)) {
       yield* endCatchUp;
       yield* publishNow(false);
 
