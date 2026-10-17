@@ -368,60 +368,69 @@ test("four columns and thirty-two subtitles stay inside a short full screen and 
 }) => {
   const episode = await firstEpisode();
 
-  await page.setViewportSize({ width: 1280, height: 400 });
-  await page.goto(`/watch/${showId}?episodeId=${episode}&start=0`);
-  await expectPlayingPast(page, 0.5);
-  // Paused, the controls and the trigger stay while the menu is open.
-  await page.getByTestId("player").press("k");
-  await page.getByTestId("player").press("f");
-  await expect.poll(() => page.evaluate(() => document.fullscreenElement !== null)).toBe(true);
-  await revealControls(page);
+  // The shared page goes back to its own size, out of full screen, however this part ends.
+  const size = page.viewportSize();
 
-  const trigger = page.getByRole("button", { name: TRACKS });
+  try {
+    await page.setViewportSize({ width: 1280, height: 400 });
+    await page.goto(`/watch/${showId}?episodeId=${episode}&start=0`);
+    await expectPlayingPast(page, 0.5);
+    // Paused, the controls and the trigger stay while the menu is open.
+    await page.getByTestId("player").press("k");
+    await page.getByTestId("player").press("f");
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement !== null)).toBe(true);
+    await revealControls(page);
 
-  await trigger.click();
+    const trigger = page.getByRole("button", { name: TRACKS });
 
-  const menu = page.getByRole("dialog", { name: TRACKS });
+    await trigger.click();
 
-  await expect(menu.getByRole("radiogroup", { name: "Subtitles" }).getByRole("radio")).toHaveCount(
-    33,
-  );
-  // In full screen it renders inside the player, above the trigger and inside the screen.
-  expect(await menu.evaluate((popup) => document.fullscreenElement?.contains(popup) ?? false)).toBe(
-    true,
-  );
-  await expectAboveTrigger(page, menu, trigger);
+    const menu = page.getByRole("dialog", { name: TRACKS });
 
-  await Promise.all(
-    ["Version", "Audio", "Subtitles", "Quality"].map(async (heading) =>
-      expect(menu.getByText(heading, { exact: true })).toBeInViewport({ ratio: 1 }),
-    ),
-  );
+    await expect(
+      menu.getByRole("radiogroup", { name: "Subtitles" }).getByRole("radio"),
+    ).toHaveCount(33);
+    // In full screen it renders inside the player, above the trigger and inside the screen.
+    expect(
+      await menu.evaluate((popup) => document.fullscreenElement?.contains(popup) ?? false),
+    ).toBe(true);
+    await expectAboveTrigger(page, menu, trigger);
 
-  // The keyboard walks to the last subtitle, which scrolls into view under its heading.
-  const subtitles = menu.getByRole("radiogroup", { name: "Subtitles" }).getByRole("radio");
+    await Promise.all(
+      ["Version", "Audio", "Subtitles", "Quality"].map(async (heading) =>
+        expect(menu.getByText(heading, { exact: true })).toBeInViewport({ ratio: 1 }),
+      ),
+    );
 
-  await subtitles.first().focus();
-  await page.keyboard.press("ArrowUp");
-  await expect(subtitles.last()).toBeFocused();
-  await expect(subtitles.last()).toBeChecked();
-  await expect(subtitles.last()).toBeInViewport({ ratio: 1 });
-  await expect(menu.getByText("Subtitles", { exact: true })).toBeInViewport({ ratio: 1 });
-  await capture(page, "07-02d-many-subtitles");
+    // The keyboard walks to the last subtitle, which scrolls into view under its heading.
+    const subtitles = menu.getByRole("radiogroup", { name: "Subtitles" }).getByRole("radio");
 
-  // The subtitles key turns them off with the menu open; the list follows the new choice up.
-  await page.keyboard.press("c");
-  await expect(subtitles.first()).toBeChecked();
-  await expect(subtitles.first()).toBeInViewport({ ratio: 1 });
+    await subtitles.first().focus();
+    await page.keyboard.press("ArrowUp");
+    await expect(subtitles.last()).toBeFocused();
+    await expect(subtitles.last()).toBeChecked();
+    await expect(subtitles.last()).toBeInViewport({ ratio: 1 });
+    await expect(menu.getByText("Subtitles", { exact: true })).toBeInViewport({ ratio: 1 });
+    await capture(page, "07-02d-many-subtitles");
 
-  // Escape closes the menu alone: the player stays, in full screen, with focus on the trigger.
-  await page.keyboard.press("Escape");
-  await expect(menu).toBeHidden();
-  await expect(trigger).toBeFocused();
-  await expect(page.getByTestId("player")).toBeVisible();
-  expect(await page.evaluate(() => document.fullscreenElement !== null)).toBe(true);
-  await page.evaluate(async () => document.exitFullscreen());
-  await page.setViewportSize({ width: 1280, height: 720 });
+    // The subtitles key turns them off with the menu open; the list follows the new choice up.
+    await page.keyboard.press("c");
+    await expect(subtitles.first()).toBeChecked();
+    await expect(subtitles.first()).toBeInViewport({ ratio: 1 });
+
+    // Escape closes the menu alone: the player stays, in full screen, with focus on the trigger.
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await expect(page.getByTestId("player")).toBeVisible();
+    expect(await page.evaluate(() => document.fullscreenElement !== null)).toBe(true);
+  } finally {
+    await page.evaluate(async () => {
+      if (document.fullscreenElement !== null) await document.exitFullscreen();
+    });
+
+    if (size !== null) await page.setViewportSize(size);
+  }
 
   // A phone's subtitle pill opens the same menu, inside the screen either way up.
   const phone = await browser.newContext({ ...devices["iPhone 13 landscape"] });

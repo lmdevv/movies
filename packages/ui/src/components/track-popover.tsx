@@ -14,11 +14,14 @@ export type TrackOption = {
   readonly detail?: string | undefined;
 };
 
+/** Where an option sits in its list's scrolled content, from top to bottom edge. */
+type OptionSpan = { readonly top: number; readonly bottom: number };
+
 /**
  * Where `list`'s checked option sits in its scrolled content, with the list's scroll padding around
  * it (room for the focus ring, as the keyboard leaves when it moves the focus).
  */
-function checkedSpan(list: HTMLElement): { readonly top: number; readonly bottom: number } | null {
+function checkedSpan(list: HTMLElement): OptionSpan | null {
   const checked = list.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]');
 
   if (checked === null) return null;
@@ -34,23 +37,24 @@ function checkedSpan(list: HTMLElement): { readonly top: number; readonly bottom
   };
 }
 
-/** Whether `list`, `height` tall, shows its checked option whole; true when nothing is checked. */
-function showsChecked(list: HTMLElement, height: number): boolean {
-  const span = checkedSpan(list);
+/** Whether `list`, `height` tall, shows `span` whole. */
+function shows(list: HTMLElement, span: OptionSpan, height: number): boolean {
+  return span.top >= list.scrollTop && span.bottom <= list.scrollTop + height;
+}
 
-  return span === null || (span.top >= list.scrollTop && span.bottom <= list.scrollTop + height);
+/** Scrolls `list` the least that shows `span` whole. */
+function reveal(list: HTMLElement, span: OptionSpan): void {
+  if (span.top < list.scrollTop) list.scrollTop = span.top;
+  else if (span.bottom > list.scrollTop + list.clientHeight) {
+    list.scrollTop = span.bottom - list.clientHeight;
+  }
 }
 
 /** Scrolls `list` the least that shows its checked option whole. */
 function revealChecked(list: HTMLElement): void {
   const span = checkedSpan(list);
 
-  if (span === null) return;
-
-  if (span.top < list.scrollTop) list.scrollTop = span.top;
-  else if (span.bottom > list.scrollTop + list.clientHeight) {
-    list.scrollTop = span.bottom - list.clientHeight;
-  }
+  if (span !== null) reveal(list, span);
 }
 
 /**
@@ -65,7 +69,9 @@ function keepCheckedInView(list: HTMLElement | null): (() => void) | undefined {
   let height: number | undefined;
 
   const observer = new ResizeObserver(() => {
-    if (height === undefined || showsChecked(list, height)) revealChecked(list);
+    const span = checkedSpan(list);
+
+    if (span !== null && (height === undefined || shows(list, span, height))) reveal(list, span);
 
     height = list.clientHeight;
   });
@@ -94,7 +100,12 @@ function TrackColumn({
   const attachList = useCallback((element: HTMLElement | null) => {
     list.current = element;
 
-    return keepCheckedInView(element);
+    const release = keepCheckedInView(element);
+
+    return () => {
+      release?.();
+      list.current = null;
+    };
   }, []);
 
   // A new choice, or a different list of options, shows the chosen one, as when the menu opened.
@@ -246,11 +257,11 @@ export function TrackPopover({
             aria-label={label}
             className="origin-(--transform-origin) shadow-overlay transition-[opacity,scale] data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
           >
-            {/* Held to the room above the trigger, short of the top safe area: each column's
-                options scroll under its heading, and columns wider than the screen scroll sideways. */}
+            {/* Held to the room above the trigger: each column's options scroll under its heading,
+                and columns wider than the screen scroll sideways. */}
             <TrackPanel
               choices={choices}
-              className="max-h-[min(calc(var(--available-height)_-_env(safe-area-inset-top)),var(--spacing-track-panel))] max-w-(--available-width) overflow-x-auto overscroll-x-contain"
+              className="max-h-[min(var(--available-height),var(--spacing-track-panel))] max-w-(--available-width) overflow-x-auto overscroll-x-contain"
             />
           </Popover.Popup>
         </Popover.Positioner>
