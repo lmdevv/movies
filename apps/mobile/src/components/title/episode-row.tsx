@@ -36,8 +36,12 @@ export function EpisodeRow({ episode }: { readonly episode: Episode }) {
         accessibilityLabel={line.meta === "" ? line.heading : `${line.heading}, ${line.meta}`}
         accessibilityHint="Plays the episode"
         accessibilityState={{ disabled: !episode.available }}
-        disabled={!episode.available}
-        onPress={() => router.push(watchHref({ titleId: episode.titleId, episodeId: episode.id }))}
+        // Not `disabled`, which would also block the long press that opens the actions.
+        onPress={
+          episode.available
+            ? () => router.push(watchHref({ titleId: episode.titleId, episodeId: episode.id }))
+            : undefined
+        }
         onLongPress={openActions}
         className={`flex-1 flex-row items-center gap-3 active:opacity-70 ${
           episode.available ? "" : "opacity-40"

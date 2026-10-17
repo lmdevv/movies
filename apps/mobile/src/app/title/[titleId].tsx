@@ -110,7 +110,7 @@ function TitleDetailView({
             {show && seasonNumber !== null ? (
               <SeasonHeading title={title} seasonNumber={seasonNumber} />
             ) : null}
-            {show && episodes.status === "loading" ? (
+            {show && seasonNumber !== null && episodes.status === "loading" ? (
               <ActivityIndicator className="py-6" colorClassName="accent-text-muted" />
             ) : null}
             {episodes.status === "error" ? (

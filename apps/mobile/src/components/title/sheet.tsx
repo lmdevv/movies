@@ -5,6 +5,7 @@
  */
 import { router } from "expo-router";
 import { X } from "lucide-react-native";
+import { useRef } from "react";
 import type { ReactNode } from "react";
 import { ActivityIndicator, View } from "react-native";
 
@@ -24,13 +25,15 @@ export interface SheetProps {
 
 /** A form sheet's content. */
 export function Sheet({ title, subtitle, error, loading = false, children }: SheetProps) {
+  const exit = useSheetExit();
+
   return (
     <View className="gap-4 bg-surface-raised px-5 pt-6 pb-4">
       <View className="flex-row items-center gap-3">
         <Text variant="heading" className="flex-1" numberOfLines={2} accessibilityRole="header">
           {title}
         </Text>
-        <IconButton icon={X} label="Close" variant="plain" onPress={() => router.back()} />
+        <IconButton icon={X} label="Close" variant="plain" onPress={exit.close} />
       </View>
       {subtitle === undefined ? null : (
         <Text variant="secondary" tone="muted">
@@ -51,8 +54,36 @@ export function Sheet({ title, subtitle, error, loading = false, children }: She
   );
 }
 
-/** Closes the sheet, then opens `href` from the screen under it, such as the player. */
-export const leaveSheetFor = (href: string): void => {
-  router.back();
-  router.push(href);
+/** The ways a sheet ends, each taking effect once however often it is pressed. */
+export interface SheetExit {
+  /** Closes the sheet. */
+  readonly close: () => void;
+  /** Closes the sheet, then opens `href` from the screen under it, such as the player. */
+  readonly leaveFor: (href: string) => void;
+  /** Puts the sheet at `href` in place of this one, such as Choose Version. */
+  readonly switchTo: (href: string) => void;
+}
+
+/**
+ * A sheet's exits. Only the first one runs: a double tap would otherwise go back twice and also
+ * close the title page under the sheet.
+ */
+export const useSheetExit = (): SheetExit => {
+  const left = useRef(false);
+
+  const once = (go: () => void): void => {
+    if (left.current) return;
+    left.current = true;
+    go();
+  };
+
+  return {
+    close: () => once(() => router.back()),
+    leaveFor: (href) =>
+      once(() => {
+        router.back();
+        router.push(href);
+      }),
+    switchTo: (href) => once(() => router.replace(href)),
+  };
 };

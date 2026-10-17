@@ -4,13 +4,13 @@
  */
 import type { TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
-import { router, useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import { Check, EyeOff, Minus, Plus, RotateCcw, Share as ShareIcon } from "lucide-react-native";
 import { Share } from "react-native";
 
 import { titleIdParam } from "@/components/title/route-params";
-import { Sheet, leaveSheetFor } from "@/components/title/sheet";
-import { isWatched, playAction } from "@/components/title/title-model";
+import { Sheet, useSheetExit } from "@/components/title/sheet";
+import { playAction, watchedMarks } from "@/components/title/title-model";
 import { useMyListToggle, useRunner } from "@/components/title/use-title-actions";
 import { ListRow } from "@/components/ui/list-row";
 import { describeFailure } from "@/lib/failure";
@@ -26,18 +26,19 @@ function TitleActions({ title }: { readonly title: TitleDetail }) {
   const markWatched = useCommand("history.markWatched");
   const markUnwatched = useCommand("history.markUnwatched");
   const mark = useRunner();
-  const watched = isWatched(title);
+  const exit = useSheetExit();
+  const marks = watchedMarks(title);
   const play = playAction(title);
 
-  const toggleWatched = async () => {
+  const setWatched = async (watched: boolean) => {
     const args = { profileId: profile.id, titleId: title.id };
-    const done = await mark.run(() => (watched ? markUnwatched(args) : markWatched(args)));
+    const done = await mark.run(() => (watched ? markWatched(args) : markUnwatched(args)));
 
-    if (done) router.back();
+    if (done) exit.close();
   };
 
   const toggleList = async () => {
-    if (await myList.toggle()) router.back();
+    if (await myList.toggle()) exit.close();
   };
 
   const share = async () => {
@@ -45,7 +46,7 @@ function TitleActions({ title }: { readonly title: TitleDetail }) {
     await Share.share({ message: title.name, url: `${mediaUrl}/title/${title.id}` }).catch(
       () => undefined,
     );
-    router.back();
+    exit.close();
   };
 
   return (
@@ -53,25 +54,36 @@ function TitleActions({ title }: { readonly title: TitleDetail }) {
       <ListRow
         icon={myList.inList ? Minus : Plus}
         title={myList.inList ? "Remove from My List" : "Add to My List"}
+        disabled={myList.busy}
         onPress={() => void toggleList()}
       />
-      {play.resuming && title.available ? (
+      {play.resuming && play.available ? (
         <ListRow
           icon={RotateCcw}
           title="Play from Beginning"
           onPress={() =>
-            leaveSheetFor(
+            exit.leaveFor(
               watchHref({ titleId: title.id, episodeId: play.episodeId, start: "beginning" }),
             )
           }
         />
       ) : null}
-      <ListRow
-        icon={watched ? EyeOff : Check}
-        title={watched ? "Mark as Unwatched" : "Mark as Watched"}
-        disabled={mark.busy}
-        onPress={() => void toggleWatched()}
-      />
+      {marks.markWatched ? (
+        <ListRow
+          icon={Check}
+          title="Mark as Watched"
+          disabled={mark.busy}
+          onPress={() => void setWatched(true)}
+        />
+      ) : null}
+      {marks.markUnwatched ? (
+        <ListRow
+          icon={EyeOff}
+          title="Mark as Unwatched"
+          disabled={mark.busy}
+          onPress={() => void setWatched(false)}
+        />
+      ) : null}
       <ListRow icon={ShareIcon} title="Share" onPress={() => void share()} />
     </Sheet>
   );

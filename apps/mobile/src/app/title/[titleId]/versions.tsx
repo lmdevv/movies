@@ -11,7 +11,7 @@ import { Check, Clapperboard, Play } from "lucide-react-native";
 import { useState } from "react";
 
 import { episodeIdParam, fileIdParam, titleIdParam } from "@/components/title/route-params";
-import { Sheet, leaveSheetFor } from "@/components/title/sheet";
+import { Sheet, useSheetExit } from "@/components/title/sheet";
 import { defaultVersion } from "@/components/title/title-model";
 import { Button } from "@/components/ui/button";
 import { ListRow } from "@/components/ui/list-row";
@@ -25,6 +25,7 @@ export default function ChooseVersion() {
   const { profile } = useActiveProfile();
   const titleId = titleIdParam(params.titleId);
   const episodeId = episodeIdParam(params.episodeId);
+  const exit = useSheetExit();
   const [chosenId, setChosenId] = useState<MediaFileId | null>(fileIdParam(params.fileId));
 
   const versions = useCommandQuery(
@@ -75,7 +76,7 @@ export default function ChooseVersion() {
           icon={Play}
           iconFilled
           onPress={() =>
-            leaveSheetFor(
+            exit.leaveFor(
               watchHref({ titleId, episodeId: episodeId ?? undefined, fileId: chosen.id }),
             )
           }

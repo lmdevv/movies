@@ -49,6 +49,8 @@ export interface PlayAction {
   readonly episodeId: EpisodeId | undefined;
   /** It continues from saved progress, so Play from Beginning is worth offering. */
   readonly resuming: boolean;
+  /** What it plays has a file on disk; a show's next episode may not while others do. */
+  readonly available: boolean;
 }
 
 /** The main button of `title`: start or resume the movie, or the show's next episode. */
@@ -57,17 +59,20 @@ export const playAction = (title: TitleDetail): PlayAction => {
     const resume = resumeOf(title.progress);
 
     return resume === null
-      ? { label: "Play", episodeId: undefined, resuming: false }
+      ? { label: "Play", episodeId: undefined, resuming: false, available: title.available }
       : {
           label: `Resume · ${formatRemaining(resume.remainingMs)}`,
           episodeId: undefined,
           resuming: true,
+          available: title.available,
         };
   }
 
   const next = title.nextEpisode;
 
-  if (next === null) return { label: "Play", episodeId: undefined, resuming: false };
+  if (next === null) {
+    return { label: "Play", episodeId: undefined, resuming: false, available: title.available };
+  }
 
   const resuming = resumeOf(next.progress) !== null;
 
@@ -75,6 +80,7 @@ export const playAction = (title: TitleDetail): PlayAction => {
     label: `${resuming ? "Resume" : "Play"} · ${episodeShort(next)}`,
     episodeId: next.id,
     resuming,
+    available: next.available,
   };
 };
 
@@ -101,17 +107,42 @@ export const titleFacts = (title: TitleDetail): string =>
       )
     : facts(
         title.genres[0],
-        title.seasons.length === 0
-          ? null
-          : `${title.seasons.length} ${title.seasons.length === 1 ? "season" : "seasons"}`,
+        title.seasons.length === 0 ? null : countOf(title.seasons.length, "season", "seasons"),
         title.certification,
       );
 
-/** Whether the profile has finished the whole title. */
-export const isWatched = (title: TitleDetail): boolean =>
-  title.kind === "movie"
-    ? title.progress?.watched === true
-    : title.nextEpisode === null && title.seasons.length > 0;
+/** Which watched marks a title's More sheet offers. */
+export interface WatchedMarks {
+  readonly markWatched: boolean;
+  readonly markUnwatched: boolean;
+}
+
+/**
+ * A movie offers the mark it does not have. A show always offers Mark as Watched, since the server
+ * does not say whether every episode is watched (no next episode also follows a watched finale);
+ * it offers Mark as Unwatched once the profile has started it: the next episode is started, is not
+ * the first one, or there is none.
+ */
+export const watchedMarks = (title: TitleDetail): WatchedMarks => {
+  if (title.kind === "movie") {
+    const watched = title.progress?.watched === true;
+
+    return { markWatched: !watched, markUnwatched: watched };
+  }
+
+  const next = title.nextEpisode;
+
+  // Specials (season 0) come after the regular seasons in viewing order.
+  const first = (title.seasons.find((season) => season.seasonNumber > 0) ?? title.seasons[0])
+    ?.seasonNumber;
+
+  const started =
+    next === null
+      ? title.seasons.length > 0
+      : next.progress !== null || next.episodeNumber > 1 || next.seasonNumber !== first;
+
+  return { markWatched: true, markUnwatched: started };
+};
 
 /** What an episode row shows. */
 export interface EpisodeLine {

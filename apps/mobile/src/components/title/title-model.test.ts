@@ -12,11 +12,11 @@ import {
   episodeSubtitle,
   formatLongDate,
   initialSeason,
-  isWatched,
   playAction,
   resumeOf,
   seasonDetail,
   titleFacts,
+  watchedMarks,
 } from "./title-model";
 
 const MINUTE = 60_000;
@@ -149,12 +149,18 @@ const show = (overrides: Partial<Schema.Codec.Encoded<typeof TitleDetail>> = {})
 
 describe("playAction", () => {
   it("plays an unstarted or finished movie and resumes a started one with the time left", () => {
-    expect(playAction(movie())).toEqual({ label: "Play", episodeId: undefined, resuming: false });
+    expect(playAction(movie())).toEqual({
+      label: "Play",
+      episodeId: undefined,
+      resuming: false,
+      available: true,
+    });
     expect(playAction(movie({ progress: progress(166, 166, true) })).label).toBe("Play");
     expect(playAction(movie({ progress: progress(94, 166) }))).toEqual({
       label: "Resume · 1h 12m left",
       episodeId: undefined,
       resuming: true,
+      available: true,
     });
   });
 
@@ -163,6 +169,7 @@ describe("playAction", () => {
       label: "Play · S2, E3",
       episodeId: "e3",
       resuming: false,
+      available: true,
     });
 
     const started = show({
@@ -187,13 +194,48 @@ describe("titleFacts", () => {
   });
 });
 
-describe("isWatched", () => {
-  it("is a movie's own mark, and a show with no next episode", () => {
-    expect(isWatched(movie({ progress: progress(166, 166, true) }))).toBe(true);
-    expect(isWatched(movie())).toBe(false);
-    expect(isWatched(show())).toBe(false);
-    expect(isWatched(show({ nextEpisode: null }))).toBe(true);
-    expect(isWatched(show({ nextEpisode: null, seasons: [] }))).toBe(false);
+describe("playAction availability", () => {
+  it("follows the next episode's file for shows and the title's for movies", () => {
+    expect(playAction(movie({ available: false })).available).toBe(false);
+    expect(
+      playAction(show({ nextEpisode: Schema.encodeSync(Episode)(episode({ available: false })) }))
+        .available,
+    ).toBe(false);
+  });
+});
+
+describe("watchedMarks", () => {
+  it("offers a movie the mark it lacks", () => {
+    expect(watchedMarks(movie({ progress: progress(166, 166, true) }))).toEqual({
+      markWatched: false,
+      markUnwatched: true,
+    });
+    expect(watchedMarks(movie())).toEqual({ markWatched: true, markUnwatched: false });
+  });
+
+  it("always offers a show Mark as Watched, and Mark as Unwatched once it is started", () => {
+    const first = Schema.encodeSync(Episode)(episode({ seasonNumber: 1, episodeNumber: 1 }));
+
+    expect(watchedMarks(show({ nextEpisode: first }))).toEqual({
+      markWatched: true,
+      markUnwatched: false,
+    });
+    expect(watchedMarks(show()).markUnwatched).toBe(true);
+    expect(
+      watchedMarks(
+        show({
+          nextEpisode: Schema.encodeSync(Episode)(
+            episode({ seasonNumber: 1, episodeNumber: 1, progress: progress(5, 53) }),
+          ),
+        }),
+      ).markUnwatched,
+    ).toBe(true);
+    // No next episode: finished, or only the finale watched; both may be undone or completed.
+    expect(watchedMarks(show({ nextEpisode: null }))).toEqual({
+      markWatched: true,
+      markUnwatched: true,
+    });
+    expect(watchedMarks(show({ nextEpisode: null, seasons: [] })).markUnwatched).toBe(false);
   });
 });
 

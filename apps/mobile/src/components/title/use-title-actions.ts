@@ -5,15 +5,17 @@
 import type { ProfileId, TitleId } from "@movies/contracts/ids";
 import { useCommand } from "@movies/sdk/react";
 import * as Haptics from "expo-haptics";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { describeFailure } from "@/lib/failure";
 
 /** A title's My List membership and the way to flip it. */
 export interface MyListToggle {
   readonly inList: boolean;
-  /** Resolves true once the server took the change, false when it failed. */
+  /** Resolves true once the server took the change; false when it failed or one was running. */
   readonly toggle: () => Promise<boolean>;
+  /** A change is on its way to the server. */
+  readonly busy: boolean;
   /** Why the last change failed, until the next one. */
   readonly error: string | null;
 }
@@ -30,6 +32,9 @@ export const useMyListToggle = (
   const add = useCommand("myList.add");
   const remove = useCommand("myList.remove");
   const [error, setError] = useState<string | null>(null);
+  // A ref, not state, so a second tap before the next render still sees the first one running.
+  const running = useRef(false);
+  const [busy, setBusy] = useState(false);
 
   const [optimistic, setOptimistic] = useState<{
     readonly from: boolean;
@@ -40,6 +45,10 @@ export const useMyListToggle = (
   const inList = optimistic !== null && optimistic.from === inMyList ? optimistic.to : inMyList;
 
   const toggle = async (): Promise<boolean> => {
+    if (running.current) return false;
+    running.current = true;
+    setBusy(true);
+
     const next = !inList;
 
     void Haptics.selectionAsync();
@@ -55,10 +64,13 @@ export const useMyListToggle = (
       setError(describeFailure(cause));
 
       return false;
+    } finally {
+      running.current = false;
+      setBusy(false);
     }
   };
 
-  return { inList, toggle, error };
+  return { inList, toggle, busy, error };
 };
 
 /** A command run from a button: whether it is running, and why it last failed. */
@@ -73,9 +85,12 @@ export interface Runner {
 export const useRunner = (): Runner => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A ref, not state, so a second press before the next render still sees the first one running.
+  const running = useRef(false);
 
   const run = async <A>(action: () => Promise<A>): Promise<boolean> => {
-    if (busy) return false;
+    if (running.current) return false;
+    running.current = true;
     setBusy(true);
     setError(null);
 
@@ -88,6 +103,7 @@ export const useRunner = (): Runner => {
 
       return false;
     } finally {
+      running.current = false;
       setBusy(false);
     }
   };

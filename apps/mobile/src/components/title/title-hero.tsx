@@ -121,6 +121,7 @@ export function TitleHero({ title, profileId, scrollY }: TitleHeroProps) {
             icon={Play}
             iconFilled
             className="flex-1"
+            disabled={!play.available}
             onPress={() => router.push(watchHref({ titleId: title.id, episodeId: play.episodeId }))}
           />
           <IconButton

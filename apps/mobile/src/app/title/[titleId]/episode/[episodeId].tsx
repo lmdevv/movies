@@ -5,11 +5,11 @@
 import type { EpisodeId, TitleId } from "@movies/contracts/ids";
 import type { SeasonEpisode } from "@movies/contracts/models/catalog";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
-import { router, useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import { Check, Clapperboard, EyeOff, Play, RotateCcw } from "lucide-react-native";
 
 import { episodeIdParam, seasonParam, titleIdParam } from "@/components/title/route-params";
-import { Sheet, leaveSheetFor } from "@/components/title/sheet";
+import { Sheet, useSheetExit } from "@/components/title/sheet";
 import { episodeSubtitle, resumeOf } from "@/components/title/title-model";
 import { useRunner } from "@/components/title/use-title-actions";
 import { ListRow } from "@/components/ui/list-row";
@@ -24,6 +24,7 @@ function EpisodeActions({ episode }: { readonly episode: SeasonEpisode }) {
   const markWatched = useCommand("history.markWatched");
   const markUnwatched = useCommand("history.markUnwatched");
   const mark = useRunner();
+  const exit = useSheetExit();
   const resume = resumeOf(episode.progress);
   const watched = episode.progress?.watched === true;
   const target = { titleId: episode.titleId, episodeId: episode.id };
@@ -38,7 +39,7 @@ function EpisodeActions({ episode }: { readonly episode: SeasonEpisode }) {
     const args = { profileId: profile.id, ...target };
     const done = await mark.run(() => (watched ? markUnwatched(args) : markWatched(args)));
 
-    if (done) router.back();
+    if (done) exit.close();
   };
 
   return (
@@ -48,14 +49,14 @@ function EpisodeActions({ episode }: { readonly episode: SeasonEpisode }) {
         title={resume === null ? "Play" : "Resume"}
         {...(resume === null ? {} : { detail: formatRemaining(resume.remainingMs) })}
         disabled={!episode.available}
-        onPress={() => leaveSheetFor(watchHref(target))}
+        onPress={() => exit.leaveFor(watchHref(target))}
       />
       {resume === null ? null : (
         <ListRow
           icon={RotateCcw}
           title="Play from Beginning"
           disabled={!episode.available}
-          onPress={() => leaveSheetFor(watchHref({ ...target, start: "beginning" }))}
+          onPress={() => exit.leaveFor(watchHref({ ...target, start: "beginning" }))}
         />
       )}
       <ListRow
@@ -70,7 +71,7 @@ function EpisodeActions({ episode }: { readonly episode: SeasonEpisode }) {
           title="Choose Version"
           detail={`${versions.data.length} versions`}
           onPress={() =>
-            router.replace(`/title/${episode.titleId}/versions?episodeId=${episode.id}`)
+            exit.switchTo(`/title/${episode.titleId}/versions?episodeId=${episode.id}`)
           }
         />
       ) : null}
