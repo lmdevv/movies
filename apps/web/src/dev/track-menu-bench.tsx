@@ -77,7 +77,9 @@ export function TrackMenuBench({ columns }: { readonly columns: "1" | "3" | "4" 
   // Українська, well down the list, as a profile's remembered language can be.
   const [subtitle, setSubtitle] = useState(CHOSEN_SUBTITLE);
   const [quality, setQuality] = useState("auto");
-  const { fullscreen, toggle } = useFullscreen(frame, null);
+  // Like the player, menus render into a layer inside the frame, so full screen keeps them.
+  const [overlays, setOverlays] = useState<HTMLDivElement | null>(null);
+  const { toggle } = useFullscreen(frame, null);
 
   const subtitles: TrackChoice = {
     id: "subtitles",
@@ -131,12 +133,13 @@ export function TrackMenuBench({ columns }: { readonly columns: "1" | "3" | "4" 
                 <TracksGlyph />
               </PlayerButton>
             }
-            container={fullscreen ? frame : undefined}
+            container={overlays ?? undefined}
             label={LABEL}
             choices={choices}
           />
         }
       />
+      <div ref={setOverlays} className="contents" />
     </div>
   );
 }
