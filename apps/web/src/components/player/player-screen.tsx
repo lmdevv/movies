@@ -18,7 +18,12 @@ import { Playback, Versions } from "@movies/sdk/effect";
 import { useCommand, useCommandQuery, useMoviesRuntime, useRoomSync } from "@movies/sdk/react";
 import { ChapterPopover } from "@movies/ui/components/chapter-popover";
 import { CommandMenu } from "@movies/ui/components/command-menu";
-import { PlayerButton, PlayerControls, TracksGlyph } from "@movies/ui/components/player-controls";
+import {
+  EpisodesGlyph,
+  PlayerButton,
+  PlayerControls,
+  TracksGlyph,
+} from "@movies/ui/components/player-controls";
 import { RoomPanel } from "@movies/ui/components/room-panel";
 import { TrackPopover } from "@movies/ui/components/track-popover";
 import type { TrackOption } from "@movies/ui/components/track-popover";
@@ -50,6 +55,7 @@ import { copyText } from "@/lib/secure-context";
 import { episodeCode } from "@/lib/format";
 import { playerKeymap } from "@/lib/keymap";
 import { audioTrackLabel, subtitleTrackLabels } from "@/lib/media-facts";
+import { listOrLoading } from "@/lib/query-state";
 import { useLatest } from "@/lib/use-latest";
 import { volumeIsSettable } from "@/playback/browser-support";
 import { PlaybackPhase, StartChoice } from "@/playback/playback-controller";
@@ -71,6 +77,7 @@ import { useScopes } from "@/session/viewer";
 import { AUTOPLAY_COUNTDOWN, AUTOPLAY_VIDEO_FRAME } from "./autoplay";
 import { AutoplayNext } from "./autoplay-next";
 import { CastMenu, CastingState } from "./cast-menu";
+import { EpisodePicker } from "./episode-picker";
 import { LeaveDialog } from "./leave-dialog";
 import {
   PhoneControls,
@@ -99,6 +106,7 @@ import {
 import { hostGone } from "./room-members";
 import { StreamInfo } from "./stream-info";
 import { useControlsVisible, useFullscreen, usePlayerLayout } from "./use-player-frame";
+import type { PlayerLayout } from "./use-player-frame";
 import { useWatchRoom } from "./use-watch-room";
 
 /** Seconds of buffer that count as a full buffering ring. */
@@ -112,6 +120,13 @@ const KEY_PREVIEW_MS = 1_200;
 
 /** The volume keys move by this much. */
 const VOLUME_STEP = 0.1;
+
+/** Where unmuting a TV that is silent returns to when this player never set its level. */
+const CAST_UNMUTE_LEVEL = 0.5;
+
+/** A volume from 0 to 1 in whole percent, so steps of a tenth land on silence exactly. */
+const volumeLevel = (value: number): number =>
+  Math.round(Math.min(1, Math.max(0, value)) * 100) / 100;
 
 const OFF = "off";
 
@@ -209,6 +224,10 @@ export function PlayerScreen({
   const [menu, setMenu] = useState(false);
   const [info, setInfo] = useState(false);
   const [panel, setPanel] = useState(true);
+  // The layout the episode picker is open in: its button and the phone's pill are separate pickers,
+  // so a layout change closes it rather than opening the other one.
+  const [episodesOpenIn, setEpisodesOpenIn] = useState<PlayerLayout | null>(null);
+  const [volumeOpen, setVolumeOpen] = useState(false);
 
   // The route keys the player by title and episode, so a dismissal ends with its episode.
   const [creditsDismissed, setCreditsDismissed] = useState(false);
@@ -425,28 +444,91 @@ export function PlayerScreen({
     else output.pause();
   }, [output, controlsTimeline, snapshot?.needsGesture, casting, play]);
 
+  // Silence mutes and any other level unmutes, here and on a TV alike, so the mute button and the
+  // slider always agree.
   const setVolume = useCallback(
     (value: number) => {
+      const level = volumeLevel(value);
+
       if (casting !== null) {
-        casting.player.setVolume(value);
+        casting.player.setVolume(level);
 
         return;
       }
 
       if (video === null) return;
 
-      video.volume = Math.min(1, Math.max(0, value));
-      video.muted = false;
+      video.volume = level;
+      video.muted = level === 0;
     },
     [video, casting],
   );
 
+  // The last level the viewer settled on above silence, here and on each cast session, which
+  // unmuting from silence there returns to. A drag's passing levels do not count, so dragging down
+  // to nothing and unmuting restores where it started.
+  const audibleHere = useRef<number | null>(null);
+  const audibleCast = useRef(new WeakMap<object, number>());
+  const levelNow = media.volume;
+
+  const remember = useCallback(
+    (level: number) => {
+      if (casting === null) audibleHere.current = level;
+      else audibleCast.current.set(casting, level);
+    },
+    [casting],
+  );
+
+  const remembered = useCallback(
+    (): number | null =>
+      casting === null ? audibleHere.current : (audibleCast.current.get(casting) ?? null),
+    [casting],
+  );
+
+  // A change starts from the level now (under mute, too): here only before the first change, since
+  // a drag moves it as it goes; on a TV every time, since its remote can change it meanwhile and a
+  // drag only reaches it where it settles.
+  const rememberStart = useCallback(() => {
+    if (levelNow > 0 && (casting !== null || audibleHere.current === null)) remember(levelNow);
+  }, [levelNow, casting, remember]);
+
+  const commitVolume = useCallback(
+    (value: number) => {
+      const level = volumeLevel(value);
+
+      rememberStart();
+
+      if (level > 0) remember(level);
+      setVolume(level);
+    },
+    [rememberStart, remember, setVolume],
+  );
+
+  // The slider follows the pointer here at once; a TV hears only where it settles, since each step
+  // of a drag would be a message to it.
+  const followVolume = useCallback(
+    (value: number) => {
+      rememberStart();
+
+      if (casting === null) setVolume(value);
+    },
+    [rememberStart, casting, setVolume],
+  );
+
+  // The slider shows where the page can set the level: here, or on a TV that takes it. Elsewhere
+  // only mute applies, and a level of 0 the page cannot change is no silence it could undo.
+  const volumeSettable = casting === null ? canSetVolume : (remote?.volumeSettable ?? false);
+  const silent = volumeSettable && media.volume === 0;
+
   const setMuted = useCallback(
     (muted: boolean) => {
-      if (casting !== null) casting.player.setMuted(muted);
+      if (!muted && silent) {
+        // Nothing settled on here yet: an element starts at full volume, and a TV at a moderate one.
+        setVolume(remembered() ?? (casting === null ? 1 : CAST_UNMUTE_LEVEL));
+      } else if (casting !== null) casting.player.setMuted(muted);
       else if (video !== null) video.muted = muted;
     },
-    [video, casting],
+    [video, casting, silent, remembered, setVolume],
   );
 
   // Audio and subtitle choices from the file and the negotiated stream.
@@ -732,14 +814,22 @@ export function PlayerScreen({
     duration > 0 &&
     (media.ended || remaining <= creditsSeconds(duration));
 
+  // Another episode of this show, in the player; it resumes where the profile stopped, or starts
+  // over once watched.
+  const playEpisode = useCallback(
+    (id: EpisodeId) => {
+      void navigate({
+        to: "/watch/$titleId",
+        params: { titleId },
+        search: { episodeId: id, start: "resume" },
+      });
+    },
+    [navigate, titleId],
+  );
+
   const playNext = useCallback(() => {
-    if (nextEpisode === null) return;
-    void navigate({
-      to: "/watch/$titleId",
-      params: { titleId },
-      search: { episodeId: nextEpisode.id, start: "resume" },
-    });
-  }, [navigate, nextEpisode, titleId]);
+    if (nextEpisode !== null) playEpisode(nextEpisode.id);
+  }, [nextEpisode, playEpisode]);
 
   // The episode before this one in its season, for the system's previous-track button.
   const seasonEpisodes = useCommandQuery(
@@ -761,13 +851,70 @@ export function PlayerScreen({
   })();
 
   const playPrevious = useCallback(() => {
-    if (previousEpisode === null) return;
-    void navigate({
-      to: "/watch/$titleId",
-      params: { titleId },
-      search: { episodeId: previousEpisode.id, start: "resume" },
-    });
-  }, [navigate, previousEpisode, titleId]);
+    if (previousEpisode !== null) playEpisode(previousEpisode.id);
+  }, [playEpisode, previousEpisode]);
+
+  // The episode picker: a show's episode, outside rooms. A room plays one episode for everyone; only
+  // its host could change it, and the room cannot carry its members along yet. Once left, the stream
+  // is this player's own again, and another episode starts without the room.
+  const pickable = episode !== null && roomId === undefined;
+  const episodeIdNow = episode?.id ?? null;
+  const seasonNow = episode?.seasonNumber ?? null;
+  const seasons = detail?.seasons ?? null;
+
+  // Rebuilt only when what it shows changes, not with each position update.
+  const picking = useMemo(
+    () =>
+      !pickable || episodeIdNow === null || seasonNow === null || seasons === null
+        ? null
+        : {
+            seasons,
+            current: { id: episodeIdNow, seasonNumber: seasonNow },
+            currentSeason: listOrLoading(seasonEpisodes),
+          },
+    [pickable, episodeIdNow, seasonNow, seasons, seasonEpisodes],
+  );
+
+  const canPick = picking !== null;
+
+  // A picker for an episode that can no longer pick (a room, a movie), or open in another layout,
+  // is closed, so it never reopens by itself later. One that only waits for the title's details
+  // again stays open.
+  if (episodesOpenIn !== null && (!pickable || episodesOpenIn !== layout)) {
+    setEpisodesOpenIn(null);
+  }
+
+  const episodesShown = episodesOpenIn === layout && canPick;
+
+  // The current season's episodes for the menu, the ones that can play.
+  const episodeOptions = useMemo(
+    (): ReadonlyArray<TrackOption> =>
+      !canPick || seasonEpisodes.status !== "success"
+        ? []
+        : seasonEpisodes.data.flatMap((candidate) =>
+            candidate.available
+              ? [
+                  {
+                    id: candidate.id,
+                    label: `${String(candidate.episodeNumber)}. ${candidate.name}`,
+                  },
+                ]
+              : [],
+          ),
+    [canPick, seasonEpisodes],
+  );
+
+  const selectEpisode = useCallback(
+    (id: string) => {
+      const chosen =
+        seasonEpisodes.status === "success"
+          ? seasonEpisodes.data.find((candidate) => candidate.id === id)
+          : undefined;
+
+      if (chosen !== undefined && chosen.id !== episode?.id) playEpisode(chosen.id);
+    },
+    [seasonEpisodes, episode?.id, playEpisode],
+  );
 
   useMediaSession(
     !isPlaying || castItem === null
@@ -840,6 +987,8 @@ export function PlayerScreen({
     media.paused ||
     infoShown ||
     menu ||
+    episodesShown ||
+    (volumeOpen && volumeSettable) ||
     startDialog !== null ||
     leaving !== null ||
     showNext ||
@@ -858,10 +1007,18 @@ export function PlayerScreen({
       "player.forward-10": () => skipByKey(10),
       "player.back-5": () => skipByKey(-5),
       "player.forward-5": () => skipByKey(5),
-      "player.volume-up": () => setVolume(media.volume + VOLUME_STEP),
-      "player.volume-down": () => setVolume(media.volume - VOLUME_STEP),
+      // From the level under mute, which they unmute, as they always have.
+      // Where the level cannot be set, Up still unmutes, as it always has.
+      "player.volume-up": () => {
+        if (volumeSettable) commitVolume(media.volume + VOLUME_STEP);
+        else if (media.muted) setMuted(false);
+      },
+      "player.volume-down": () => {
+        if (volumeSettable) commitVolume(media.volume - VOLUME_STEP);
+      },
       "player.fullscreen": toggleFullscreen,
-      "player.mute": () => setMuted(!media.muted),
+      // Silence counts as muted, as the button shows it: m then brings the sound back.
+      "player.mute": () => setMuted(!(media.muted || silent)),
       "player.subtitles": toggleSubtitles,
       // One press does one thing: leaves full screen, closes Stream info, or asks to leave. Menus,
       // popovers, and dialogs take Escape before it gets here.
@@ -897,6 +1054,9 @@ export function PlayerScreen({
       versionId,
       selectVersion,
       nextEpisode: nextEpisode === null || inRoom ? null : playNext,
+      episodes: episodeOptions,
+      episodeId: episode?.id ?? "",
+      selectEpisode,
       startRoom: inRoom || started === null ? null : openStartRoom,
       room: !inRoom
         ? null
@@ -927,6 +1087,9 @@ export function PlayerScreen({
       nextEpisode,
       inRoom,
       playNext,
+      episodeOptions,
+      episode?.id,
+      selectEpisode,
       started,
       streamInfoAvailable,
       openStartRoom,
@@ -1023,6 +1186,22 @@ export function PlayerScreen({
       onSelect={(chapter) => seekTo(chapter.startSeconds)}
     />
   );
+
+  const episodePicker = (trigger: React.ReactElement) =>
+    picking === null ? null : (
+      <EpisodePicker
+        trigger={trigger}
+        container={overlayContainer}
+        open={episodesShown}
+        onOpenChange={(open) => setEpisodesOpenIn(open ? layout : null)}
+        profileId={profile.id}
+        titleId={titleId}
+        seasons={picking.seasons}
+        current={picking.current}
+        currentSeason={picking.currentSeason}
+        onPlay={playEpisode}
+      />
+    );
 
   // One menu for every way this browser plays elsewhere: Chromecast, AirPlay, its own picker.
   const castTargets = {
@@ -1288,11 +1467,17 @@ export function PlayerScreen({
           position={position}
           duration={duration}
           muted={media.muted}
+          volume={volumeSettable ? media.volume : null}
           locked={guest ? `Only ${hostName} can pause or seek` : undefined}
           roomActive={sidePanel}
           tracks={tracks(
             <PlayerButton aria-label={TRACKS_LABEL}>
               <TracksGlyph />
+            </PlayerButton>,
+          )}
+          episodes={episodePicker(
+            <PlayerButton aria-label="Episodes">
+              <EpisodesGlyph />
             </PlayerButton>,
           )}
           chapterList={
@@ -1309,6 +1494,9 @@ export function PlayerScreen({
           onSeek={(seconds) => setScrub(seconds)}
           onSeekCommit={seekTo}
           onMuteChange={setMuted}
+          onVolumeChange={followVolume}
+          onVolumeCommit={commitVolume}
+          onVolumeOpenChange={setVolumeOpen}
           onNext={nextEpisode === null || inRoom ? undefined : playNext}
           onRoom={inRoom ? () => setPanel((open) => !open) : openStartRoom}
           onFullscreen={toggleFullscreen}
@@ -1331,7 +1519,7 @@ export function PlayerScreen({
           position={position}
           duration={duration}
           brightness={brightness}
-          volume={canSetVolume ? (media.muted ? 0 : media.volume) : null}
+          volume={volumeSettable ? (media.muted ? 0 : media.volume) : null}
           locked={guest ? `${hostName} is hosting` : undefined}
           tracks={
             <>
@@ -1349,6 +1537,7 @@ export function PlayerScreen({
                       label={audioOptions.find((option) => option.id === audioId)?.label ?? "Audio"}
                     />,
                   )}
+              {episodePicker(<TrackPill icon="episodes" label="Episodes" />)}
               {scrubbing.chapters.length === 0 || guest
                 ? null
                 : chapterMenu(
@@ -1367,7 +1556,8 @@ export function PlayerScreen({
           onSeekCommit={seekTo}
           scrub={scrubProps}
           onBrightness={setBrightness}
-          onVolume={setVolume}
+          onVolume={followVolume}
+          onVolumeCommit={commitVolume}
           onRoom={inRoom ? undefined : openStartRoom}
           castMenu={canCast ? castMenu : undefined}
         />

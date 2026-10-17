@@ -68,6 +68,7 @@ const SDK = String.raw`
       isMediaLoaded: false,
       isPaused: true,
       isMuted: false,
+      canControlVolume: true,
       duration: 0,
       playerState: "IDLE",
       currentTime: 0,

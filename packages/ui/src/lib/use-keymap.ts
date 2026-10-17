@@ -11,9 +11,15 @@ export function detectPlatform(): Platform {
   return /mac|iphone|ipad|ipod/iu.test(navigator.userAgent) ? "mac" : "other";
 }
 
-/** Whether a key event comes from a place where people type text, so plain keys must not fire. */
+/**
+ * Whether a key event comes from a place where people type text, so plain keys must not fire. A
+ * slider's range input takes no text: its own keys (arrows, Home, End, Page Up and Down) are its,
+ * and the rest stay shortcuts.
+ */
 export function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
+
+  if (target instanceof HTMLInputElement && target.type === "range") return false;
 
   return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }

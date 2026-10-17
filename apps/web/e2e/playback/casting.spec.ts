@@ -19,6 +19,7 @@ import type { Client } from "../admin/session";
 import { buildMediaService, startMediaService } from "../stack/media-service";
 import type { MediaService } from "../stack/media-service";
 import { advanceReceiver, castFake, installCastFake, receiver } from "./cast-fake";
+import type { FakeReceiver } from "./cast-fake";
 import {
   capture,
   encodeClip,
@@ -43,6 +44,10 @@ test.skip(stack === null, NO_STACK);
 test.describe.configure({ mode: "serial" });
 
 const SETUP_TIMEOUT_MS = 240_000;
+
+/** The volume levels the TV was sent, in order. */
+const levels = (commands: FakeReceiver["commands"]) =>
+  commands.filter(([command]) => command === "setVolumeLevel").map(([, value]) => value);
 
 const run = Date.now().toString(36);
 
@@ -253,6 +258,31 @@ test("the controls drive the receiver, and progress follows it", async () => {
     expect.arrayContaining(["playOrPause", "seek", "setVolumeLevel", "muteOrUnmute"]),
   );
   expect(seen.trackChanges.at(-1)).toEqual([]);
+
+  // The volume slider: the TV hears where a drag settles, once, and unmutes there.
+  const sent = levels(seen.commands).length;
+
+  await revealControls(page);
+  await page.getByRole("button", { name: "Unmute", exact: true }).hover();
+
+  const box = await page.locator('[data-slot="volume-slider"]').boundingBox();
+
+  if (box === null) throw new Error("The volume slider is not on screen");
+
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.9, { steps: 4 });
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.5, { steps: 8 });
+  await page.mouse.up();
+
+  await expect.poll(async () => levels((await receiver(page)).commands).length).toBe(sent + 1);
+
+  const after = await receiver(page);
+
+  expect(Number(levels(after.commands).at(-1))).toBeCloseTo(0.5, 1);
+  expect(after.commands.findLast(([command]) => command === "muteOrUnmute")).toEqual([
+    "muteOrUnmute",
+    false,
+  ]);
 });
 
 test("ending the cast continues on the page where the TV was", async () => {
