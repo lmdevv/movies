@@ -17,7 +17,8 @@ export interface IconButtonProps extends Omit<PressableProps, "children" | "styl
   readonly label: string;
   readonly variant?: "raised" | "glass" | "plain";
   readonly filled?: boolean;
-  readonly size?: "regular" | "large";
+  /** `regular` is 44pt, `control` 52pt beside a pill button (D01 My List), `large` 56pt. */
+  readonly size?: "regular" | "control" | "large";
   readonly className?: string;
 }
 
@@ -33,7 +34,7 @@ export function IconButton({
   className,
   ...props
 }: IconButtonProps) {
-  const dimension = size === "large" ? "size-14" : "size-11";
+  const dimension = { regular: "size-11", control: "size-13", large: "size-14" }[size];
 
   const glyph = (
     <Icon
