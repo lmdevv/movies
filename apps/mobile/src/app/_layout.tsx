@@ -9,6 +9,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useUniwind } from "uniwind";
 
 import { ServerUnavailable } from "@/components/server-unavailable";
+import { TitleStatesProvider } from "@/components/browse/title-states";
 import { Button } from "@/components/ui/button";
 import { applyAppearance } from "@/lib/appearance";
 import { describeFailure } from "@/lib/failure";
@@ -106,6 +107,11 @@ function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
         <Stack.Screen name="title/[titleId]/versions" options={sheet} />
         <Stack.Screen name="title/[titleId]/actions" options={sheet} />
         <Stack.Screen name="title/[titleId]/episode/[episodeId]" options={sheet} />
+        <Stack.Screen name="you" />
+        <Stack.Screen name="collections" />
+        <Stack.Screen name="collection/[collectionId]" />
+        <Stack.Screen name="genre/[genre]" />
+        <Stack.Screen name="person/[personId]" />
         <Stack.Screen
           name="watch/[titleId]"
           options={{
@@ -212,7 +218,9 @@ function ConnectedApp() {
     <SessionPhaseContext.Provider value={settled}>
       <ActiveProfileContext.Provider value={settled.kind === "ready" ? settled.active : null}>
         <HideSplash />
-        <RootStack phase={settled.kind} />
+        <TitleStatesProvider>
+          <RootStack phase={settled.kind} />
+        </TitleStatesProvider>
         {trouble === null ? null : (
           // Modal for VoiceOver too, so the covered screens can't be reached underneath.
           <View className="absolute inset-0" accessibilityViewIsModal>
