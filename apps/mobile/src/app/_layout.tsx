@@ -3,7 +3,7 @@ import "../global.css";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { CloudOff } from "lucide-react-native";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useUniwind } from "uniwind";
@@ -19,6 +19,7 @@ import { ConnectionProvider, useConnection } from "@/session/connection";
 import { ProfileChoiceProvider } from "@/session/profile-choice";
 import { SdkProvider } from "@/session/sdk-provider";
 import { useSessionPhase } from "@/session/session-phase";
+import { useSignOut } from "@/session/viewer";
 import type { SessionPhase } from "@/session/session-phase";
 
 applyAppearance();
@@ -93,24 +94,77 @@ function HideSplash() {
   return null;
 }
 
+/** How long the session may load before the screen offers a way out. */
+const SLOW_LOAD_MS = 8000;
+
+/** Whether `loading` has lasted longer than `SLOW_LOAD_MS`. */
+const useSlowLoad = (loading: boolean): boolean => {
+  const [slow, setSlow] = useState(false);
+
+  useEffect(() => {
+    setSlow(false);
+
+    if (!loading) return undefined;
+    const timer = setTimeout(() => setSlow(true), SLOW_LOAD_MS);
+
+    return () => clearTimeout(timer);
+  }, [loading]);
+
+  return slow;
+};
+
+/**
+ * Shown instead of the splash when the session cannot load, such as when the account server is
+ * unreachable or the stored session was revoked: try again, sign out, or pick another server.
+ */
+function ConnectionTrouble({
+  description,
+  retry,
+}: {
+  readonly description: string;
+  readonly retry?: () => void;
+}) {
+  const { disconnect } = useConnection();
+  const signOut = useSignOut();
+
+  return (
+    <Screen>
+      <HideSplash />
+      <CalmState
+        icon={CloudOff}
+        title="Server Unavailable"
+        description={description}
+        actions={
+          <>
+            {retry === undefined ? null : <Button label="Try Again" onPress={retry} />}
+            <Button label="Change Server" variant="secondary" onPress={disconnect} />
+            <Button
+              label="Sign Out"
+              variant="plain"
+              onPress={() => {
+                void signOut().catch(() => undefined);
+              }}
+            />
+          </>
+        }
+      />
+    </Screen>
+  );
+}
+
 /** The connected app: the SDK on the server, the profile choice, and the phase's screens. */
 function ConnectedApp() {
   const phase = useSessionPhase();
+  const slow = useSlowLoad(phase.kind === "loading");
 
-  if (phase.kind === "loading") return null;
+  if (phase.kind === "loading") {
+    return slow ? (
+      <ConnectionTrouble description="The server isn't answering. Check the connection, or choose another server." />
+    ) : null;
+  }
 
   if (phase.kind === "unavailable") {
-    return (
-      <Screen>
-        <HideSplash />
-        <CalmState
-          icon={CloudOff}
-          title="Server Unavailable"
-          description={describeFailure(phase.cause)}
-          actions={<Button label="Try Again" onPress={phase.retry} />}
-        />
-      </Screen>
-    );
+    return <ConnectionTrouble description={describeFailure(phase.cause)} retry={phase.retry} />;
   }
 
   return (

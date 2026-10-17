@@ -81,7 +81,7 @@ export function Button({
       ) : (
         <>
           {icon === undefined ? null : (
-            <Icon icon={icon} tone={tone} size={20} filled={iconFilled} />
+            <Icon icon={icon} tone={tone} size="inline" filled={iconFilled} />
           )}
           <Text variant="bodyStrong" tone={tone} numberOfLines={1}>
             {label}

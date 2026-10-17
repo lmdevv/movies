@@ -24,8 +24,11 @@ export type ConnectFailure =
   | "invalid"
   /** Nothing answered, or it answered but is not a [movies] media service. */
   | "unreachable"
-  /** A [movies] server that runs without accounts, so this app cannot sign in to it. */
-  | "standalone";
+  /**
+   * A [movies] media service that does not say where its account server is (no public Convex
+   * URL configured, or a version without `/api/client-config`); Connection Details still works.
+   */
+  | "needsDetails";
 
 const hasSchemePrefix = /^[a-z][a-z\d+.-]*:\/\//iu;
 
@@ -87,7 +90,7 @@ const discoverAt = async (mediaUrl: string): Promise<ConnectResult> => {
   const convexUrl = Option.flatMapNullishOr(config, (value) => value.convexUrl);
 
   return Option.isNone(convexUrl)
-    ? { ok: false, failure: "standalone" }
+    ? { ok: false, failure: "needsDetails" }
     : { ok: true, connection: { mediaUrl, convexUrl: convexUrl.value } };
 };
 
@@ -142,7 +145,7 @@ export const connectManually = async (
 const FAILURE_LINES = {
   invalid: "Enter a server address, such as https://cinema.home.",
   unreachable: "Can't reach a [movies] server at that address.",
-  standalone: "This server runs without accounts. Enter its connection details.",
+  needsDetails: "This server doesn't share its account server. Enter its connection details.",
 } as const satisfies Record<ConnectFailure, string>;
 
 /** The line each failure shows under the field. */

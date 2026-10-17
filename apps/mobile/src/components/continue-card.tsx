@@ -44,7 +44,7 @@ export function ContinueCard({ item }: { readonly item: ContinueWatchingItem }) 
           <Image source={{ uri }} contentFit="cover" transition={150} className="size-full" />
         )}
         <View className="absolute bottom-2 left-2">
-          <Icon icon={Play} tone="onMedia" size={20} filled />
+          <Icon icon={Play} tone="onMedia" size="inline" filled />
         </View>
       </View>
       {fraction === null ? null : <ProgressBar value={fraction} />}

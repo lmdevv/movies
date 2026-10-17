@@ -23,7 +23,10 @@ export default function SignIn() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const ready = email.trim() !== "" && secret !== "" && !busy;
+
   const submit = async () => {
+    if (!ready) return;
     setBusy(true);
     setError(null);
 

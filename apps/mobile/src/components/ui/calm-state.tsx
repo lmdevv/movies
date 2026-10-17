@@ -21,7 +21,7 @@ export interface CalmStateProps {
 export function CalmState({ icon, title, description, actions }: CalmStateProps) {
   return (
     <View className="flex-1 items-center justify-center gap-4 px-8">
-      {icon === undefined ? null : <Icon icon={icon} tone="muted" size={40} />}
+      {icon === undefined ? null : <Icon icon={icon} tone="muted" size="state" />}
       <View className="items-center gap-2">
         <Text variant="heading" className="text-center" accessibilityRole="header">
           {title}

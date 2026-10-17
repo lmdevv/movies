@@ -15,7 +15,10 @@ export default function ConnectionDetails() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const ready = mediaUrl.trim() !== "" && convexUrl.trim() !== "" && !busy;
+
   const submit = async () => {
+    if (!ready) return;
     setBusy(true);
     setError(null);
     const result = await connectManually(mediaUrl, convexUrl);

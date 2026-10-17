@@ -17,7 +17,10 @@ export default function Connect() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const ready = address.trim() !== "" && !busy;
+
   const submit = async () => {
+    if (!ready) return;
     setBusy(true);
     setError(null);
     const result = await discoverServer(address);

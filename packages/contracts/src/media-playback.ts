@@ -223,7 +223,7 @@ export interface HealthResponse extends Schema.Schema.Type<typeof HealthResponse
 
 /**
  * What an app needs to connect when someone types only this service's address: the Convex URL
- * to sign in to, as clients reach it. Absent when the service runs without Convex.
+ * to sign in to, as clients reach it (`CONVEX_PUBLIC_URL`). Absent when none is configured.
  */
 export const ClientConfigResponse = Schema.Struct({
   convexUrl: Schema.optional(Schema.String),

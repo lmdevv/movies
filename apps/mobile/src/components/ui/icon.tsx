@@ -19,21 +19,40 @@ const TONE_VARIABLES = {
   onMediaMuted: "--color-video-muted",
 } as const satisfies Record<TextTone, string>;
 
+/**
+ * Glyph sizes as Paper draws them: 14 under profile tiles, 16 for row chevrons, 20 in buttons and
+ * on artwork, 22 in list rows, 24 in navigation, 28 large controls, 40 in calm states, and 56 on
+ * avatar tiles. Lucide takes a point size, so the scale lives here rather than in CSS.
+ */
+const SIZES = {
+  caption: 14,
+  chevron: 16,
+  inline: 20,
+  row: 22,
+  nav: 24,
+  large: 28,
+  state: 40,
+  tile: 56,
+} as const;
+
+/** A step of the glyph size scale. */
+type IconSize = keyof typeof SIZES;
+
 /** Props for `Icon`. */
 export interface IconProps {
   readonly icon: LucideIcon;
   readonly tone?: TextTone;
-  readonly size?: number;
+  readonly size?: IconSize;
   readonly filled?: boolean;
 }
 
 /** A Lucide glyph colored by role. */
-export function Icon({ icon: Glyph, tone = "default", size = 24, filled = false }: IconProps) {
+export function Icon({ icon: Glyph, tone = "default", size = "nav", filled = false }: IconProps) {
   const color = useThemeColor(TONE_VARIABLES[tone]);
 
   return (
     <Glyph
-      size={size}
+      size={SIZES[size]}
       strokeWidth={2}
       color={color}
       fill={filled ? color : "none"}

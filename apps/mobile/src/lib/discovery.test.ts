@@ -82,10 +82,12 @@ describe("discoverServer", () => {
     });
   });
 
-  it("reports a server without accounts as standalone", async () => {
-    const mediaUrl = await start({ "/api/health": health, "/api/client-config": "{}" });
+  it("asks for connection details when the server doesn't share its account server", async () => {
+    const withoutUrl = await start({ "/api/health": health, "/api/client-config": "{}" });
+    const olderServer = await start({ "/api/health": health });
 
-    expect(await discoverServer(mediaUrl)).toEqual({ ok: false, failure: "standalone" });
+    expect(await discoverServer(withoutUrl)).toEqual({ ok: false, failure: "needsDetails" });
+    expect(await discoverServer(olderServer)).toEqual({ ok: false, failure: "needsDetails" });
   });
 
   it("reports something that is not a media service as unreachable", async () => {

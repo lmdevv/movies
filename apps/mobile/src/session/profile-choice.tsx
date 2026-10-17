@@ -9,6 +9,7 @@ import { Option, Schema } from "effect";
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
+import { isFailure } from "@/lib/failure";
 import { readValue, writeValue } from "@/lib/secure-storage";
 
 const KEY = "movies.profile";
@@ -45,9 +46,12 @@ export function ProfileChoiceProvider({ children }: { readonly children: ReactNo
     async (next: ProfileId | null) => {
       const previous = current.current;
 
-      // Signing out (null) ends the session and every unlock with it.
+      // Signing out (null) ends the session and every unlock with it. A remembered profile that
+      // no longer exists, or belongs to another account, has nothing left to lock.
       if (previous !== null && next !== null && previous !== next) {
-        await lock({ profileId: previous });
+        await lock({ profileId: previous }).catch((cause: unknown) => {
+          if (!isFailure(cause, "NotFound") && !isFailure(cause, "Forbidden")) throw cause;
+        });
       }
 
       commit(next);

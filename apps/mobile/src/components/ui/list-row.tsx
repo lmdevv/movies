@@ -42,7 +42,7 @@ export function ListRow({
     <>
       {icon === undefined ? null : (
         <View className="w-7 items-center">
-          <Icon icon={icon} tone={tone} size={22} />
+          <Icon icon={icon} tone={tone} size="row" />
         </View>
       )}
       <View className="flex-1 gap-0.5">
@@ -63,7 +63,7 @@ export function ListRow({
       {trailing}
       {chevron && onPress !== undefined ? (
         <View className="w-5 items-center">
-          <Icon icon={ChevronRight} tone="muted" size={16} />
+          <Icon icon={ChevronRight} tone="muted" size="chevron" />
         </View>
       ) : null}
     </>

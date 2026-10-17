@@ -39,7 +39,7 @@ export function IconButton({
     <Icon
       icon={icon}
       tone={variant === "glass" ? "onMedia" : "default"}
-      size={size === "large" ? 28 : 24}
+      size={size === "large" ? "large" : "nav"}
       filled={filled}
     />
   );

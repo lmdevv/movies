@@ -79,7 +79,7 @@ export default function Profiles() {
               <ProfileAvatar profile={profile} />
               <Text variant="navTitle">{profile.name}</Text>
               {profile.hasPin ? (
-                <Icon icon={Lock} tone="muted" size={14} />
+                <Icon icon={Lock} tone="muted" size="caption" />
               ) : profile.kids ? (
                 <Text variant="meta" tone="muted">
                   Kids

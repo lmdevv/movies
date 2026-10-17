@@ -26,7 +26,7 @@ export function ProfileAvatar({ profile, size = "large" }: ProfileAvatarProps) {
       }`}
     >
       {profile.kids ? (
-        <Icon icon={Tv} size={large ? 56 : 20} />
+        <Icon icon={Tv} size={large ? "tile" : "inline"} />
       ) : (
         <Text variant={large ? "hero" : "labelStrong"}>
           {profile.name.trim().charAt(0).toUpperCase()}
