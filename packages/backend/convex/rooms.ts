@@ -517,8 +517,10 @@ export const heartbeat = mutation({
     if (member.role !== "host" || found.status === "ended") return presentRoomClock(found);
 
     if (away) {
-      // Only a playing room reads its file's length, to pause at the end.
-      const file = found.status === "playing" ? await ctx.db.get(found.fileId) : null;
+      // Only a counted heartbeat in a playing room reads its file's length, to pause at the end.
+      const file =
+        !playerReported && found.status === "playing" ? await ctx.db.get(found.fileId) : null;
+
       const paused = playerReported ? null : awayHostClock(found, file?.probe.durationMs ?? 0, now);
 
       await ctx.db.patch(
