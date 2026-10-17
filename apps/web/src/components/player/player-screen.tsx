@@ -690,6 +690,7 @@ export function PlayerScreen({
     delayMs: snapshot?.subtitleDelayMs ?? 0,
     casting: casting !== null,
     otherScreen: airplay?.active === true || remotePlayback?.active === true,
+    keycaps: layout === "desktop",
   });
 
   // Rooms.

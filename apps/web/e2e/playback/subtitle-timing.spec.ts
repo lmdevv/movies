@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import type { RoomId, TitleId } from "@movies/contracts/ids";
 import { RoomId as RoomIdSchema } from "@movies/contracts/ids";
-import { expect, test } from "@playwright/test";
+import { devices, expect, test } from "@playwright/test";
 import type { BrowserContext, Locator, Page } from "@playwright/test";
 import { Schema } from "effect";
 
@@ -341,6 +341,24 @@ test("Earlier, Later, a typed delay, and Reset move the cues both ways while pau
   await expect(page.getByRole("status").filter({ hasText: "Subtitle delay" })).toContainText(
     "−0.2 s",
   );
+
+  // ⌘K offers the same steps under Playback, with their keys, and Reset once a delay is set.
+  const menu = page.getByRole("dialog", { name: "Command menu" });
+  const playback = menu.getByRole("group", { name: "Playback" });
+
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(playback.getByRole("option", { name: /^Subtitles earlier/u })).toContainText("G");
+  await expect(playback.getByRole("option", { name: /^Reset subtitle delay/u })).toBeVisible();
+  await playback.getByRole("option", { name: /^Subtitles later/u }).click();
+  await expect(menu).toBeHidden();
+  await expect.poll(() => showing(page)).toMatchObject({ starts: englishStarts(-100) });
+  await page.keyboard.press("ControlOrMeta+k");
+  await playback.getByRole("option", { name: /^Reset subtitle delay/u }).click();
+  await expect.poll(() => showing(page)).toMatchObject({ starts: englishStarts(0) });
+
+  // Back where the next test expects it.
+  await repeat(2, () => player.press("g"));
+  await expect.poll(() => showing(page)).toMatchObject({ starts: englishStarts(-200) });
 });
 
 test("the delay holds through seeks, playing, and a quality change to an hls.js transcode", async () => {
@@ -458,6 +476,36 @@ test("a picture subtitle is drawn into the video, so its delay is off with the r
   await expect(control.getByRole("button", { name: "Earlier" })).toBeDisabled();
   await expect(control.getByRole("textbox")).toBeDisabled();
   await capture(page, "subtitle-delay-burned-in");
+});
+
+test("on a phone the delay sits under the subtitles too, without keycaps", async ({ browser }) => {
+  if (stack === null) return;
+
+  const phone = await browser.newContext({ ...devices["iPhone 13 landscape"] });
+  const handset = await phone.newPage();
+
+  await useSession(handset, owner);
+  await handset.goto(`/watch/${titleId(FILM)}?start=0`);
+  await expectPlayingPast(handset, 0.5);
+  await handset.getByTestId("player-video").tap();
+  await handset.getByRole("button", { name: "Off", exact: true }).tap();
+
+  const panel = handset.getByRole("dialog", { name: TRACKS });
+
+  await panel
+    .getByRole("radiogroup", { name: "Subtitles" })
+    .getByRole("radio", { name: "English" })
+    .tap();
+
+  const control = delayControl(panel);
+  const later = control.getByRole("button", { name: "Later" });
+
+  await later.tap();
+  await expect(control.getByRole("textbox")).toHaveValue("+0.1");
+  await expect(later).toHaveText("");
+  await expect.poll(() => showing(handset)).toMatchObject({ starts: englishStarts(100) });
+  await capture(handset, "subtitle-delay-phone");
+  await phone.close();
 });
 
 test("in a room each viewer's delay moves only their own subtitles, never the room's clock", async () => {

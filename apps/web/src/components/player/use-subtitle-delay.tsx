@@ -18,6 +18,8 @@ import {
 } from "@/playback/subtitle-timing";
 import type { SubtitleTiming } from "@/playback/subtitle-timing";
 
+const NO_KEYS: ReadonlyArray<string> = [];
+
 /** How long the notice of a key press stays. */
 const NOTICE_MS = 1_500;
 
@@ -46,6 +48,7 @@ const noticeFor = (delayMs: number | null, reason: string | null): string | null
  *
  * @param casting - A Chromecast plays the session.
  * @param otherScreen - AirPlay or the Remote Playback API plays the element elsewhere.
+ * @param keycaps - Draw the G and H keycaps on the buttons; not on touch layouts.
  */
 export const useSubtitleDelay = ({
   controller,
@@ -54,6 +57,7 @@ export const useSubtitleDelay = ({
   delayMs,
   casting,
   otherScreen,
+  keycaps,
 }: {
   readonly controller: PlaybackController | null;
   readonly stream: NegotiateResponse | null;
@@ -61,6 +65,7 @@ export const useSubtitleDelay = ({
   readonly delayMs: number;
   readonly casting: boolean;
   readonly otherScreen: boolean;
+  readonly keycaps: boolean;
 }): PlayerSubtitleDelay => {
   // A track chosen before its stream's list arrived is a text track: picture tracks are chosen
   // from that list.
@@ -120,8 +125,8 @@ export const useSubtitleDelay = ({
       value={formatSubtitleDelay(delayMs)}
       unavailable={reason ?? undefined}
       resettable={delayMs !== 0}
-      earlierKeys={playerKeymap.keycaps("player.subtitles-earlier")}
-      laterKeys={playerKeymap.keycaps("player.subtitles-later")}
+      earlierKeys={keycaps ? playerKeymap.keycaps("player.subtitles-earlier") : NO_KEYS}
+      laterKeys={keycaps ? playerKeymap.keycaps("player.subtitles-later") : NO_KEYS}
       onEarlier={() => step(-1)}
       onLater={() => step(1)}
       onReset={() => step(0)}
