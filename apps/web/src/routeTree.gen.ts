@@ -21,6 +21,7 @@ import { Route as AppMyListRouteImport } from './routes/_app/my-list'
 import { Route as AppSearchRouteImport } from './routes/_app/search'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppShowsRouteImport } from './routes/_app/shows'
+import { Route as DevAutoplayRouteImport } from './routes/dev/autoplay'
 import { Route as DevCrashRouteImport } from './routes/dev/crash'
 import { Route as DevKitRouteImport } from './routes/dev/kit'
 import { Route as DevTracksRouteImport } from './routes/dev/tracks'
@@ -108,6 +109,11 @@ const AppShowsRoute = AppShowsRouteImport.update({
   id: '/shows',
   path: '/shows',
   getParentRoute: () => AppRoute,
+} as any)
+const DevAutoplayRoute = DevAutoplayRouteImport.update({
+  id: '/dev/autoplay',
+  path: '/dev/autoplay',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const DevCrashRoute = DevCrashRouteImport.update({
   id: '/dev/crash',
@@ -265,6 +271,7 @@ export interface FileRoutesByFullPath {
   '/search': typeof AppSearchRoute
   '/settings': typeof AppSettingsRouteWithChildren
   '/shows': typeof AppShowsRoute
+  '/dev/autoplay': typeof DevAutoplayRoute
   '/dev/crash': typeof DevCrashRoute
   '/dev/kit': typeof DevKitRoute
   '/dev/tracks': typeof DevTracksRoute
@@ -303,6 +310,7 @@ export interface FileRoutesByTo {
   '/my-list': typeof AppMyListRoute
   '/search': typeof AppSearchRoute
   '/shows': typeof AppShowsRoute
+  '/dev/autoplay': typeof DevAutoplayRoute
   '/dev/crash': typeof DevCrashRoute
   '/dev/kit': typeof DevKitRoute
   '/dev/tracks': typeof DevTracksRoute
@@ -346,6 +354,7 @@ export interface FileRoutesById {
   '/_app/search': typeof AppSearchRoute
   '/_app/settings': typeof AppSettingsRouteWithChildren
   '/_app/shows': typeof AppShowsRoute
+  '/dev/autoplay': typeof DevAutoplayRoute
   '/dev/crash': typeof DevCrashRoute
   '/dev/kit': typeof DevKitRoute
   '/dev/tracks': typeof DevTracksRoute
@@ -390,6 +399,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/settings'
     | '/shows'
+    | '/dev/autoplay'
     | '/dev/crash'
     | '/dev/kit'
     | '/dev/tracks'
@@ -428,6 +438,7 @@ export interface FileRouteTypes {
     | '/my-list'
     | '/search'
     | '/shows'
+    | '/dev/autoplay'
     | '/dev/crash'
     | '/dev/kit'
     | '/dev/tracks'
@@ -470,6 +481,7 @@ export interface FileRouteTypes {
     | '/_app/search'
     | '/_app/settings'
     | '/_app/shows'
+    | '/dev/autoplay'
     | '/dev/crash'
     | '/dev/kit'
     | '/dev/tracks'
@@ -506,6 +518,7 @@ export interface RootRouteChildren {
   DeviceRoute: typeof DeviceRoute
   SignInRoute: typeof SignInRoute
   WelcomeRoute: typeof WelcomeRoute
+  DevAutoplayRoute: typeof DevAutoplayRoute
   DevCrashRoute: typeof DevCrashRoute
   DevKitRoute: typeof DevKitRoute
   DevTracksRoute: typeof DevTracksRoute
@@ -605,6 +618,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/shows'
       preLoaderRoute: typeof AppShowsRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/dev/autoplay': {
+      id: '/dev/autoplay'
+      path: '/dev/autoplay'
+      fullPath: '/dev/autoplay'
+      preLoaderRoute: typeof DevAutoplayRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/dev/crash': {
       id: '/dev/crash'
@@ -887,6 +907,7 @@ const rootRouteChildren: RootRouteChildren = {
   DeviceRoute: DeviceRoute,
   SignInRoute: SignInRoute,
   WelcomeRoute: WelcomeRoute,
+  DevAutoplayRoute: DevAutoplayRoute,
   DevCrashRoute: DevCrashRoute,
   DevKitRoute: DevKitRoute,
   DevTracksRoute: DevTracksRoute,

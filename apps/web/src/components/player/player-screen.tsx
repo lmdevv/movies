@@ -74,7 +74,7 @@ import { useMediaState, usePlayback } from "@/playback/use-playback";
 import { useActiveProfile } from "@/session/guards";
 import { useScopes } from "@/session/viewer";
 
-import { AUTOPLAY_COUNTDOWN, AUTOPLAY_VIDEO_FRAME } from "./autoplay";
+import { AUTOPLAY_COUNTDOWN } from "./autoplay";
 import { AutoplayNext } from "./autoplay-next";
 import { CastMenu, CastingState } from "./cast-menu";
 import { EpisodePicker } from "./episode-picker";
@@ -817,10 +817,12 @@ export function PlayerScreen({
   // Autoplay next: near the end of an episode, outside rooms.
   const remaining = Math.max(0, duration - media.positionSeconds);
 
-  // Not while "Leave playback?" asks, so the countdown cannot move on to the next episode behind it.
+  // Not while "Leave playback?" asks, so the countdown cannot move on to the next episode behind it,
+  // nor while the viewer has paused the credits (a click on them pauses); playing again starts it over.
   const showNext =
     isPlaying &&
     leaving === null &&
+    (!media.paused || media.ended) &&
     !inRoom &&
     nextEpisode !== null &&
     !creditsDismissed &&
@@ -1606,7 +1608,7 @@ export function PlayerScreen({
             : "min-w-0 grow",
         )}
       >
-        <div className={cn("absolute inset-0", showNext && AUTOPLAY_VIDEO_FRAME)}>
+        <div className="absolute inset-0">
           {videoElement}
           {casting === null ? null : <CastingState deviceName={casting.deviceName} />}
         </div>
@@ -1625,12 +1627,14 @@ export function PlayerScreen({
         <SubtitleDelayNotice text={subtitleDelay.notice} />
         {showNext ? (
           <AutoplayNext
-            current={heading}
-            remainingSeconds={remaining}
             next={nextEpisode}
+            still={artworkUrl(nextEpisode.still, "card")}
             countdownMs={countdown ?? AUTOPLAY_COUNTDOWN.totalMs}
-            onPlayNext={playNext}
-            onWatchCredits={() => setCreditsDismissed(true)}
+            actions={{
+              kind: "advance",
+              onPlayNext: playNext,
+              onWatchCredits: () => setCreditsDismissed(true),
+            }}
           />
         ) : null}
       </div>
