@@ -237,6 +237,18 @@ test("a Chromecast on the network gets a cast button, and casting loads the sess
       ),
   ).toBe(0);
   await capture(page, "casting");
+
+  // The TV loads its own copy of the subtitles, which this page cannot retime.
+  await revealControls(page);
+  await page.getByRole("button", { name: TRACKS }).click();
+
+  const panel = page.getByRole("dialog", { name: TRACKS });
+  const delay = panel.getByRole("group", { name: "Subtitle delay" });
+
+  await expect(delay).toContainText("Not while casting");
+  await expect(delay.getByRole("button", { name: "Later" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(panel).toBeHidden();
 });
 
 test("the controls drive the receiver, and progress follows it", async () => {
