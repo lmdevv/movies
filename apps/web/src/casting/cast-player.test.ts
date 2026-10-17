@@ -13,7 +13,8 @@ const ANY_CHANGE = "anyChanged";
 /**
  * A receiver whose mirror lags its commands, as a real one does over the network: `playOrPause`
  * reaches it at once, but the mirror only reports the new state on `deliver`. Mute toggles lag the
- * same way until `deliverMute`.
+ * same way until `deliverMute`, and, as the Cast SDK's controller does, send the opposite of what
+ * the mirror says, not of what the receiver is.
  */
 const laggingReceiver = ({ muted = false }: { readonly muted?: boolean } = {}) => {
   const handlers = new Set<(event: RemotePlayerChange) => void>();
@@ -21,6 +22,7 @@ const laggingReceiver = ({ muted = false }: { readonly muted?: boolean } = {}) =
   let mirrorPaused = false;
   let receiverMuted = muted;
   let mirrorMuted = muted;
+  let muteCommands = 0;
   // The receiver's state after each command, in order, until the mirror reports it.
   const unreported: Array<boolean> = [];
   let toggles = 0;
@@ -56,7 +58,8 @@ const laggingReceiver = ({ muted = false }: { readonly muted?: boolean } = {}) =
     stop(): void {}
 
     muteOrUnmute(): void {
-      receiverMuted = !receiverMuted;
+      muteCommands += 1;
+      receiverMuted = !mirrorMuted;
     }
 
     setVolumeLevel(): void {}
@@ -109,6 +112,7 @@ const laggingReceiver = ({ muted = false }: { readonly muted?: boolean } = {}) =
     },
     receiverPaused: () => receiverPaused,
     receiverMuted: () => receiverMuted,
+    muteCommands: () => muteCommands,
     /** The mirror reports whether the receiver is muted now. */
     deliverMute: () => {
       if (mirrorMuted === receiverMuted) return;
@@ -322,10 +326,12 @@ describe("CastPlayer", () => {
 
     player.setVolume(0.4);
     player.setMuted(true);
-    expect(receiver.receiverMuted()).toBe(true);
+    expect(player.getState().muted).toBe(true);
     player.setMuted(true);
     receiver.deliverMute();
     expect(receiver.receiverMuted()).toBe(true);
+    receiver.deliverMute();
+    expect(receiver.muteCommands()).toBe(2);
   });
 
   it("reports what was asked of mute and volume at once, so a second press toggles back", () => {
@@ -336,7 +342,11 @@ describe("CastPlayer", () => {
     player.setMuted(!player.getState().muted);
     expect(player.getState().muted).toBe(false);
     player.setMuted(!player.getState().muted);
+    expect(player.getState().muted).toBe(true);
+    receiver.deliverMute();
     expect(receiver.receiverMuted()).toBe(true);
+    receiver.deliverMute();
+    expect(receiver.muteCommands()).toBe(2);
 
     player.setVolume(0.4);
     expect(player.getState()).toMatchObject({ muted: false, volume: 0.4 });
@@ -350,6 +360,7 @@ describe("CastPlayer", () => {
     expect(receiver.receiverMuted()).toBe(true);
     expect(player.getState()).toMatchObject({ muted: true, volume: 0 });
     player.setVolume(0.3);
+    receiver.deliverMute();
     expect(receiver.receiverMuted()).toBe(false);
   });
 });

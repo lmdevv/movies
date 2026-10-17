@@ -464,17 +464,17 @@ export function PlayerScreen({
     [video, casting],
   );
 
-  // The last level the viewer settled on above silence, and where (this element, or a TV by name),
-  // which unmuting from silence there returns to. A drag's passing levels do not count, so dragging
-  // down to nothing and unmuting restores where it started.
-  const audibleVolume = useRef<{ readonly on: string; readonly level: number } | null>(null);
+  // The last level the viewer settled on above silence on each output (this element as "", a TV by
+  // name), which unmuting from silence there returns to. A drag's passing levels do not count, so
+  // dragging down to nothing and unmuting restores where it started.
+  const audibleVolume = useRef(new Map<string, number>());
   const volumeOutput = casting === null ? "" : casting.deviceName;
   const levelNow = media.volume;
 
   // Before the first change on an output, its level now (under mute, too) is where it started.
   const rememberStart = useCallback(() => {
-    if (audibleVolume.current?.on !== volumeOutput && levelNow > 0) {
-      audibleVolume.current = { on: volumeOutput, level: levelNow };
+    if (!audibleVolume.current.has(volumeOutput) && levelNow > 0) {
+      audibleVolume.current.set(volumeOutput, levelNow);
     }
   }, [volumeOutput, levelNow]);
 
@@ -484,7 +484,7 @@ export function PlayerScreen({
 
       rememberStart();
 
-      if (level > 0) audibleVolume.current = { on: volumeOutput, level };
+      if (level > 0) audibleVolume.current.set(volumeOutput, level);
       setVolume(level);
     },
     [rememberStart, volumeOutput, setVolume],
@@ -509,15 +509,9 @@ export function PlayerScreen({
   const setMuted = useCallback(
     (muted: boolean) => {
       if (!muted && silent) {
-        const remembered = audibleVolume.current;
-
         // Nothing settled on here yet: an element starts at full volume, and a TV at a moderate one.
         setVolume(
-          remembered !== null && remembered.on === volumeOutput
-            ? remembered.level
-            : casting === null
-              ? 1
-              : CAST_UNMUTE_LEVEL,
+          audibleVolume.current.get(volumeOutput) ?? (casting === null ? 1 : CAST_UNMUTE_LEVEL),
         );
       } else if (casting !== null) casting.player.setMuted(muted);
       else if (video !== null) video.muted = muted;

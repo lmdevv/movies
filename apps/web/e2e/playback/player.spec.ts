@@ -1097,6 +1097,9 @@ test("touch: a tap opens the volume slider before muting, and the picker plays a
   await touch.getByRole("button", { name: "Unmute", exact: true }).tap();
   await expect.poll(async () => (await videoState(touch)).muted).toBe(false);
 
+  // Left alone, the slider a tap opened closes, and lets the controls hide again.
+  await expect(slider).toHaveCount(0, { timeout: 6_000 });
+
   await touch.getByRole("button", { name: "Episodes", exact: true }).tap();
   await expect(slider).toHaveCount(0);
 

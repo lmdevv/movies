@@ -263,6 +263,9 @@ function ProgressLine({
 /** How long the slider waits after the pointer leaves, so a slightly curved path onto it keeps it. */
 const HOVER_CLOSE_MS = 250;
 
+/** How long a slider a tap opened stays once left alone, as the controls around it do. */
+const TOUCH_IDLE_MS = 3_000;
+
 /** What keeps the slider open: the pointer over it, keyboard focus in it, a drag, or a tap. */
 type Reason = "hover" | "focus" | "drag" | "touch";
 
@@ -302,6 +305,7 @@ function VolumeControl({
   const openNow = useRef(false);
   const group = useRef<HTMLDivElement | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const touchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // The pointer that pressed the button, read by the click that follows.
   const pressedWith = useRef<string | null>(null);
   const button = useRef<HTMLButtonElement | null>(null);
@@ -336,6 +340,7 @@ function VolumeControl({
   // Let go of the controls when unmounted open, as when the controls give way to a state.
   const unmount = useEffectEvent(() => {
     clearTimeout(hoverTimer.current);
+    clearTimeout(touchTimer.current);
     reasons.current.clear();
 
     if (!openNow.current) return;
@@ -424,6 +429,13 @@ function VolumeControl({
     hold("focus", false);
   };
 
+  // A slider a tap opened closes once left alone; each touch on it keeps it a while longer.
+  const touchAgain = (): void => {
+    if (!reasons.current.has("touch")) return;
+    clearTimeout(touchTimer.current);
+    touchTimer.current = setTimeout(() => hold("touch", false), TOUCH_IDLE_MS);
+  };
+
   const toggleMute = (): void => {
     const touch = pressedWith.current === "touch";
 
@@ -432,6 +444,7 @@ function VolumeControl({
     // On touch the first tap opens the slider, and the next one mutes.
     if (touch && settable && !reasons.current.has("touch")) {
       hold("touch", true);
+      touchAgain();
 
       return;
     }
@@ -462,6 +475,7 @@ function VolumeControl({
       onPointerDownCapture={() => {
         pressing.current = true;
         hold("focus", false);
+        touchAgain();
       }}
       onFocus={focus}
       onBlur={blur}
@@ -495,6 +509,7 @@ function VolumeControl({
             largeStep={10}
             value={shown}
             onValueChange={(next) => {
+              touchAgain();
               setMoving(next);
               onVolumeChange(next / 100);
             }}
