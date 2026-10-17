@@ -2,12 +2,14 @@
  * An in-memory Convex backend for one watch room, at the `ConvexTransport` seam. It follows the
  * room rules of `packages/backend/convex/rooms.ts` (host-only controls at the current revision,
  * seek keeping the status, host heartbeats re-anchoring drift beyond the contracts' threshold,
- * guest heartbeats recording the drift they report),
+ * guest heartbeats recording the drift they report, heartbeats recording presence (an away one
+ * counting once the device's player has been silent for `PLAYER_SILENCE_MS`), and an away host's
+ * heartbeat pausing a buffering room; it knows no file length, so a room never plays past one),
  * decodes arguments and encodes results with the registry schemas, keeps its own server clock at
  * a fixed offset from the test clock, delays every call and update by a one-way latency, and can
  * drop the connection. Everything runs on Effect's `Clock`, so `TestClock` drives it.
  */
-import { hostReading, targetPosition } from "@movies/contracts/clock";
+import { hostReading, PLAYER_SILENCE_MS, targetPosition } from "@movies/contracts/clock";
 import type { FunctionPath } from "@movies/contracts/command";
 import { commands } from "@movies/contracts/commands";
 import type { CommandError } from "@movies/contracts/errors";
@@ -82,6 +84,19 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
   const published = yield* SubscriptionRef.make(initial);
   const connected = yield* SubscriptionRef.make(true);
   const calls = yield* Ref.make<ReadonlyArray<string>>([]);
+
+  // When each device's player last reported: joining (creating, for the host), then watching
+  // heartbeats.
+  // The room's members, host included, joined as the backend opens; by its clock.
+  const opened = Math.round((yield* Clock.currentTimeMillis) + options.serverOffsetMs);
+
+  const watched = yield* Ref.make<ReadonlyMap<string, number>>(
+    new Map([
+      [initial.hostDeviceId, opened],
+      ...initial.members.map((member) => [member.deviceId, opened] as const),
+    ]),
+  );
+
   const latency = Duration.millis(options.latencyMs);
 
   const commit = (room: Room): Effect.Effect<void> =>
@@ -132,24 +147,74 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
 
   const heartbeat = (
     args: (typeof commands)["rooms.heartbeat"]["args"]["Type"],
-  ): Effect.Effect<RoomClock> =>
+  ): Effect.Effect<RoomClock, CommandError> =>
     Effect.gen(function* () {
       const now = yield* serverNow;
-      const room = yield* Ref.get(committed);
+      const before = yield* Ref.get(committed);
 
-      if (args.deviceId !== room.hostDeviceId) {
-        yield* commit(
-          Struct.evolve(room, {
-            members: (members) =>
-              members.map((member) =>
-                member.deviceId === args.deviceId
-                  ? { ...member, driftMs: args.driftMs ?? null }
-                  : member,
-              ),
-          }),
-        );
+      if (before.id !== args.roomId) return yield* new NotFound({ message: "No such room" });
 
-        return room.clock;
+      const joined =
+        args.deviceId === before.hostDeviceId ||
+        before.members.some((each) => each.deviceId === args.deviceId);
+
+      if (!joined) {
+        return yield* new Forbidden({ message: "Join the room on this device first" });
+      }
+
+      const guest = args.deviceId !== before.hostDeviceId;
+      const lastWatched = (yield* Ref.get(watched)).get(args.deviceId);
+
+      // An away heartbeat while the device's player still reports writes nothing.
+      if (
+        args.presence === "away" &&
+        lastWatched !== undefined &&
+        now - lastWatched < PLAYER_SILENCE_MS
+      ) {
+        return before.clock;
+      }
+
+      const presence = args.presence ?? "watching";
+
+      if (presence === "watching") {
+        yield* Ref.update(watched, (times) => new Map([...times, [args.deviceId, now]]));
+      }
+
+      const driftMs = guest && presence === "watching" ? (args.driftMs ?? null) : null;
+
+      const changed = before.members.some(
+        (member) =>
+          member.deviceId === args.deviceId &&
+          (member.presence !== presence || member.driftMs !== driftMs),
+      );
+
+      const room = Struct.evolve(before, {
+        members: (members) =>
+          members.map((member) =>
+            member.deviceId === args.deviceId ? { ...member, presence, driftMs } : member,
+          ),
+      });
+
+      // A watching guest's row write always publishes, as on the backend; an away member's only
+      // when it turns away (the backend's periodic refresh is not modeled); a host's on a change.
+      if ((guest && presence === "watching") || changed) yield* commit(room);
+
+      if (guest) return room.clock;
+
+      if (presence === "away") {
+        if (room.clock.status !== "buffering") return room.clock;
+
+        // An away host is not buffering any more: the frozen room pauses where it froze.
+        const clock: RoomClock = {
+          ...room.clock,
+          status: "paused",
+          anchorServerTime: now,
+          revision: room.clock.revision + 1,
+        };
+
+        yield* commit(withClock(room, clock));
+
+        return clock;
       }
 
       if (

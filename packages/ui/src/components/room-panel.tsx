@@ -14,6 +14,8 @@ export type RoomMemberStatus =
   | { readonly kind: "syncing" }
   /** The host's connection froze the room. */
   | { readonly kind: "buffering" }
+  /** Still in the room, browsing elsewhere in the app; muted rather than a warning. */
+  | { readonly kind: "away" }
   /** Gone from the room; the row dims. */
   | { readonly kind: "left" };
 
@@ -73,6 +75,7 @@ export function RoomPanel({
       <ul className="flex grow flex-col gap-5">
         {members.map((member) => {
           const left = member.status?.kind === "left";
+          const quiet = left || member.status?.kind === "away";
 
           return (
             <li key={member.id} className="flex items-center gap-3">
@@ -99,7 +102,7 @@ export function RoomPanel({
                 <span
                   className={cn(
                     "w-18 shrink-0 text-right font-mono text-caption/caption",
-                    left ? "text-text-muted" : "text-warning",
+                    quiet ? "text-text-muted" : "text-warning",
                   )}
                 >
                   {statusLabel(member.status)}

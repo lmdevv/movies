@@ -21,17 +21,33 @@ import { endRoom, leaveRoom } from "./lib/endings";
 import { fail } from "./lib/errors";
 import { BEST_QUALITY, resolveEpisode, resolvePlayable } from "./lib/playable";
 import { createdAt, presentEpisode, presentRoomClock, presentTitleCard } from "./lib/present";
-import { hostReading, livePosition } from "./lib/roomClock";
-import { hostControlArgs, ok, room as roomResult, roomClock } from "./lib/validators";
+import {
+  AWAY_REFRESH_MS,
+  awayHostClock,
+  hostReading,
+  livePosition,
+  PLAYER_SILENCE_MS,
+} from "./lib/roomClock";
+import { hostControlArgs, ok, room as roomResult, roomClock, roomPresence } from "./lib/validators";
 import type { Viewer } from "./lib/viewer";
 import { authorize } from "./lib/viewer";
 
 type RoomPatch = Partial<
   Pick<
     Doc<"rooms">,
-    "status" | "positionAtAnchorMs" | "anchorServerTime" | "titleId" | "episodeId" | "fileId"
+    | "status"
+    | "positionAtAnchorMs"
+    | "anchorServerTime"
+    | "titleId"
+    | "episodeId"
+    | "fileId"
+    | "fileDurationMs"
   >
 >;
+
+/** What an away host's heartbeat writes to its room. */
+type AwayHostPatch = RoomPatch &
+  Partial<Pick<Doc<"rooms">, "hostLastSeenAt" | "hostAway" | "revision">>;
 
 const loadRoom = async (ctx: QueryCtx, roomId: Id<"rooms">): Promise<Doc<"rooms">> => {
   const found = await ctx.db.get(roomId);
@@ -77,6 +93,8 @@ const presentRoom = async (ctx: QueryCtx, doc: Doc<"rooms">): Promise<Infer<type
       role: member.role,
       joinedAt: member.joinedAt,
       lastSeenAt: member.lastSeenAt,
+      presence: member.presence ?? "watching",
+      // A counted away heartbeat clears the drift, so an away member has none.
       driftMs: member.role === "guest" ? (member.driftMs ?? null) : null,
     })),
     createdAt: createdAt(doc),
@@ -226,6 +244,7 @@ export const create = mutation({
       titleId: title._id,
       episodeId: playable.episode?._id ?? null,
       fileId: playable.file._id,
+      fileDurationMs: playable.file.probe.durationMs,
       hostUserId: viewer.userId,
       hostProfileId: args.profileId,
       hostDeviceId: args.deviceId,
@@ -246,6 +265,8 @@ export const create = mutation({
       role: "host",
       joinedAt: now,
       lastSeenAt: now,
+      presence: "watching",
+      watchedAt: now,
     });
 
     return presentRoom(ctx, await loadRoom(ctx, roomId));
@@ -354,9 +375,17 @@ export const join = mutation({
         role: "guest",
         joinedAt: now,
         lastSeenAt: now,
+        presence: "watching",
+        watchedAt: now,
       });
     } else {
-      await ctx.db.patch(existing._id, { profileId, lastSeenAt: now });
+      // Joining is opening the room's player, so a device that was browsing is watching again.
+      await ctx.db.patch(existing._id, {
+        profileId,
+        lastSeenAt: now,
+        presence: "watching",
+        watchedAt: now,
+      });
     }
 
     return presentRoom(ctx, await loadRoom(ctx, roomId));
@@ -442,10 +471,18 @@ export const buffering = mutation({
 });
 
 /**
- * Keeps the device's membership alive. A guest's heartbeat records its reported drift for the room
- * to show. The host's heartbeat also clears `hostAway` and, when the host's player drifted from
- * the computed position and the host saw the current revision, re-anchors the clock at the host's
- * position, carried forward from when the host read it.
+ * Keeps the device's membership alive and records its `presence`: `watching` (the default) from
+ * the room's player, `away` from a device browsing elsewhere in the app, which keeps its place
+ * without counting as watching. An away heartbeat while the device's player reported within
+ * `PLAYER_SILENCE_MS` (another tab, or a heartbeat sent just before the player opened) only keeps
+ * the place. A watching guest's heartbeat records its reported drift for the room to show; an
+ * away one clears it. Any host heartbeat keeps a live room from being marked `hostAway`; only a
+ * watching one clears the mark, as the room stays paused for its guests until the host's player
+ * is back. A watching host's heartbeat re-anchors the clock at the host's position,
+ * carried forward from when the host read it, when the host's player drifted from the computed
+ * position and the host saw the current revision. An away host has no player to drift: the room
+ * plays on, except that one frozen for the host's buffering, or played past the end of its file,
+ * pauses (`awayHostClock`).
  */
 export const heartbeat = mutation({
   args: {
@@ -455,9 +492,13 @@ export const heartbeat = mutation({
     atServerTime: v.optional(v.number()),
     revision: v.optional(v.number()),
     driftMs: v.optional(v.number()),
+    presence: v.optional(roomPresence),
   },
   returns: roomClock,
-  handler: async (ctx, { roomId, deviceId, positionMs, atServerTime, revision, driftMs }) => {
+  handler: async (
+    ctx,
+    { roomId, deviceId, positionMs, atServerTime, revision, driftMs, presence = "watching" },
+  ) => {
     const viewer = await authorize(ctx, "play");
     const found = await loadRoom(ctx, roomId);
 
@@ -469,18 +510,73 @@ export const heartbeat = mutation({
     if (member?.userId !== viewer.userId)
       return fail("forbidden", "Join the room on this device first");
     const now = Date.now();
+    const away = presence === "away";
+    // A row from before `watchedAt` heard only from its player: its last heartbeat is the player's.
+    const watchedAt = member.watchedAt ?? member.lastSeenAt;
+    const playerReported = now - watchedAt < PLAYER_SILENCE_MS;
 
-    if (member.role === "guest") {
+    if (away && playerReported) {
+      // The device's player reports for it, keeping its place: nothing to write but a legacy
+      // row's last player report, so later away heartbeats cannot move it forward.
+      if (member.watchedAt === undefined) await ctx.db.patch(member._id, { watchedAt });
+
+      return presentRoomClock(found);
+    }
+
+    if (away) {
+      // Away clears any drift the device reported: it plays nothing. An away member's place is
+      // refreshed only every `AWAY_REFRESH_MS`, well inside the member timeout, so browsing
+      // members do not re-run the room's subscriptions on every heartbeat.
+      if (member.presence !== "away" || now - member.lastSeenAt >= AWAY_REFRESH_MS) {
+        await ctx.db.patch(member._id, {
+          lastSeenAt: now,
+          presence: "away",
+          driftMs: undefined,
+          watchedAt,
+        });
+      }
+    } else {
       // A guest that stopped reporting drift (buffering) clears the last value it reported.
       await ctx.db.patch(member._id, {
         lastSeenAt: now,
-        driftMs: Number.isFinite(driftMs) ? driftMs : undefined,
+        presence: "watching",
+        watchedAt: now,
+        driftMs: member.role === "guest" && Number.isFinite(driftMs) ? driftMs : undefined,
       });
-    } else {
-      await ctx.db.patch(member._id, { lastSeenAt: now });
     }
 
     if (member.role !== "host" || found.status === "ended") return presentRoomClock(found);
+
+    if (away) {
+      // A room from before `fileDurationMs` reads its file's length once, while playing, and
+      // keeps it.
+      const reading = found.fileDurationMs === undefined && found.status === "playing";
+      const read = reading ? await ctx.db.get(found.fileId) : null;
+      // A missing file keeps 0, a length `awayHostClock` treats as unknown, so it is read once.
+      const durationMs = found.fileDurationMs ?? read?.probe.durationMs ?? 0;
+      const paused = awayHostClock(found, durationMs, now);
+      // An away host keeps a live room from being marked away; one the sweep already marked stays
+      // so for its guests until the host's player is back.
+      const patch: AwayHostPatch = { hostLastSeenAt: now };
+
+      if (reading) patch.fileDurationMs = durationMs;
+
+      if (paused !== null) {
+        patch.status = paused.status;
+        patch.positionAtAnchorMs = paused.positionAtAnchorMs;
+        patch.anchorServerTime = paused.anchorServerTime;
+        patch.revision = found.revision + 1;
+      }
+
+      // The host's presence too is refreshed only every `AWAY_REFRESH_MS`, inside the host timeout.
+      const quiet = paused === null && !reading && now - found.hostLastSeenAt < AWAY_REFRESH_MS;
+
+      if (quiet) return presentRoomClock(found);
+
+      await ctx.db.patch(found._id, patch);
+
+      return presentRoomClock(await loadRoom(ctx, roomId));
+    }
 
     const readAt =
       atServerTime === undefined ? undefined : checkMilliseconds(atServerTime, "Server times");
@@ -545,6 +641,7 @@ export const setMedia = mutation({
       titleId: title._id,
       episodeId: playable.episode?._id ?? null,
       fileId: playable.file._id,
+      fileDurationMs: playable.file.probe.durationMs,
       status: "paused",
       positionAtAnchorMs: 0,
       anchorServerTime: now,

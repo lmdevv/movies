@@ -6,7 +6,14 @@ import { Schema } from "effect";
 
 import { DeviceId, EpisodeId, MediaFileId, ProfileId, RoomId, TitleId } from "../ids";
 import { NoArgs, Ok } from "../models/common";
-import { CreateRoomArgs, HostControlArgs, Room, RoomClock, ServerTime } from "../models/rooms";
+import {
+  CreateRoomArgs,
+  HostControlArgs,
+  Room,
+  RoomClock,
+  RoomPresence,
+  ServerTime,
+} from "../models/rooms";
 import { EpochMillis, Milliseconds } from "../units";
 import { mutation, query } from "./command";
 
@@ -108,6 +115,13 @@ export const roomCommands = {
       revision: Schema.optionalKey(Schema.Int),
       /** A guest's distance from the shared position, shown to the room; omit while buffering. */
       driftMs: Schema.optionalKey(Schema.Finite),
+      /**
+       * `away` from a device browsing elsewhere in the app, which keeps its place without playing;
+       * omit from the room's player. It counts once the device's player has been silent for
+       * `PLAYER_SILENCE_MS`; until then it only keeps the place. An away host's position is not
+       * read.
+       */
+      presence: Schema.optionalKey(RoomPresence),
     }),
     result: RoomClock,
     function: "rooms:heartbeat",

@@ -251,6 +251,7 @@ const presets = new Map<SchemaAST.AST, ReadonlyArray<Column>>([
       field("PROFILE", "profileName"),
       field("ROLE", "role"),
       field("DEVICE", "deviceId"),
+      field("PRESENCE", "presence"),
       field("LAST SEEN", "lastSeenAt"),
     ],
   ],

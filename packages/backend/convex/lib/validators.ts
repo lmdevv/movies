@@ -749,6 +749,12 @@ export const roomClock = v.object({
 /** Who a room member is: the host, who controls playback, or a guest; `role` of `RoomMember`. */
 export const roomRole = v.union(v.literal("host"), v.literal("guest"));
 
+/**
+ * Whether a member's device is playing the room (`watching`) or browsing elsewhere in the app
+ * while it keeps its place (`away`); `RoomPresence` in contracts.
+ */
+export const roomPresence = v.union(v.literal("watching"), v.literal("away"));
+
 /** Mirrors `RoomMember` in `@movies/contracts`. */
 const roomMember = v.object({
   userId: v.id("users"),
@@ -759,6 +765,7 @@ const roomMember = v.object({
   role: roomRole,
   joinedAt: v.number(),
   lastSeenAt: v.number(),
+  presence: roomPresence,
   driftMs: nullable(v.number()),
 });
 

@@ -93,6 +93,13 @@ movies rooms leave                           # a host leaving ends the room
 A guest's `rooms play|pause|seek` fails with `forbidden`. A control racing another change is
 retried once at the new revision.
 
+Members heartbeat every 5 seconds: a guest silent for a minute leaves, and a host silent for 20
+seconds pauses the room (`hostAway`); a member whose last heartbeat said away gets three minutes.
+Each member shows a `presence`: `watching` from a player, `away` from a device that keeps its place
+while browsing (`movies rooms heartbeat <room-id> --presence away`), once its player has been
+silent for 10 seconds. Away members report no drift, and an away host's room keeps playing for the
+guests.
+
 Libraries and scans (admin):
 
 ```sh
@@ -303,7 +310,7 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies call rooms.pause --json <object>`: Pause the room at the host's position. (scope play)
 - `movies call rooms.seek --json <object>`: Move the room to a position. (scope play)
 - `movies rooms buffering --room-id <id> [--device-id <id>] --revision <int> --position-ms <number>`: Freeze the room while the host buffers. (scope play)
-- `movies rooms heartbeat <room-id> [--device-id <id>] [--position-ms <number>] [--at-server-time <int>] [--revision <int>] [--drift-ms <number>]`: Report this device is still in the room; the host also reports its position. (scope play)
+- `movies rooms heartbeat <room-id> [--device-id <id>] [--position-ms <number>] [--at-server-time <int>] [--revision <int>] [--drift-ms <number>] [--presence <watching|away>]`: Report this device is still in the room; the host also reports its position. (scope play)
 - `movies rooms set-media --room-id <id> [--device-id <id>] --revision <int> --title-id <id> [--episode-id <id>] [--file-id <id>]`: Switch the room to another title or episode, paused at the start. (scope play)
 - `movies rooms end <room-id> [--device-id <id>]`: End the room for everyone. (scope play)
 - `movies rooms time`: Read the server clock to estimate this device's offset. (scope play)
