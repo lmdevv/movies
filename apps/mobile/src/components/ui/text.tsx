@@ -16,10 +16,18 @@ const VARIANTS = {
   largeTitle: "font-sans-bold text-ios-34 leading-ios-40 tracking-display",
   /** Navigation titles beside a back button: 20/26 semibold. */
   navTitle: "font-sans-semibold text-heading leading-heading",
+  /** Calm-state headings and invite titles: 28/34 bold. */
+  title: "font-sans-bold text-ios-28 leading-ios-34",
+  /** Keypad digits: 28/34 medium. */
+  keypad: "font-sans-medium text-ios-28 leading-ios-34",
+  /** Profile names beside their tiles and short prompts: 22/28 semibold. */
+  subheading: "font-sans-semibold text-ios-22 leading-ios-28",
   /** Section headings such as Continue Watching: 22/28 bold. */
   heading: "font-sans-bold text-ios-22 leading-ios-28",
   /** Body copy and row titles: 17/23 regular. */
   body: "font-sans text-ios-17 leading-ios-23",
+  /** Names under profile tiles in sheets: 17/23 medium. */
+  bodyMedium: "font-sans-medium text-ios-17 leading-ios-23",
   /** Button labels and emphasized rows: 17/23 semibold. */
   bodyStrong: "font-sans-semibold text-ios-17 leading-ios-23",
   /** Field labels and secondary row text: 15/21 medium. */

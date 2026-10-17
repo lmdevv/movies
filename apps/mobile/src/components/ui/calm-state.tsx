@@ -1,6 +1,8 @@
 /**
- * A centered whole-screen state for failures and empty screens (A08 Server Unavailable, D08 File
- * Unavailable): an icon, a heading, one short line, and up to two actions. No colored stripes.
+ * A whole-screen state for failures and endings (A07 Invite Expired, A08 Server
+ * Unavailable, A10 Code Expired, D08 File Unavailable): a glyph in a round surface badge, a 28pt
+ * heading, one short muted line, and up to two actions. Full-screen states sit where Paper draws
+ * them, 120pt below the navigation row; states under other content center in the space left. No colored stripes.
  */
 import type { LucideIcon } from "lucide-react-native";
 import type { ReactNode } from "react";
@@ -15,15 +17,27 @@ export interface CalmStateProps {
   readonly title: string;
   readonly description?: string;
   readonly actions?: ReactNode;
+  /** `top` for a state that fills the screen under a navigation row, `center` under content. */
+  readonly placement?: "top" | "center";
 }
 
-/** A centered state with an optional way forward. */
-export function CalmState({ icon, title, description, actions }: CalmStateProps) {
+/** A calm state with an optional way forward. */
+export function CalmState({
+  icon,
+  title,
+  description,
+  actions,
+  placement = "center",
+}: CalmStateProps) {
   return (
-    <View className="flex-1 items-center justify-center gap-4 px-8">
-      {icon === undefined ? null : <Icon icon={icon} tone="muted" size="state" />}
-      <View className="items-center gap-2">
-        <Text variant="heading" className="text-center" accessibilityRole="header">
+    <View className={`flex-1 gap-4 px-5 ${placement === "top" ? "pt-38" : "justify-center"}`}>
+      <View className="items-center gap-4 py-6">
+        {icon === undefined ? null : (
+          <View className="size-18 items-center justify-center rounded-pill bg-surface">
+            <Icon icon={icon} size="badge" />
+          </View>
+        )}
+        <Text variant="title" className="text-center" accessibilityRole="header">
           {title}
         </Text>
         {description === undefined ? null : (
@@ -32,7 +46,7 @@ export function CalmState({ icon, title, description, actions }: CalmStateProps)
           </Text>
         )}
       </View>
-      {actions === undefined ? null : <View className="w-full gap-3 pt-2">{actions}</View>}
+      {actions === undefined ? null : <View className="mt-10 w-full gap-4">{actions}</View>}
     </View>
   );
 }

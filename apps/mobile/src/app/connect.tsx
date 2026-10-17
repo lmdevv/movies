@@ -1,4 +1,7 @@
-/** A02 · Connect to Server: type the server's address; A08 shows when nothing answers. */
+/**
+ * A02 · Connect to Server: type the server's address. When nothing answers, A08 (or A12 for an
+ * address on this network) takes over; other failures show under the field.
+ */
 import { router } from "expo-router";
 import { Link2 } from "lucide-react-native";
 import { useState } from "react";
@@ -9,39 +12,35 @@ import { NavHeader } from "@/components/ui/nav-header";
 import { Screen } from "@/components/ui/screen";
 import { TextField } from "@/components/ui/text-field";
 import { describeConnectFailure, discoverServer } from "@/lib/discovery";
-import { useConnection } from "@/session/connection";
+import { useConnectAttempt } from "@/session/connect-attempt";
 
 export default function Connect() {
-  const { connect } = useConnection();
   const [address, setAddress] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const ready = address.trim() !== "" && !busy;
+  const { busy, failure, clearFailure, run } = useConnectAttempt();
+  const filled = address.trim() !== "";
 
   const submit = async () => {
-    if (!ready) return;
-    setBusy(true);
-    setError(null);
-    const result = await discoverServer(address);
+    const result = await run(() => discoverServer(address), { filled });
 
-    setBusy(false);
-
-    if (result.ok) connect(result.connection);
-    else setError(describeConnectFailure(result.failure));
+    if (result?.ok === false && result.failure === "unreachable") {
+      clearFailure();
+      router.push({ pathname: "/unreachable", params: { address } });
+    }
   };
 
   return (
-    <Screen scroll header={<NavHeader title="Connect to Server" />}>
+    <Screen scroll header={<NavHeader title="Connect to Server" fallback="/welcome" />}>
       <TextField
         label="Server address"
         placeholder="https://cinema.home"
         value={address}
         onChangeText={(text) => {
           setAddress(text);
-          setError(null);
+          clearFailure();
         }}
-        error={error}
+        error={
+          failure === null || failure === "unreachable" ? null : describeConnectFailure(failure)
+        }
         autoCapitalize="none"
         keyboardType="url"
         textContentType="URL"
@@ -50,12 +49,7 @@ export default function Connect() {
         onSubmitEditing={() => void submit()}
         className="mt-12"
       />
-      <Button
-        label="Continue"
-        busy={busy}
-        disabled={address.trim() === ""}
-        onPress={() => void submit()}
-      />
+      <Button label="Continue" busy={busy} disabled={!filled} onPress={() => void submit()} />
       <ListRow
         icon={Link2}
         title="Enter Connection Details"

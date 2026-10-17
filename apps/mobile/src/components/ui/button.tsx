@@ -18,6 +18,8 @@ const VARIANTS = {
   secondary: { box: "bg-surface-raised active:opacity-80", tone: "default" },
   destructive: { box: "border border-danger active:opacity-70", tone: "danger" },
   plain: { box: "active:opacity-60", tone: "default" },
+  /** A borderless danger action that opens a confirmation, such as Delete Profile (B03). */
+  plainDestructive: { box: "active:opacity-60", tone: "danger" },
   /** Secondary over artwork and video: white on the glass fill. */
   glass: { box: "bg-glass active:opacity-80", tone: "onMedia" },
 } as const satisfies Record<string, { box: string; tone: TextTone }>;
