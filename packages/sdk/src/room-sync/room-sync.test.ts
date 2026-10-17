@@ -696,4 +696,59 @@ describe("a host coming back to a playing room", () => {
         );
       }),
     ));
+
+  it("follows the room while its catch-up seek stalls, never freezing or re-anchoring it", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        const before = (yield* rooms.room).clock;
+        const host = yield* makeFakePlayer((yield* sharedPosition(rooms)) - 4_000);
+
+        host.userPlay();
+        yield* start(rooms, HOST, host);
+        // The seek to the live position stalls, as a seek past what is buffered does.
+        host.stall();
+        yield* advance(2 * DEFAULT_TUNABLES.heartbeatIntervalMs);
+
+        expect((yield* rooms.room).clock).toStrictEqual(before);
+
+        host.recover();
+        yield* advance(2 * DEFAULT_TUNABLES.heartbeatIntervalMs);
+
+        expect((yield* rooms.room).clock).toStrictEqual(before);
+        expect(Math.abs(yield* driftOf(rooms, host))).toBeLessThanOrEqual(
+          DEFAULT_TUNABLES.inSyncMs,
+        );
+      }),
+    ));
+
+  it("publishes its own pause while catching up", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        const host = yield* makeFakePlayer((yield* sharedPosition(rooms)) - 4_000);
+
+        host.userPlay();
+        yield* start(rooms, HOST, host);
+        host.stall();
+        yield* advance(1_000);
+        host.userPause();
+        yield* advance(1_000);
+
+        expect((yield* rooms.room).clock.status).toBe("paused");
+      }),
+    ));
+
+  it("publishes again once it is in step", () =>
+    scenario(playingForAMinute, ({ rooms }) =>
+      Effect.gen(function* () {
+        const host = yield* makeFakePlayer((yield* sharedPosition(rooms)) - 4_000);
+
+        host.userPlay();
+        yield* start(rooms, HOST, host);
+        yield* advance(DEFAULT_TUNABLES.heartbeatIntervalMs);
+        host.userSeek(host.positionMs() + 20_000);
+        yield* advance(1_000);
+
+        expect((yield* rooms.room).clock.revision).toBeGreaterThan(4);
+      }),
+    ));
 });

@@ -551,10 +551,15 @@ test("a guest who browses away keeps their place, and the navbar pill takes them
   await expect(roomPill(guest)).toBeVisible();
   await capture(guest, "08-09-room-pill");
 
-  // On a phone the pill is an icon and the count beside the avatar.
+  // On a phone the pill is an icon and the count beside the avatar, and over the artwork of a
+  // title's page, which has no phone title.
   await guest.setViewportSize({ width: 390, height: 844 });
   await expect(roomPill(guest)).toHaveText("2");
   await capture(guest, "08-10-room-pill-phone");
+  await guest.goBack();
+  await expect(guest).toHaveURL(/\/title\//u);
+  await expect(roomPill(guest)).toHaveText("2");
+  await capture(guest, "08-10b-room-pill-phone-title");
   await guest.setViewportSize({ width: 1440, height: 900 });
 
   // A refresh while browsing keeps it too.

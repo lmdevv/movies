@@ -154,12 +154,15 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
       const guest = args.deviceId !== before.hostDeviceId;
       const lastWatched = (yield* Ref.get(watched)).get(args.deviceId);
 
-      // An away heartbeat while the device's player still reports only keeps the place.
+      // An away heartbeat while the device's player still reports only keeps the place; a guest's
+      // row write still publishes the room, as every guest heartbeat does.
       if (
         args.presence === "away" &&
         lastWatched !== undefined &&
         now - lastWatched < PLAYER_SILENCE_MS
       ) {
+        if (guest) yield* commit(before);
+
         return before.clock;
       }
 

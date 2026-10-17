@@ -27,11 +27,13 @@ const typedRoomId = (query: string): Option.Option<RoomId> => {
 
 /** Room actions for the menu. */
 export const useRoomCommands = (context: CommandContext): CommandContribution => {
-  const { navigate, query, player, profile } = context;
+  const { navigate, query, player } = context;
   const deviceId = useMemo(() => loadDeviceId(), []);
   const leave = useCommand("rooms.leave");
 
-  const current = useCurrentRoom(player === null ? { deviceId, profileId: profile.id } : "skip");
+  // Outside the player's menu only; the player follows its own room.
+  const shellRoom = useCurrentRoom();
+  const current = player === null ? shellRoom : null;
 
   return useMemo((): CommandContribution => {
     const typed = typedRoomId(query);

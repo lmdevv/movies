@@ -1,11 +1,16 @@
 /**
  * This device's watch room, as the navbar's room pill and the command menu's room commands both
- * read it outside the player. One source, so the two never disagree about which room there is or
- * where returning to it goes.
+ * read it outside the player. One subscription, so the two never disagree about which room there
+ * is or where returning to it goes; it also keeps the device's place in the room while it browses.
  */
 import type { DeviceId, EpisodeId, ProfileId, RoomId, TitleId } from "@movies/contracts/ids";
-import { useCommandQuery } from "@movies/sdk/react";
-import { useMemo } from "react";
+import { useCommandQuery, useRoomPresence } from "@movies/sdk/react";
+import { createContext, useContext, useMemo } from "react";
+import type { ReactNode } from "react";
+
+import { useActiveProfile } from "@/session/guards";
+
+import { loadDeviceId } from "./device-storage";
 
 /** The room this device is in, reduced to what the pill and the menu show. */
 export interface CurrentRoom {
@@ -33,17 +38,12 @@ export interface CurrentRoom {
  * memberships, rooms of other accounts and devices, and rooms whose title no profile the device
  * joined with may still see, and it updates as any of those change. `mine` says whether the
  * device joined with `profileId`: switching profiles leaves the other profile's place to lapse.
- * `"skip"` reads nothing, as inside the player, which follows its own room.
  *
  * Every member's heartbeat changes the room record, so the result is rebuilt only when something
  * it holds changes.
  */
-export const useCurrentRoom = (
-  input: { readonly deviceId: DeviceId; readonly profileId: ProfileId } | "skip",
-): CurrentRoom | null => {
-  const deviceId = input === "skip" ? null : input.deviceId;
-  const profileId = input === "skip" ? null : input.profileId;
-  const current = useCommandQuery("rooms.current", deviceId === null ? "skip" : { deviceId });
+const useDeviceRoom = (deviceId: DeviceId, profileId: ProfileId): CurrentRoom | null => {
+  const current = useCommandQuery("rooms.current", { deviceId });
   const room = current.status === "success" ? current.data : null;
   const self = room?.members.find((member) => member.deviceId === deviceId);
   const id = room?.id ?? null;
@@ -62,6 +62,27 @@ export const useCurrentRoom = (
     [id, titleId, titleName, episodeId, members, mine, returnable],
   );
 };
+
+const CurrentRoomContext = createContext<CurrentRoom | null>(null);
+
+/**
+ * Reads this device's room for everything inside, and keeps the device's place in it with
+ * heartbeats that say it is away while the room is the active profile's: the player sends this
+ * device's heartbeats while it plays the room, and it sits outside. Must sit inside
+ * `RequireProfile`. Only this component re-renders as members' heartbeats change the record.
+ */
+export function CurrentRoomProvider({ children }: { readonly children: ReactNode }) {
+  const { profile } = useActiveProfile();
+  const deviceId = useMemo(() => loadDeviceId(), []);
+  const room = useDeviceRoom(deviceId, profile.id);
+
+  useRoomPresence(room?.mine === true ? { roomId: room.id, deviceId } : null);
+
+  return <CurrentRoomContext value={room}>{children}</CurrentRoomContext>;
+}
+
+/** This device's room inside `CurrentRoomProvider`; null without one, and elsewhere. */
+export const useCurrentRoom = (): CurrentRoom | null => useContext(CurrentRoomContext);
 
 /** A link into the player for a room, as the router takes it. */
 export interface ReturnTarget {
