@@ -14,7 +14,7 @@ import { ListRow } from "@/components/ui/list-row";
 import { NavHeader } from "@/components/ui/nav-header";
 import { Screen } from "@/components/ui/screen";
 import { Text } from "@/components/ui/text";
-import { codeGroups, expiresInLine, spokenCode } from "@/lib/device-code";
+import { approvalAddress, codeGroups, expiresInLine, spokenCode } from "@/lib/device-code";
 import { describeFailure } from "@/lib/failure";
 
 /** How the approving person sees this device. */
@@ -121,6 +121,7 @@ export default function SignInWithCode() {
     return (
       <Screen header={<NavHeader />}>
         <CalmState
+          placement="top"
           icon={Lock}
           title={attempt.kind === "expired" ? "Code expired" : "Can’t get a code"}
           description={
@@ -147,7 +148,7 @@ export default function SignInWithCode() {
             <ListRow
               icon={Lock}
               title="Waiting for Approval"
-              subtitle={attempt.verificationUrl.replace(/^https?:\/\//u, "")}
+              subtitle={approvalAddress(attempt.verificationUrl)}
               onPress={() => void Share.share({ url: attempt.verificationUrl })}
             />
           </>

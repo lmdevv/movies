@@ -2,7 +2,7 @@
  * The iOS switch in Paper's colors (B03 Kids Profile): the hairline track when off, the accent
  * when on, and a white thumb.
  */
-import { Switch } from "react-native";
+import { Switch, View } from "react-native";
 
 import { useThemeColor } from "@/lib/theme-color";
 
@@ -21,15 +21,18 @@ export function Toggle({ value, onValueChange, label, disabled = false }: Toggle
   const on = useThemeColor("--color-accent");
   const thumb = useThemeColor("--color-on-accent");
 
+  // Fabric lays the bare switch out at the top of a centered row; a sized box keeps it centered.
   return (
-    <Switch
-      value={value}
-      onValueChange={onValueChange}
-      accessibilityLabel={label}
-      disabled={disabled}
-      trackColor={{ false: off, true: on }}
-      ios_backgroundColor={off}
-      thumbColor={thumb}
-    />
+    <View className="h-8 justify-center">
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        accessibilityLabel={label}
+        disabled={disabled}
+        trackColor={{ false: off, true: on }}
+        ios_backgroundColor={off}
+        thumbColor={thumb}
+      />
+    </View>
   );
 }

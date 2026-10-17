@@ -21,8 +21,11 @@ import { lockoutLine, wrongPinLine } from "@/lib/pin";
 /** Props for `UnlockProfile`. */
 export interface UnlockProfileProps {
   readonly profile: Profile;
-  /** Called once the server accepted the PIN; the profile is unlocked on this session. */
-  readonly onUnlocked: () => void;
+  /**
+   * Called once the server accepted the PIN; the profile is unlocked on this session. Screens
+   * that only wait for the profile list to show it unlocked leave it out.
+   */
+  readonly onUnlocked?: () => void;
   /** B07's way out: choose another profile. */
   readonly onSwitchProfile: () => void;
 }
@@ -69,7 +72,7 @@ export function UnlockProfile({ profile, onUnlocked, onSwitchProfile }: UnlockPr
 
       if (result.status === "unlocked") {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        onUnlocked();
+        onUnlocked?.();
 
         return;
       }

@@ -4,7 +4,7 @@
  */
 import type { InviteLookup } from "@movies/contracts/models/account";
 import { useAuth, useCommandQuery } from "@movies/sdk/react";
-import { Link2 } from "lucide-react-native";
+import { Link } from "lucide-react-native";
 import { useRef, useState } from "react";
 import type { ComponentRef } from "react";
 import type { TextInput } from "react-native";
@@ -39,7 +39,8 @@ function EndedInvite({ title }: { readonly title: string }) {
   return (
     <Screen header={<NavHeader onBack={() => setCode(null)} />}>
       <CalmState
-        icon={Link2}
+        placement="top"
+        icon={Link}
         title={title}
         description="Ask the owner for a new invite."
         actions={
@@ -164,7 +165,8 @@ export default function Join() {
     return (
       <Screen header={<NavHeader onBack={() => setCode(null)} />}>
         <CalmState
-          icon={Link2}
+          placement="top"
+          icon={Link}
           title="Can’t open invite"
           description={describeFailure(lookup.error)}
           actions={<Button label="Try Again" onPress={lookup.retry} />}

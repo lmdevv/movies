@@ -35,6 +35,7 @@ export function ServerUnavailable({
   return (
     <Screen header={onBack === undefined ? undefined : <NavHeader onBack={onBack} />}>
       <CalmState
+        placement="top"
         icon={Wifi}
         title="Can’t reach your server"
         description={description}

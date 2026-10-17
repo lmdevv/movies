@@ -22,7 +22,7 @@ import { canSave, pinDetail, ratingLabel, willHavePin, withKids } from "@/lib/pr
 import { useAccountProfiles } from "@/session/account-profiles";
 
 export default function ProfileForm() {
-  const { profile, draft, change, save } = useProfileEditor();
+  const { profile, draft, change, save, open } = useProfileEditor();
   const profiles = useAccountProfiles();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -46,7 +46,7 @@ export default function ProfileForm() {
 
   const editPin = () => {
     if (!hasPin) {
-      router.push("./pin");
+      open("pin");
 
       return;
     }
@@ -58,7 +58,7 @@ export default function ProfileForm() {
         cancelButtonIndex: 2,
       },
       (index) => {
-        if (index === 0) router.push("./pin");
+        if (index === 0) open("pin");
         else if (index === 1) change((current) => ({ ...current, pin: { kind: "clear" } }));
       },
     );
@@ -85,13 +85,13 @@ export default function ProfileForm() {
       <View className="flex-row items-end justify-center gap-2 py-6">
         <ProfileAvatar
           profile={{
-            name: draft.name === "" ? "?" : draft.name,
+            name: draft.name,
             kids: draft.kids,
             avatar: draft.avatar,
           }}
           size="editor"
         />
-        <IconButton icon={Pencil} label="Choose Avatar" onPress={() => router.push("./avatar")} />
+        <IconButton icon={Pencil} label="Choose Avatar" onPress={() => open("avatar")} />
       </View>
       <TextField
         label="Name"
@@ -102,7 +102,6 @@ export default function ProfileForm() {
         textContentType="nickname"
         maxLength={80}
         returnKeyType="done"
-        autoFocus={creating}
         onSubmitEditing={() => void submit()}
       />
       <ListRow
@@ -128,7 +127,7 @@ export default function ProfileForm() {
         icon={Clapperboard}
         title="Maximum Rating"
         detail={ratingLabel(draft.maxAgeRating)}
-        onPress={() => router.push("./rating")}
+        onPress={() => open("rating")}
       />
       {creating ? (
         <Button
@@ -137,7 +136,7 @@ export default function ProfileForm() {
           disabled={!canSave(draft)}
           onPress={() => void submit()}
         />
-      ) : profiles.length > 1 ? (
+      ) : (profiles?.length ?? 0) > 1 ? (
         <>
           <View className="h-6" />
           <Button
@@ -146,7 +145,7 @@ export default function ProfileForm() {
             onPress={() =>
               router.push({
                 pathname: "/delete-profile/[profileId]",
-                params: { profileId: profile.id },
+                params: { profileId: profile.id, name: profile.name },
               })
             }
           />

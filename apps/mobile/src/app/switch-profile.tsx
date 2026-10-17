@@ -5,7 +5,7 @@
 import type { Profile } from "@movies/contracts/models/profiles";
 import { router } from "expo-router";
 import { Pencil, X } from "lucide-react-native";
-import { Alert, Pressable, ScrollView, View } from "react-native";
+import { Alert, Pressable, View } from "react-native";
 
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { IconButton } from "@/components/ui/icon-button";
@@ -43,11 +43,7 @@ export default function SwitchProfile() {
         </Text>
         <IconButton icon={X} label="Close" onPress={() => router.back()} />
       </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerClassName="gap-5"
-      >
+      <View className="flex-row flex-wrap gap-5">
         {profiles.map((profile) => (
           <Pressable
             key={profile.id}
@@ -63,7 +59,7 @@ export default function SwitchProfile() {
             </Text>
           </Pressable>
         ))}
-      </ScrollView>
+      </View>
       <ListRow
         icon={Pencil}
         title="Manage Profiles"

@@ -79,7 +79,7 @@ function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
       <Stack.Protected guard={phase === "signedOut" && invite.code !== null}>
         <Stack.Screen name="join" options={{ animation: "fade" }} />
       </Stack.Protected>
-      <Stack.Protected guard={phase === "signedOut"}>
+      <Stack.Protected guard={phase === "signedOut" && invite.code === null}>
         <Stack.Screen name="sign-in" />
         <Stack.Screen name="sign-in-code" />
       </Stack.Protected>

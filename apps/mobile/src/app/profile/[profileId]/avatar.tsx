@@ -58,7 +58,7 @@ export default function ChooseAvatar() {
                 >
                   <ProfileAvatar
                     profile={{
-                      name: draft.name === "" ? "?" : draft.name,
+                      name: draft.name,
                       kids: draft.kids,
                       avatar: key,
                     }}

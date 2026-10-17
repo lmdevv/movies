@@ -16,7 +16,7 @@ export default function ProfilePin() {
   const { profileId } = useLocalSearchParams<{ profileId: string }>();
   const profiles = useAccountProfiles();
   const { choose } = useProfileChoice();
-  const profile = profiles.find((candidate) => candidate.id === profileId);
+  const profile = profiles?.find((candidate) => candidate.id === profileId);
 
   if (profile === undefined) return null;
 

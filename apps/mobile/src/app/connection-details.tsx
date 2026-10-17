@@ -26,7 +26,7 @@ export default function ConnectionDetails() {
     failure === null || mediaError !== null ? null : describeConnectFailure(failure);
 
   return (
-    <Screen scroll header={<NavHeader title="Connection Details" />}>
+    <Screen scroll header={<NavHeader title="Connection Details" fallback="/welcome" />}>
       <TextField
         label="Media server"
         placeholder="https://cinema.home"

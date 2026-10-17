@@ -45,7 +45,7 @@ function ProfileRow({ profile }: { readonly profile: Profile }) {
 }
 
 export default function ManageProfiles() {
-  const profiles = useAccountProfiles();
+  const profiles = useAccountProfiles() ?? [];
 
   return (
     <Screen

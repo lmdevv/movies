@@ -5,6 +5,7 @@
  */
 import type { Profile } from "@movies/contracts/models/profiles";
 import { useCommand } from "@movies/sdk/react";
+import { router } from "expo-router";
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -22,7 +23,12 @@ export interface ProfileEditor {
   readonly setCandidatePin: (pin: string | null) => void;
   /** Creates or updates the profile, then sets or clears its PIN. Rejects with the failure. */
   readonly save: () => Promise<void>;
+  /** Pushes one of the editor's screens. */
+  readonly open: (screen: EditorScreen) => void;
 }
+
+/** The screens the form opens. */
+type EditorScreen = "avatar" | "rating" | "pin" | "confirm-pin";
 
 const ProfileEditorContext = createContext<ProfileEditor | null>(null);
 
@@ -67,9 +73,18 @@ export function ProfileEditorProvider({
     if (pin !== undefined) await setPin({ profileId: saved.id, pin });
   }, [createProfile, draft, profile, setPin, updateProfile]);
 
+  const routeId = profile?.id ?? "new";
+
+  const open = useCallback(
+    (screen: EditorScreen) => {
+      router.push({ pathname: `/profile/[profileId]/${screen}`, params: { profileId: routeId } });
+    },
+    [routeId],
+  );
+
   const value = useMemo(
-    () => ({ profile, draft, change, candidatePin, setCandidatePin, save }),
-    [profile, draft, change, candidatePin, save],
+    () => ({ profile, draft, change, candidatePin, setCandidatePin, save, open }),
+    [profile, draft, change, candidatePin, save, open],
   );
 
   return <ProfileEditorContext.Provider value={value}>{children}</ProfileEditorContext.Provider>;

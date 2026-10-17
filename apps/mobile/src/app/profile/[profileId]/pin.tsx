@@ -1,5 +1,4 @@
 /** B12 · Set Profile PIN: four digits, then Confirm PIN asks for them again. */
-import { router } from "expo-router";
 import { useState } from "react";
 import { View } from "react-native";
 
@@ -10,7 +9,7 @@ import { Screen } from "@/components/ui/screen";
 import { Text } from "@/components/ui/text";
 
 export default function SetProfilePin() {
-  const { setCandidatePin } = useProfileEditor();
+  const { setCandidatePin, open } = useProfileEditor();
   const [pin, setPin] = useState("");
 
   return (
@@ -24,7 +23,7 @@ export default function SetProfilePin() {
           onComplete={(value) => {
             setCandidatePin(value);
             setPin("");
-            router.push("./confirm-pin");
+            open("confirm-pin");
           }}
           label="New PIN"
         />

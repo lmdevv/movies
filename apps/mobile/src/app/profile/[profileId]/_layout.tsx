@@ -1,7 +1,7 @@
 /**
  * The profile editor: Create Profile (`/profile/new`) or Edit Profile, with its avatar, rating,
- * and PIN screens in one stack sharing the draft. A PIN profile asks for its PIN first; one
- * unlocked only to edit it is locked again on leaving unless it is the profile in use.
+ * and PIN screens in one stack sharing the draft. A PIN profile asks for its PIN first and is
+ * locked again on leaving unless it is the profile in use.
  */
 import type { Profile } from "@movies/contracts/models/profiles";
 import { useCommand } from "@movies/sdk/react";
@@ -13,32 +13,31 @@ import { UnlockProfile } from "@/components/unlock-profile";
 import { useAccountProfiles } from "@/session/account-profiles";
 import { useProfileChoice } from "@/session/profile-choice";
 
-/** Locks `profileId` when the editor closes, if the editor unlocked it and it is not in use. */
-const useRelockOnLeave = (profile: Profile | null): (() => void) => {
+/**
+ * Locks the edited profile when the editor closes if it has a PIN and is not the profile in use:
+ * unlocking it to edit it, or setting its PIN, leaves it unlocked on this session otherwise.
+ */
+const useLockOnLeave = (profile: Profile | null): void => {
   const lock = useCommand("profiles.lock");
   const { profileId: chosen } = useProfileChoice();
-  const unlockedHere = useRef(false);
   const profileId = profile?.id ?? null;
-  const latest = useRef({ profileId, chosen });
+  const hasPin = profile?.hasPin ?? false;
+  const latest = useRef({ profileId, chosen, hasPin });
 
   useEffect(() => {
-    latest.current = { profileId, chosen };
-  }, [profileId, chosen]);
+    latest.current = { profileId, chosen, hasPin };
+  }, [profileId, chosen, hasPin]);
 
   useEffect(
     () => () => {
-      const { profileId: edited, chosen: inUse } = latest.current;
+      const { profileId: edited, chosen: inUse, hasPin: guarded } = latest.current;
 
-      if (unlockedHere.current && edited !== null && edited !== inUse) {
+      if (guarded && edited !== null && edited !== inUse) {
         void lock({ profileId: edited }).catch(() => undefined);
       }
     },
     [lock],
   );
-
-  return () => {
-    unlockedHere.current = true;
-  };
 };
 
 function EditorStack({
@@ -62,21 +61,16 @@ export default function ProfileEditorLayout() {
 
   const profile = creating
     ? null
-    : (profiles.find((candidate) => candidate.id === profileId) ?? null);
+    : (profiles?.find((candidate) => candidate.id === profileId) ?? null);
 
-  const markUnlocked = useRelockOnLeave(profile);
+  useLockOnLeave(profile);
 
-  // A deleted or unknown profile has nothing to edit.
-  if (!creating && profile === null) return null;
+  // Wait for the profiles (a new one starts on an avatar they leave free); a deleted or unknown
+  // profile has nothing to edit.
+  if (profiles === null || (!creating && profile === null)) return null;
 
   if (profile?.locked === true) {
-    return (
-      <UnlockProfile
-        profile={profile}
-        onUnlocked={markUnlocked}
-        onSwitchProfile={() => router.back()}
-      />
-    );
+    return <UnlockProfile profile={profile} onSwitchProfile={() => router.back()} />;
   }
 
   return (

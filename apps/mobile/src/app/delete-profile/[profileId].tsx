@@ -1,38 +1,51 @@
 /** B09 · Delete Profile: the sheet that confirms deleting a profile with its history and list. */
+import { ProfileId } from "@movies/contracts/ids";
 import { useCommand } from "@movies/sdk/react";
+import { Schema } from "effect";
 import { router, useLocalSearchParams } from "expo-router";
 import { Trash2, X } from "lucide-react-native";
 import { useState } from "react";
-import { View } from "react-native";
+import { Alert, View } from "react-native";
 
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { Text } from "@/components/ui/text";
 import { describeFailure } from "@/lib/failure";
-import { useAccountProfiles } from "@/session/account-profiles";
 import { useProfileChoice } from "@/session/profile-choice";
 
+const decodeProfileId = Schema.decodeUnknownSync(ProfileId);
+
 export default function DeleteProfile() {
-  const { profileId } = useLocalSearchParams<{ profileId: string }>();
-  const profiles = useAccountProfiles();
+  // The name comes with the route: the sheet keeps it while the profile disappears.
+  const params = useLocalSearchParams<{ profileId: string; name: string }>();
+  const profileId = decodeProfileId(params.profileId);
   const removeProfile = useCommand("profiles.remove");
   const { profileId: chosen, choose } = useProfileChoice();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const profile = profiles.find((candidate) => candidate.id === profileId);
-
-  if (profile === undefined) return null;
 
   const remove = async () => {
     setBusy(true);
     setError(null);
 
-    try {
-      await removeProfile({ profileId: profile.id });
+    // Deleting the profile in use leaves the app for Who's Watching?: close everything first,
+    // since the screens above the tabs outlive the switch.
+    if (chosen === profileId) {
+      router.dismissAll();
 
-      // Deleting the profile in use goes back to Who's Watching?.
-      if (chosen === profile.id) await choose(null);
-      else router.dismissTo("/manage-profiles");
+      try {
+        await removeProfile({ profileId });
+        await choose(null);
+      } catch (cause) {
+        Alert.alert("Couldn’t Delete Profile", describeFailure(cause));
+      }
+
+      return;
+    }
+
+    try {
+      await removeProfile({ profileId });
+      router.dismissTo("/manage-profiles");
     } catch (cause) {
       setError(describeFailure(cause));
       setBusy(false);
@@ -43,9 +56,9 @@ export default function DeleteProfile() {
     <View className="gap-4 bg-surface-raised px-5 pt-6 pb-8">
       <View className="flex-row items-center gap-3">
         <Text variant="heading" className="flex-1" accessibilityRole="header">
-          {`Delete ${profile.name}?`}
+          {`Delete ${params.name}?`}
         </Text>
-        <IconButton icon={X} label="Close" size="regular" onPress={() => router.back()} />
+        <IconButton icon={X} label="Close" onPress={() => router.back()} />
       </View>
       <Text variant="secondary" tone="muted">
         Their watch history and list will be removed.

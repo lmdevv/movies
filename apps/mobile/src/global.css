@@ -84,8 +84,9 @@
 }
 
 /* The profile avatar set, shared with the web app (`apps/web/public/avatars/<key>.svg`): each key
-   is a diagonal gradient from top left to bottom right, the same in both themes. */
-@theme {
+   is a diagonal gradient from top left to bottom right, the same in both themes. Components read
+   these through `useCSSVariable` rather than classes, so `static` keeps Tailwind from dropping them. */
+@theme static {
   --color-avatar-red-from: #e3a35f;
   --color-avatar-red-to: #c45a2c;
   --color-avatar-blue-from: #5c8ad6;

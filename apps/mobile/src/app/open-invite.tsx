@@ -50,7 +50,7 @@ export default function OpenInvite() {
       : describeConnectFailure(failure);
 
   return (
-    <Screen scroll header={<NavHeader title="Open an Invite" />}>
+    <Screen scroll header={<NavHeader title="Open an Invite" fallback="/welcome" />}>
       <TextField
         label="Invite link"
         placeholder="https://cinema.home/invite/…"

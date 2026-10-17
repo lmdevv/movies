@@ -30,3 +30,7 @@ export const expiresInLine = (expiresAt: number, now: number): string => {
 
   return `Expires in ${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 };
+
+/** The approval page as people read it, such as `cinema.home/device`: no scheme, no query. */
+export const approvalAddress = (verificationUrl: string): string =>
+  verificationUrl.replace(/^https?:\/\//u, "").replace(/[?#].*$/u, "");

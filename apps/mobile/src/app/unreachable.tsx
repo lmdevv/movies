@@ -26,6 +26,7 @@ export default function Unreachable() {
     return (
       <Screen header={<NavHeader title="Local Network Access" onBack={back} />}>
         <CalmState
+          placement="top"
           icon={Wifi}
           title="Local server unavailable"
           description="Allow local network access in Settings."

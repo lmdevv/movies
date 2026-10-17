@@ -1,6 +1,6 @@
 /**
  * The profile chosen on this device. Switching to another profile locks the one left behind on
- * this session first, so a PIN keeps guarding it: unlocks live on the server session, which every
+ * this session, so a PIN keeps guarding it: unlocks live on the server session, which every
  * profile on this device shares.
  */
 import type { ProfileId } from "@movies/contracts/ids";
@@ -16,7 +16,7 @@ export interface ProfileChoice {
   readonly profileId: ProfileId | null;
   /**
    * Chooses a profile, or forgets the choice with null. Leaving one profile for another resolves
-   * once the one left behind is locked, and rejects when locking fails.
+   * once the one left behind is locked, and rejects, back on that profile, when locking fails.
    */
   readonly choose: (profileId: ProfileId | null) => Promise<void>;
 }
@@ -39,15 +39,26 @@ export function ProfileChoiceProvider({ children }: { readonly children: ReactNo
     async (next: ProfileId | null) => {
       const previous = current.current;
 
-      // Signing out (null) ends the session and every unlock with it. A remembered profile that
-      // no longer exists, or belongs to another account, has nothing left to lock.
-      if (previous !== null && next !== null && previous !== next) {
-        await lock({ profileId: previous }).catch((cause: unknown) => {
-          if (!isFailure(cause, "NotFound") && !isFailure(cause, "Forbidden")) throw cause;
-        });
+      // Signing out (null) ends the session and every unlock with it.
+      if (previous === null || next === null || previous === next) {
+        commit(next);
+
+        return;
       }
 
+      // Switch first, so the screen never shows the profile left behind as locked while it is
+      // still chosen (which would flash Who's Watching?), then lock it; if locking fails, go back
+      // to it, still unlocked. A remembered profile that no longer exists, or belongs to another
+      // account, has nothing left to lock.
       commit(next);
+
+      try {
+        await lock({ profileId: previous });
+      } catch (cause) {
+        if (isFailure(cause, "NotFound") || isFailure(cause, "Forbidden")) return;
+        commit(previous);
+        throw cause;
+      }
     },
     [commit, lock],
   );

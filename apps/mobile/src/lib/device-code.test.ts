@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { codeGroups, expiresInLine, spokenCode } from "./device-code";
+import { approvalAddress, codeGroups, expiresInLine, spokenCode } from "./device-code";
 
 describe("device code", () => {
   it("splits the code into its groups of boxes", () => {
@@ -16,5 +16,9 @@ describe("device code", () => {
     expect(expiresInLine(292_000, 0)).toBe("Expires in 4:52");
     expect(expiresInLine(500, 0)).toBe("Expires in 0:01");
     expect(expiresInLine(0, 10_000)).toBe("Expires in 0:00");
+  });
+
+  it("shows the approval page without scheme or code", () => {
+    expect(approvalAddress("https://cinema.home/device?code=BCDF-GHJK")).toBe("cinema.home/device");
   });
 });
