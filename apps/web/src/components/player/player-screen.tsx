@@ -16,6 +16,7 @@ import type { MediaVersion } from "@movies/contracts/models/catalog";
 import { EpochMillis, Milliseconds } from "@movies/contracts/units";
 import { Playback, Versions } from "@movies/sdk/effect";
 import { useCommand, useCommandQuery, useMoviesRuntime, useRoomSync } from "@movies/sdk/react";
+import type { QueryState } from "@movies/sdk/react";
 import { ChapterPopover } from "@movies/ui/components/chapter-popover";
 import { CommandMenu } from "@movies/ui/components/command-menu";
 import {
@@ -122,6 +123,13 @@ const VOLUME_STEP = 0.1;
 
 /** Where unmuting a TV that is silent returns to when this player never set its level. */
 const CAST_UNMUTE_LEVEL = 0.5;
+
+/** A list query's rows, null while it loads; one that failed lists nothing rather than loading forever. */
+const listOrLoading = <A,>(state: QueryState<ReadonlyArray<A>>): ReadonlyArray<A> | null => {
+  if (state.status === "success") return state.data;
+
+  return state.status === "error" ? [] : null;
+};
 
 /** A volume from 0 to 1 in whole percent, so steps of a tenth land on silence exactly. */
 const volumeLevel = (value: number): number =>
@@ -443,15 +451,14 @@ export function PlayerScreen({
     else output.pause();
   }, [output, controlsTimeline, snapshot?.needsGesture, casting, play]);
 
-  // Silence mutes and any other level unmutes, so the mute button and the slider always agree. A TV
-  // keeps its level under mute, which unmuting returns to.
+  // Silence mutes and any other level unmutes, here and on a TV alike, so the mute button and the
+  // slider always agree.
   const setVolume = useCallback(
     (value: number) => {
       const level = volumeLevel(value);
 
       if (casting !== null) {
-        if (level === 0) casting.player.setMuted(true);
-        else casting.player.setVolume(level);
+        casting.player.setVolume(level);
 
         return;
       }
@@ -846,14 +853,15 @@ export function PlayerScreen({
       ? {
           seasons: detail.seasons,
           current: { id: episode.id, seasonNumber: episode.seasonNumber },
-          currentSeason: seasonEpisodes.status === "success" ? seasonEpisodes.data : null,
+          currentSeason: listOrLoading(seasonEpisodes),
         }
       : null;
 
   const canPick = picking !== null;
 
-  // A picker that can no longer show is closed, so it never reopens by itself later.
-  if (!canPick && episodesOpenIn !== null) setEpisodesOpenIn(null);
+  // A picker that can no longer show, or that was open in another layout, is closed, so it never
+  // reopens by itself later.
+  if (episodesOpenIn !== null && (!canPick || episodesOpenIn !== layout)) setEpisodesOpenIn(null);
 
   const episodesShown = episodesOpenIn === layout && canPick;
 

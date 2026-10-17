@@ -354,11 +354,14 @@ function VolumeControl({
 
     window.addEventListener("pointerup", dropped);
     window.addEventListener("pointercancel", dropped);
+    // A release the window never hears, as when it loses focus mid-drag, ends the drag too.
+    window.addEventListener("blur", dropped);
     window.addEventListener("pointerdown", outside);
 
     return () => {
       window.removeEventListener("pointerup", dropped);
       window.removeEventListener("pointercancel", dropped);
+      window.removeEventListener("blur", dropped);
       window.removeEventListener("pointerdown", outside);
       unmount();
     };

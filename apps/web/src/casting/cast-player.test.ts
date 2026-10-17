@@ -341,4 +341,15 @@ describe("CastPlayer", () => {
     player.setVolume(0.4);
     expect(player.getState()).toMatchObject({ muted: false, volume: 0.4 });
   });
+
+  it("mutes for silence instead of unmuting, and keeps that level for the next change", () => {
+    const receiver = laggingReceiver();
+    const player = castPlayer(receiver.framework);
+
+    player.setVolume(0);
+    expect(receiver.receiverMuted()).toBe(true);
+    expect(player.getState()).toMatchObject({ muted: true, volume: 0 });
+    player.setVolume(0.3);
+    expect(receiver.receiverMuted()).toBe(false);
+  });
 });

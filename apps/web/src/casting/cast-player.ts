@@ -300,11 +300,11 @@ export class CastPlayer implements PlayerPort {
     this.#controller.stop();
   }
 
-  /** Sets the receiver's volume, from 0 to 1, and unmutes it. */
+  /** Sets the receiver's volume, from 0 to 1: silence mutes it, and any other level unmutes it. */
   setVolume(volume: number): void {
     this.#remote.volumeLevel = Math.min(1, Math.max(0, volume));
     this.#controller.setVolumeLevel();
-    this.#askMuted(false);
+    this.#askMuted(this.#remote.volumeLevel === 0);
     this.#refresh();
   }
 
