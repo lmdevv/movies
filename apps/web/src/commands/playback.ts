@@ -155,14 +155,18 @@ export const playbackCommands = (player: PlayerCommands | null): CommandContribu
             ),
           },
         ]),
-    {
-      kind: "action",
-      id: "player:stream-info",
-      title: "Stream info",
-      keywords: ["codec", "direct", "transcode", "bitrate"],
-      leading: { kind: "icon", icon: InfoIcon },
-      perform: player.showStreamInfo,
-    },
+    ...(player.showStreamInfo === null
+      ? []
+      : [
+          {
+            kind: "action" as const,
+            id: "player:stream-info",
+            title: "Stream info",
+            keywords: ["codec", "direct", "transcode", "bitrate"],
+            leading: { kind: "icon" as const, icon: InfoIcon },
+            perform: player.showStreamInfo,
+          },
+        ]),
     {
       kind: "action",
       id: "player:fullscreen",

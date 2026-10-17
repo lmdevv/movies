@@ -161,6 +161,19 @@ describe("CastPlayer", () => {
     expect(player.isPaused()).toBe(true);
   });
 
+  it("reports what was asked as soon as it is asked", async () => {
+    const receiver = laggingReceiver();
+    const player = castPlayer(receiver.framework);
+
+    player.pause();
+    expect(player.isPaused()).toBe(true);
+    expect(player.getState().paused).toBe(true);
+    await player.play();
+    expect(player.isPaused()).toBe(false);
+    receiver.deliverOne();
+    expect(player.isPaused()).toBe(false);
+  });
+
   it("sends nothing when asked for the state the receiver is already in", async () => {
     const receiver = laggingReceiver();
     const player = castPlayer(receiver.framework);

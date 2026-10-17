@@ -178,8 +178,9 @@ export class CastPlayer implements PlayerPort {
     return this.#remote.isConnected ? this.#remote.currentTime * 1000 : this.#last.positionMs;
   }
 
+  /** Paused as last asked while that is on its way to the receiver, else as its mirror says. */
   readonly isPaused = (): boolean =>
-    this.#remote.isConnected ? this.#remote.isPaused : this.#last.paused;
+    this.#remote.isConnected ? (this.#asked ?? this.#remote.isPaused) : this.#last.paused;
 
   readonly isBuffering = (): boolean =>
     this.#pending !== null || (!this.#remote.isPaused && this.#remote.playerState === BUFFERING);
@@ -229,6 +230,7 @@ export class CastPlayer implements PlayerPort {
     this.#asked = paused;
     this.#unreported += 1;
     this.#controller.playOrPause();
+    this.#refresh();
   }
 
   /**

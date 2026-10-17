@@ -124,6 +124,12 @@ describe("playbackCommands", () => {
     ]);
   });
 
+  it("drops Stream info where its panel cannot show", () => {
+    const { player } = recordingPlayer({ showStreamInfo: null });
+
+    expect(items(player).map((item) => item.title)).not.toContain("Stream info");
+  });
+
   it("drops Audio for a file without audio and adds Version for a title with several files", () => {
     const { player } = recordingPlayer({
       audio: [],

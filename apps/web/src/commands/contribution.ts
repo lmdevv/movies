@@ -26,7 +26,8 @@ export interface PlayerCommands {
   readonly togglePlay: () => void;
   readonly skip: (seconds: number) => void;
   readonly toggleFullscreen: () => void;
-  readonly showStreamInfo: () => void;
+  /** Opens Stream info; null where the panel cannot show (phones, or before a stream loads). */
+  readonly showStreamInfo: (() => void) | null;
   readonly subtitles: ReadonlyArray<TrackOption>;
   readonly subtitleId: string;
   readonly selectSubtitle: (id: string) => void;

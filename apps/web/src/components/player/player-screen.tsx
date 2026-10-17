@@ -877,7 +877,9 @@ export function PlayerScreen({
       togglePlay,
       skip,
       toggleFullscreen,
-      showStreamInfo: () => setInfo(true),
+      // Stream info shows only in the desktop controls, once a stream has loaded.
+      showStreamInfo:
+        layout === "desktop" && stream !== null && started !== null ? () => setInfo(true) : null,
       subtitles: subtitleOptions,
       subtitleId,
       selectSubtitle,
@@ -922,6 +924,8 @@ export function PlayerScreen({
       inRoom,
       playNext,
       started,
+      layout,
+      stream,
       openStartRoom,
       roomId,
       copyLink,
