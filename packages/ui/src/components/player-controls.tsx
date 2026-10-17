@@ -336,8 +336,12 @@ function VolumeControl({
   // Let go of the controls when unmounted open, as when the controls give way to a state.
   const unmount = useEffectEvent(() => {
     clearTimeout(hoverTimer.current);
+    reasons.current.clear();
 
-    if (openNow.current) onOpenChange?.(false);
+    if (!openNow.current) return;
+    openNow.current = false;
+    setOpen(false);
+    onOpenChange?.(false);
   });
 
   // A drag ends wherever it is let go; a tap elsewhere closes what a tap opened.

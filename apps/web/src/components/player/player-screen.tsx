@@ -471,28 +471,41 @@ export function PlayerScreen({
     [video, casting],
   );
 
-  // The last level the viewer settled on above silence, and where (this element, or a TV), which
-  // unmuting from silence there returns to. A drag's passing levels do not count, so dragging down
-  // to nothing and unmuting restores where it started.
-  const audibleVolume = useRef<{ readonly on: unknown; readonly level: number } | null>(null);
+  // The last level the viewer settled on above silence, and where (this element, or a TV by name),
+  // which unmuting from silence there returns to. A drag's passing levels do not count, so dragging
+  // down to nothing and unmuting restores where it started.
+  const audibleVolume = useRef<{ readonly on: string; readonly level: number } | null>(null);
+  const volumeOutput = casting === null ? "" : casting.deviceName;
+  const audibleNow = media.muted ? 0 : media.volume;
+
+  // Before the first change on an output, what plays there now is where it started.
+  const rememberStart = useCallback(() => {
+    if (audibleVolume.current?.on !== volumeOutput && audibleNow > 0) {
+      audibleVolume.current = { on: volumeOutput, level: audibleNow };
+    }
+  }, [volumeOutput, audibleNow]);
 
   const commitVolume = useCallback(
     (value: number) => {
       const level = volumeLevel(value);
 
-      if (level > 0) audibleVolume.current = { on: casting, level };
+      rememberStart();
+
+      if (level > 0) audibleVolume.current = { on: volumeOutput, level };
       setVolume(level);
     },
-    [casting, setVolume],
+    [rememberStart, volumeOutput, setVolume],
   );
 
   // The slider follows the pointer here at once; a TV hears only where it settles, since each step
   // of a drag would be a message to it.
   const followVolume = useCallback(
     (value: number) => {
+      rememberStart();
+
       if (casting === null) setVolume(value);
     },
-    [casting, setVolume],
+    [rememberStart, casting, setVolume],
   );
 
   const silent = media.volume === 0;
@@ -507,7 +520,7 @@ export function PlayerScreen({
 
         // Nothing settled on here yet: an element starts at full volume, and a TV at a moderate one.
         setVolume(
-          remembered !== null && remembered.on === casting
+          remembered !== null && remembered.on === volumeOutput
             ? remembered.level
             : casting === null
               ? 1
@@ -516,7 +529,7 @@ export function PlayerScreen({
       } else if (casting !== null) casting.player.setMuted(muted);
       else if (video !== null) video.muted = muted;
     },
-    [video, casting, silent, setVolume],
+    [video, casting, silent, volumeOutput, setVolume],
   );
 
   // Audio and subtitle choices from the file and the negotiated stream.
