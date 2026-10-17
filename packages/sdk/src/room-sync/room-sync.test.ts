@@ -566,18 +566,22 @@ describe("room presence while browsing", () => {
       Effect.gen(function* () {
         const player = yield* makeFakePlayer(0);
 
+        // The player's engine runs in its own scope, which leaving the player closes.
         const watching = yield* Effect.forkChild(
-          Effect.gen(function* () {
-            yield* start(rooms, GUEST, player);
+          Effect.scoped(
+            Effect.gen(function* () {
+              yield* start(rooms, GUEST, player);
 
-            return yield* Effect.never;
-          }),
+              return yield* Effect.never;
+            }),
+          ),
         );
 
         yield* advance(DEFAULT_TUNABLES.heartbeatIntervalMs + 1_000);
         expect((yield* rooms.room).members[0]?.driftMs).toBeTypeOf("number");
 
-        // The viewer leaves the player for the rest of the app.
+        // The viewer leaves the player for the rest of the app. Away counts once the player has
+        // been silent for `PLAYER_SILENCE_MS`.
         yield* Fiber.interrupt(watching);
         const before = yield* heartbeats(rooms);
 
@@ -591,6 +595,22 @@ describe("room presence while browsing", () => {
           Math.floor((MEMBER_PRESENCE_TIMEOUT_MS + 5_000) / DEFAULT_TUNABLES.heartbeatIntervalMs),
         );
         expect((yield* rooms.room).members[0]).toMatchObject({ presence: "away", driftMs: null });
+      }),
+    ));
+
+  it("leaves a device whose player still plays watching, as when another tab browses", () =>
+    scenario({ ...playingForAMinute, status: "buffering" }, ({ rooms }) =>
+      Effect.gen(function* () {
+        const host = yield* makeFakePlayer(0);
+
+        host.stall();
+        host.userPlay();
+        yield* start(rooms, HOST, host);
+        yield* Effect.forkChild(keepAway({ roomId: (yield* rooms.room).id, deviceId: HOST }));
+        yield* advance(4 * DEFAULT_TUNABLES.heartbeatIntervalMs);
+
+        // The stall the host's player is in holds; the other tab's heartbeats only keep the place.
+        expect((yield* rooms.room).clock.status).toBe("buffering");
       }),
     ));
 

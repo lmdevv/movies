@@ -422,6 +422,8 @@ export default defineSchema({
     lastSeenAt: v.number(),
     /** What the device's last heartbeat said it is doing; absent on rows from before it was kept. */
     presence: v.optional(roomPresence),
+    /** When the device's player last reported: joining, or a watching heartbeat. */
+    watchedAt: v.optional(v.number()),
     /** A guest's last reported distance from the shared position; absent until it reports one. */
     driftMs: v.optional(v.number()),
   })

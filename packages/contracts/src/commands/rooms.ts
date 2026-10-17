@@ -117,7 +117,9 @@ export const roomCommands = {
       driftMs: Schema.optionalKey(Schema.Finite),
       /**
        * `away` from a device browsing elsewhere in the app, which keeps its place without playing;
-       * omit from the room's player. An away host's position is not read.
+       * omit from the room's player. It counts once the device's player has been silent for
+       * `PLAYER_SILENCE_MS`; until then it only keeps the place. An away host's position is not
+       * read.
        */
       presence: Schema.optionalKey(RoomPresence),
     }),

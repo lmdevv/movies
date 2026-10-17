@@ -10,7 +10,11 @@
  */
 import { join } from "node:path";
 
-import { HEARTBEAT_INTERVAL_MS, HOST_PRESENCE_TIMEOUT_MS } from "@movies/contracts/clock";
+import {
+  HEARTBEAT_INTERVAL_MS,
+  HOST_PRESENCE_TIMEOUT_MS,
+  PLAYER_SILENCE_MS,
+} from "@movies/contracts/clock";
 import { DeviceId, RoomId } from "@movies/contracts/ids";
 import type { TitleId } from "@movies/contracts/ids";
 import { Milliseconds } from "@movies/contracts/units";
@@ -519,8 +523,13 @@ test("a guest who browses away keeps their place, and the navbar pill takes them
   await expect(roomPill(guest)).toHaveText("Room · 2");
   await expect(roomPill(guest)).toHaveAccessibleName(`Room · 2: return to ${SHARED}`);
 
-  // Away, not watching: the host sees one watching and the guest marked away, with no drift.
-  await expect.poll(async () => (await memberNamed(GUEST.name)).presence).toBe("away");
+  // Away, not watching, once the player has been silent a while: the host sees one watching and
+  // the guest marked away, with no drift.
+  await expect
+    .poll(async () => (await memberNamed(GUEST.name)).presence, {
+      timeout: PLAYER_SILENCE_MS + 3 * HEARTBEAT_INTERVAL_MS,
+    })
+    .toBe("away");
   expect((await memberNamed(GUEST.name)).driftMs).toBeNull();
   await expect(host.getByText("Live · 1 watching")).toBeVisible();
   await expect(

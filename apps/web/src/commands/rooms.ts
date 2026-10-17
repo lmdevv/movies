@@ -94,24 +94,23 @@ export const useRoomCommands = (context: CommandContext): CommandContribution =>
       return { groups: [{ id: "room", label: "Room", items: inPlayer }], fallback: join };
     }
 
-    const room = current?.room ?? null;
-
     const back: ReadonlyArray<CommandItem> =
-      room === null || current?.returnable !== true
+      current?.mine !== true || !current.returnable
         ? []
         : [
             {
               kind: "action",
               id: "room:return",
               title: "Return to room",
-              detail: room.title.name,
+              detail: current.titleName,
               leading: { kind: "icon", icon: UsersIcon },
-              perform: () => navigate(returnTarget(room)),
+              perform: () => navigate(returnTarget(current)),
             },
           ];
 
+    // A device in a room with another profile can still leave it, without naming what it plays.
     const elsewhere: ReadonlyArray<CommandItem> =
-      room === null
+      current === null
         ? []
         : [
             ...back,
@@ -119,10 +118,10 @@ export const useRoomCommands = (context: CommandContext): CommandContribution =>
               kind: "action",
               id: "room:leave",
               title: "Leave room",
-              detail: room.title.name,
+              detail: current.mine ? current.titleName : undefined,
               leading: { kind: "icon", icon: LogOutIcon },
               perform: () =>
-                leave({ roomId: room.id, deviceId }).then(() => undefined, toastFailure),
+                leave({ roomId: current.id, deviceId }).then(() => undefined, toastFailure),
             },
           ];
 

@@ -9,6 +9,7 @@
 import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 
+import { PLAYER_SILENCE_MS } from "@movies/contracts/clock";
 import type { AnyCommand } from "@movies/contracts/command";
 import type { CommandArgs } from "@movies/contracts/commands";
 import { commands } from "@movies/contracts/commands";
@@ -453,6 +454,16 @@ const catalogFiles = async (session: Session): Promise<ReadonlyArray<CatalogFile
 };
 
 const at = (offset: number) => EpochMillis.make(1_760_000_000_000 + offset);
+
+/** The room's member on `deviceId`, as the owner, the rooms' host, reads the room. */
+const memberOn = async (fixture: Fixture, roomId: RoomId, deviceId: DeviceId) => {
+  const { members } = await run(fixture.owner, "rooms.get", { roomId });
+  const found = members.find((each) => each.deviceId === deviceId);
+
+  if (found === undefined) throw new Error(`No member on ${deviceId}`);
+
+  return found;
+};
 
 const fileAt = async (fixture: Fixture, path: string): Promise<CatalogFile> => {
   const found = (await catalogFiles(fixture.mediaService)).find((file) => file.path === path);
@@ -2342,16 +2353,19 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         }),
       ]);
 
-      // The host browsing reports a position far from the clock: an away host's is not read.
-      const kept = await run(fixture.owner, "rooms.heartbeat", {
-        roomId: room.id,
-        deviceId: hostDevice,
-        positionMs: ms(0),
-        revision: playing.revision,
-        presence: "away",
-      });
+      const hostAway = () =>
+        run(fixture.owner, "rooms.heartbeat", {
+          roomId: room.id,
+          deviceId: hostDevice,
+          positionMs: ms(0),
+          revision: playing.revision,
+          presence: "away",
+        });
 
-      expect(kept).toStrictEqual(playing);
+      // Just after the host's player reported (here, creating the room), an away heartbeat, as
+      // from another tab, only keeps the place: the host is still watching.
+      expect(await hostAway()).toStrictEqual(playing);
+      expect((await memberOn(fixture, room.id, hostDevice)).presence).toBe("watching");
       await run(fixture.member, "rooms.heartbeat", {
         roomId: room.id,
         deviceId: awayGuest,
@@ -2360,6 +2374,9 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       });
       // Past the member timeout for the guest that sent nothing.
       await sleep(Math.max(0, lastHeard + 61_000 - Date.now()));
+      // The host's player has long been silent: browsing, with a position far from the clock,
+      // which an away host's heartbeat does not read.
+      expect(await hostAway()).toStrictEqual(playing);
       runInternal("maintenance:sweepRooms");
 
       const swept = await run(fixture.owner, "rooms.get", { roomId: room.id });
@@ -2391,6 +2408,14 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       expect(rejoined.members.find((each) => each.deviceId === awayGuest)?.presence).toBe(
         "watching",
       );
+
+      // An away heartbeat that left just before the player opened changes nothing.
+      await run(fixture.member, "rooms.heartbeat", {
+        roomId: room.id,
+        deviceId: awayGuest,
+        presence: "away",
+      });
+      expect((await memberOn(fixture, room.id, awayGuest)).presence).toBe("watching");
       await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
     }, 90_000);
 
@@ -2419,6 +2444,9 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         positionMs: ms(30_000),
       });
 
+      // While the host's player still reports (another tab browsing), the stall holds.
+      expect(await away(stalled.revision)).toStrictEqual(stalled);
+      await sleep(PLAYER_SILENCE_MS);
       expect(await away(stalled.revision)).toMatchObject({
         status: "paused",
         positionAtAnchorMs: 30_000,
@@ -2440,7 +2468,7 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         revision: ending.revision + 1,
       });
       await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
-    });
+    }, 30_000);
 
     it("keeps kids profiles out of rooms for titles they cannot see", async () => {
       const room = await run(fixture.owner, "rooms.create", {

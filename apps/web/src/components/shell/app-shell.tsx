@@ -78,10 +78,11 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
 
   const scrolled = useScrolledPast(SCROLL_THRESHOLD_PX);
   const deviceId = useMemo(() => loadDeviceId(), []);
-  const watchRoom = useCurrentRoom({ deviceId, profileId: profile.id });
+  const deviceRoom = useCurrentRoom({ deviceId, profileId: profile.id });
+  const watchRoom = deviceRoom?.mine === true ? deviceRoom : null;
 
   // The player sends this device's heartbeats while it plays the room; out here they say away.
-  useRoomPresence(watchRoom === null ? null : { roomId: watchRoom.room.id, deviceId });
+  useRoomPresence(watchRoom === null ? null : { roomId: watchRoom.id, deviceId });
   const current = sectionOf(pathname);
   const art = profileArt(profile);
 
@@ -124,15 +125,14 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
 
   const roomPill = (compact: boolean) => {
     if (watchRoom === null || !watchRoom.returnable) return null;
-    const { room } = watchRoom;
-    const count = room.members.length;
+    const count = watchRoom.members;
 
     return (
       <RoomPill
         count={count}
         compact={compact}
-        aria-label={`Room · ${String(count)}: return to ${room.title.name}`}
-        render={<Link {...returnTarget(room)} />}
+        aria-label={`Room · ${String(count)}: return to ${watchRoom.titleName}`}
+        render={<Link {...returnTarget(watchRoom)} />}
       />
     );
   };

@@ -8,6 +8,7 @@ import { Predicate, Schema } from "effect";
 import { useEffect } from "react";
 
 import { RoomDenied } from "@/components/player/room-states";
+import { returnTarget } from "@/lib/current-room";
 import { describeFailure } from "@/lib/failure";
 import { RequireProfile, RequireSignedIn, useActiveProfile } from "@/session/guards";
 
@@ -49,10 +50,7 @@ function RoomLinkPage() {
     if (open === null) return;
 
     void navigate({
-      to: "/watch/$titleId",
-      params: { titleId: open.title.id },
-      search:
-        open.episode === null ? { room: open.id } : { room: open.id, episodeId: open.episode.id },
+      ...returnTarget({ id: open.id, titleId: open.title.id, episodeId: open.episode?.id ?? null }),
       replace: true,
     });
   }, [open, navigate]);

@@ -7,6 +7,13 @@ import type { Doc } from "../_generated/dataModel";
 /** How often members send heartbeats; a host reading older than this cannot be right. */
 export const HEARTBEAT_INTERVAL_MS = 5_000;
 
+/**
+ * An away heartbeat counts only once the device's player has been silent this long, two heartbeat
+ * intervals. Until then the device is still watching: another tab on the same device may be
+ * playing the room, or the heartbeat left the app just before its player opened.
+ */
+export const PLAYER_SILENCE_MS = 2 * HEARTBEAT_INTERVAL_MS;
+
 /** A host silent this long is away and the room pauses. */
 export const HOST_PRESENCE_TIMEOUT_MS = 20_000;
 

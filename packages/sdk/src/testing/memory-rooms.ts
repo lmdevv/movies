@@ -2,14 +2,14 @@
  * An in-memory Convex backend for one watch room, at the `ConvexTransport` seam. It follows the
  * room rules of `packages/backend/convex/rooms.ts` (host-only controls at the current revision,
  * seek keeping the status, host heartbeats re-anchoring drift beyond the contracts' threshold,
- * guest heartbeats recording the drift they report, heartbeats recording presence, and an away
- * host's heartbeat pausing a buffering room; it knows no file length, so a room never plays past
- * one),
+ * guest heartbeats recording the drift they report, heartbeats recording presence (an away one
+ * counting once the device's player has been silent for `PLAYER_SILENCE_MS`), and an away host's
+ * heartbeat pausing a buffering room; it knows no file length, so a room never plays past one),
  * decodes arguments and encodes results with the registry schemas, keeps its own server clock at
  * a fixed offset from the test clock, delays every call and update by a one-way latency, and can
  * drop the connection. Everything runs on Effect's `Clock`, so `TestClock` drives it.
  */
-import { hostReading, targetPosition } from "@movies/contracts/clock";
+import { hostReading, PLAYER_SILENCE_MS, targetPosition } from "@movies/contracts/clock";
 import type { FunctionPath } from "@movies/contracts/command";
 import { commands } from "@movies/contracts/commands";
 import type { CommandError } from "@movies/contracts/errors";
@@ -84,6 +84,8 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
   const published = yield* SubscriptionRef.make(initial);
   const connected = yield* SubscriptionRef.make(true);
   const calls = yield* Ref.make<ReadonlyArray<string>>([]);
+  // When each device's player last sent a watching heartbeat.
+  const watched = yield* Ref.make<ReadonlyMap<string, number>>(new Map());
   const latency = Duration.millis(options.latencyMs);
 
   const commit = (room: Room): Effect.Effect<void> =>
@@ -149,8 +151,24 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
         return yield* new Forbidden({ message: "Join the room on this device first" });
       }
 
-      const presence = args.presence ?? "watching";
       const guest = args.deviceId !== before.hostDeviceId;
+      const lastWatched = (yield* Ref.get(watched)).get(args.deviceId);
+
+      // An away heartbeat while the device's player still reports only keeps the place.
+      if (
+        args.presence === "away" &&
+        lastWatched !== undefined &&
+        now - lastWatched < PLAYER_SILENCE_MS
+      ) {
+        return before.clock;
+      }
+
+      const presence = args.presence ?? "watching";
+
+      if (presence === "watching") {
+        yield* Ref.update(watched, (times) => new Map([...times, [args.deviceId, now]]));
+      }
+
       const driftMs = guest && presence === "watching" ? (args.driftMs ?? null) : null;
 
       const changed = before.members.some(

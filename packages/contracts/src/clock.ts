@@ -10,6 +10,13 @@ import { EpochMillis, Milliseconds } from "./units";
 /** How often the host and guests send room heartbeats. */
 export const HEARTBEAT_INTERVAL_MS = 5_000;
 
+/**
+ * A device's `away` heartbeats count only once its player has been silent this long. Until then it
+ * is still watching: another tab on the device may be playing the room, or the heartbeat was sent
+ * just before the player opened. Leaving the player shows as away after up to this long.
+ */
+export const PLAYER_SILENCE_MS = 2 * HEARTBEAT_INTERVAL_MS;
+
 /** A host silent this long is away: the server pauses the room at the live position. */
 export const HOST_PRESENCE_TIMEOUT_MS = 20_000;
 

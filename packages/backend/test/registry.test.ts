@@ -10,6 +10,7 @@ import {
   HOST_PRESENCE_TIMEOUT_MS,
   HOST_REANCHOR_THRESHOLD_MS,
   MEMBER_PRESENCE_TIMEOUT_MS,
+  PLAYER_SILENCE_MS,
   UNTIMED_HOST_REANCHOR_THRESHOLD_MS,
 } from "@movies/contracts/clock";
 import type { AnyCommand } from "@movies/contracts/command";
@@ -209,6 +210,7 @@ describe("constants shared across the seam", () => {
     expect(convexClock.HOST_REANCHOR_THRESHOLD_MS).toBe(HOST_REANCHOR_THRESHOLD_MS);
     expect(convexClock.UNTIMED_HOST_REANCHOR_THRESHOLD_MS).toBe(UNTIMED_HOST_REANCHOR_THRESHOLD_MS);
     expect(convexClock.HEARTBEAT_INTERVAL_MS).toBe(HEARTBEAT_INTERVAL_MS);
+    expect(convexClock.PLAYER_SILENCE_MS).toBe(PLAYER_SILENCE_MS);
   });
 
   it("uses the same kids default and batch limits", () => {
