@@ -40,14 +40,43 @@
 
       formatter = forAllSystems (pkgs: pkgs.nixfmt);
 
-      packages = forLinux (pkgs: rec {
-        movies = pkgs.callPackage ./nix/package.nix { };
-        default = movies;
-      });
+      # The server is Linux only; the CLI also builds on macOS.
+      packages = forAllSystems (
+        pkgs:
+        let
+          cli = pkgs.callPackage ./nix/cli.nix { };
+        in
+        {
+          inherit cli;
+          default = cli;
+        }
+        // nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux rec {
+          movies = pkgs.callPackage ./nix/package.nix { };
+          default = movies;
+        }
+      );
 
-      # `pkgs.movies` for configurations that apply it; the module builds the same package.
+      # `nix run github:lmdevv/movies -- whoami`; `nix build` still builds the server.
+      apps = forAllSystems (
+        pkgs:
+        let
+          movies = {
+            type = "app";
+            program = nixpkgs.lib.getExe self.packages.${pkgs.stdenv.hostPlatform.system}.cli;
+            meta.description = "The [movies] command line";
+          };
+        in
+        {
+          default = movies;
+          cli = movies;
+        }
+      );
+
+      # `pkgs.movies` and `pkgs.movies-cli` for configurations that apply it; the module builds the
+      # same server package.
       overlays.default = final: _prev: {
         movies = final.callPackage ./nix/package.nix { };
+        movies-cli = final.callPackage ./nix/cli.nix { };
       };
 
       nixosModules = {
@@ -99,6 +128,8 @@
         in
         {
           package = self.packages.${pkgs.stdenv.hostPlatform.system}.movies;
+          # Builds the CLI, so a stale pnpm dependency hash fails `nix flake check`.
+          inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) cli;
           module = evaluate { };
           module-qsv = evaluate {
             hardwareAcceleration = "qsv";
@@ -115,6 +146,74 @@
             libraryWatch = "poll";
             libraryPollSeconds = 120;
           };
+          # programs.movies: on with the server and pointed at it, alone on a machine without one,
+          # and off when asked.
+          cli-module =
+            let
+              system =
+                settings:
+                (nixpkgs.lib.nixosSystem {
+                  inherit (pkgs.stdenv.hostPlatform) system;
+                  modules = [
+                    self.nixosModules.default
+                    {
+                      boot.isContainer = true;
+                      system.stateVersion = "26.05";
+                    }
+                    settings
+                  ];
+                }).config;
+              summary = config: {
+                cli = builtins.any (package: package.pname or "" == "movies-cli") config.environment.systemPackages;
+                convexUrl = config.environment.sessionVariables.MOVIES_CONVEX_URL or null;
+                mediaUrl = config.environment.sessionVariables.MOVIES_MEDIA_URL or null;
+                server = config.systemd.services ? movies;
+              };
+              actual = {
+                server = summary (system {
+                  services.movies = {
+                    enable = true;
+                    publicUrl = "http://nas:8080";
+                    convexPublicUrl = "http://nas:3210";
+                  };
+                });
+                cliOnly = summary (system {
+                  programs.movies = {
+                    enable = true;
+                    convexUrl = "http://nas:3210";
+                    mediaUrl = "http://nas:8080";
+                  };
+                });
+                withoutCli = summary (system {
+                  services.movies.enable = true;
+                  programs.movies.enable = false;
+                });
+              };
+              expected = {
+                server = {
+                  cli = true;
+                  convexUrl = "http://nas:3210";
+                  mediaUrl = "http://nas:8080";
+                  server = true;
+                };
+                cliOnly = {
+                  cli = true;
+                  convexUrl = "http://nas:3210";
+                  mediaUrl = "http://nas:8080";
+                  server = false;
+                };
+                withoutCli = {
+                  cli = false;
+                  convexUrl = null;
+                  mediaUrl = null;
+                  server = true;
+                };
+              };
+            in
+            assert nixpkgs.lib.assertMsg (
+              actual == expected
+            ) "programs.movies: expected ${builtins.toJSON expected}, got ${builtins.toJSON actual}";
+            pkgs.writeText "movies-cli-module-check" (builtins.toJSON actual);
           vm = pkgs.callPackage ./nix/vm-test.nix { module = self.nixosModules.movies; };
         }
       );

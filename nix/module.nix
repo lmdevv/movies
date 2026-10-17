@@ -18,6 +18,8 @@
 # an upgrade, deploys the bundled functions, configures the deployment (keys and secrets are
 # generated inside Convex and kept there), and writes the service's environment to
 # /run/movies/media.env, readable by the service user only. No secret enters the Nix store.
+#
+# The host also gets the `movies` CLI, pointed at this server (programs.movies, in cli-module.nix).
 {
   config,
   lib,
@@ -136,6 +138,8 @@ let
   };
 in
 {
+  imports = [ ./cli-module.nix ];
+
   options.services.movies = {
     enable = lib.mkEnableOption "[movies], self-hosted movies and TV for people and agents";
 
