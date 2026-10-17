@@ -57,19 +57,20 @@ function NavigationTheme({ children }: { readonly children: ReactNode }) {
 }
 
 /** A native sheet sized to its content, with the grabber. */
-const SHEET = {
-  presentation: "formSheet",
-  sheetAllowedDetents: "fitToContents",
-  sheetGrabberVisible: true,
-  sheetCornerRadius: 28,
-} as const;
-
 /**
  * Every screen, grouped by the phase that may show it. Changing phase sends the stack to the
  * first screen the new phase allows.
  */
 function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
   const invite = usePendingInvite();
+
+  const sheet = {
+    presentation: "formSheet",
+    sheetAllowedDetents: "fitToContents",
+    sheetGrabberVisible: true,
+    sheetCornerRadius: 28,
+    contentStyle: { backgroundColor: useThemeColor("--color-surface-raised") },
+  } as const;
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
@@ -94,12 +95,17 @@ function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
         <Stack.Screen name="manage-profiles" />
         <Stack.Screen name="profile/[profileId]" />
         <Stack.Screen name="profile-pin/[profileId]" />
-        <Stack.Screen name="delete-profile/[profileId]" options={SHEET} />
+        <Stack.Screen name="delete-profile/[profileId]" options={sheet} />
       </Stack.Protected>
       <Stack.Protected guard={phase === "ready"}>
         <Stack.Screen name="(tabs)" options={{ animation: "fade" }} />
-        <Stack.Screen name="switch-profile" options={SHEET} />
+        <Stack.Screen name="switch-profile" options={sheet} />
         <Stack.Screen name="title/[titleId]" />
+        <Stack.Screen name="title/[titleId]/about" />
+        <Stack.Screen name="title/[titleId]/seasons" options={sheet} />
+        <Stack.Screen name="title/[titleId]/versions" options={sheet} />
+        <Stack.Screen name="title/[titleId]/actions" options={sheet} />
+        <Stack.Screen name="title/[titleId]/episode/[episodeId]" options={sheet} />
         <Stack.Screen
           name="watch/[titleId]"
           options={{

@@ -14,6 +14,7 @@ import { Text } from "@/components/ui/text";
 import { artworkUrl } from "@/lib/artwork";
 import { describeFailure } from "@/lib/failure";
 import { facts } from "@/lib/format";
+import { watchHref } from "@/lib/routes";
 import { useActiveProfile } from "@/session/active-profile";
 import { useServer } from "@/session/connection";
 
@@ -89,7 +90,7 @@ export default function Home() {
               icon={Play}
               iconFilled
               className="w-40"
-              onPress={() => router.push(`/watch/${featured.id}`)}
+              onPress={() => router.push(watchHref({ titleId: featured.id }))}
             />
           </View>
         </View>

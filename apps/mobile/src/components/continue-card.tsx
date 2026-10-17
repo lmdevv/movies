@@ -9,6 +9,7 @@ import { Pressable, View } from "react-native";
 
 import { artworkUrl } from "@/lib/artwork";
 import { episodeCode, facts, progressFraction, progressLabel } from "@/lib/format";
+import { watchHref } from "@/lib/routes";
 import { useServer } from "@/session/connection";
 
 import { Icon } from "./ui/icon";
@@ -27,10 +28,7 @@ export function ContinueCard({ item }: { readonly item: ContinueWatchingItem }) 
   const label =
     item.episode === null ? item.title.name : `${item.title.name} · ${episodeCode(item.episode)}`;
 
-  const target =
-    item.episode === null
-      ? `/watch/${item.title.id}`
-      : `/watch/${item.title.id}?episodeId=${item.episode.id}`;
+  const target = watchHref({ titleId: item.title.id, episodeId: item.episode?.id });
 
   return (
     <Pressable

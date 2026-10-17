@@ -50,6 +50,7 @@
     "@movies/config": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
+    "fast-check": "4.10.2",
     "typescript": "catalog:"
   }
 }
