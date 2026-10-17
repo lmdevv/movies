@@ -57,7 +57,8 @@ export type SubtitleTiming =
   | { readonly adjustable: false; readonly reason: string };
 
 /**
- * Whether the delay can apply to `track`, the subtitle chosen (null for none). Picture subtitles
+ * Whether the delay can apply to `track`, the subtitle chosen: null for none, `loading` for one
+ * the playing stream does not list yet (as its stream is negotiated). Picture subtitles
  * are drawn into the video by the media service, and a cast device or another screen loads its
  * own copy of the subtitles, none of which this browser can retime.
  *
@@ -69,11 +70,13 @@ export const subtitleTiming = ({
   casting,
   otherScreen,
 }: {
-  readonly track: { readonly kind: "text" | "bitmap" } | null;
+  readonly track: { readonly kind: "text" | "bitmap" } | "loading" | null;
   readonly casting: boolean;
   readonly otherScreen: boolean;
 }): SubtitleTiming => {
   if (track === null) return { adjustable: false, reason: "Subtitles are off" };
+
+  if (track === "loading") return { adjustable: false, reason: "Subtitles are loading" };
 
   if (track.kind === "bitmap") return { adjustable: false, reason: "Burned into the video" };
 

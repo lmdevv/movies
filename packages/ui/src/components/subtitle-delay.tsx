@@ -71,9 +71,16 @@ export function SubtitleDelay({
   // What is being typed, while the field has focus; the field shows `value` otherwise.
   const [draft, setDraft] = useState<string | null>(null);
   const disabled = unavailable !== undefined;
+  const [wasDisabled, setWasDisabled] = useState(disabled);
 
-  // A field disabled while being typed in (subtitles turned off, casting started) drops the entry:
-  // a disabled field may never blur.
+  // A field disabled while being typed in (subtitles turned off, casting started) drops the entry,
+  // as a disabled field may never blur; enabled again, it shows the delay, not the old entry.
+  if (disabled !== wasDisabled) {
+    setWasDisabled(disabled);
+
+    if (disabled) setDraft(null);
+  }
+
   const typed = disabled ? null : draft;
 
   const commit = (): void => {

@@ -1041,15 +1041,21 @@ export class PlaybackController {
   /**
    * Shows the text subtitles `delayMs` later than their file says (earlier when negative), held
    * to `SUBTITLE_DELAY`'s range, until another track or version is chosen. Only the cues in this
-   * element move: nothing reaches the media service or a room. Ignored without a text subtitle.
+   * element move: nothing reaches the media service or a room.
+   *
+   * @returns Whether the delay was set; false without a session or a text subtitle chosen.
    */
-  setSubtitleDelay(delayMs: number): void {
+  setSubtitleDelay(delayMs: number): boolean {
     const { started, subtitleId } = this.#snapshot;
 
-    if (started === null || subtitleId === null || this.#bitmapTrack(subtitleId) !== null) return;
+    if (started === null || subtitleId === null || this.#bitmapTrack(subtitleId) !== null) {
+      return false;
+    }
 
     this.#delay = { fileId: started.file.id, trackId: subtitleId, ms: clampSubtitleDelay(delayMs) };
     this.#update({});
+
+    return true;
   }
 
   /** Plays at `quality` from here on, renegotiating when it changes. */

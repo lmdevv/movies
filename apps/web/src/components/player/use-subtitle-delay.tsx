@@ -67,12 +67,10 @@ export const useSubtitleDelay = ({
   readonly otherScreen: boolean;
   readonly keycaps: boolean;
 }): PlayerSubtitleDelay => {
-  // A track chosen before its stream's list arrived is a text track: picture tracks are chosen
-  // from that list.
   const track =
     subtitleId === null
       ? null
-      : (stream?.subtitles.find((candidate) => candidate.id === subtitleId) ?? { kind: "text" });
+      : (stream?.subtitles.find((candidate) => candidate.id === subtitleId) ?? "loading");
 
   const timing = subtitleTiming({ track, casting, otherScreen });
   const adjustable = timing.adjustable;
@@ -88,12 +86,9 @@ export const useSubtitleDelay = ({
       if (controller === null || !adjustable) return null;
 
       const current = controller.getSnapshot().subtitleDelayMs;
+      const next = direction === 0 ? 0 : current + direction * SUBTITLE_DELAY.stepMs;
 
-      controller.setSubtitleDelay(
-        direction === 0 ? 0 : current + direction * SUBTITLE_DELAY.stepMs,
-      );
-
-      return controller.getSnapshot().subtitleDelayMs;
+      return controller.setSubtitleDelay(next) ? controller.getSnapshot().subtitleDelayMs : null;
     },
     [controller, adjustable],
   );
@@ -120,11 +115,14 @@ export const useSubtitleDelay = ({
     [controller, adjustable],
   );
 
+  // Where the delay cannot apply, nothing is shifted for this viewer: 0 shows until it can again.
+  const shownMs = adjustable ? delayMs : 0;
+
   const control = (
     <SubtitleDelay
-      value={formatSubtitleDelay(delayMs)}
+      value={formatSubtitleDelay(shownMs)}
       unavailable={reason ?? undefined}
-      resettable={delayMs !== 0}
+      resettable={shownMs !== 0}
       earlierKeys={keycaps ? playerKeymap.keycaps("player.subtitles-earlier") : NO_KEYS}
       laterKeys={keycaps ? playerKeymap.keycaps("player.subtitles-later") : NO_KEYS}
       onEarlier={() => step(-1)}
@@ -134,5 +132,5 @@ export const useSubtitleDelay = ({
     />
   );
 
-  return { timing, delayMs, control, stepWithNotice, notice };
+  return { timing, delayMs: shownMs, control, stepWithNotice, notice };
 };

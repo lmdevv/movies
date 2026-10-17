@@ -4,7 +4,7 @@ import { RadioGroup } from "@base-ui/react/radio-group";
 import { cn } from "@movies/ui/lib/utils";
 import { CheckIcon } from "lucide-react";
 import { Fragment, useCallback, useId, useLayoutEffect, useRef } from "react";
-import type { ReactElement, ReactNode } from "react";
+import type { ReactElement } from "react";
 
 /** One choice in a column, such as an audio track or a version of the film. */
 export type TrackOption = {
@@ -92,7 +92,7 @@ function TrackColumn({
   readonly options: ReadonlyArray<TrackOption>;
   readonly value: string;
   readonly onValueChange: (id: string) => void;
-  readonly footer: ReactNode;
+  readonly footer: ReactElement | undefined;
 }) {
   const labelId = useId();
 
@@ -136,7 +136,7 @@ function TrackColumn({
         onValueChange={(next) => onValueChange(next)}
         className={cn(
           "relative flex min-h-0 scroll-py-1 flex-col gap-0.5 overflow-y-auto overscroll-y-contain px-5 pt-1",
-          footer === undefined || footer === null || footer === false ? "pb-5" : "pb-3",
+          footer === undefined ? "pb-5" : "pb-3",
         )}
       >
         {options.map((option) => (
@@ -182,7 +182,7 @@ export type TrackChoice = {
   readonly value: string;
   readonly onValueChange: (id: string) => void;
   /** What sits under the options, outside their scrolling, such as the subtitle delay. */
-  readonly footer?: ReactNode;
+  readonly footer?: ReactElement | undefined;
 };
 
 /** The columns of choices, left to right. */

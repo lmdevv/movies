@@ -413,8 +413,9 @@ choices made while implementing them. Update it in the same PR that changes a de
   Media Source (its light build has no subtitle handling of its own); a new stream for another
   quality never reloads them. Re-timing the WebVTT on the server was rejected: it would need a
   new URL and a reload for every step and would leak a per-viewer setting into the media service.
-- Where it cannot apply, the control is disabled and says why: subtitles Off ("Subtitles are
-  off"); picture subtitles (PGS, VobSub, DVB), which the media service burns into a transcode
+- Where it cannot apply, the control is disabled, reads 0.0 (nothing is shifted for the viewer),
+  and says why: subtitles Off ("Subtitles are off"); a track the playing stream does not list yet
+  ("Subtitles are loading"); picture subtitles (PGS, VobSub, DVB), which the media service burns into a transcode
   ("Burned into the video"; ASS/SSA convert to WebVTT text and do get the delay); Chromecast, whose
   Default Media Receiver loads the WebVTT itself and offers no cue offset ("Not while casting");
   and AirPlay or the Remote Playback API while they play the element on another screen ("Not on

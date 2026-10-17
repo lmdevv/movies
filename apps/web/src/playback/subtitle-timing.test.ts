@@ -130,6 +130,10 @@ describe("subtitleTiming", () => {
     expect(
       subtitleTiming({ track: { kind: "bitmap" }, casting: false, otherScreen: false }),
     ).toEqual({ adjustable: false, reason: "Burned into the video" });
+    expect(subtitleTiming({ track: "loading", casting: false, otherScreen: false })).toEqual({
+      adjustable: false,
+      reason: "Subtitles are loading",
+    });
     expect(subtitleTiming({ track: text, casting: true, otherScreen: false })).toEqual({
       adjustable: false,
       reason: "Not while casting",
