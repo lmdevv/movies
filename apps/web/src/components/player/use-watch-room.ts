@@ -88,9 +88,6 @@ export const useWatchRoom = (
 
   if (roomId === null) return null;
 
-  // A room this account cannot read at all belongs to another household. One this device joined
-  // that stops answering moved on to something the profile it joined with may not watch; it
-  // answers again once the room plays something that profile may.
   // A room that ended while this member was out of reach of what it played.
   if (record.status === "error" && Predicate.isTagged(record.error, "Conflict")) {
     return {
@@ -99,6 +96,9 @@ export const useWatchRoom = (
     };
   }
 
+  // A room this account cannot read at all belongs to another household. One this device joined
+  // that stops answering moved on to something the profile it joined with may not watch; it
+  // answers again once the room plays something that profile may.
   if (record.status === "error" && Predicate.isTagged(record.error, "NotFound")) {
     return {
       join: {

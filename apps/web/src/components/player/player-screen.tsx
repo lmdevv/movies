@@ -316,10 +316,12 @@ export function PlayerScreen({
 
   // A room that switches only its file (another version of what plays) keeps the page, so its new
   // file starts a new session here. Other media opens a page of its own (`useRoomNext`); until it
-  // does, this page keeps the file it had rather than start a session for media it will leave.
+  // does, this page keeps the file it had rather than start a session for media it will leave. A
+  // room started from this page plays this page's own stream, which starting it never restarts.
   const [pageFile, setPageFile] = useState("");
 
   const matchingFile =
+    openedRoom !== null &&
     roomRecord !== null &&
     roomRecord.title.id === titleId &&
     (roomRecord.episode?.id ?? undefined) === episodeId

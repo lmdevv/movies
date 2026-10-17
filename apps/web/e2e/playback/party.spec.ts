@@ -293,25 +293,39 @@ const expectEveryoneOn = async (name: string): Promise<void> => {
   );
 };
 
-/** The host seeks to the end of the episode, into the credits, where the countdown starts. */
+/** How far the player's `l` key seeks. */
+const SKIP_SECONDS = 10;
+
+/** Where the credits start: the last tenth of the episode, as the player counts them. */
+const CREDITS_AT = EPISODE_SECONDS * 0.9;
+
+/**
+ * The host seeks into the credits, where the countdown starts. Only the last press lands there:
+ * a press after the card opened would take focus from its Play next.
+ */
 const hostToCredits = async (): Promise<void> => {
   await expectPlayingPast(host, 0.5);
 
   const player = host.getByTestId("player");
 
+  const skip = async (): Promise<void> => {
+    const at = (await videoState(host)).currentTime;
+
+    await player.press("l");
+    await expect.poll(async () => (await videoState(host)).currentTime).toBeGreaterThan(at + 5);
+
+    if (at + 2 * SKIP_SECONDS < CREDITS_AT) await skip();
+  };
+
+  // Each press but the last stays before the credits.
+  if ((await videoState(host)).currentTime + SKIP_SECONDS < CREDITS_AT) await skip();
   await player.press("l");
-  await player.press("l");
-  await player.press("l");
-  await player.press("ArrowRight");
-  await player.press("ArrowRight");
-  await expect
-    .poll(async () => (await videoState(host)).currentTime)
-    .toBeGreaterThan(EPISODE_SECONDS - 2);
+  await expect.poll(async () => (await videoState(host)).currentTime).toBeGreaterThan(CREDITS_AT);
 };
 
 test("the host starts a room on the first episode and two guests join it", async () => {
   await host.goto(`/watch/${titleId(SHOW)}?episodeId=${episodeId("Ebb")}&start=0`);
-  await expectPlayingPast(host, 0.5);
+  await expectPlayingPast(host, 3);
   await revealControls(host);
   await host.getByRole("button", { name: "Watch together" }).click();
   await host
@@ -319,6 +333,10 @@ test("the host starts a room on the first episode and two guests join it", async
     .getByRole("button", { name: "Start room" })
     .click();
   await expect(host).toHaveURL(/[?&]room=/u);
+
+  // Starting the room keeps the host's stream: it plays on rather than starting over.
+  await host.waitForTimeout(1_000);
+  expect((await videoState(host)).currentTime).toBeGreaterThan(3);
   roomId = Schema.decodeSync(RoomIdSchema)(new URL(host.url()).searchParams.get("room") ?? "");
 
   await Promise.all(guests().map((page) => page.goto(`/r/${roomId}`)));
