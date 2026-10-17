@@ -362,13 +362,13 @@ test("the host's credits start one countdown everyone sees, and the room moves o
   const room = await roomNow();
 
   expect(room.next).toMatchObject({ status: "pending", episode: { id: episodeId("Flood") } });
-  await capture(host, "08-10-party-host-card");
-  await capture(sam, "08-11-party-guest-card");
+  await capture(host, "08-20-party-host-card");
+  await capture(sam, "08-21-party-guest-card");
 
   // Sam's Close hides only Sam's card; the countdown runs on for everyone else.
   await card(sam).getByRole("button", { name: "Close" }).click();
   await expect(card(sam)).toBeHidden();
-  await capture(sam, "08-12-party-guest-closed");
+  await capture(sam, "08-22-party-guest-closed");
   await expect(card(second)).toBeVisible();
   expect((await roomNow()).next).toMatchObject({ status: "pending" });
 
@@ -492,7 +492,7 @@ test("a next episode whose file is missing tells the host, and only the host", a
 
   await expect(missing.locator('[data-slot="next-episode-reason"]')).toHaveText("File missing");
   await expect(missing.getByRole("button", { name: "Play next" })).toHaveCount(0);
-  await capture(host, "08-14-party-file-missing");
+  await capture(host, "08-24-party-file-missing");
   await host.waitForTimeout(2_000);
 
   await Promise.all(guests().map((page) => expect(card(page)).toHaveCount(0)));
@@ -516,7 +516,7 @@ test("a guest whose profile cannot see what the room moved to keeps their place 
     timeout: MOVE_ON_TIMEOUT_MS,
   });
   await expect(sam.getByText(PRIVATE)).toHaveCount(0);
-  await capture(sam, "08-13-party-not-available");
+  await capture(sam, "08-23-party-not-available");
 
   // The owner's second device follows; Sam keeps a place in the room, away.
   await expect(second).toHaveURL(new RegExp(`/watch/${titleId(PRIVATE)}\\?room=${roomId}`, "u"), {
