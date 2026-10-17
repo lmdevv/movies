@@ -22,7 +22,7 @@ const episodeDetail = (episode: SeasonEpisode): string | undefined => {
   return parts === "" ? undefined : parts;
 };
 
-const episodeOption = (episode: SeasonEpisode): EpisodeOption => ({
+const episodeOption = (episode: SeasonEpisode): EpisodeOption<EpisodeId> => ({
   id: episode.id,
   episodeNumber: episode.episodeNumber,
   title: episode.name,
@@ -96,11 +96,9 @@ export function EpisodePicker({
       episodes={episodes}
       currentId={current.id}
       onSelect={(option) => {
-        const chosen = loaded?.find((episode) => episode.id === option.id);
-
         onOpenChange(false);
 
-        if (chosen !== undefined && chosen.id !== current.id) onPlay(chosen.id);
+        if (option.id !== current.id) onPlay(option.id);
       }}
     />
   );

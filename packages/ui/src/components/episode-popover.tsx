@@ -12,9 +12,9 @@ export interface SeasonOption {
   readonly name: string;
 }
 
-/** One episode in the list. */
-export interface EpisodeOption {
-  readonly id: string;
+/** One episode in the list, by the caller's own id type. */
+export interface EpisodeOption<Id extends string = string> {
+  readonly id: Id;
   readonly episodeNumber: number;
   readonly title: string;
   /** A muted line under the title, such as `24m · 12m left` or `File missing`. */
@@ -28,17 +28,17 @@ export interface EpisodeOption {
 }
 
 /** The parts the popover and the list share. */
-export interface EpisodeBrowser {
+interface EpisodeBrowser<Id extends string> {
   /** Every season of the show; the chips to switch between them show only when there are several. */
   readonly seasons: ReadonlyArray<SeasonOption>;
   /** The season the list shows. */
   readonly seasonNumber: number;
   readonly onSeasonChange: (seasonNumber: number) => void;
   /** The season's episodes in order, or null while they load. */
-  readonly episodes: ReadonlyArray<EpisodeOption> | null;
+  readonly episodes: ReadonlyArray<EpisodeOption<Id>> | null;
   /** The episode playing, marked in the list. */
-  readonly currentId: string;
-  readonly onSelect: (episode: EpisodeOption) => void;
+  readonly currentId: Id;
+  readonly onSelect: (episode: EpisodeOption<Id>) => void;
 }
 
 /** Placeholder rows while a season loads. */
@@ -111,7 +111,7 @@ const onListKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
  * @param currentRef - Gets the current episode's row, for focusing it when the list opens.
  * @param listRef - Gets the list itself, which takes focus (and its keys) while a season loads.
  */
-export function EpisodeList({
+function EpisodeList<Id extends string>({
   seasons,
   seasonNumber,
   onSeasonChange,
@@ -121,7 +121,7 @@ export function EpisodeList({
   currentRef,
   listRef,
   className,
-}: EpisodeBrowser & {
+}: EpisodeBrowser<Id> & {
   readonly currentRef?: Ref<HTMLButtonElement> | undefined;
   readonly listRef?: Ref<HTMLDivElement> | undefined;
   readonly className?: string;
@@ -241,14 +241,14 @@ export function EpisodeList({
  * @param trigger - The button that opens it.
  * @param container - Where it renders; pass the player's overlay layer so it shows in full screen.
  */
-export function EpisodePopover({
+export function EpisodePopover<Id extends string>({
   trigger,
   container,
   open,
   onOpenChange,
   onClosed,
   ...browser
-}: EpisodeBrowser & {
+}: EpisodeBrowser<Id> & {
   readonly trigger: ReactElement;
   readonly container?: HTMLElement | null | undefined;
   readonly open: boolean;

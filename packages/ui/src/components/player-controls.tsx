@@ -473,8 +473,11 @@ function VolumeControl({
       className="relative flex"
       onPointerEnter={enter}
       onPointerLeave={leave}
-      onPointerDownCapture={() => {
+      onPointerDownCapture={(event) => {
         pressing.current = true;
+
+        // A finger on a slider the keyboard opened keeps it, as a tap would have.
+        if (event.pointerType === "touch" && openNow.current) hold("touch", true);
         hold("focus", false);
         touchAgain();
       }}

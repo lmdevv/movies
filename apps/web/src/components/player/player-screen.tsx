@@ -515,10 +515,10 @@ export function PlayerScreen({
     [rememberStart, casting, setVolume],
   );
 
-  const silent = media.volume === 0;
-
-  // The desktop slider shows where the page can set the level: here, or on a TV.
+  // The slider shows where the page can set the level: here, or on a TV that takes it. Elsewhere
+  // only mute applies, and a level of 0 the page cannot change is no silence it could undo.
   const volumeSettable = casting === null ? canSetVolume : (remote?.volumeSettable ?? false);
+  const silent = volumeSettable && media.volume === 0;
 
   const setMuted = useCallback(
     (muted: boolean) => {
@@ -996,11 +996,15 @@ export function PlayerScreen({
       "player.back-5": () => skipByKey(-5),
       "player.forward-5": () => skipByKey(5),
       // From the level under mute, which they unmute, as they always have.
-      "player.volume-up": () => commitVolume(media.volume + VOLUME_STEP),
-      "player.volume-down": () => commitVolume(media.volume - VOLUME_STEP),
+      "player.volume-up": () => {
+        if (volumeSettable) commitVolume(media.volume + VOLUME_STEP);
+      },
+      "player.volume-down": () => {
+        if (volumeSettable) commitVolume(media.volume - VOLUME_STEP);
+      },
       "player.fullscreen": toggleFullscreen,
       // Silence counts as muted, as the button shows it: m then brings the sound back.
-      "player.mute": () => setMuted(!(media.muted || media.volume === 0)),
+      "player.mute": () => setMuted(!(media.muted || silent)),
       "player.subtitles": toggleSubtitles,
       // One press does one thing: leaves full screen, closes Stream info, or asks to leave. Menus,
       // popovers, and dialogs take Escape before it gets here.

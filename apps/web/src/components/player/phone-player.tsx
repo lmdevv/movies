@@ -28,7 +28,7 @@ import {
   Volume2Icon,
   XIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ComponentProps, ReactElement, ReactNode } from "react";
 
 /** A 36px frosted circle button. */
@@ -97,6 +97,15 @@ function SideSlider({
 }) {
   // Where a drag has put the slider, until it settles; the level it reports can lag (a TV).
   const [moving, setMoving] = useState<number | null>(null);
+
+  // A drag the window never hears end, as when a call takes focus, settles nowhere.
+  useEffect(() => {
+    const drop = (): void => setMoving(null);
+
+    window.addEventListener("blur", drop);
+
+    return () => window.removeEventListener("blur", drop);
+  }, []);
 
   return (
     <div className={cn("absolute top-25 flex w-9 flex-col items-center gap-3", className)}>
