@@ -20,9 +20,13 @@ function revealChecked(list: HTMLElement): void {
 
   if (checked === null) return;
 
-  // Offsets, unlike client rects, ignore the popup's opening scale.
-  const top = checked.offsetTop;
-  const bottom = top + checked.offsetHeight;
+  // Offsets, unlike client rects, ignore the popup's opening scale. The list's scroll padding
+  // leaves room for the focus ring, as it does when the keyboard moves the focus.
+  const { scrollPaddingTop, scrollPaddingBottom } = getComputedStyle(list);
+  const above = Number.parseFloat(scrollPaddingTop) || 0;
+  const below = Number.parseFloat(scrollPaddingBottom) || 0;
+  const top = checked.offsetTop - above;
+  const bottom = checked.offsetTop + checked.offsetHeight + below;
 
   if (top < list.scrollTop) list.scrollTop = top;
   else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
@@ -60,7 +64,7 @@ function TrackColumn({
     <div className="flex min-h-0 min-w-50 flex-1 flex-col gap-0.5 pt-5">
       <span
         id={labelId}
-        className="shrink-0 px-5 pb-2.5 font-sans text-caption/caption font-medium tracking-caps text-text-muted uppercase"
+        className="shrink-0 px-5 pb-1.5 font-sans text-caption/caption font-medium tracking-caps text-text-muted uppercase"
       >
         {label}
       </span>
@@ -69,7 +73,7 @@ function TrackColumn({
         aria-labelledby={labelId}
         value={value}
         onValueChange={(next) => onValueChange(next)}
-        className="relative flex min-h-0 flex-col gap-0.5 overflow-y-auto overscroll-contain px-5 pb-5"
+        className="relative flex min-h-0 scroll-py-1 flex-col gap-0.5 overflow-y-auto overscroll-contain px-5 pt-1 pb-5"
       >
         {options.map((option) => (
           <Radio.Root

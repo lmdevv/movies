@@ -104,6 +104,28 @@ const expectNoClippedLabels = async (menu: Locator): Promise<void> => {
 const subtitle = (menu: Locator, name: string): Locator =>
   menu.getByRole("radiogroup", { name: "Subtitles" }).getByRole("radio", { name, exact: true });
 
+/** The focused option shows its focus ring whole, inside the list it scrolls in. */
+const expectWholeFocusRing = async (page: Page): Promise<void> => {
+  const ring = await page.evaluate(() => {
+    const focused = document.activeElement;
+    const list = focused?.closest('[role="radiogroup"]');
+
+    if (!(focused instanceof HTMLElement) || !(list instanceof HTMLElement)) return null;
+
+    const style = getComputedStyle(focused);
+    const reach = Number.parseFloat(style.outlineWidth) + Number.parseFloat(style.outlineOffset);
+    const box = focused.getBoundingClientRect();
+    const bounds = list.getBoundingClientRect();
+
+    return {
+      visible: focused.matches(":focus-visible") && reach > 0,
+      inside: box.top - reach >= bounds.top && box.bottom + reach <= bounds.bottom,
+    };
+  });
+
+  expect(ring).toEqual({ visible: true, inside: true });
+};
+
 const headingBoxes = async (menu: Locator, headings: ReadonlyArray<string>) =>
   Promise.all(
     headings.map(async (heading) => menu.getByText(heading, { exact: true }).boundingBox()),
@@ -218,6 +240,7 @@ test("arrow keys bring each subtitle into view; Escape closes back to the trigge
   await page.keyboard.press("ArrowDown");
   await expect(subtitle(menu, NEXT_SUBTITLE)).toBeFocused();
   await expect(subtitle(menu, NEXT_SUBTITLE)).toBeInViewport({ ratio: 1 });
+  await expectWholeFocusRing(page);
 
   // From the first track, up wraps around to the last, and down back to the first.
   await page.mouse.move(0, 0);
@@ -228,9 +251,11 @@ test("arrow keys bring each subtitle into view; Escape closes back to the trigge
   await expect(subtitle(menu, LAST_SUBTITLE)).toBeFocused();
   await expect(subtitle(menu, LAST_SUBTITLE)).toBeChecked();
   await expect(subtitle(menu, LAST_SUBTITLE)).toBeInViewport({ ratio: 1 });
+  await expectWholeFocusRing(page);
   await page.keyboard.press("ArrowDown");
   await expect(subtitle(menu, FIRST_SUBTITLE)).toBeFocused();
   await expect(subtitle(menu, FIRST_SUBTITLE)).toBeInViewport({ ratio: 1 });
+  await expectWholeFocusRing(page);
   await expect(menu.getByText("Subtitles", { exact: true })).toBeInViewport({ ratio: 1 });
 
   await page.keyboard.press("Escape");
