@@ -14,6 +14,14 @@ export const HEARTBEAT_INTERVAL_MS = 5_000;
  */
 export const PLAYER_SILENCE_MS = 2 * HEARTBEAT_INTERVAL_MS;
 
+/**
+ * How often an away member's heartbeats refresh its place and, for the host, the room's host
+ * presence: two heartbeat intervals, so the longest silence the sweep can see (this plus one
+ * heartbeat) stays inside the 20 s host timeout, and a browsing member writes every other
+ * heartbeat rather than every one.
+ */
+export const AWAY_REFRESH_MS = 2 * HEARTBEAT_INTERVAL_MS;
+
 /** A host silent this long is away and the room pauses. */
 export const HOST_PRESENCE_TIMEOUT_MS = 20_000;
 

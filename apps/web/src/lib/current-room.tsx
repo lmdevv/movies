@@ -70,16 +70,22 @@ const CurrentRoomContext = createContext<CurrentRoom | null>(null);
 
 /**
  * Reads this device's room for everything inside, and keeps the device's place in it with
- * heartbeats that say it is away while the room is the active profile's: the player sends this
- * device's heartbeats while it plays the room, and it sits outside. Must sit inside
+ * heartbeats that say it is away while the room is the active profile's. `keepPlace` is false
+ * where the room's own player runs, which sends this device's heartbeats itself. Must sit inside
  * `RequireProfile`. Only this component re-renders as members' heartbeats change the record.
  */
-export function CurrentRoomProvider({ children }: { readonly children: ReactNode }) {
+export function CurrentRoomProvider({
+  keepPlace = true,
+  children,
+}: {
+  readonly keepPlace?: boolean;
+  readonly children: ReactNode;
+}) {
   const { profile } = useActiveProfile();
   const deviceId = useMemo(() => loadDeviceId(), []);
   const room = useDeviceRoom(deviceId, profile.id);
 
-  useRoomPresence(room?.mine === true ? { roomId: room.id, deviceId } : null);
+  useRoomPresence(keepPlace && room?.mine === true ? { roomId: room.id, deviceId } : null);
 
   return <CurrentRoomContext value={room}>{children}</CurrentRoomContext>;
 }

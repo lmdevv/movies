@@ -135,10 +135,13 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     );
   };
 
+  // A hero page without a phone title of its own floats the pill over its artwork instead.
+  const heroPill = hero && (!phoneTitle || title === "");
+
   /** The avatar, after the room pill when there is one. */
-  const trailing = (size: "xs" | "sm") => (
+  const trailing = (size: "xs" | "sm", withPill: boolean) => (
     <span className="flex items-center gap-3">
-      {roomPill(true)}
+      {withPill ? roomPill(true) : null}
       {profileButton(size, true)}
     </span>
   );
@@ -187,11 +190,11 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           title={title}
           visible={scrolled}
           className="fixed inset-x-0 top-0 z-40 md:hidden"
-          trailing={trailing("xs")}
+          trailing={trailing("xs", !heroPill)}
         />
       ) : null}
 
-      {(phoneTitle && title !== "") || !hero || pillRoom === null ? null : (
+      {!heroPill || pillRoom === null ? null : (
         // Over the artwork of a hero page without the phone title (a title's page, a collection),
         // level with a title page's Back button, and scrolling with it.
         <div className="on-media absolute top-[max(env(safe-area-inset-top),var(--spacing-12))] right-4 z-40 flex h-10 items-center md:hidden">
@@ -210,7 +213,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           <LargeTitle
             title={title}
             className="pt-[max(env(safe-area-inset-top),var(--spacing-4))] md:hidden"
-            trailing={trailing("sm")}
+            trailing={trailing("sm", true)}
           />
         )}
         <TitlePrefetchProvider profileId={profile.id}>

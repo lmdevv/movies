@@ -325,13 +325,14 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     Effect.gen(function* () {
       const current = yield* SubscriptionRef.get(state);
 
-      if (current.follow === "ended") return;
-
+      // Before the ended check: a host's catch-up ends with the room too.
       if (current.role === "host") {
         yield* catchUp(current);
 
         return;
       }
+
+      if (current.follow === "ended") return;
 
       const following = current.follow === "following" || current.follow === "buffering";
 
@@ -492,12 +493,13 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
 
           const echo = yield* Ref.modify(catchUpSeeks, (targets) => {
             const at = targets.findIndex(
-              (target) => onClock || Math.abs(landed - target) <= tunables.hostSeekMs,
+              (target) => Math.abs(landed - target) <= tunables.hostSeekMs,
             );
 
-            return at === -1
-              ? [false, targets]
-              : [true, targets.filter((_, index) => index !== at)];
+            if (at !== -1) return [true, targets.filter((_, index) => index !== at)];
+
+            // Landing on the room's time is no change of the host's, whoever seeked.
+            return [onClock, onClock ? targets.slice(1) : targets];
           });
 
           // The host seeked their own player: the catch-up ends, and the room seeks with them.

@@ -542,7 +542,7 @@ test("a guest who browses away keeps their place, and the navbar pill takes them
 
   await expect
     .poll(async () => (await memberNamed(GUEST.name)).lastSeenAt, {
-      timeout: 3 * HEARTBEAT_INTERVAL_MS,
+      timeout: 4 * HEARTBEAT_INTERVAL_MS,
     })
     .toBeGreaterThan(heard);
 
@@ -667,6 +667,22 @@ test("the pill shows only on the device and profile in the room", async ({
   await expect(host).toHaveURL(new RegExp(`\\?room=${roomId}`, "u"));
   await expectSettled("after switching profiles");
   await owner.sdk.mutate("profiles.remove", { profileId: spare.id });
+});
+
+test("a guest who plays another film alone keeps their place in the room, away", async () => {
+  test.setTimeout(90_000);
+  await guest.goto(`/watch/${titleId(SHARED)}?start=0`);
+  await expectPlayingPast(guest, 1);
+  await expect
+    .poll(async () => (await memberNamed(GUEST.name)).presence, {
+      timeout: PLAYER_SILENCE_MS + 3 * HEARTBEAT_INTERVAL_MS,
+    })
+    .toBe("away");
+
+  // Back into the room by its link.
+  await guest.goto(`/r/${roomId}`);
+  await expect(guest).toHaveURL(new RegExp(`\\?room=${roomId}`, "u"));
+  await expectSettled("after playing another film alone");
 });
 
 test("the host going away pauses the room for the guest, who can keep watching alone", async () => {
