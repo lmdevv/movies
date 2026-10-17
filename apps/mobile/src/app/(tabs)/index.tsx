@@ -1,118 +1,175 @@
-/** C01 · Home: the featured hero and the profile's rows. */
-import type { TitleCard } from "@movies/contracts/models/catalog";
+/**
+ * C01 · Home: the featured hero under the large title, then Continue Watching, Recently Added, My
+ * List, and Collections. Scrolling collapses the title into the glass bar (C02). While a library
+ * scans it shows the scan and what has arrived (C13); without libraries, the empty state (C12).
+ * Kids profiles see the inset billboard (C10).
+ */
+import type { Home as HomeRows, Library } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { router } from "expo-router";
-import { Play } from "lucide-react-native";
-import { FlatList, ScrollView, View } from "react-native";
+import { Folder, Popcorn } from "lucide-react-native";
+import { ScrollView, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { CollectionCard } from "@/components/browse/collection-card";
+import { EmptyState } from "@/components/browse/empty-state";
+import { Hero, KidsHero } from "@/components/browse/hero";
+import { TAB_BAR_CLEARANCE } from "@/components/browse/layout";
+import { ProfileButton } from "@/components/browse/profile-button";
+import { Rail } from "@/components/browse/rail";
+import { ScanStatus } from "@/components/browse/scan-status";
+import { CompactBar, LargeTitle, useCollapse } from "@/components/browse/tab-chrome";
 import { ContinueCard } from "@/components/continue-card";
 import { TitlePoster } from "@/components/title-poster";
 import { Button } from "@/components/ui/button";
 import { CalmState } from "@/components/ui/calm-state";
-import { Image } from "@/components/ui/image";
-import { Text } from "@/components/ui/text";
-import { artworkUrl } from "@/lib/artwork";
+import { heroTitles, homeLayout, newestFirst } from "@/lib/browse";
 import { describeFailure } from "@/lib/failure";
-import { facts } from "@/lib/format";
-import { watchHref } from "@/lib/routes";
 import { useActiveProfile } from "@/session/active-profile";
-import { useServer } from "@/session/connection";
 
-function Rail({
-  title,
-  items,
-}: {
-  readonly title: string;
-  readonly items: ReadonlyArray<TitleCard>;
-}) {
-  if (items.length === 0) return null;
-
-  return (
-    <View className="gap-3">
-      <Text variant="heading" className="px-5" accessibilityRole="header">
-        {title}
-      </Text>
-      <FlatList
-        horizontal
-        data={items}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <TitlePoster title={item} />}
-        showsHorizontalScrollIndicator={false}
-        contentContainerClassName="gap-2 px-5"
-      />
-    </View>
-  );
-}
+/** Collections in Home's row; the Collections page lists the rest. */
+const ROW_COLLECTIONS = 20;
 
 export default function Home() {
   const { profile } = useActiveProfile();
-  const { mediaUrl } = useServer();
   const home = useCommandQuery("titles.home", { profileId: profile.id });
+  const libraries = useCommandQuery("libraries.list", {});
+  const collapse = useCollapse();
+  const insets = useSafeAreaInsets();
 
-  if (home.status === "loading") return <View className="flex-1 bg-bg" />;
+  if (home.status === "loading" || libraries.status === "loading") {
+    return <View className="flex-1 bg-bg" />;
+  }
 
-  if (home.status === "error") {
+  if (home.status === "error" || libraries.status === "error") {
+    const cause =
+      home.status === "error" ? home.error : libraries.status === "error" ? libraries.error : null;
+
     return (
       <View className="flex-1 bg-bg">
         <CalmState
           title="Couldn't Load Home"
-          description={describeFailure(home.error)}
-          actions={<Button label="Try Again" onPress={home.retry} />}
+          description={describeFailure(cause)}
+          actions={
+            <Button
+              label="Try Again"
+              onPress={() => {
+                if (home.status === "error") home.retry();
+
+                if (libraries.status === "error") libraries.retry();
+              }}
+            />
+          }
         />
       </View>
     );
   }
 
-  const { featured } = home.data;
-
-  const backdrop = artworkUrl(
-    mediaUrl,
-    featured?.artwork.backdrop ?? featured?.artwork.poster,
-    "backdrop",
-  );
+  const layout = homeLayout(home.data, libraries.data);
+  const arrived = newestFirst(home.data.recentlyAddedMovies, home.data.recentlyAddedShows);
+  const pages = heroTitles(home.data.featured, arrived);
+  const fullBleed = layout === "rows" && !profile.kids && pages.length > 0;
 
   return (
-    <ScrollView className="flex-1 bg-bg" contentContainerClassName="gap-8 pb-32">
-      {featured === null ? null : (
-        <View className="h-150 justify-end">
-          {backdrop === undefined ? null : (
-            <Image source={{ uri: backdrop }} contentFit="cover" className="absolute inset-0" />
-          )}
-          <View className="items-center gap-3 px-5 pb-6">
-            <Text variant="display" tone="onMedia" className="text-center" numberOfLines={2}>
-              {featured.name}
-            </Text>
-            <Text variant="metaStrong" tone="onMedia">
-              {facts(featured.genres[0], featured.year, featured.certification)}
-            </Text>
-            <Button
-              label="Play"
-              icon={Play}
-              iconFilled
-              className="w-40"
-              onPress={() => router.push(watchHref({ titleId: featured.id }))}
-            />
-          </View>
-        </View>
-      )}
-      {home.data.continueWatching.length === 0 ? null : (
-        <View className="gap-3">
-          <Text variant="heading" className="px-5" accessibilityRole="header">
-            Continue Watching
-          </Text>
-          <FlatList
-            horizontal
-            data={home.data.continueWatching}
-            keyExtractor={(item) => `${item.title.id}:${item.episode?.id ?? ""}`}
-            renderItem={({ item }) => <ContinueCard item={item} />}
-            showsHorizontalScrollIndicator={false}
-            contentContainerClassName="gap-3 px-5"
-          />
-        </View>
-      )}
-      <Rail title="My List" items={home.data.myList} />
-      <Rail title="Recently Added Movies" items={home.data.recentlyAddedMovies} />
-      <Rail title="Recently Added Shows" items={home.data.recentlyAddedShows} />
-    </ScrollView>
+    <View className="flex-1 bg-bg">
+      <ScrollView
+        onScroll={collapse.onScroll}
+        scrollEventThrottle={16}
+        contentInsetAdjustmentBehavior="never"
+        contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }}
+      >
+        {fullBleed ? (
+          <Hero titles={pages} header={<LargeTitle title="Home" overMedia />} />
+        ) : (
+          <LargeTitle title="Home" />
+        )}
+        <HomeBody layout={layout} home={home.data} libraries={libraries.data} kids={profile.kids} />
+      </ScrollView>
+      <CompactBar
+        title="Home"
+        collapsed={collapse.collapsed}
+        trailing={<ProfileButton overMedia={fullBleed && !collapse.collapsed} />}
+      />
+    </View>
+  );
+}
+
+/** What follows the hero or the title, by layout. */
+function HomeBody({
+  layout,
+  home,
+  libraries,
+  kids,
+}: {
+  readonly layout: ReturnType<typeof homeLayout>;
+  readonly home: HomeRows;
+  readonly libraries: ReadonlyArray<Library>;
+  readonly kids: boolean;
+}) {
+  const arrived = newestFirst(home.recentlyAddedMovies, home.recentlyAddedShows);
+
+  if (layout === "empty") return <EmptyState icon={Folder} title="Your library is empty." />;
+
+  if (layout === "nothing") return <EmptyState icon={Popcorn} title="Nothing to Watch Yet" />;
+
+  if (layout === "scanning") {
+    return (
+      <View className="gap-8 pt-4">
+        <ScanStatus libraries={libraries} />
+        <Rail
+          title="Recently Added"
+          items={arrived}
+          keyOf={(title) => title.id}
+          render={(title) => <TitlePoster title={title} />}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View className="gap-8 pt-4">
+      {kids && home.featured !== null ? <KidsHero title={home.featured} /> : null}
+      <Rail
+        title="Continue Watching"
+        items={home.continueWatching}
+        keyOf={(item) => `${item.title.id}:${item.episode?.id ?? ""}`}
+        render={(item) => <ContinueCard item={item} />}
+      />
+      <Rail
+        title="Recently Added"
+        items={arrived}
+        keyOf={(title) => title.id}
+        render={(title) => <TitlePoster title={title} />}
+      />
+      <Rail
+        title="My List"
+        items={home.myList}
+        keyOf={(title) => title.id}
+        render={(title) => <TitlePoster title={title} />}
+      />
+      <CollectionsRow />
+    </View>
+  );
+}
+
+/** Collections that hold a title this profile may see, with the way to all of them. */
+function CollectionsRow() {
+  const { profile } = useActiveProfile();
+
+  const collections = useCommandQuery("collections.list", {
+    profileId: profile.id,
+    limit: ROW_COLLECTIONS,
+  });
+
+  if (collections.status !== "success" || collections.data.length === 0) return null;
+
+  return (
+    <Rail
+      title="Collections"
+      items={collections.data}
+      keyOf={(collection) => collection.id}
+      render={(collection) => <CollectionCard collection={collection} size="rail" />}
+      onSeeAll={() => router.push("/collections")}
+    />
   );
 }

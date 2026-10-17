@@ -12,9 +12,14 @@ const VARIANTS = {
   hero: "font-sans-heavy text-display leading-display tracking-display",
   /** Welcome headlines and title art fallbacks: 40/46 bold, display tracking. */
   display: "font-sans-bold text-ios-40 leading-ios-46 tracking-display",
+  /** The featured title over Home's hero (C01): 48/54 bold, display tracking. */
+  heroTitle: "font-sans-bold text-ios-48 leading-ios-54 tracking-display",
   /** Large screen titles: 34/40 bold. */
   largeTitle: "font-sans-bold text-ios-34 leading-ios-40 tracking-display",
-  /** Titles inside a screen: File unavailable, About, calm states, and invites: 28/34 bold. */
+  /**
+   * Titles inside a screen: File unavailable, About, calm states, invites, collection names, and
+   * empty-state headings: 28/34 bold.
+   */
   title: "font-sans-bold text-ios-28 leading-ios-34",
   /** Navigation titles beside a back button: 20/26 semibold. */
   navTitle: "font-sans-semibold text-heading leading-heading",
@@ -57,6 +62,8 @@ const TONES = {
   onMedia: "text-dark-text",
   /** Secondary white over artwork and video. */
   onMediaMuted: "text-video-muted",
+  /** The page color on a text-colored fill, such as a selected chip. */
+  inverse: "text-bg",
 } as const;
 
 /** A step of the type scale. */

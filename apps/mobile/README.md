@@ -41,13 +41,14 @@ ssh -N -R 8081:[::1]:8081 -R 3210:127.0.0.1:3210 -R 8080:127.0.0.1:8080 mac
 
 ## Layout
 
-| Path                | Role                                                                 |
-| ------------------- | -------------------------------------------------------------------- |
-| `src/app`           | Expo Router screens, grouped by session phase in `_layout.tsx`       |
-| `src/components/ui` | Text, buttons, fields, rows, and headers from Paper's iOS components |
-| `src/components`    | Posters, cards, and avatars                                          |
-| `src/session`       | Connection, SDK provider, profile choice, and the session phase      |
-| `src/lib`           | Discovery, keychain storage, artwork URLs, formatting, and failures  |
+| Path                    | Role                                                                 |
+| ----------------------- | -------------------------------------------------------------------- |
+| `src/app`               | Expo Router screens, grouped by session phase in `_layout.tsx`       |
+| `src/components/ui`     | Text, buttons, fields, rows, and headers from Paper's iOS components |
+| `src/components`        | Posters, cards, and avatars                                          |
+| `src/components/browse` | Heroes, rails, grids, sheets, and context menus of the browse tabs   |
+| `src/session`           | Connection, SDK provider, profile choice, and the session phase      |
+| `src/lib`               | Discovery, keychain storage, artwork URLs, formatting, and failures  |
 
 The root stack shows only the screens of the current phase (not connected, signed out, choosing a
 profile, ready), so signing in, choosing a profile, or signing out moves to the right screen

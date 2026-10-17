@@ -17,6 +17,7 @@ const TONE_VARIABLES = {
   onAccent: "--color-on-accent",
   onMedia: "--color-dark-text",
   onMediaMuted: "--color-video-muted",
+  inverse: "--color-bg",
 } as const satisfies Record<TextTone, string>;
 
 /**
