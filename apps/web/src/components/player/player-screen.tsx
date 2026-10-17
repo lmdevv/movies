@@ -196,6 +196,7 @@ export function PlayerScreen({
   const layout = usePlayerLayout();
   const deviceId = useMemo(() => loadDeviceId(), []);
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
+  const [overlays, setOverlays] = useState<HTMLDivElement | null>(null);
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   // The stream belongs to the room the page opened with; starting or leaving one later keeps it.
   const [openedRoom] = useState(roomId ?? null);
@@ -968,7 +969,7 @@ export function PlayerScreen({
 
   // Where menus, popovers, and dialogs render: always inside the player, so they show in full
   // screen, where nothing outside the player does, and stay put when full screen ends.
-  const overlayContainer = frame ?? undefined;
+  const overlayContainer = overlays ?? undefined;
 
   const tracks = (trigger: React.ReactElement) => (
     <TrackPopover
@@ -1472,6 +1473,8 @@ export function PlayerScreen({
         }}
         root={root}
       />
+      {/* The overlays' layer: inside the frame, but with the cursor and text selection back. */}
+      <div ref={setOverlays} className="contents cursor-auto select-text" />
     </div>
   );
 }

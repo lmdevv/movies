@@ -136,6 +136,22 @@ describe("CastPlayer", () => {
     expect(player.isPaused()).toBe(false);
   });
 
+  it("reports only the state the receiver settles in, not one it is toggled away from", async () => {
+    const receiver = laggingReceiver();
+    const player = castPlayer(receiver.framework);
+    const events: Array<string> = [];
+
+    player.subscribe((event) => {
+      events.push(event);
+    });
+    player.pause();
+    await player.play();
+    receiver.deliverOne();
+    receiver.deliver();
+
+    expect(events).toEqual(["playing"]);
+  });
+
   it("trusts the mirror again when a toggle never shows", async () => {
     vi.useFakeTimers();
 

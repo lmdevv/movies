@@ -283,7 +283,6 @@ const sampleMenu = (
                     id: language.id,
                     title: language.title,
                     detail: language.detail,
-                    leading: language.id === subtitle ? { kind: "check" } : undefined,
                     checked: language.id === subtitle,
                     perform: () => setSubtitle(language.id),
                   })),

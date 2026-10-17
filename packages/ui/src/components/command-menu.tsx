@@ -17,16 +17,20 @@ import { Spinner } from "./spinner";
 
 function Leading({
   leading,
+  checked,
   running,
 }: {
   readonly leading: CommandLeading | undefined;
+  readonly checked: boolean;
   readonly running: boolean;
 }) {
   return (
     <span aria-hidden className="flex size-5 shrink-0 items-center justify-center">
-      {leading === undefined ? null : leading.kind === "icon" ? (
+      {checked ? (
+        <CheckIcon className="size-4 text-text" strokeWidth={1.75} />
+      ) : leading === undefined ? null : leading.kind === "icon" ? (
         <leading.icon className={cn("size-4", running ? "text-text" : "text-text-muted")} />
-      ) : leading.kind === "poster" ? (
+      ) : (
         <img
           src={leading.src}
           alt=""
@@ -34,8 +38,6 @@ function Leading({
           decoding="async"
           className="h-5 w-3.5 rounded-bar object-cover"
         />
-      ) : (
-        <CheckIcon className="size-4 text-text" strokeWidth={1.75} />
       )}
     </span>
   );
@@ -80,7 +82,7 @@ function CommandRow({
       )}
     >
       <div className="flex items-center gap-3">
-        <Leading leading={item.leading} running={running} />
+        <Leading leading={item.leading} checked={item.checked === true} running={running} />
         <span className="flex min-w-0 flex-1 items-baseline gap-2">
           <span className="truncate text-small/5 text-text">{item.title}</span>
           {item.detail === undefined ? null : (

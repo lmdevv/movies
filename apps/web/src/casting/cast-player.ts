@@ -155,7 +155,8 @@ export class CastPlayer implements PlayerPort {
       this.#reconcile();
     }
 
-    if (change.field === "isPaused" && this.#pending === null) {
+    // A state the player is already toggling away from (as asked meanwhile) is not reported.
+    if (change.field === "isPaused" && this.#pending === null && this.#wanted === null) {
       if (change.value === false) this.#ended = false;
       this.#emit(change.value === true ? "paused" : "playing");
     }
@@ -248,7 +249,8 @@ export class CastPlayer implements PlayerPort {
   #reconcile(): void {
     if (this.#wanted === null || this.#toggling !== null) return;
 
-    if (this.#remote.isPaused === this.#wanted) {
+    // A receiver that is gone takes no commands; its mirror resets to paused.
+    if (!this.#remote.isConnected || this.#remote.isPaused === this.#wanted) {
       this.#wanted = null;
 
       return;

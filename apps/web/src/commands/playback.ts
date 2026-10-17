@@ -43,7 +43,6 @@ const trackPage = (
         id: `${id}:${option.id}`,
         title: option.label,
         detail: option.detail,
-        leading: option.id === selected ? { kind: "check" } : undefined,
         checked: option.id === selected,
         perform: () => select(option.id),
       })),
