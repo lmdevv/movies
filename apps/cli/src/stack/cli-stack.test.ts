@@ -420,7 +420,7 @@ describe.skipIf(stack === undefined)("the movies CLI against a real stack", () =
 
     expect(counting.next).toMatchObject({ status: "pending", episode: { id: second?.id } });
     expect((await runMovies(["rooms", "status", roomId, "--human"], owner)).stdout).toMatch(
-      /next episode: S1:E2 Episode 2 in \d+s/u,
+      /next episode: S1E2 Episode 2 in \d+s/u,
     );
     expect(
       NextOf((await runMovies(["rooms", "cancel-countdown"], owner)).stdout).next,

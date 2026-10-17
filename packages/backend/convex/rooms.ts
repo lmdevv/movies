@@ -331,7 +331,8 @@ export const create = mutation({
  * A room as its members see it, while a profile they joined with may see its title. Someone with
  * the room's link who has not joined names the profile they would join with: when that profile may
  * see the title they get the room without its members, so the link page can open the player.
- * Everyone else gets `not_found`, as for a missing room.
+ * Everyone else gets `not_found`, as for a missing room, except a member out of reach of what the
+ * room plays once it has ended, who gets `conflict`.
  */
 export const get = query({
   args: { roomId: v.id("rooms"), profileId: v.optional(v.id("profiles")) },
@@ -345,8 +346,11 @@ export const get = query({
     const memberships = await membershipsOf(ctx, viewer, roomId);
 
     if (memberships.length > 0) {
-      return (await membersMaySee(ctx, viewer, memberships, title))
-        ? presentRoom(ctx, found)
+      if (await membersMaySee(ctx, viewer, memberships, title)) return presentRoom(ctx, found);
+
+      // A member out of reach of what the room plays learns only that it ended, never what it played.
+      return found.status === "ended"
+        ? fail("conflict", "This room has ended")
         : fail("not_found", "No such room");
     }
 
@@ -483,26 +487,24 @@ export const play = mutation({
 });
 
 /**
- * How close to the end of its file a pause or seek leaves the room in its ending: the host's
- * player pauses itself at the end, which must not stop the countdown the end started.
- */
-const ENDING_MS = 1_000;
-
-/**
- * What a host's pause or seek to `positionMs` does to a pending countdown: before the end of the
- * file it stops it, as pausing the credits holds solo autoplay, and the host's player starts it
- * again when it plays the credits; at the end it runs on. A cancelled countdown stays cancelled.
+ * What a host's pause or seek to `positionMs` does to a pending countdown. Out of the credits (the
+ * file's last tenth, at most 30 s, as the player counts them) it stops it, and the host's player
+ * starts another when it plays the credits again. Within them it runs on: the host's player pauses
+ * itself at the end of the file, wherever the stream ended, and pausing the credits does not hold
+ * the room's countdown (Watch credits cancels it). A file of unknown length never stops it, and a
+ * cancelled countdown stays cancelled.
  */
 const countdownAfter = (room: Doc<"rooms">, positionMs: number): RoomPatch => {
   const durationMs = room.fileDurationMs ?? 0;
-  const ending = durationMs > 0 && positionMs >= durationMs - ENDING_MS;
+  const creditsStartMs = durationMs - Math.min(30_000, durationMs * 0.1);
+  const beforeCredits = durationMs > 0 && positionMs < creditsStartMs;
 
-  return room.next?.status === "pending" && !ending ? { next: undefined } : {};
+  return room.next?.status === "pending" && beforeCredits ? { next: undefined } : {};
 };
 
 /**
  * Pauses the room at `positionMs`. Host's device only, at the room's current revision. Before the
- * end of the file it stops a pending next-episode countdown (`countdownAfter`).
+ * credits it stops a pending next-episode countdown (`countdownAfter`).
  */
 export const pause = mutation({
   args: hostControlArgs,
@@ -518,7 +520,7 @@ export const pause = mutation({
 
 /**
  * Moves the room to `positionMs`, keeping it playing or paused; a buffering room comes out paused.
- * Like a pause, a seek before the end of the file stops a pending next-episode countdown.
+ * Like a pause, a seek to before the credits stops a pending next-episode countdown.
  * Host's device only, at the room's current revision.
  */
 export const seek = mutation({

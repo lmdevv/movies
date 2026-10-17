@@ -72,6 +72,12 @@ export interface RoomNext {
 /** The reason a card gives when the next episode has no file to play. */
 const FILE_MISSING = "File missing";
 
+/** Refusals that stand: trying the countdown again would only meet them again. */
+const REFUSALS = ["Conflict", "NotFound", "Forbidden", "InvalidArgs"] as const;
+
+/** How long the host's player waits before starting the countdown again after a failure. */
+const RETRY_MS = 2_000;
+
 /**
  * The room's next episode for the player. Outside rooms it does nothing and offers nothing, so
  * solo playback keeps its own countdown.
@@ -97,6 +103,8 @@ export const useRoomNext = ({
   const next = room?.next ?? null;
   // Why the host's countdown could not start, for the card; cleared with each episode.
   const [problem, setProblem] = useState<{ readonly from: EpisodeId; readonly reason: string }>();
+  // Starting the countdown again after a failure that may pass, such as the network.
+  const [attempt, setAttempt] = useState(0);
   // The countdown (by its due time) or unavailable card this screen closed.
   const [closed, setClosed] = useState<string | null>(null);
 
@@ -115,14 +123,24 @@ export const useRoomNext = ({
     room?.episode?.id === episodeId;
 
   useEffect(() => {
-    if (!shouldStart) return;
+    if (!shouldStart) return undefined;
+
+    let retry: ReturnType<typeof setTimeout> | undefined;
 
     // The next episode playing was checked before; a refusal now (its file went missing since, or
-    // the room ended) says why in the server's words.
+    // the room ended) says why in the server's words. Anything else may pass: try again shortly.
     startCountdown({ roomId, deviceId, fromEpisodeId: episodeId }).catch((cause: unknown) => {
-      setProblem({ from: episodeId, reason: describeFailure(cause) });
+      if (REFUSALS.some((tag) => Predicate.isTagged(cause, tag))) {
+        setProblem({ from: episodeId, reason: describeFailure(cause) });
+
+        return;
+      }
+
+      retry = setTimeout(() => setAttempt((count) => count + 1), RETRY_MS);
     });
-  }, [shouldStart, roomId, episodeId, deviceId, startCountdown]);
+
+    return () => clearTimeout(retry);
+  }, [shouldStart, roomId, episodeId, deviceId, startCountdown, attempt]);
 
   // Whatever the room plays is what this player opens, in the room: the host's Play next, the
   // countdown, and the host's pick all arrive this way, for the host's own player too.
@@ -149,10 +167,15 @@ export const useRoomNext = ({
     });
   }, [roomId, episodeId, deviceId, moveOn]);
 
+  // The card shows what the room holds, so a cancel that fails leaves it counting down on screen;
+  // one failure that may pass is tried again at once.
   const cancel = useCallback(() => {
     if (roomId === null || episodeId === null) return;
+    const args = { roomId, deviceId, fromEpisodeId: episodeId };
 
-    cancelCountdown({ roomId, deviceId, fromEpisodeId: episodeId }).catch(() => undefined);
+    cancelCountdown(args)
+      .catch(() => cancelCountdown(args))
+      .catch(() => undefined);
   }, [roomId, episodeId, deviceId, cancelCountdown]);
 
   const pick = useCallback(

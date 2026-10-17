@@ -36,7 +36,7 @@ import {
   viewingProfileIfAny,
 } from "./invocation";
 import { Output } from "./output";
-import { formatDuration } from "./render";
+import { episodeLabel, formatDuration } from "./render";
 import type { Connection } from "./session";
 import { connect } from "./session";
 import { findTitle } from "./watch-commands";
@@ -252,12 +252,12 @@ const describeNext = (room: Room, serverNow: EpochMillis): string | null => {
   const { episode, nextAt } = room.next;
   const seconds = Math.ceil(countdownRemaining(nextAt, serverNow) / 1000);
 
-  return `  next episode: S${String(episode.seasonNumber)}:E${String(episode.episodeNumber)} ${episode.name} in ${String(seconds)}s`;
+  return `  next episode: ${episodeLabel(episode)} in ${String(seconds)}s`;
 };
 
 const describeRoom = (room: Room, liveMs: number, serverNow: EpochMillis): string =>
   [
-    `${room.title.name}${room.episode === null ? "" : ` S${String(room.episode.seasonNumber)}:E${String(room.episode.episodeNumber)} ${room.episode.name}`} · ${room.clock.status} at ${formatDuration(liveMs)} · revision ${String(room.clock.revision)}${room.hostAway ? " · host away" : ""}`,
+    `${room.title.name}${room.episode === null ? "" : ` ${episodeLabel(room.episode)}`} · ${room.clock.status} at ${formatDuration(liveMs)} · revision ${String(room.clock.revision)}${room.hostAway ? " · host away" : ""}`,
     ...[describeNext(room, serverNow)].filter((line) => line !== null),
     ...room.members.map(
       (member) =>

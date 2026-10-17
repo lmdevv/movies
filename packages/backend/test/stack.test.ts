@@ -2954,7 +2954,7 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         );
       }, 60_000);
 
-      it("stops a countdown when the host pauses or seeks before the end, not at the end", async () => {
+      it("stops a countdown when the host pauses or seeks before the credits, not within them", async () => {
         const hostDevice = device("hold-host");
         const room = await roomOn("s01e01", hostDevice, device("hold-guest"));
 
@@ -2979,16 +2979,17 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         const nextOf = async () =>
           (await run(fixture.owner, "rooms.get", { roomId: room.id })).next;
 
-        // The host's player pausing itself at the end keeps the countdown.
+        // The host's player pausing itself at the end, or the host pausing the credits, keeps it.
         await run(fixture.owner, "rooms.startNextCountdown", fromFirst);
         await control("rooms.pause", DURATION_MS);
+        await control("rooms.pause", DURATION_MS - 5_000);
         expect(await nextOf()).toMatchObject({ status: "pending" });
 
-        // Seeking back, or pausing the credits, stops it; the host's player starts another.
+        // Seeking or pausing back before the credits stops it; the host's player starts another.
         await control("rooms.seek", 120_000);
         expect(await nextOf()).toBeNull();
         await run(fixture.owner, "rooms.startNextCountdown", fromFirst);
-        await control("rooms.pause", DURATION_MS - 5_000);
+        await control("rooms.pause", DURATION_MS / 2);
         expect(await nextOf()).toBeNull();
 
         // A cancelled countdown stays cancelled.
@@ -3067,7 +3068,16 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
         expect(back.episode?.id).toBe(episodeId("s01e02"));
         expect(back.members.some((member) => member.deviceId === kidDevice)).toBe(true);
+
+        // Ended while out of the kids profile's reach, the room says only that it ended.
+        await run(fixture.owner, "rooms.setMedia", {
+          ...change,
+          revision: back.clock.revision,
+        });
         await run(fixture.owner, "rooms.end", { roomId: room.id, deviceId: hostDevice });
+        expect(await outcome(run(fixture.member, "rooms.get", { roomId: room.id }))).toBe(
+          "conflict",
+        );
       });
     });
 

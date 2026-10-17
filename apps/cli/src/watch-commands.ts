@@ -23,7 +23,7 @@ import {
   usage,
   viewingProfile,
 } from "./invocation";
-import { formatDuration } from "./render";
+import { episodeLabel, formatDuration } from "./render";
 import type { Connection } from "./session";
 import { connect } from "./session";
 
@@ -264,7 +264,7 @@ const play: ShortcutCommand = {
 
               return Option.some({
                 id: next.id,
-                label: `S${String(next.seasonNumber)}E${String(next.episodeNumber)} ${next.name}`,
+                label: episodeLabel(next),
               });
             });
 
@@ -422,7 +422,7 @@ const progress: ShortcutCommand = {
         detail.progress !== null
           ? `${detail.name}: ${formatDuration(detail.progress.positionMs)} of ${formatDuration(detail.progress.durationMs)}${detail.progress.watched ? " (watched)" : ""}`
           : detail.nextEpisode !== null
-            ? `${detail.name}: next S${String(detail.nextEpisode.seasonNumber)}E${String(detail.nextEpisode.episodeNumber)} ${detail.nextEpisode.name}`
+            ? `${detail.name}: next ${episodeLabel(detail.nextEpisode)}`
             : `${detail.name}: not started`;
 
       return textOutcome(json, line);

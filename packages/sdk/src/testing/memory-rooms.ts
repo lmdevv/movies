@@ -362,6 +362,7 @@ export const makeMemoryRooms = Effect.fn("MemoryRooms.make")(function* (
         yield* commit(
           Struct.evolve(room, {
             fileId: () => fileId,
+            next: () => null,
             clock: (clock) => ({
               ...clock,
               status: "paused" as const,

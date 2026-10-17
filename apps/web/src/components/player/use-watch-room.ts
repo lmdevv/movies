@@ -5,6 +5,7 @@
  */
 import type { DeviceId, ProfileId, RoomId } from "@movies/contracts/ids";
 import type { Room } from "@movies/contracts/models/rooms";
+import { HEARTBEAT_INTERVAL_MS } from "@movies/contracts/clock";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { Predicate } from "effect";
 import { useEffect, useState } from "react";
@@ -39,19 +40,22 @@ export const useWatchRoom = (
   const room = record.status === "success" ? record.data : null;
 
   // A joined room that stops answering moved on out of this profile's reach. A failed read stays
-  // failed, so the device's room, which answers null until then, says when to read it again.
+  // failed, so it is read again every heartbeat interval, until the room plays something this
+  // profile may watch again, or ends.
   const outOfReach =
     record.status === "error" &&
     Predicate.isTagged(record.error, "NotFound") &&
     join.status === "joined";
 
-  const reachable = useCommandQuery("rooms.current", outOfReach ? { deviceId } : "skip");
-  const back = outOfReach && reachable.status === "success" && reachable.data?.id === roomId;
-  const retry = record.status === "error" ? record.retry : null;
+  const retry = outOfReach ? record.retry : null;
 
   useEffect(() => {
-    if (back) retry?.();
-  }, [back, retry]);
+    if (retry === null) return undefined;
+
+    const timer = setInterval(retry, HEARTBEAT_INTERVAL_MS);
+
+    return () => clearInterval(timer);
+  }, [retry]);
 
   useEffect(() => {
     if (roomId === null) return undefined;
@@ -87,6 +91,14 @@ export const useWatchRoom = (
   // A room this account cannot read at all belongs to another household. One this device joined
   // that stops answering moved on to something the profile it joined with may not watch; it
   // answers again once the room plays something that profile may.
+  // A room that ended while this member was out of reach of what it played.
+  if (record.status === "error" && Predicate.isTagged(record.error, "Conflict")) {
+    return {
+      join: { status: "denied", denial: { kind: "ended", hostName: "The host" } },
+      room: null,
+    };
+  }
+
   if (record.status === "error" && Predicate.isTagged(record.error, "NotFound")) {
     return {
       join: {

@@ -642,9 +642,11 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     now: Option.Option<EpochMillis>,
     catching: boolean,
   ): CommandArgs<"rooms.heartbeat"> => {
-    if (current.follow === "moved" || (current.role === "host" && catching)) {
-      return { roomId, deviceId };
-    }
+    // A player the room moved on from plays nothing of the room's: it keeps the place, away, so it
+    // never counts as the host watching the new media.
+    if (current.follow === "moved") return { roomId, deviceId, presence: "away" };
+
+    if (current.role === "host" && catching) return { roomId, deviceId };
 
     if (current.role === "host") {
       return {
