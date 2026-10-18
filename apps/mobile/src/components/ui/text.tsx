@@ -45,10 +45,16 @@ const VARIANTS = {
   meta: "font-sans text-label leading-ios-19",
   /** Emphasized metadata: 13/19 medium. */
   metaStrong: "font-sans-medium text-label leading-ios-19",
+  /** The player's skip amounts under their glyphs: 13/19 semibold. */
+  metaSemibold: "font-sans-semibold text-label leading-ios-19",
+  /** Player states such as `Preparing stream…`: 22/28 semibold. */
+  status: "font-sans-semibold text-ios-22 leading-ios-28",
   /** Captions and badges: 12/16 medium. */
   caption: "font-sans-medium text-caption leading-caption",
   /** Timecodes, codecs, paths, and keys: Geist Mono 13/19. */
   mono: "font-mono text-label leading-ios-19",
+  /** The scrubber's timecodes: Geist Mono 13/19 medium. */
+  monoMedium: "font-mono-medium text-label leading-ios-19",
 } as const;
 
 const TONES = {
@@ -64,6 +70,8 @@ const TONES = {
   onMediaMuted: "text-video-muted",
   /** The page color on a text-colored fill, such as a selected chip. */
   inverse: "text-bg",
+  /** Secondary text on the player's dark panels, whatever the theme. */
+  darkMuted: "text-dark-text-muted",
 } as const;
 
 /** A step of the type scale. */

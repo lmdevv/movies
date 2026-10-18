@@ -1,15 +1,29 @@
 import { EpisodeId, MediaFileId, TitleId } from "@movies/contracts/ids";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { watchHref } from "./routes";
+import { parseWatchParams, watchHref } from "./routes";
 
 const titleId = Schema.decodeSync(TitleId);
 
 const episodeId = Schema.decodeSync(EpisodeId);
 
 const fileId = Schema.decodeSync(MediaFileId);
+
+/** The params Expo Router would read from `href`'s path segment and query. */
+const routeParams = (href: string) => {
+  const [path = "", query = ""] = href.split("?");
+  const params = new Map([["titleId", decodeURIComponent(path.replace(/^\/watch\//u, ""))]]);
+
+  for (const pair of query === "" ? [] : query.split("&")) {
+    const [key = "", value = ""] = pair.split("=");
+
+    params.set(key, decodeURIComponent(value));
+  }
+
+  return Object.fromEntries(params);
+};
 
 describe("watchHref", () => {
   it("plays a movie from its saved position with no query", () => {
@@ -58,8 +72,34 @@ describe("watchHref", () => {
           expect(query.get("episodeId") ?? undefined).toBe(episode);
           expect(query.get("fileId") ?? undefined).toBe(file);
           expect(query.get("start")).toBe(beginning ? "beginning" : null);
+
+          const parsed = Option.getOrThrow(parseWatchParams(routeParams(href)));
+
+          expect(parsed.titleId).toBe(title);
+          expect(parsed.episodeId).toBe(episode);
+          expect(parsed.fileId).toBe(file);
+          expect(parsed.start).toBe(beginning ? "beginning" : undefined);
         },
       ),
     );
+  });
+});
+
+describe("parseWatchParams", () => {
+  it("reads the first of a repeated key", () => {
+    const parsed = parseWatchParams({ titleId: "t", episodeId: ["e1", "e2"] });
+
+    expect(Option.map(parsed, (params) => params.episodeId)).toStrictEqual(Option.some("e1"));
+  });
+
+  it("rejects a missing title and an unknown start", () => {
+    expect(Option.isNone(parseWatchParams({ episodeId: "e" }))).toBe(true);
+    expect(Option.isNone(parseWatchParams({ titleId: "t", start: "middle" }))).toBe(true);
+  });
+
+  it("treats empty values as absent", () => {
+    const parsed = parseWatchParams({ titleId: "t", fileId: "", start: "" });
+
+    expect(parsed).toStrictEqual(Option.some({ titleId: "t" }));
   });
 });

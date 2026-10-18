@@ -18,12 +18,15 @@ const TONE_VARIABLES = {
   onMedia: "--color-dark-text",
   onMediaMuted: "--color-video-muted",
   inverse: "--color-bg",
+  darkMuted: "--color-dark-text-muted",
 } as const satisfies Record<TextTone, string>;
 
 /**
  * Glyph sizes as Paper draws them: 14 under profile tiles, 16 for row chevrons, 20 in buttons and
  * on artwork, 22 in list rows, 24 in navigation, 28 large controls, 32 in the round badge of calm
- * states, 40 on small avatar tiles, and 56 on large ones. Lucide takes a point size, so the scale lives here rather than in CSS.
+ * states and for the player's skip buttons and spinner, 40 on small avatar tiles, 52 for the
+ * player's play and pause, and 56 on large tiles. Lucide takes a point size, so the scale lives
+ * here rather than in CSS.
  */
 const SIZES = {
   caption: 14,
@@ -33,7 +36,9 @@ const SIZES = {
   nav: 24,
   large: 28,
   badge: 32,
+  control: 32,
   state: 40,
+  transport: 52,
   tile: 56,
 } as const;
 
