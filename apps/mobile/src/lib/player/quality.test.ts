@@ -12,9 +12,11 @@ describe("quality", () => {
     ]);
   });
 
-  it("caps nothing for Auto and the height for the others", () => {
+  it("caps nothing for Auto and the others as the web player's presets do", () => {
     expect(qualityCap("auto")).toBeNull();
+    expect(qualityCap("1080p")).toStrictEqual({ maxHeight: 1080, maxBitrate: 10_000_000 });
     expect(qualityCap("720p")).toStrictEqual({ maxHeight: 720, maxBitrate: 4_000_000 });
+    expect(qualityCap("480p")).toStrictEqual({ maxHeight: 480, maxBitrate: 2_000_000 });
   });
 
   it("steps down below the picture playing", () => {

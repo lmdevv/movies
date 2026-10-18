@@ -1,8 +1,8 @@
 /**
  * The player's quality choice (F03): `auto` lets the media service send the best AVPlayer plays;
- * the others cap the picture and the bitrate, so a source above them is transcoded down. The
- * bitrates sit above what the service encodes at each height (8, 4, and 2 Mb/s), so a source that
- * already fits plays as it is; the menu shows those encoding rates.
+ * the others cap the picture and the bitrate, so a source above them is transcoded down. The caps
+ * are the web player's quality presets (`apps/web/src/playback/quality.ts`), so a cap means the
+ * same stream on every device; the menu shows the rate the service encodes video at each height.
  */
 import type { PlaybackQuality } from "@movies/contracts/media-playback";
 

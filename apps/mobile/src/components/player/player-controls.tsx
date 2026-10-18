@@ -5,6 +5,7 @@
  * white reads over any frame.
  */
 import { Button as MenuButton, Host, Menu, RNHostView } from "@expo/ui/swift-ui";
+import { onDisappear } from "@expo/ui/swift-ui/modifiers";
 import { VideoAirPlayButton } from "expo-video";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -147,14 +148,16 @@ function BarAction({
 
 /**
  * More: the native menu behind the round ellipsis button. Touching it holds the controls up, as the
- * menu closes with them.
+ * menu closes with them; picking an item or dismissing the menu (its items disappear) lets them go.
  */
 function MoreMenu({
   items,
   onOpen,
+  onRelease,
 }: {
   readonly items: ReadonlyArray<MoreItem>;
   readonly onOpen: () => void;
+  readonly onRelease: () => void;
 }) {
   return (
     <View onTouchStart={onOpen}>
@@ -178,7 +181,11 @@ function MoreMenu({
               key={item.label}
               label={item.label}
               systemImage={item.systemImage}
-              onPress={item.onPress}
+              modifiers={[onDisappear(onRelease)]}
+              onPress={() => {
+                onRelease();
+                item.onPress();
+              }}
             />
           ))}
         </Menu>
@@ -315,7 +322,11 @@ export function PlayerControls(props: PlayerControlsProps) {
           {props.more.length === 0 ? (
             <View className="size-9" />
           ) : (
-            <MoreMenu items={props.more} onOpen={() => onInteract(true)} />
+            <MoreMenu
+              items={props.more}
+              onOpen={() => onInteract(true)}
+              onRelease={() => onInteract(false)}
+            />
           )}
         </View>
       </View>

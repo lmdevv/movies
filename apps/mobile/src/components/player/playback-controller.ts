@@ -405,6 +405,11 @@ export class PlayerController {
     positionMs: number,
   ): void {
     if (Option.isNone(moved) || moved.value.generation === playback.stream.generation) {
+      // The service keeps a generation only for a target within (or just past) what it produced,
+      // so this range is contiguous; the floor still moves here, so a seek back from it asks the
+      // service again rather than trusting segments AVPlayer never loaded.
+      this.#generationStart = positionMs / 1000;
+
       if (this.#video !== null) this.#video.currentTime = positionMs / 1000;
 
       return;
