@@ -1,8 +1,9 @@
 /**
  * The player's controls over the video (F01): close, the title, AirPlay, and lock on top; brightness
  * and volume at the sides; back 10, play or pause, and forward 10 in the middle; the scrubber; and
- * speed, Audio & Subtitles, and More along the bottom. A scrim darkens the top and the bottom so
- * white reads over any frame.
+ * speed, Audio & Subtitles, Watch Together (or the room's pill, F16), and More along the bottom. A
+ * scrim darkens the top and the bottom so white reads over any frame. A watch room's guest follows
+ * the host's timeline, so it gets no transport and a scrubber that only shows the position.
  */
 import { Button as MenuButton, Host, Menu, RNHostView } from "@expo/ui/swift-ui";
 import { onDisappear } from "@expo/ui/swift-ui/modifiers";
@@ -18,6 +19,7 @@ import {
   RotateCcw,
   RotateCw,
   Sun,
+  UsersRound,
   Volume2,
 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
@@ -33,7 +35,7 @@ import { Scrubber } from "./scrubber";
 import { VerticalSlider } from "./vertical-slider";
 
 /** How far the skip buttons move, in seconds. */
-const SKIP_SECONDS = 10;
+export const SKIP_SECONDS = 10;
 
 /** One item of the More menu. */
 export interface MoreItem {
@@ -42,6 +44,11 @@ export interface MoreItem {
   readonly systemImage: "list.bullet.rectangle" | "list.number" | "dial.medium" | "speedometer";
   readonly onPress: () => void;
 }
+
+/** The bottom row's Watch Together action: start a room (F01), or open the room's pane (F16). */
+type TogetherAction =
+  | { readonly kind: "start"; readonly onPress: () => void }
+  | { readonly kind: "room"; readonly count: number; readonly onPress: () => void };
 
 /** Props for `PlayerControls`. */
 export interface PlayerControlsProps {
@@ -68,6 +75,13 @@ export interface PlayerControlsProps {
   readonly onInteract: (holding?: boolean) => void;
   /** A tap away from any control: hide them. */
   readonly onDismiss: () => void;
+  /** Watch Together in the bottom row; omitted where rooms are not offered. */
+  readonly together?: TogetherAction | undefined;
+  /**
+   * Whether this player moves its own timeline; false for a watch room's guest, which shows no
+   * transport and cannot scrub. In a room nobody changes the speed, which is everyone's.
+   */
+  readonly controlsTimeline?: boolean;
 }
 
 /** A round 44pt button on the controls' glass. */
@@ -121,7 +135,7 @@ function SkipButton({
 }
 
 /** A text action along the bottom, with an optional glyph. */
-function BarAction({
+export function BarAction({
   icon,
   label,
   onPress,
@@ -146,18 +160,55 @@ function BarAction({
   );
 }
 
+/** The room's pill along the bottom (F16): who is in the room, opening its pane. */
+export function RoomPill({
+  count,
+  onPress,
+}: {
+  readonly count: number;
+  readonly onPress: () => void;
+}) {
+  const label = `Room · ${String(count)}`;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Watch Together, ${label}`}
+      className="h-11 flex-row items-center gap-2 rounded-pill bg-dark-surface-raised px-3 active:opacity-70"
+    >
+      <Icon icon={UsersRound} tone="onMedia" size="inline" />
+      <Text variant="metaSemibold" tone="onMedia">
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** Watch Together or the room's pill, as the bottom row shows it. */
+function Together({ action }: { readonly action: TogetherAction }) {
+  return action.kind === "start" ? (
+    <BarAction icon={UsersRound} label="Watch Together" onPress={action.onPress} />
+  ) : (
+    <RoomPill count={action.count} onPress={action.onPress} />
+  );
+}
+
 /**
  * More: the native menu behind the round ellipsis button. Touching it holds the controls up, as the
  * menu closes with them; picking an item or dismissing the menu (its items disappear) lets them go.
+ * `size` is the button's: 36pt in the bottom row (F01), 44pt beside the room's pane (F16).
  */
-function MoreMenu({
+export function MoreMenu({
   items,
   onOpen,
   onRelease,
+  size = "row",
 }: {
   readonly items: ReadonlyArray<MoreItem>;
   readonly onOpen: () => void;
   readonly onRelease: () => void;
+  readonly size?: "row" | "pane";
 }) {
   return (
     <View onTouchStart={onOpen}>
@@ -169,7 +220,11 @@ function MoreMenu({
                 accessible
                 accessibilityRole="button"
                 accessibilityLabel="More"
-                className="size-9 items-center justify-center rounded-pill bg-dark-surface-raised/80"
+                className={`items-center justify-center rounded-pill ${
+                  size === "row"
+                    ? "size-9 bg-dark-surface-raised/80"
+                    : "size-11 bg-dark-surface-raised"
+                }`}
               >
                 <Icon icon={Ellipsis} tone="onMedia" />
               </View>
@@ -196,10 +251,12 @@ function MoreMenu({
 
 /**
  * F01's margins from the screen's edges: 32pt for the top bar and the side sliders, 64pt for the
- * scrubber and the bottom row. On a phone whose notch or home indicator takes more, the safe area
- * wins, so controls sit where Paper puts them or just clear of the hardware, whichever is further in.
+ * scrubber and the bottom row; beside the Watch Together pane (F16), 20pt for the pane and the
+ * video's top bar and 24pt for its scrubber and bottom row. On a phone whose notch or home
+ * indicator takes more, the safe area wins, so controls sit where Paper puts them or just clear of
+ * the hardware, whichever is further in.
  */
-export const PLAYER_MARGINS = { bar: 32, slider: 22, row: 64 } as const;
+export const PLAYER_MARGINS = { bar: 32, slider: 22, row: 64, pane: 20, compact: 24 } as const;
 
 /** The horizontal padding that puts a row `margin` points in, or inside the safe area. */
 export const useMargin = (margin: number) => {
@@ -221,6 +278,7 @@ export function PlayerControls(props: PlayerControlsProps) {
   const bar = useMargin(PLAYER_MARGINS.bar);
   const slider = useMargin(PLAYER_MARGINS.slider);
   const row = useMargin(PLAYER_MARGINS.row);
+  const timeline = props.controlsTimeline ?? true;
 
   return (
     <View className="absolute inset-0" pointerEvents="box-none">
@@ -275,7 +333,12 @@ export function PlayerControls(props: PlayerControlsProps) {
             onChange={props.onBrightness}
             onInteract={() => onInteract()}
           />
-          <View className="flex-row items-center gap-16" pointerEvents="box-none">
+          <View
+            className={`flex-row items-center gap-16 ${timeline ? "" : "opacity-0"}`}
+            pointerEvents={timeline ? "box-none" : "none"}
+            accessibilityElementsHidden={!timeline}
+            importantForAccessibility={timeline ? "auto" : "no-hide-descendants"}
+          >
             <SkipButton
               direction="back"
               onPress={() => props.onSeek(props.positionSeconds - SKIP_SECONDS)}
@@ -310,6 +373,7 @@ export function PlayerControls(props: PlayerControlsProps) {
             tileAt={props.tileAt}
             onScrubbing={(scrubbing) => onInteract(scrubbing)}
             onSeek={props.onSeek}
+            disabled={!timeline}
           />
         </View>
         <View
@@ -317,8 +381,12 @@ export function PlayerControls(props: PlayerControlsProps) {
           style={row}
           pointerEvents="box-none"
         >
-          <BarAction label={props.rateLabel} onPress={props.onSpeed} />
+          {/* A room plays at one speed for everyone. */}
+          {props.together?.kind === "room" ? null : (
+            <BarAction label={props.rateLabel} onPress={props.onSpeed} />
+          )}
           <BarAction icon={Captions} label="Audio & Subtitles" onPress={props.onAudioSubtitles} />
+          {props.together === undefined ? null : <Together action={props.together} />}
           {props.more.length === 0 ? (
             <View className="size-9" />
           ) : (

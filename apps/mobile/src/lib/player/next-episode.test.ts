@@ -1,7 +1,7 @@
 import { Milliseconds } from "@movies/contracts/units";
 import { describe, expect, it } from "vitest";
 
-import { inCredits, nextEpisodeFacts, secondsLeft } from "./next-episode";
+import { episodeLine, inCredits, nextEpisodeFacts, secondsLeft } from "./next-episode";
 
 const at = (positionSeconds: number, playing = true, ended = false) =>
   inCredits({ positionSeconds, durationSeconds: 3000, playing, ended });
@@ -49,5 +49,13 @@ describe("the countdown", () => {
       }),
     ).toBe("S2, E4 · 49m");
     expect(nextEpisodeFacts({ seasonNumber: 1, episodeNumber: 3, runtimeMs: null })).toBe("S1, E3");
+  });
+});
+
+describe("episodeLine", () => {
+  it("names an episode by season, number, and name", () => {
+    expect(episodeLine({ seasonNumber: 1, episodeNumber: 2, name: "Half Loop" })).toBe(
+      "S1, E2 · Half Loop",
+    );
   });
 });

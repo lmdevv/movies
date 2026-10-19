@@ -1,0 +1,54 @@
+/**
+ * A watch room's next-episode card: the shared countdown, ticking on this device's estimate of the
+ * server's clock so every member shows the same seconds. The host's card acts for the room
+ * (Watch Credits, Play Next); a guest's, and one saying the next episode cannot play, only close.
+ * The card ticks by itself, so the player around it does not re-render with every tick.
+ */
+import type { ClockOffset } from "@movies/contracts/clock";
+import type { Room } from "@movies/contracts/models/rooms";
+import { RoomSync } from "@movies/sdk/effect";
+
+import { NEXT_COUNTDOWN } from "@/lib/player/next-episode";
+import type { RoomNextCard } from "@/lib/rooms/room-next";
+
+import { NextEpisodeCard } from "../player/next-episode-card";
+import { useNow } from "./room-parts";
+
+/** Props for `RoomNextEpisodeCard`. */
+export interface RoomNextEpisodeCardProps {
+  readonly room: Room;
+  readonly offset: ClockOffset | null;
+  readonly card: RoomNextCard;
+  readonly show: string;
+  readonly playing: string | null;
+  readonly stillUrl: string | undefined;
+  readonly onPlayNext: () => void;
+  readonly onWatchCredits: () => void;
+  readonly onClose: () => void;
+}
+
+/** The card for `card` in `room`. */
+export function RoomNextEpisodeCard(props: RoomNextEpisodeCardProps) {
+  const { card } = props;
+  const now = useNow(card.kind === "countdown", NEXT_COUNTDOWN.stepMs / 4);
+
+  const countdownMs =
+    RoomSync.nextEpisodeCountdownMs({ room: props.room, offset: props.offset }, now) ?? 0;
+
+  const actions =
+    card.kind === "countdown" && card.role === "host"
+      ? { onWatchCredits: props.onWatchCredits, onPlayNext: props.onPlayNext }
+      : { onWatchCredits: props.onClose, onPlayNext: null, dismissLabel: "Close" };
+
+  return (
+    <NextEpisodeCard
+      show={props.show}
+      playing={props.playing}
+      next={card.episode}
+      stillUrl={props.stillUrl}
+      countdownMs={countdownMs}
+      headline={card.kind === "unavailable" ? card.reason : (card.problem ?? undefined)}
+      {...actions}
+    />
+  );
+}

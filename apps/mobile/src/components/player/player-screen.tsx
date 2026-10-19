@@ -2,11 +2,14 @@
  * The player (F01–F14): the video full screen in landscape with its controls, sheets, and states.
  * `usePlaybackSession` starts the session and reports progress through the controller's port, so
  * closing the player ends the session and Continue Watching shows where it stopped. A session that
- * ended elsewhere, or could not start, starts again at the same position with a new key.
+ * ended elsewhere, or could not start, starts again at the same position with a new key. In a
+ * watch room (F15–F24, `player-room.tsx`) the room is joined first, the stream starts at its live
+ * position, and the room's engine keeps the port on the shared timeline.
  */
+import { targetPosition } from "@movies/contracts/clock";
 import type { EpisodeId } from "@movies/contracts/ids";
 import type { SeasonEpisode } from "@movies/contracts/models/catalog";
-import { Milliseconds } from "@movies/contracts/units";
+import { EpochMillis, Milliseconds } from "@movies/contracts/units";
 import type { Playback } from "@movies/sdk/effect";
 import { useCommandQuery, useMoviesRuntime, usePlaybackSession } from "@movies/sdk/react";
 import * as Brightness from "expo-brightness";
@@ -21,13 +24,18 @@ import { Pressable, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { RoomEntry, useRoomGate, useSessionRoom } from "@/components/rooms/player-room";
+import type { RoomGate } from "@/components/rooms/player-room";
+import { RoomNextEpisodeCard } from "@/components/rooms/room-next-card";
+import { RoomPane, RoomViewportControls } from "@/components/rooms/room-pane";
+import { useRoomNext } from "@/components/rooms/use-room-next";
 import { Icon } from "@/components/ui/icon";
 import { Image } from "@/components/ui/image";
 import { Text } from "@/components/ui/text";
 import { artworkUrl } from "@/lib/artwork";
 import { deviceId, deviceName } from "@/lib/device";
 import { IOS_CAPABILITIES } from "@/lib/player/capabilities";
-import { NEXT_COUNTDOWN, inCredits } from "@/lib/player/next-episode";
+import { NEXT_COUNTDOWN, episodeLine, inCredits } from "@/lib/player/next-episode";
 import { MAX_RECOVERIES, PlaybackStep, PlaybackStop, afterStartFailure } from "@/lib/player/policy";
 import { chapterRows, scrubTileAt } from "@/lib/player/scrubbing";
 import type { ScrubTile } from "@/lib/player/scrubbing";
@@ -139,15 +147,32 @@ interface PlayerSessionProps {
   readonly params: WatchParams;
   readonly attempt: Attempt;
   readonly onRestart: (restart: Restart) => void;
+  /** The watch room the screen opened with, joined. */
+  readonly gate: RoomGate;
 }
 
+/**
+ * The room this session plays in and where it starts: the room's live position when it began, by
+ * the gate's estimate of the server's clock. Read once, so the session never restarts as the
+ * room's clock moves.
+ */
+const useSessionStart = (gate: RoomGate) =>
+  useState(() => ({
+    roomId: gate.opened,
+    atMs:
+      gate.opened === null || gate.joined === null
+        ? null
+        : targetPosition(gate.joined.clock, EpochMillis.make(Math.round(gate.serverNow()))),
+  }))[0];
+
 /** One playback session in the player. */
-function PlayerSession({ params, attempt, onRestart }: PlayerSessionProps) {
+function PlayerSession({ params, attempt, onRestart, gate }: PlayerSessionProps) {
   const runtime = useMoviesRuntime();
   const { profile } = useActiveProfile();
   const { mediaUrl } = useServer();
   const [controller, setController] = useState<PlayerController | null>(null);
   const restart = useRef(onRestart);
+  const sessionStart = useSessionStart(gate);
 
   useEffect(() => {
     restart.current = onRestart;
@@ -174,16 +199,15 @@ function PlayerSession({ params, attempt, onRestart }: PlayerSessionProps) {
       titleId: params.titleId,
       episodeId: Option.fromNullishOr(params.episodeId),
       fileId: Option.fromNullishOr(params.fileId),
-      roomId: Option.none(),
+      roomId: Option.fromNullishOr(sessionStart.roomId),
       capabilities: IOS_CAPABILITIES,
-      startAtMs:
-        attempt.startAtMs === null
-          ? Option.none()
-          : Option.some(Milliseconds.make(attempt.startAtMs)),
+      startAtMs: Option.map(Option.fromNullishOr(attempt.startAtMs ?? sessionStart.atMs), (ms) =>
+        Milliseconds.make(ms),
+      ),
       audioStreamIndex: Option.none(),
       quality: Option.none(),
     }),
-    [profile.id, params, attempt.startAtMs],
+    [profile.id, params, attempt.startAtMs, sessionStart],
   );
 
   const session = usePlaybackSession(
@@ -279,13 +303,37 @@ function PlayerSession({ params, attempt, onRestart }: PlayerSessionProps) {
   // frame.
   const shown = PlayerPhase.$is("Playing")(snapshot.phase);
 
+  const room = useSessionRoom({
+    gate,
+    player: shown ? (controller?.port ?? null) : null,
+    started:
+      started === null
+        ? null
+        : {
+            titleId: started.titleId,
+            episodeId: started.episodeId,
+            fileId: started.file.id,
+            name: title?.name ?? "",
+            artwork: started.episode?.still ?? title?.artwork.backdrop ?? null,
+          },
+    positionMs: () => controller?.port.positionMs() ?? 0,
+    resume: () => {
+      void controller?.port.play();
+    },
+  });
+
+  const inRoom = room.room !== null;
+  const guest = room.role === "guest";
+  // Paused, in a sheet, beside the room's pane, or under a popup, the controls stay up.
+  const holding = held || panel !== null || room.pane || room.popup !== null;
+
   useEffect(() => {
-    if (!visible || held || panel !== null || !media.playing || !shown) return undefined;
+    if (!visible || holding || !media.playing || !shown) return undefined;
 
     const timer = setTimeout(() => setVisible(false), CONTROLS_HIDE_MS);
 
     return () => clearTimeout(timer);
-  }, [visible, held, panel, media.playing, shown, touch]);
+  }, [visible, holding, media.playing, shown, touch]);
 
   useEffect(() => {
     if (!unlockHint) return undefined;
@@ -313,7 +361,35 @@ function PlayerSession({ params, attempt, onRestart }: PlayerSessionProps) {
       ended: media.ended,
     });
 
-  const showNext = credits && next !== null && !creditsDismissed && panel === null && !locked;
+  // Alone, the player counts down itself; a room moves on together (`useRoomNext`).
+  const solo = gate.roomId === null;
+
+  const showNext =
+    solo && credits && next !== null && !creditsDismissed && panel === null && !locked;
+
+  const roomNext = useRoomNext({
+    room: room.room,
+    role: room.role,
+    deviceId: deviceId(),
+    page:
+      started === null
+        ? null
+        : { titleId: started.titleId, episodeId: started.episodeId ?? undefined },
+    episodeId: started?.episodeId ?? null,
+    nextEpisode: next,
+    credits,
+    canCommand:
+      room.sync !== null && room.sync.connection === "connected" && room.sync.offset !== null,
+  });
+
+  const roomCard = inRoom && panel === null && !locked ? roomNext.card : null;
+  const roomCardShown = roomNext.card !== null;
+  const { setPane } = room;
+
+  // The next-episode card takes the screen's corner the pane would cover: the pane steps away.
+  useEffect(() => {
+    if (roomCardShown) setPane(false);
+  }, [roomCardShown, setPane]);
   const [countdownStart, setCountdownStart] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -340,8 +416,8 @@ function PlayerSession({ params, attempt, onRestart }: PlayerSessionProps) {
   const playEpisode = useCallback((episodeId: EpisodeId) => {
     // The same screen with another episode, from the next-episode card or the Episodes panel: its
     // key changes, so a new session starts, resuming where the profile stopped without asking, as
-    // on the web. A version chosen for this episode does not carry over.
-    router.setParams({ episodeId, fileId: undefined, start: "resume" });
+    // on the web. A version or a starting position chosen for this episode does not carry over.
+    router.setParams({ episodeId, fileId: undefined, start: "resume", at: undefined });
   }, []);
 
   useEffect(() => {
@@ -356,8 +432,11 @@ function PlayerSession({ params, attempt, onRestart }: PlayerSessionProps) {
 
   const chapters = useMemo(() => chapterRows(started?.file.probe.chapters ?? []), [started]);
 
+  // A room plays one episode for everyone: the host's pick moves the room, and guests get none.
+  const pickEpisode = roomNext.pick ?? playEpisode;
+
   const more: ReadonlyArray<MoreItem> = [
-    ...(episode === null
+    ...(episode === null || guest
       ? []
       : [
           {
@@ -366,7 +445,7 @@ function PlayerSession({ params, attempt, onRestart }: PlayerSessionProps) {
             onPress: () => setPanel("episodes"),
           } as const,
         ]),
-    ...(chapters.length === 0
+    ...(chapters.length === 0 || guest
       ? []
       : [
           {
@@ -394,10 +473,7 @@ function PlayerSession({ params, attempt, onRestart }: PlayerSessionProps) {
 
   const name = title?.name ?? "";
 
-  const episodeLine =
-    episode === null
-      ? null
-      : `S${String(episode.seasonNumber)}, E${String(episode.episodeNumber)} · ${episode.name}`;
+  const detailLine = episode === null ? null : episodeLine(episode);
 
   const port = controller?.port ?? null;
   const bar = useMargin(PLAYER_MARGINS.bar);
@@ -409,104 +485,167 @@ function PlayerSession({ params, attempt, onRestart }: PlayerSessionProps) {
   const stillOf = (item: Pick<SeasonEpisode, "still">): string | undefined =>
     artworkUrl(mediaUrl, item.still ?? title?.artwork.backdrop, "card");
 
+  const togglePlay = () => {
+    poke();
+
+    if (media.playing) port?.pause();
+    else void port?.play();
+  };
+
+  const seekFromControls = (seconds: number) => {
+    poke();
+    seekTo(seconds);
+  };
+
   return (
     <View className="flex-1 bg-dark-bg">
-      {snapshot.video === null ? null : (
-        <VideoView
-          player={snapshot.video}
-          style={StyleSheet.absoluteFill}
-          contentFit="contain"
-          nativeControls={false}
-          allowsPictureInPicture
-          startsPictureInPictureAutomatically
-          onFirstFrameRender={() => controller?.showedFrame()}
+      <View className={`absolute top-0 bottom-0 left-0 ${room.pane ? "right-80" : "right-0"}`}>
+        {snapshot.video === null ? null : (
+          <VideoView
+            player={snapshot.video}
+            style={StyleSheet.absoluteFill}
+            contentFit="contain"
+            nativeControls={false}
+            allowsPictureInPicture
+            startsPictureInPictureAutomatically
+            onFirstFrameRender={() => controller?.showedFrame()}
+          />
+        )}
+
+        {playing || backdrop === undefined ? null : (
+          <Image source={{ uri: backdrop }} contentFit="cover" className="absolute inset-0" />
+        )}
+
+        <SubtitleOverlay
+          url={subtitleUrl}
+          positionSeconds={media.positionSeconds}
+          delayMs={snapshot.subtitleDelayMs}
+          raised={locked ? unlockHint : visible}
         />
-      )}
 
-      {playing || backdrop === undefined ? null : (
-        <Image source={{ uri: backdrop }} contentFit="cover" className="absolute inset-0" />
-      )}
-
-      <SubtitleOverlay
-        url={subtitleUrl}
-        positionSeconds={media.positionSeconds}
-        delayMs={snapshot.subtitleDelayMs}
-        raised={locked ? unlockHint : visible}
-      />
-
-      <Pressable
-        className="absolute inset-0"
-        accessibilityLabel={visible ? "Hide controls" : "Show controls"}
-        onPress={() => {
-          if (locked) {
-            setUnlockHint(true);
-
-            return;
-          }
-
-          if (visible) {
-            setVisible(false);
-            setHeld(false);
-          } else {
-            poke();
-          }
-        }}
-      />
-
-      {playing && media.buffering ? (
-        <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
-          <Spinner />
-        </View>
-      ) : null}
-
-      {visible && playing && !locked && !showNext && stopped === null ? (
-        <Animated.View
-          entering={FadeIn}
-          exiting={FadeOut}
+        <Pressable
           className="absolute inset-0"
-          pointerEvents="box-none"
-        >
-          <PlayerControls
+          accessibilityLabel={visible ? "Hide controls" : "Show controls"}
+          onPress={() => {
+            if (locked) {
+              setUnlockHint(true);
+
+              return;
+            }
+
+            if (visible) {
+              setVisible(false);
+              setHeld(false);
+            } else {
+              poke();
+            }
+          }}
+        />
+
+        {playing && (media.buffering || room.waiting) && !room.pane ? (
+          <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
+            <Spinner />
+          </View>
+        ) : null}
+
+        {room.pane &&
+        room.room !== null &&
+        playing &&
+        !locked &&
+        roomCard === null &&
+        stopped === null ? (
+          <RoomViewportControls
             title={name}
-            detail={episodeLine}
             playing={media.playing}
+            waiting={room.waiting}
+            controlsTimeline={!guest}
             positionSeconds={media.positionSeconds}
             durationSeconds={durationSeconds}
-            rateLabel={`${speedLabel(snapshot.rate)} Speed`}
-            brightness={brightness}
-            volume={volume}
+            count={room.room.members.length}
             more={more}
             tileAt={tileAt}
             onClose={close}
-            onTogglePlay={() => {
-              poke();
-
-              if (media.playing) port?.pause();
-              else void port?.play();
-            }}
-            onSeek={(seconds) => {
-              poke();
-              seekTo(seconds);
-            }}
-            onLock={() => {
-              setLocked(true);
-              setVisible(false);
-              setUnlockHint(true);
-            }}
-            onSpeed={() => setPanel("speed")}
+            onTogglePlay={togglePlay}
+            onSeek={seekFromControls}
             onAudioSubtitles={() => setPanel("audio")}
-            onBrightness={setBrightness}
-            onVolume={(value) => {
-              setVolume(value);
-              controller?.setVolume(value);
-            }}
+            onRoom={() => room.setPane(false)}
             onInteract={poke}
-            onDismiss={() => {
-              setVisible(false);
-              setHeld(false);
-            }}
           />
-        </Animated.View>
+        ) : null}
+
+        {visible &&
+        playing &&
+        !locked &&
+        !showNext &&
+        roomCard === null &&
+        !room.pane &&
+        stopped === null ? (
+          <Animated.View
+            entering={FadeIn}
+            exiting={FadeOut}
+            className="absolute inset-0"
+            pointerEvents="box-none"
+          >
+            <PlayerControls
+              title={name}
+              detail={detailLine}
+              playing={media.playing}
+              positionSeconds={media.positionSeconds}
+              durationSeconds={durationSeconds}
+              rateLabel={`${speedLabel(snapshot.rate)} Speed`}
+              brightness={brightness}
+              volume={volume}
+              more={more}
+              tileAt={tileAt}
+              onClose={close}
+              onTogglePlay={togglePlay}
+              onSeek={seekFromControls}
+              onLock={() => {
+                setLocked(true);
+                setVisible(false);
+                setUnlockHint(true);
+              }}
+              onSpeed={() => setPanel("speed")}
+              onAudioSubtitles={() => setPanel("audio")}
+              onBrightness={setBrightness}
+              onVolume={(value) => {
+                setVolume(value);
+                controller?.setVolume(value);
+              }}
+              onInteract={poke}
+              onDismiss={() => {
+                setVisible(false);
+                setHeld(false);
+              }}
+              together={
+                started === null
+                  ? undefined
+                  : room.room === null
+                    ? { kind: "start", onPress: room.onTogether }
+                    : {
+                        kind: "room",
+                        count: room.room.members.length,
+                        onPress: () => room.setPane(true),
+                      }
+              }
+              controlsTimeline={!guest}
+            />
+          </Animated.View>
+        ) : null}
+      </View>
+
+      {room.pane && room.room !== null && room.role !== null ? (
+        <RoomPane
+          role={room.role}
+          members={room.members}
+          watching={room.watching}
+          notice={room.notice}
+          onClose={() => room.setPane(false)}
+          onInvite={room.openInvite}
+          onEnd={room.openEnd}
+          onLeave={room.leave}
+          onContinue={room.continueAlone}
+        />
       ) : null}
 
       {PlayerPhase.$is("Preparing")(snapshot.phase) && stopped === null && !failedStart ? (
@@ -524,7 +663,7 @@ function PlayerSession({ params, attempt, onRestart }: PlayerSessionProps) {
       {showNext ? (
         <NextEpisodeCard
           show={name}
-          playing={episodeLine}
+          playing={detailLine}
           next={next}
           stillUrl={stillOf(next)}
           countdownMs={countdownMs}
@@ -532,6 +671,20 @@ function PlayerSession({ params, attempt, onRestart }: PlayerSessionProps) {
           onPlayNext={() => playEpisode(next.id)}
         />
       ) : null}
+
+      {roomCard === null || room.room === null ? null : (
+        <RoomNextEpisodeCard
+          room={room.room}
+          offset={room.sync?.offset ?? null}
+          card={roomCard}
+          show={name}
+          playing={detailLine}
+          stillUrl={stillOf(roomCard.episode)}
+          onPlayNext={roomNext.moveOn}
+          onWatchCredits={roomNext.cancel}
+          onClose={roomNext.close}
+        />
+      )}
 
       {locked && unlockHint ? (
         <Animated.View
@@ -599,7 +752,10 @@ function PlayerSession({ params, attempt, onRestart }: PlayerSessionProps) {
           episodes={seasonEpisodes.status === "success" ? seasonEpisodes.data : []}
           playingId={episode.id}
           stillUrl={stillOf}
-          onEpisode={(item) => playEpisode(item.id)}
+          onEpisode={(item) => {
+            setPanel(null);
+            pickEpisode(item.id);
+          }}
           onClose={() => setPanel(null)}
         />
       ) : null}
@@ -643,6 +799,8 @@ function PlayerSession({ params, attempt, onRestart }: PlayerSessionProps) {
           onClose={close}
         />
       )}
+
+      {room.popup}
     </View>
   );
 }
@@ -699,11 +857,20 @@ function StoppedPanel({
 
 /** The player for `params`, starting a new session when the last one ended or failed to start. */
 export function PlayerScreen({ params }: { readonly params: WatchParams }) {
-  const [attempt, setAttempt] = useState<Attempt>({
-    key: 0,
-    startAtMs: params.start === "beginning" ? 0 : null,
-    askResume: params.start === undefined,
-    failures: 0,
+  const gate = useRoomGate(params);
+
+  // A room plays from its own position, never from the profile's saved one; `at` (a room's
+  // position, for a guest going on alone) starts there without asking.
+  const [attempt, setAttempt] = useState<Attempt>(() => {
+    const own = params.room === undefined;
+    const at = own ? (params.at ?? (params.start === "beginning" ? 0 : null)) : null;
+
+    return {
+      key: 0,
+      startAtMs: at,
+      askResume: own && at === null && params.start === undefined,
+      failures: 0,
+    };
   });
 
   const restart = useCallback((next: Restart) => {
@@ -718,7 +885,17 @@ export function PlayerScreen({ params }: { readonly params: WatchParams }) {
   // report the portrait insets.
   return (
     <SafeAreaProvider>
-      <PlayerSession key={attempt.key} params={params} attempt={attempt} onRestart={restart} />
+      {gate.admitted ? (
+        <PlayerSession
+          key={attempt.key}
+          params={params}
+          attempt={attempt}
+          onRestart={restart}
+          gate={gate}
+        />
+      ) : (
+        <RoomEntry gate={gate} params={params} />
+      )}
     </SafeAreaProvider>
   );
 }

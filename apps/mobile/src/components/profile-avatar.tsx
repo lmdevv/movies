@@ -17,7 +17,8 @@ import { Icon } from "./ui/icon";
 
 /**
  * Tile sizes as Paper draws them: 112 on Who's Watching, 104 in Choose Avatar, 96 in the editor,
- * 80 in the switcher sheet, 72 in lists and above the keypad, and 36 inline.
+ * 80 in the switcher sheet, 72 in lists and above the keypad, 44 in a watch room's people (G02),
+ * and 36 inline.
  */
 const SIZES = {
   tile: {
@@ -50,6 +51,12 @@ const SIZES = {
     text: "text-ios-36 leading-ios-42",
     glyph: "state",
   },
+  member: {
+    box: "size-11",
+    radius: "rounded-card",
+    text: "text-ios-22 leading-ios-28",
+    glyph: "inline",
+  },
   small: {
     box: "size-9",
     radius: "rounded-control",
@@ -76,6 +83,7 @@ const LETTERING = {
   editor: "text-ios-22 leading-ios-28",
   sheet: "text-ios-22 leading-ios-28",
   row: "text-ios-17 leading-ios-23",
+  member: "text-ios-11 leading-caption",
   small: "text-ios-11 leading-caption",
 } as const satisfies Record<ProfileAvatarSize, string>;
 

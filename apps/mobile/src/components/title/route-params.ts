@@ -3,7 +3,7 @@
  * links), so each parameter is parsed, and one that does not parse reads as absent rather than
  * throwing during render.
  */
-import { EpisodeId, MediaFileId, TitleId } from "@movies/contracts/ids";
+import { EpisodeId, MediaFileId, RoomId, TitleId } from "@movies/contracts/ids";
 import { Option, Schema } from "effect";
 
 /** A route parameter as Expo Router hands it over. */
@@ -25,6 +25,9 @@ export const episodeIdParam = decoder(EpisodeId);
 
 /** The `fileId` parameter, a version from `titles.versions`, or null. */
 export const fileIdParam = decoder(MediaFileId);
+
+/** The room in a `/room/<roomId>` route, or null when the link names none. */
+export const roomIdParam = decoder(RoomId);
 
 const SEASON = /^\d{1,4}$/u;
 

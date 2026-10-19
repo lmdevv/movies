@@ -2,7 +2,8 @@
  * C01 · Home: the featured hero under the large title, then Continue Watching, Recently Added, My
  * List, and Collections. Scrolling collapses the title into the glass bar (C02). While a library
  * scans it shows the scan and what has arrived (C13); without libraries, the empty state (C12).
- * Kids profiles see the inset billboard (C10).
+ * Kids profiles see the inset billboard (C10). In a watch room, the room's pill sits under the title
+ * (C17).
  */
 import type { Home as HomeRows, Library } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
@@ -17,6 +18,7 @@ import { Hero, KidsHero } from "@/components/browse/hero";
 import { TAB_BAR_CLEARANCE } from "@/components/browse/layout";
 import { ProfileButton } from "@/components/browse/profile-button";
 import { Rail } from "@/components/browse/rail";
+import { ReturnToRoom } from "@/components/rooms/room-pill";
 import { ScanStatus } from "@/components/browse/scan-status";
 import { CompactBar, LargeTitle, useCollapse } from "@/components/browse/tab-chrome";
 import { ContinueCard } from "@/components/continue-card";
@@ -79,9 +81,20 @@ export default function Home() {
         contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }}
       >
         {fullBleed ? (
-          <Hero titles={pages} header={<LargeTitle title="Home" overMedia />} />
+          <Hero
+            titles={pages}
+            header={
+              <>
+                <LargeTitle title="Home" overMedia />
+                <ReturnToRoom />
+              </>
+            }
+          />
         ) : (
-          <LargeTitle title="Home" />
+          <>
+            <LargeTitle title="Home" />
+            <ReturnToRoom />
+          </>
         )}
         <HomeBody layout={layout} home={home.data} libraries={libraries.data} kids={profile.kids} />
       </ScrollView>

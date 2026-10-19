@@ -1,4 +1,4 @@
-import { EpisodeId, MediaFileId, TitleId } from "@movies/contracts/ids";
+import { EpisodeId, MediaFileId, RoomId, TitleId } from "@movies/contracts/ids";
 import { Option, Schema } from "effect";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
@@ -10,6 +10,8 @@ const titleId = Schema.decodeSync(TitleId);
 const episodeId = Schema.decodeSync(EpisodeId);
 
 const fileId = Schema.decodeSync(MediaFileId);
+
+const roomId = Schema.decodeSync(RoomId);
 
 /** The params Expo Router would read from `href`'s path segment and query. */
 const routeParams = (href: string) => {
@@ -42,6 +44,12 @@ describe("watchHref", () => {
 
     expect(watchHref({ titleId: titleId("t1"), fileId: fileId("f3") })).toBe("/watch/t1?fileId=f3");
 
+    expect(
+      watchHref({ titleId: titleId("t1"), episodeId: episodeId("e2"), room: roomId("r9") }),
+    ).toBe("/watch/t1?episodeId=e2&room=r9");
+
+    expect(watchHref({ titleId: titleId("t1"), at: 5_598_000.4 })).toBe("/watch/t1?at=5598000");
+
     expect(watchHref({ titleId: titleId("t1"), episodeId: undefined, start: "beginning" })).toBe(
       "/watch/t1?start=beginning",
     );
@@ -57,12 +65,16 @@ describe("watchHref", () => {
         fc.option(id, { nil: undefined }),
         fc.option(id, { nil: undefined }),
         fc.constantFrom(undefined, "beginning" as const, "resume" as const),
-        (title, episode, file, start) => {
+        fc.option(id, { nil: undefined }),
+        fc.option(fc.nat(), { nil: undefined }),
+        (title, episode, file, start, room, at) => {
           const href = watchHref({
             titleId: titleId(title),
             episodeId: episode === undefined ? undefined : episodeId(episode),
             fileId: file === undefined ? undefined : fileId(file),
             start,
+            room: room === undefined ? undefined : roomId(room),
+            at,
           });
 
           const url = new URL(href, "movies://app");
@@ -72,6 +84,7 @@ describe("watchHref", () => {
           expect(query.get("episodeId") ?? undefined).toBe(episode);
           expect(query.get("fileId") ?? undefined).toBe(file);
           expect(query.get("start") ?? undefined).toBe(start);
+          expect(query.get("room") ?? undefined).toBe(room);
 
           const parsed = Option.getOrThrow(parseWatchParams(routeParams(href)));
 
@@ -79,6 +92,8 @@ describe("watchHref", () => {
           expect(parsed.episodeId).toBe(episode);
           expect(parsed.fileId).toBe(file);
           expect(parsed.start).toBe(start);
+          expect(parsed.room).toBe(room);
+          expect(parsed.at).toBe(at);
         },
       ),
     );
@@ -92,9 +107,11 @@ describe("parseWatchParams", () => {
     expect(Option.map(parsed, (params) => params.episodeId)).toStrictEqual(Option.some("e1"));
   });
 
-  it("rejects a missing title and an unknown start", () => {
+  it("rejects a missing title, an unknown start, and a position that is not one", () => {
     expect(Option.isNone(parseWatchParams({ episodeId: "e" }))).toBe(true);
     expect(Option.isNone(parseWatchParams({ titleId: "t", start: "middle" }))).toBe(true);
+    expect(Option.isNone(parseWatchParams({ titleId: "t", at: "soon" }))).toBe(true);
+    expect(Option.isNone(parseWatchParams({ titleId: "t", at: "-5" }))).toBe(true);
   });
 
   it("treats empty values as absent", () => {

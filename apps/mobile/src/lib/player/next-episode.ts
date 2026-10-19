@@ -37,11 +37,20 @@ export const inCredits = ({
 export const secondsLeft = (countdownMs: number): number =>
   Math.max(0, Math.ceil(countdownMs / 1000));
 
+/** An episode's place in its show as the player spells it: `S2, E4`. */
+const seasonAndEpisode = (episode: Pick<Episode, "seasonNumber" | "episodeNumber">): string =>
+  `S${String(episode.seasonNumber)}, E${String(episode.episodeNumber)}`;
+
+/** An episode under its show's name, in the player and the watch room: `S1, E2 · Half Loop`. */
+export const episodeLine = (
+  episode: Pick<Episode, "seasonNumber" | "episodeNumber" | "name">,
+): string => `${seasonAndEpisode(episode)} · ${episode.name}`;
+
 /** The card's line under the episode name: `S2, E4 · 49m`. */
 export const nextEpisodeFacts = (
   episode: Pick<Episode, "seasonNumber" | "episodeNumber" | "runtimeMs">,
 ): string => {
-  const code = `S${String(episode.seasonNumber)}, E${String(episode.episodeNumber)}`;
+  const code = seasonAndEpisode(episode);
 
   return episode.runtimeMs === null || episode.runtimeMs <= 0
     ? code
