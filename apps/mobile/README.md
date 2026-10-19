@@ -52,12 +52,14 @@ ssh -N -R 8081:[::1]:8081 -R 3210:127.0.0.1:3210 -R 8080:127.0.0.1:8080 mac
 | `src/components`        | Posters, cards, and avatars                                          |
 | `src/components/browse` | Heroes, rails, grids, sheets, and context menus of the browse tabs   |
 | `src/components/rooms`  | Watch Together: the player's pane and popups, and the room pages     |
+| `src/components/owner`  | Owner Settings: the library form, import state, and shared parts     |
 | `src/session`           | Connection, SDK provider, profile choice, and the session phase      |
 | `src/lib`               | Discovery, keychain storage, artwork URLs, formatting, and failures  |
 
 The root stack shows only the screens of the current phase (not connected, signed out, choosing a
 profile, ready), so signing in, choosing a profile, or signing out moves to the right screen
-without explicit navigation.
+without explicit navigation. A server without an owner adds two: creating the owner account, and
+setting up its first library.
 
 ## Checks
 

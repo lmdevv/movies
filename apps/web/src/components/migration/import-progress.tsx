@@ -1,3 +1,4 @@
+import { SOURCE_NAMES, importFraction, importMinutesLeft } from "@movies/contracts/migration-plan";
 import type { MigrationRun } from "@movies/contracts/models/migration";
 import { useCommand } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
@@ -10,7 +11,7 @@ import { formatCount, formatPercent } from "@/components/admin/format";
 import { PageHeader } from "@/components/admin/page-header";
 import { useNow } from "@/lib/use-now";
 
-import { PHASE_LABELS, SOURCE_NAMES, importFraction, importMinutesLeft } from "./migration-model";
+import { PHASE_LABELS } from "./migration-model";
 import { Caution, Stat, Stats } from "./parts";
 
 /** 03 Importing: the import's share done, time left, and the phase it is in. */

@@ -936,6 +936,19 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         status: "succeeded",
         progress: { done: 3 },
       });
+
+      // A library's scans come by library, however many other jobs are newer.
+      const scans = await run(fixture.owner, "jobs.list", {
+        libraryId: fixture.openLibrary,
+        limit: 5,
+      });
+
+      expect(scans[0]?.id).toBe(jobId);
+      expect(
+        scans.every(
+          (job) => job.payload.kind === "scan" && job.payload.libraryId === fixture.openLibrary,
+        ),
+      ).toBe(true);
     });
 
     it("adds migrated libraries only for absolute folders nobody else owns", async () => {

@@ -4,9 +4,8 @@
  */
 import type { TitleKind } from "@movies/contracts/models/catalog";
 import { Stack } from "expo-router";
-import { useCSSVariable } from "uniwind";
 
-import { useThemeColor } from "@/lib/theme-color";
+import { useSheetOptions } from "@/lib/sheet";
 
 import { FiltersProvider } from "./filters";
 
@@ -15,9 +14,7 @@ const SHEETS = ["sort", "filter", "genres"] as const;
 
 /** A browse tab's stack with its filters. */
 export function BrowseStack({ kind }: { readonly kind: TitleKind }) {
-  const surface = useThemeColor("--color-surface-raised");
-  // Native sheets take the radius in points; the token is `28px`.
-  const radius = Number.parseFloat(String(useCSSVariable("--radius-sheet")));
+  const sheet = useSheetOptions();
 
   return (
     <FiltersProvider kind={kind}>
@@ -28,11 +25,8 @@ export function BrowseStack({ kind }: { readonly kind: TitleKind }) {
             key={name}
             name={name}
             options={{
-              presentation: "formSheet",
-              sheetGrabberVisible: true,
+              ...sheet,
               sheetAllowedDetents: name === "genres" ? [0.6, 1] : "fitToContents",
-              sheetCornerRadius: radius,
-              contentStyle: { backgroundColor: surface },
             }}
           />
         ))}

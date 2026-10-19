@@ -36,18 +36,19 @@ const loadJob = async (ctx: QueryCtx, viewer: Viewer, jobId: Id<"jobs">): Promis
 };
 
 /**
- * Jobs newest first, filtered by kind and status. Requires `manage` scope; backup and migration
- * jobs also need `admin` and are left out without it. Without both filters at most 2000 jobs are
- * read, so a page can come back short.
+ * Jobs newest first, filtered by kind and status, or a library's jobs (its scans). Requires
+ * `manage` scope; backup and migration jobs also need `admin` and are left out without it. Without
+ * both kind and status at most 2000 jobs are read, so a page can come back short.
  */
 export const list = query({
   args: {
     kind: v.optional(jobKind),
     status: v.optional(jobStatus),
+    libraryId: v.optional(v.id("libraries")),
     limit: v.optional(v.number()),
   },
   returns: v.array(job),
-  handler: async (ctx, { kind, status, limit }) => {
+  handler: async (ctx, { kind, status, libraryId, limit }) => {
     const viewer = await authorize(ctx, "manage");
 
     if (kind !== undefined && !mayHandle(viewer, kind)) {
@@ -57,7 +58,7 @@ export const list = query({
     const count = resultLimit(limit, 50, 100);
     const jobs = ctx.db.query("jobs");
 
-    if (kind !== undefined && status !== undefined) {
+    if (kind !== undefined && status !== undefined && libraryId === undefined) {
       const docs = await jobs
         .withIndex("by_kind_status", (q) => q.eq("kind", kind).eq("status", status))
         .order("desc")
@@ -67,11 +68,21 @@ export const list = query({
     }
 
     const wanted = (doc: Doc<"jobs">): boolean =>
-      (kind === undefined || doc.kind === kind) && mayHandle(viewer, doc.kind);
+      (kind === undefined || doc.kind === kind) &&
+      (status === undefined || libraryId === undefined || doc.status === status) &&
+      mayHandle(viewer, doc.kind);
 
-    // Newest first, older than `before`; filtered in memory by kind and by what the viewer may see.
-    const olderThan = (before: number | null, take: number) =>
-      (status === undefined
+    /** The jobs to read newest first, older than `before`: a library's, by status, or all. */
+    const indexed = (before: number | null) => {
+      if (libraryId !== undefined) {
+        return jobs.withIndex("by_library", (q) =>
+          before === null
+            ? q.eq("libraryId", libraryId)
+            : q.eq("libraryId", libraryId).lt("_creationTime", before),
+        );
+      }
+
+      return status === undefined
         ? jobs.withIndex("by_creation_time", (q) =>
             before === null ? q : q.lt("_creationTime", before),
           )
@@ -79,10 +90,12 @@ export const list = query({
             before === null
               ? q.eq("status", status)
               : q.eq("status", status).lt("_creationTime", before),
-          )
-      )
-        .order("desc")
-        .take(take);
+          );
+    };
+
+    // Newest first, older than `before`; filtered in memory by kind and by what the viewer may see.
+    const olderThan = (before: number | null, take: number) =>
+      indexed(before).order("desc").take(take);
 
     /** Reads batches until `count` jobs match, the jobs run out, or `JOBS_READ_LIMIT` is read. */
     const collect = async (

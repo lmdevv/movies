@@ -3,7 +3,9 @@ import type { CommandItem } from "@movies/ui/lib/command-menu";
 import { CircleXIcon, DownloadIcon, LoaderIcon } from "lucide-react";
 import { useMemo } from "react";
 
-import { PHASE_LABELS, SOURCE_NAMES, importFraction } from "@/components/migration/migration-model";
+import { SOURCE_NAMES, importFraction } from "@movies/contracts/migration-plan";
+
+import { PHASE_LABELS } from "@/components/migration/migration-model";
 import { toastFailure } from "@/lib/failure";
 import { formatPercent } from "@/components/admin/format";
 import { isActive } from "@/lib/scan-progress";

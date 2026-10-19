@@ -71,7 +71,7 @@ const isWithin = (root: string, candidate: string, separator: string): boolean =
  * outside them or one that does not exist. Callers open the canonical path, so a link swapped
  * after the check cannot redirect them.
  */
-const approvedRoots = Effect.fnUntraced(function* () {
+export const approvedRoots = Effect.fnUntraced(function* () {
   const config = yield* MediaConfig.Service;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;

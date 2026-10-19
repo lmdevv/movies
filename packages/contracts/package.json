@@ -22,6 +22,8 @@
     "./cast": "./src/cast.ts",
     "./direct-play": "./src/direct-play.ts",
     "./library-folder": "./src/library-folder.ts",
+    "./scan-failure": "./src/scan-failure.ts",
+    "./migration-plan": "./src/migration-plan.ts",
     "./models/*": "./src/models/*.ts"
   },
   "scripts": {
