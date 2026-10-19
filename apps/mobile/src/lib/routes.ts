@@ -1,8 +1,8 @@
 /**
  * Links into the player and what they carry: the title, an episode for shows, a chosen version
- * (file), and `start=beginning` to start over instead of resuming. Screens link with `watchHref`,
- * which writes them in one order; the player reads them back with `parseWatchParams`, which never
- * throws.
+ * (file), and `start`: `beginning` to start over, or `resume` to resume without asking. Screens link
+ * with `watchHref`, which writes them in one order; the player reads them back with
+ * `parseWatchParams`, which never throws.
  */
 import { EpisodeId, MediaFileId, TitleId } from "@movies/contracts/ids";
 import { Schema } from "effect";
@@ -15,8 +15,11 @@ export interface WatchTarget {
   readonly episodeId?: EpisodeId | undefined;
   /** A version from `titles.versions`; omit to let the server choose. */
   readonly fileId?: MediaFileId | undefined;
-  /** `beginning` for Start Over; omit to resume from the saved progress. */
-  readonly start?: "beginning" | undefined;
+  /**
+   * `beginning` for Start Over, `resume` to pick up the saved progress without asking, as the next
+   * episode does; omit to ask before resuming.
+   */
+  readonly start?: "beginning" | "resume" | undefined;
 }
 
 /**
@@ -44,7 +47,7 @@ const WatchParams = Schema.Struct({
   titleId: TitleId,
   episodeId: Schema.optionalKey(EpisodeId),
   fileId: Schema.optionalKey(MediaFileId),
-  start: Schema.optionalKey(Schema.Literal("beginning")),
+  start: Schema.optionalKey(Schema.Literals(["beginning", "resume"])),
 });
 
 /** What the player plays, read from its route. */
