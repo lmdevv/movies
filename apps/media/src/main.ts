@@ -36,6 +36,7 @@ import * as JobWorker from "./jobs/job-worker.ts";
 import * as MetadataJob from "./jobs/metadata-job.ts";
 import * as PersonJob from "./jobs/person-job.ts";
 import * as ScanJob from "./jobs/scan-job.ts";
+import * as FolderRoutes from "./library/folder-routes.ts";
 import * as LibraryMonitor from "./library/library-monitor.ts";
 import * as MemoryLibrary from "./library/memory-library.ts";
 import * as MediaConfig from "./media-config.ts";
@@ -76,6 +77,7 @@ const commandRoutes = Layer.mergeAll(
   MetadataRoutes.layer,
   MigrationRoutes.layer,
   BackupRoutes.layer,
+  FolderRoutes.layer,
 );
 
 /** Signed in to Convex: Convex libraries, scan jobs, ended sessions, and file records. */

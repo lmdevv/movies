@@ -8,7 +8,7 @@
 import type { Home as HomeRows, Library } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { router } from "expo-router";
-import { Folder, Popcorn } from "lucide-react-native";
+import { Folder, Plus, Popcorn } from "lucide-react-native";
 import { ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -107,6 +107,17 @@ export default function Home() {
   );
 }
 
+/** C12's Add a Library, for sessions that may manage libraries (I03). */
+function AddLibrary() {
+  const viewer = useCommandQuery("account.viewer", {});
+
+  if (viewer.status !== "success" || !viewer.data.scopes.includes("manage")) return null;
+
+  return (
+    <Button label="Add a Library" icon={Plus} onPress={() => router.push("/owner/libraries/new")} />
+  );
+}
+
 /** What follows the hero or the title, by layout. */
 function HomeBody({
   layout,
@@ -121,7 +132,9 @@ function HomeBody({
 }) {
   const arrived = newestFirst(home.recentlyAddedMovies, home.recentlyAddedShows);
 
-  if (layout === "empty") return <EmptyState icon={Folder} title="Your library is empty." />;
+  if (layout === "empty") {
+    return <EmptyState icon={Folder} title="Your library is empty." action={<AddLibrary />} />;
+  }
 
   if (layout === "nothing") return <EmptyState icon={Popcorn} title="Nothing to Watch Yet" />;
 

@@ -10,6 +10,7 @@ import { useCommand } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { RadioGroup, RadioItem } from "@movies/ui/components/radio-group";
 import { FieldError, TextField } from "@movies/ui/components/text-field";
+import { SOURCE_NAMES, failureLine } from "@movies/contracts/migration-plan";
 import { Redacted } from "effect";
 import { useCallback } from "react";
 import type { FormEvent } from "react";
@@ -17,7 +18,6 @@ import type { FormEvent } from "react";
 import { useAction } from "@/components/admin/action";
 import { PageHeader } from "@/components/admin/page-header";
 
-import { SOURCE_NAMES, failureLine } from "./migration-model";
 import type { SourceForm } from "./migration-model";
 
 /** A connected source and its dry run, or why the source could not be used. */

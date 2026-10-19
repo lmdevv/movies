@@ -95,9 +95,13 @@ const convexAnswers = async (convexUrl: string): Promise<boolean> => {
   }
 };
 
+/** The health of the [movies] media service at `mediaUrl`, or none when it does not answer. */
+export const readHealth = (mediaUrl: string): Promise<Option.Option<HealthResponse>> =>
+  getDecoded(`${mediaUrl}${MEDIA_ROUTES.health}`, HealthResponse);
+
 /** Whether a [movies] media service answers its health check at `mediaUrl`. */
 const mediaAnswers = async (mediaUrl: string): Promise<boolean> =>
-  Option.isSome(await getDecoded(`${mediaUrl}${MEDIA_ROUTES.health}`, HealthResponse));
+  Option.isSome(await readHealth(mediaUrl));
 
 /**
  * The base URLs to try for typed text: as typed when it names a scheme, else `https://` and then

@@ -14,10 +14,12 @@ import { Button } from "@/components/ui/button";
 import { applyAppearance } from "@/lib/appearance";
 import { describeFailure } from "@/lib/failure";
 import { displayHost } from "@/lib/local-network";
+import { useSheetOptions } from "@/lib/sheet";
 import { useThemeColor } from "@/lib/theme-color";
 import { ActiveProfileContext } from "@/session/active-profile";
 import { ConnectionProvider, useConnection, useServer } from "@/session/connection";
 import { CurrentRoomProvider } from "@/session/current-room";
+import { FirstRunProvider, useHomeAfterSetup } from "@/session/first-run";
 import { InviteLinks } from "@/session/invite-links";
 import {
   PendingInviteProvider,
@@ -72,14 +74,9 @@ function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
   const invite = usePendingInvite();
   const { theme } = useUniwind();
 
-  /** A native sheet sized to its content, with the grabber. */
-  const sheet = {
-    presentation: "formSheet",
-    sheetAllowedDetents: "fitToContents",
-    sheetGrabberVisible: true,
-    sheetCornerRadius: 28,
-    contentStyle: { backgroundColor: useThemeColor("--color-surface-raised") },
-  } as const;
+  useHomeAfterSetup(phase);
+
+  const sheet = useSheetOptions();
 
   return (
     <Stack
@@ -102,6 +99,9 @@ function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
       <Stack.Protected guard={phase === "signedOut" && invite.code === null}>
         <Stack.Screen name="sign-in" />
         <Stack.Screen name="sign-in-code" />
+      </Stack.Protected>
+      <Stack.Protected guard={phase === "createOwner"}>
+        <Stack.Screen name="create-owner" options={{ animation: "fade" }} />
       </Stack.Protected>
       <Stack.Protected guard={phase === "chooseProfile"}>
         <Stack.Screen name="profiles" options={{ animation: "fade" }} />
@@ -140,6 +140,9 @@ function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
             autoHideHomeIndicator: true,
           }}
         />
+      </Stack.Protected>
+      <Stack.Protected guard={phase === "setup" || phase === "ready"}>
+        <Stack.Screen name="owner" options={phase === "setup" ? { animation: "fade" } : {}} />
       </Stack.Protected>
     </Stack>
   );
@@ -267,7 +270,9 @@ function App() {
   return (
     <SdkProvider key={connection.convexUrl} connection={connection}>
       <ProfileChoiceProvider>
-        <ConnectedApp />
+        <FirstRunProvider>
+          <ConnectedApp />
+        </FirstRunProvider>
       </ProfileChoiceProvider>
     </SdkProvider>
   );

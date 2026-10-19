@@ -27,6 +27,7 @@ import {
 } from "effect";
 
 import type { LibraryId } from "@movies/contracts/ids";
+import { SCAN_FAILURE_PREFIXES } from "@movies/contracts/scan-failure";
 import { createHash } from "node:crypto";
 
 import * as MediaConfig from "../media-config.ts";
@@ -92,7 +93,7 @@ export class LibraryRootNotApproved extends Schema.TaggedError<LibraryRootNotApp
   { root: Schema.String },
 ) {
   override get message(): string {
-    return `Library root not approved: ${this.root} is outside LIBRARY_ROOTS`;
+    return `${SCAN_FAILURE_PREFIXES.rootNotApproved}: ${this.root} is outside LIBRARY_ROOTS`;
   }
 }
 
@@ -111,7 +112,7 @@ export class LibraryRootUnavailable extends Schema.TaggedError<LibraryRootUnavai
   },
 ) {
   override get message(): string {
-    return `Library root unavailable: ${this.root} (${this.reason}); known files were left untouched`;
+    return `${SCAN_FAILURE_PREFIXES.rootUnavailable}: ${this.root} (${this.reason}); known files were left untouched`;
   }
 }
 
@@ -121,7 +122,7 @@ class LibraryFolderUnreadable extends Schema.TaggedError<LibraryFolderUnreadable
   { folder: Schema.String, code: Schema.String },
 ) {
   override get message(): string {
-    return `Library folder unreadable: ${this.folder === "" ? "(root)" : this.folder} (${this.code}); known files were left untouched`;
+    return `${SCAN_FAILURE_PREFIXES.folderUnreadable}: ${this.folder === "" ? "(root)" : this.folder} (${this.code}); known files were left untouched`;
   }
 }
 

@@ -1,24 +1,19 @@
-import {
-  MigrationConnection,
-  MigrationReport,
-  MigrationRun,
-} from "@movies/contracts/models/migration";
-import type { MigrationPhase } from "@movies/contracts/models/migration";
-import { ProfileId, UserId } from "@movies/contracts/ids";
+import { ProfileId, UserId } from "./ids";
+import { MigrationConnection, MigrationReport, MigrationRun } from "./models/migration";
+import type { MigrationPhase } from "./models/migration";
 import * as fc from "fast-check";
 import { Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
   SKIP,
-  currentMappings,
   failureLine,
   importFraction,
   importMinutesLeft,
+  mappingsFor,
   mappingsWith,
   userRows,
-  withChoice,
-} from "./migration-model";
+} from "./migration-plan";
 
 const PHASES: ReadonlyArray<MigrationPhase> = [
   "libraries",
@@ -143,29 +138,6 @@ const own = [
 const plexFailure = (reason: "auth_failed" | "not_admin" | "unreachable") =>
   failureLine({ status: "failed", reason, message: "" }, "plex");
 
-describe("source failures", () => {
-  it("shows credential failures under the key and address failures under the URL", () => {
-    expect(plexFailure("auth_failed")).toEqual({
-      field: "token",
-      message: "Plex didn’t accept this token.",
-    });
-    expect(plexFailure("not_admin").field).toBe("token");
-    expect(plexFailure("unreachable")).toEqual({
-      field: "url",
-      message: "Nothing answered at this address.",
-    });
-  });
-
-  it("passes the server's own words through for an unsupported version", () => {
-    expect(
-      failureLine(
-        { status: "failed", reason: "version_unsupported", message: "Jellyfin 10.7 is too old." },
-        "jellyfin",
-      ).message,
-    ).toBe("Jellyfin 10.7 is too old.");
-  });
-});
-
 describe("import progress", () => {
   it("never runs backwards, though job progress starts over at each phase", () => {
     const point = fc
@@ -205,28 +177,6 @@ describe("import progress", () => {
   });
 });
 
-describe("user mappings", () => {
-  const rows = userRows(connection, report, own, [{ id: samAccount, name: "Sam" }]);
-
-  it("offers the suggested account, the admin's own profiles, and skipping", () => {
-    expect(rows.map((row) => [row.name, row.choice, row.options.map((o) => o.label)])).toEqual([
-      ["admin", SKIP, ["Alex", "Kids", "Don’t import"]],
-      ["sam", sam, ["Sam", "Alex", "Kids", "Don’t import"]],
-    ]);
-  });
-
-  it("changes one user's choice and keeps the others", () => {
-    expect(withChoice(rows, "jf-admin", alex)).toEqual([
-      { sourceUserId: "jf-admin", profileId: alex },
-      { sourceUserId: "jf-sam", profileId: sam },
-    ]);
-    expect(currentMappings(rows)).toEqual([
-      { sourceUserId: "jf-admin", profileId: null },
-      { sourceUserId: "jf-sam", profileId: sam },
-    ]);
-  });
-});
-
 describe("folder mappings", () => {
   it("keeps the mappings given at connect and leaves inferred ones to connect", () => {
     expect(mappingsWith(connection.pathMappings, "/data/shows", " /mnt/nas/tv ")).toEqual(
@@ -247,5 +197,50 @@ describe("folder mappings", () => {
     expect(Option.isNone(mappingsWith(connection.pathMappings, "/data/shows", "nas/tv"))).toBe(
       true,
     );
+  });
+});
+
+describe("source failures", () => {
+  it("shows credential failures under the key and address failures under the URL", () => {
+    expect(plexFailure("auth_failed")).toEqual({
+      field: "token",
+      message: "Plex didn’t accept this token.",
+    });
+    expect(plexFailure("not_admin").field).toBe("token");
+    expect(plexFailure("unreachable")).toEqual({
+      field: "url",
+      message: "Nothing answered at this address.",
+    });
+  });
+
+  it("passes the server's own words through for an unsupported version", () => {
+    expect(
+      failureLine(
+        { status: "failed", reason: "version_unsupported", message: "Jellyfin 10.7 is too old." },
+        "jellyfin",
+      ).message,
+    ).toBe("Jellyfin 10.7 is too old.");
+  });
+});
+
+describe("user mappings", () => {
+  const rows = userRows(connection, report, own, [{ id: samAccount, name: "Sam" }], "Don’t import");
+
+  it("offers the suggested account, the admin's own profiles, and skipping", () => {
+    expect(rows.map((row) => [row.name, row.choice, row.options.map((o) => o.label)])).toEqual([
+      ["admin", SKIP, ["Alex", "Kids", "Don’t import"]],
+      ["sam", sam, ["Sam", "Alex", "Kids", "Don’t import"]],
+    ]);
+  });
+
+  it("changes one user's choice and keeps the others", () => {
+    expect(mappingsFor(rows, { sourceUserId: "jf-admin", choice: alex })).toEqual([
+      { sourceUserId: "jf-admin", profileId: alex },
+      { sourceUserId: "jf-sam", profileId: sam },
+    ]);
+    expect(mappingsFor(rows)).toEqual([
+      { sourceUserId: "jf-admin", profileId: null },
+      { sourceUserId: "jf-sam", profileId: sam },
+    ]);
   });
 });

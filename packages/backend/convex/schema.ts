@@ -458,7 +458,8 @@ export default defineSchema({
   })
     .index("by_status", ["status"])
     .index("by_kind_status", ["kind", "status"])
-    .index("by_library_status", ["libraryId", "status"]),
+    .index("by_library_status", ["libraryId", "status"])
+    .index("by_library", ["libraryId"]),
 
   /** A migration job's plan, checkpoint, and counts; one row per migration job. */
   migrations: defineTable({
