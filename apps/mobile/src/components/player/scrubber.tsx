@@ -23,6 +23,8 @@ export interface ScrubberProps {
   /** Called as a drag starts and ends, so the controls stay up meanwhile. */
   readonly onScrubbing: (scrubbing: boolean) => void;
   readonly onSeek: (seconds: number) => void;
+  /** Shows the position without moving it, as for a watch room's guest. */
+  readonly disabled?: boolean;
 }
 
 const clamp = (value: number): number => Math.min(1, Math.max(0, value));
@@ -57,6 +59,7 @@ export function Scrubber({
   tileAt,
   onScrubbing,
   onSeek,
+  disabled = false,
 }: ScrubberProps) {
   const track = useRef<HostInstance>(null);
   const bounds = useRef({ left: 0, width: 1 });
@@ -110,15 +113,15 @@ export function Scrubber({
       <View
         className="h-11 flex-1 justify-center"
         accessible
-        accessibilityRole="adjustable"
+        accessibilityRole={disabled ? "progressbar" : "adjustable"}
         accessibilityLabel="Playback position"
         accessibilityValue={{ text: `${formatClock(shownSeconds)} of ${formatClock(duration)}` }}
-        accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
+        accessibilityActions={disabled ? [] : [{ name: "increment" }, { name: "decrement" }]}
         onAccessibilityAction={(event) => {
           onSeek(positionSeconds + (event.nativeEvent.actionName === "increment" ? 10 : -10));
         }}
         onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
-        {...responder.panHandlers}
+        {...(disabled ? {} : responder.panHandlers)}
       >
         <View
           ref={track}

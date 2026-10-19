@@ -25,8 +25,10 @@ export default function Watch() {
     );
   }
 
-  const { titleId, episodeId, fileId, start } = params.value;
+  const { titleId, episodeId, fileId, start, at } = params.value;
 
   // Another title, episode, version, or start is another session: the player starts over.
-  return <PlayerScreen key={[titleId, episodeId, fileId, start].join("|")} params={params.value} />;
+  return (
+    <PlayerScreen key={[titleId, episodeId, fileId, start, at].join("|")} params={params.value} />
+  );
 }

@@ -14,6 +14,10 @@ The session tokens, the server, and the chosen profile live in the iOS keychain.
 Invites open from a pasted web link (`<server>/invite/<code>`) on Open an Invite, or from the app's
 own link `movies://invite?server=<media-url>&code=<code>`, which connects to that server first.
 
+Watch Together shares the web app's room link (`<server>/r/<roomId>`). In the app a room opens at
+`movies:///room/<roomId>` (join, or the room's page), and its player at
+`/watch/<titleId>?room=<roomId>`, which follows the room through the SDK's `useRoomSync`.
+
 ## Develop
 
 Native code needs a development build; Expo Go does not carry the modules this app uses. On a Mac
@@ -47,6 +51,7 @@ ssh -N -R 8081:[::1]:8081 -R 3210:127.0.0.1:3210 -R 8080:127.0.0.1:8080 mac
 | `src/components/ui`     | Text, buttons, fields, rows, and headers from Paper's iOS components |
 | `src/components`        | Posters, cards, and avatars                                          |
 | `src/components/browse` | Heroes, rails, grids, sheets, and context menus of the browse tabs   |
+| `src/components/rooms`  | Watch Together: the player's pane and popups, and the room pages     |
 | `src/session`           | Connection, SDK provider, profile choice, and the session phase      |
 | `src/lib`               | Discovery, keychain storage, artwork URLs, formatting, and failures  |
 

@@ -72,6 +72,8 @@ const TONES = {
   inverse: "text-bg",
   /** Secondary text on the player's dark panels, whatever the theme. */
   darkMuted: "text-dark-text-muted",
+  /** A destructive action on the player's dark panels, whatever the theme (F16 End Room). */
+  darkDanger: "text-dark-danger",
 } as const;
 
 /** A step of the type scale. */

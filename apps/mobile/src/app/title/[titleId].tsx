@@ -11,6 +11,7 @@ import { ChevronDown, CircleAlert } from "lucide-react-native";
 import { ActivityIndicator, Pressable, View } from "react-native";
 import Animated, { useAnimatedScrollHandler, useSharedValue } from "react-native-reanimated";
 
+import { WatchTogetherRow } from "@/components/rooms/watch-together-row";
 import { EpisodeRow } from "@/components/title/episode-row";
 import { FileUnavailable } from "@/components/title/file-unavailable";
 import { seasonParam, titleIdParam } from "@/components/title/route-params";
@@ -102,11 +103,10 @@ function TitleDetailView({
         ListHeaderComponent={
           <View className="gap-4 pb-4">
             <TitleHero title={title} profileId={profileId} scrollY={scrollY} />
-            {show ? null : (
-              <View className="px-5">
-                <AboutRow title={title} />
-              </View>
-            )}
+            <View className="gap-3 px-5">
+              <WatchTogetherRow titleId={title.id} />
+              {show ? null : <AboutRow title={title} />}
+            </View>
             {show && seasonNumber !== null ? (
               <SeasonHeading title={title} seasonNumber={seasonNumber} />
             ) : null}

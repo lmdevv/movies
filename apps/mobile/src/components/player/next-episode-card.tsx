@@ -1,7 +1,8 @@
 /**
  * The next-episode card (F06): over the credits, the next episode's still, its name, and when it
  * starts, with Watch Credits to stay and Play Next to go now. The show and the episode playing sit
- * at the bottom left, as the controls are away.
+ * at the bottom left, as the controls are away. In a watch room a guest's card only closes, and the
+ * host's says why the room cannot move on when the next episode cannot play.
  */
 import type { Episode } from "@movies/contracts/models/catalog";
 import { Play } from "lucide-react-native";
@@ -23,7 +24,12 @@ export interface NextEpisodeCardProps {
   readonly stillUrl: string | undefined;
   readonly countdownMs: number;
   readonly onWatchCredits: () => void;
-  readonly onPlayNext: () => void;
+  /** Null leaves only the first action, such as a room guest's Close. */
+  readonly onPlayNext: (() => void) | null;
+  /** The first action's label; `Watch Credits` by default. */
+  readonly dismissLabel?: string;
+  /** The line above the episode's name in place of the countdown, such as why it cannot play. */
+  readonly headline?: string | undefined;
 }
 
 /** The card and the titles beside it. */
@@ -35,6 +41,8 @@ export function NextEpisodeCard({
   countdownMs,
   onWatchCredits,
   onPlayNext,
+  dismissLabel = "Watch Credits",
+  headline,
 }: NextEpisodeCardProps) {
   const insets = useSafeAreaInsets();
   const seconds = secondsLeft(countdownMs);
@@ -67,7 +75,7 @@ export function NextEpisodeCard({
           </View>
           <View className="flex-1 gap-1">
             <Text variant="metaStrong" tone="darkMuted" accessibilityLiveRegion="polite">
-              {`Next Episode in ${String(seconds)}s`}
+              {headline ?? `Next Episode in ${String(seconds)}s`}
             </Text>
             <Text variant="heading" tone="onMedia" numberOfLines={1}>
               {next.name}
@@ -81,24 +89,26 @@ export function NextEpisodeCard({
           <Pressable
             onPress={onWatchCredits}
             accessibilityRole="button"
-            accessibilityLabel="Watch Credits"
+            accessibilityLabel={dismissLabel}
             className="h-11 min-w-0 flex-1 items-center justify-center rounded-pill bg-dark-text/12 active:opacity-70"
           >
             <Text variant="labelStrong" tone="onMedia">
-              Watch Credits
+              {dismissLabel}
             </Text>
           </Pressable>
-          <Pressable
-            onPress={onPlayNext}
-            accessibilityRole="button"
-            accessibilityLabel="Play Next"
-            className="h-11 min-w-0 flex-1 flex-row items-center justify-center gap-2 rounded-pill bg-accent active:bg-accent-pressed"
-          >
-            <Icon icon={Play} tone="onMedia" size="inline" filled />
-            <Text variant="labelStrong" tone="onMedia">
-              Play Next
-            </Text>
-          </Pressable>
+          {onPlayNext === null ? null : (
+            <Pressable
+              onPress={onPlayNext}
+              accessibilityRole="button"
+              accessibilityLabel="Play Next"
+              className="h-11 min-w-0 flex-1 flex-row items-center justify-center gap-2 rounded-pill bg-accent active:bg-accent-pressed"
+            >
+              <Icon icon={Play} tone="onMedia" size="inline" filled />
+              <Text variant="labelStrong" tone="onMedia">
+                Play Next
+              </Text>
+            </Pressable>
+          )}
         </View>
       </View>
     </Animated.View>
