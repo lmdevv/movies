@@ -337,15 +337,12 @@ function PlayerSession({ params, attempt, onRestart }: PlayerSessionProps) {
       ? NEXT_COUNTDOWN.totalMs
       : NEXT_COUNTDOWN.totalMs - (now - countdownStart);
 
-  const playEpisode = useCallback(
-    (episodeId: EpisodeId) => {
-      // The same screen with another episode: its key changes, so a new session starts, resuming
-      // where the profile stopped without asking, as on the web. A version chosen for this episode
-      // does not carry over.
-      router.setParams({ episodeId, fileId: undefined, start: "resume" });
-    },
-    [params.titleId],
-  );
+  const playEpisode = useCallback((episodeId: EpisodeId) => {
+    // The same screen with another episode, from the next-episode card or the Episodes panel: its
+    // key changes, so a new session starts, resuming where the profile stopped without asking, as
+    // on the web. A version chosen for this episode does not carry over.
+    router.setParams({ episodeId, fileId: undefined, start: "resume" });
+  }, []);
 
   useEffect(() => {
     if (showNext && countdownStart !== null && countdownMs <= 0) playEpisode(next.id);

@@ -69,6 +69,7 @@ const browseOrientation = Platform.OS === "ios" && Platform.isPad ? "default" : 
  */
 function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
   const invite = usePendingInvite();
+  const { theme } = useUniwind();
 
   /** A native sheet sized to its content, with the grabber. */
   const sheet = {
@@ -80,7 +81,13 @@ function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
   } as const;
 
   return (
-    <Stack screenOptions={{ headerShown: false, orientation: browseOrientation }}>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        orientation: browseOrientation,
+        statusBarStyle: theme === "light" ? "dark" : "light",
+      }}
+    >
       <Stack.Protected guard={phase === "disconnected"}>
         <Stack.Screen name="welcome" />
         <Stack.Screen name="connect" />
