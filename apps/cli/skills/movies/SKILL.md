@@ -234,6 +234,7 @@ and newer [movies] progress is kept unless the source played the item more recen
 ### account
 
 - `movies account viewer`: Show the signed-in account and what this session may do. (any session)
+- `movies account change-password --current-password <text> --new-password <text>`: Change the account's password after checking the current one. (scope account)
 
 ### invites
 

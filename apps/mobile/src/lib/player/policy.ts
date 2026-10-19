@@ -8,7 +8,7 @@ import type { ClientCapabilities, NegotiateResponse } from "@movies/contracts/me
 import { PlaybackApiError } from "@movies/contracts/media-playback";
 import type { CallError, PlaybackCallError } from "@movies/sdk/effect";
 import { Playback } from "@movies/sdk/effect";
-import { Data, Match, Schema, Struct } from "effect";
+import { Data, Match, Predicate, Schema, Struct } from "effect";
 
 /** Saved positions shorter than this start from the beginning instead of asking to resume. */
 const MIN_RESUME_MS = 10_000;
@@ -176,3 +176,21 @@ export const withoutFailedPath = (
 
   return null;
 };
+
+/**
+ * Answers meaning the service cannot give a stream with the quality cap or picture subtitle asked
+ * for now. A choice the viewer just made is undone and the current stream plays on; one carried
+ * into a recovery, or asked for when a session starts, is dropped for playback without it.
+ */
+const UNHONOURED = [
+  "UnsupportedPlayback",
+  "TranscodeCapacityReached",
+  "InsufficientTranscodeSpace",
+] as const;
+
+/**
+ * Whether the service could not give a stream with the quality cap or picture subtitle asked for,
+ * so asking again without them may work.
+ */
+export const isUnhonoured = (failure: PlaybackCallError | CallError): boolean =>
+  UNHONOURED.some((tag) => Predicate.isTagged(failure, tag));

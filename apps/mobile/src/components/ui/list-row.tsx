@@ -16,6 +16,8 @@ import type { TextTone } from "./text";
 export interface ListRowProps {
   readonly title: string;
   readonly icon?: LucideIcon | undefined;
+  /** Draws the icon filled, such as the play triangle of Autoplay Next Episode. */
+  readonly iconFilled?: boolean | undefined;
   readonly detail?: string | undefined;
   /** A second line under the title. */
   readonly subtitle?: string | undefined;
@@ -24,12 +26,15 @@ export interface ListRowProps {
   readonly trailing?: ReactNode;
   readonly onPress?: (() => void) | undefined;
   readonly disabled?: boolean;
+  /** Marks the chosen row of a picker for VoiceOver, such as the selected streaming quality. */
+  readonly selected?: boolean;
 }
 
 /** One row of a list. */
 export function ListRow({
   title,
   icon,
+  iconFilled = false,
   detail,
   subtitle,
   tone = "default",
@@ -37,12 +42,13 @@ export function ListRow({
   trailing,
   onPress,
   disabled = false,
+  selected,
 }: ListRowProps) {
   const content = (
     <>
       {icon === undefined ? null : (
         <View className="w-7 items-center">
-          <Icon icon={icon} tone={tone} size="row" />
+          <Icon icon={icon} tone={tone} size="row" filled={iconFilled} />
         </View>
       )}
       <View className="flex-1 gap-0.5">
@@ -77,7 +83,7 @@ export function ListRow({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={detail === undefined ? title : `${title}, ${detail}`}
-      accessibilityState={{ disabled }}
+      accessibilityState={selected === undefined ? { disabled } : { disabled, selected }}
       disabled={disabled}
       onPress={onPress}
       className={`min-h-14 flex-row items-center gap-3 active:opacity-60 ${disabled ? "opacity-40" : ""}`}

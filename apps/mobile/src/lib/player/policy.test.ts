@@ -21,6 +21,7 @@ import {
   afterPlayerError,
   afterSessionFailure,
   afterStartFailure,
+  isUnhonoured,
   offersResume,
   withoutFailedPath,
 } from "./policy";
@@ -151,5 +152,14 @@ describe("withoutFailedPath", () => {
 
   it("has nothing to drop after a transcode failed", () => {
     expect(withoutFailedPath(IOS_CAPABILITIES, { mode: "transcode-software", video })).toBeNull();
+  });
+});
+
+describe("isUnhonoured", () => {
+  it("names the answers that a stream without the quality cap or picture subtitle may avoid", () => {
+    expect(isUnhonoured(new TranscodeCapacityReached({ limit: 2 }))).toBe(true);
+    expect(isUnhonoured(new StreamNotFound({ streamId: "s" }))).toBe(false);
+    expect(isUnhonoured(new Conflict({ message: "missing from disk" }))).toBe(false);
+    expect(isUnhonoured(transport)).toBe(false);
   });
 });

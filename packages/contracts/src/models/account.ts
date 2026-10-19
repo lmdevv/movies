@@ -5,6 +5,12 @@ import { ApiKeyId, AuthSessionId, InviteId, UserId } from "../ids";
 import { ApiKeyScope, AssignableRole, DeviceScope, Role, Scope } from "../scopes";
 import { EpochMillis } from "../units";
 
+/** Shortest password the server accepts for a sign-up or a password change. */
+export const PASSWORD_MIN_LENGTH = 8;
+
+/** A new password: at least `PASSWORD_MIN_LENGTH` characters. */
+export const NewPassword = Schema.String.check(Schema.isMinLength(PASSWORD_MIN_LENGTH));
+
 /** An account as other people and admins see it. */
 export const User = Schema.Struct({
   id: UserId,

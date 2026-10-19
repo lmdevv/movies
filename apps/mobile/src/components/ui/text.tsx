@@ -14,6 +14,8 @@ const VARIANTS = {
   display: "font-sans-bold text-ios-40 leading-ios-46 tracking-display",
   /** The featured title over Home's hero (C01): 48/54 bold, display tracking. */
   heroTitle: "font-sans-bold text-ios-48 leading-ios-54 tracking-display",
+  /** The [movies] wordmark on About (H29): 48/54 heavy. */
+  wordmark: "font-sans-heavy text-ios-48 leading-ios-54",
   /** Large screen titles: 34/40 bold. */
   largeTitle: "font-sans-bold text-ios-34 leading-ios-40 tracking-display",
   /**

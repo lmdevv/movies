@@ -21,6 +21,7 @@ import { KIDS_DEFAULT_MAX_AGE } from "@movies/contracts/content-rating";
 import { DeviceId } from "@movies/contracts/ids";
 import { mediaServiceFunctions } from "@movies/contracts/media-service";
 import { LibraryRoot } from "@movies/contracts/models/catalog";
+import { NewPassword } from "@movies/contracts/models/account";
 import { DisplayName } from "@movies/contracts/models/common";
 import { BACKUP_SYNC_LIMIT } from "@movies/contracts/models/jobs";
 import {
@@ -223,6 +224,13 @@ describe("constants shared across the seam", () => {
     expect(bounds.BACKUP_SYNC_LIMIT).toBe(BACKUP_SYNC_LIMIT);
     expect(bounds.COLLECTION_BATCH_LIMIT).toBe(COLLECTION_BATCH_LIMIT);
     expect(bounds.COLLECTION_MEMBER_BATCH_LIMIT).toBe(COLLECTION_MEMBER_BATCH_LIMIT);
+  });
+
+  it("asks for new passwords as long as the contract does", () => {
+    const accepts = Schema.is(NewPassword);
+
+    expect(accepts(text(bounds.PASSWORD_MIN, ""))).toBe(true);
+    expect(accepts(text(bounds.PASSWORD_MIN - 1, ""))).toBe(false);
   });
 
   // Validators check shapes only; these are the lengths and ranges the backend enforces itself.
