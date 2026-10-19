@@ -4,7 +4,7 @@
  */
 import { BackupId } from "@movies/contracts/ids";
 import { useCommand } from "@movies/sdk/react";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import { useLocalSearchParams } from "expo-router";
 import { RotateCcw } from "lucide-react-native";
 
@@ -13,11 +13,20 @@ import { Sheet, useSheetExit } from "@/components/title/sheet";
 import { Button } from "@/components/ui/button";
 import { useSignOut } from "@/session/viewer";
 
-const decodeBackupId = Schema.decodeUnknownSync(BackupId);
+const decodeBackupId = Schema.decodeUnknownOption(BackupId);
 
-export default function RestoreBackup() {
-  const params = useLocalSearchParams<{ backupId: string }>();
-  const backupId = decodeBackupId(params.backupId);
+/** The sheet for a backup named by a link that is not one: nothing to restore, only a way out. */
+function NoSuchBackup() {
+  const exit = useSheetExit();
+
+  return (
+    <Sheet title="Backup not found" exit={exit}>
+      <Button label="Cancel" variant="plain" onPress={exit.close} />
+    </Sheet>
+  );
+}
+
+function ConfirmRestore({ backupId }: { readonly backupId: BackupId }) {
   const restore = useCommand("backups.restore");
   const signOut = useSignOut();
   const exit = useSheetExit();
@@ -44,4 +53,13 @@ export default function RestoreBackup() {
       <Button label="Cancel" variant="plain" onPress={exit.close} />
     </Sheet>
   );
+}
+
+export default function RestoreBackup() {
+  const params = useLocalSearchParams<{ backupId: string }>();
+
+  return Option.match(decodeBackupId(params.backupId), {
+    onNone: () => <NoSuchBackup />,
+    onSome: (backupId) => <ConfirmRestore backupId={backupId} />,
+  });
 }

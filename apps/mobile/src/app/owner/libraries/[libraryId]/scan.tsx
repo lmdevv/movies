@@ -8,11 +8,12 @@ import { JobId, LibraryId } from "@movies/contracts/ids";
 import type { LibraryDetail } from "@movies/contracts/models/catalog";
 import type { Job } from "@movies/contracts/models/jobs";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
+import type { QueryState } from "@movies/sdk/react";
 import { Schema } from "effect";
 import { router, useLocalSearchParams } from "expo-router";
 import { Clapperboard, RotateCcw, Search } from "lucide-react-native";
 
-import { Loading, Meter, OwnerScreen } from "@/components/owner/parts";
+import { LoadFailure, Loading, Meter, OwnerScreen } from "@/components/owner/parts";
 import { useTask } from "@/components/owner/use-task";
 import { Button } from "@/components/ui/button";
 import { ListRow } from "@/components/ui/list-row";
@@ -26,8 +27,8 @@ const decodeLibraryId = Schema.decodeUnknownSync(LibraryId);
 
 const decodeJobId = Schema.decodeUnknownSync(JobId);
 
-/** The scan named by the route, or the library's latest. */
-const useScan = (libraryId: LibraryId, jobId: string | undefined): Job | null | undefined => {
+/** The scan named by the route, or the library's latest (null when it has none yet). */
+const useScan = (libraryId: LibraryId, jobId: string | undefined): QueryState<Job | null> => {
   const named = useCommandQuery(
     "jobs.get",
     jobId === undefined ? "skip" : { jobId: decodeJobId(jobId) },
@@ -38,15 +39,11 @@ const useScan = (libraryId: LibraryId, jobId: string | undefined): Job | null | 
     jobId === undefined ? { kind: "scan", libraryId, limit: 1 } : "skip",
   );
 
-  if (jobId !== undefined) {
-    if (named.status === "loading") return undefined;
+  if (jobId !== undefined) return named;
 
-    return named.status === "success" ? named.data : null;
-  }
+  if (recent.status !== "success") return recent;
 
-  if (recent.status === "loading") return undefined;
-
-  return recent.status === "success" ? (recent.data[0] ?? null) : null;
+  return { status: "success", data: recent.data[0] ?? null };
 };
 
 /** The line under the count, in the owner's words for a folder the scan could not read. */
@@ -182,18 +179,23 @@ export default function ScanLibrary() {
   const library = useCommandQuery("libraries.get", { libraryId });
   const job = useScan(libraryId, params.jobId);
   const name = library.status === "success" ? library.data.name : "Library";
-  const title = job !== null && job !== undefined && isActive(job) ? `Scanning ${name}` : name;
+  const current = job.status === "success" ? job.data : null;
+  const title = current !== null && isActive(current) ? `Scanning ${name}` : name;
 
   return (
     <OwnerScreen title={title} fallback="/owner/libraries">
-      {library.status === "success" && job !== undefined && job !== null ? (
-        <ScanView library={library.data} job={job} />
-      ) : job === null ? (
+      {library.status === "error" ? (
+        <LoadFailure error={library.error} retry={library.retry} />
+      ) : job.status === "error" ? (
+        <LoadFailure error={job.error} retry={job.retry} />
+      ) : library.status === "loading" || job.status === "loading" ? (
+        <Loading />
+      ) : job.data === null ? (
         <Text tone="muted" className="pt-8">
           No scan to show yet.
         </Text>
       ) : (
-        <Loading />
+        <ScanView library={library.data} job={job.data} />
       )}
     </OwnerScreen>
   );

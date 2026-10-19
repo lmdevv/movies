@@ -4,7 +4,7 @@
  * folder reconnects and runs the dry run again.
  */
 import { Folder } from "lucide-react-native";
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 
 import { useImportState, useReview } from "@/components/owner/import-state";
 import type { Preview } from "@/components/owner/import-state";
@@ -16,12 +16,23 @@ import { TextField } from "@/components/ui/text-field";
 
 type Review = ReturnType<typeof useReview>;
 
-function UnmappedFolder({ from, map }: { readonly from: string; readonly map: Review["map"] }) {
+function UnmappedFolder({
+  from,
+  map,
+  blocked,
+}: {
+  readonly from: string;
+  readonly map: Review["map"];
+  /** Another folder's mapping is running; this one waits, so neither overwrites the other. */
+  readonly blocked: boolean;
+}) {
   const task = useTask(map);
   const [to, setTo] = useState("");
   const [invalid, setInvalid] = useState(false);
 
   const submit = async () => {
+    if (blocked) return;
+
     const mapped = await task.run(from, to);
 
     setInvalid(mapped !== null && !mapped.value);
@@ -47,7 +58,7 @@ function UnmappedFolder({ from, map }: { readonly from: string; readonly map: Re
         label="Map Folder"
         variant="secondary"
         busy={task.busy}
-        disabled={to.trim() === ""}
+        disabled={to.trim() === "" || blocked}
         onPress={() => void submit()}
       />
     </>
@@ -56,6 +67,23 @@ function UnmappedFolder({ from, map }: { readonly from: string; readonly map: Re
 
 function LibraryList({ preview }: { readonly preview: Preview }) {
   const review = useReview(preview);
+  // One mapping at a time: each reconnects from the mappings as they stand, so two at once would
+  // each leave out the other's folder.
+  const running = useRef(false);
+  const [mapping, setMapping] = useState<string | null>(null);
+
+  const mapOne: Review["map"] = async (from, to) => {
+    if (running.current) throw new Error("Another folder is being mapped. Try again in a moment.");
+    running.current = true;
+    setMapping(from);
+
+    try {
+      return await review.map(from, to);
+    } finally {
+      running.current = false;
+      setMapping(null);
+    }
+  };
 
   return preview.report.libraries.map((library) => (
     <Fragment key={library.sourceLibraryId}>
@@ -66,7 +94,12 @@ function LibraryList({ preview }: { readonly preview: Preview }) {
         detail={library.existingLibraryId === null ? "New" : "Already Here"}
       />
       {library.unmappedFolders.map((folder) => (
-        <UnmappedFolder key={folder} from={folder} map={review.map} />
+        <UnmappedFolder
+          key={folder}
+          from={folder}
+          map={mapOne}
+          blocked={mapping !== null && mapping !== folder}
+        />
       ))}
     </Fragment>
   ));

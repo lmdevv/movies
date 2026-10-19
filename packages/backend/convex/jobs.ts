@@ -74,6 +74,14 @@ export const list = query({
 
     /** The jobs to read newest first, older than `before`: a library's, by status, or all. */
     const indexed = (before: number | null) => {
+      if (libraryId !== undefined && status !== undefined) {
+        return jobs.withIndex("by_library_status", (q) =>
+          before === null
+            ? q.eq("libraryId", libraryId).eq("status", status)
+            : q.eq("libraryId", libraryId).eq("status", status).lt("_creationTime", before),
+        );
+      }
+
       if (libraryId !== undefined) {
         return jobs.withIndex("by_library", (q) =>
           before === null

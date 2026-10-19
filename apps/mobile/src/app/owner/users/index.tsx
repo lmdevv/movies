@@ -5,13 +5,14 @@
 import type { Invite } from "@movies/contracts/models/account";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { router } from "expo-router";
-import { Link, Plus, User } from "lucide-react-native";
+import { Link, Plus, RotateCcw, User } from "lucide-react-native";
 import { Alert } from "react-native";
 
 import { OwnerScreen, QueryView, SectionHeading, showActions } from "@/components/owner/parts";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { ListRow } from "@/components/ui/list-row";
+import { Text } from "@/components/ui/text";
 import { describeFailure } from "@/lib/failure";
 import { householdOf, openInvites, userDetail } from "@/lib/household";
 
@@ -68,6 +69,15 @@ export default function UsersAndInvites() {
           ))
         }
       </QueryView>
+      {invites.status === "error" ? (
+        <>
+          <SectionHeading>Pending Invites</SectionHeading>
+          <Text variant="meta" tone="danger">
+            {describeFailure(invites.error)}
+          </Text>
+          <Button label="Try Again" variant="secondary" icon={RotateCcw} onPress={invites.retry} />
+        </>
+      ) : null}
       {pending.length === 0 ? null : (
         <>
           <SectionHeading>Pending Invites</SectionHeading>

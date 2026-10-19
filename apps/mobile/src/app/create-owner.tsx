@@ -35,10 +35,12 @@ export default function CreateOwnerAccount() {
   /** Why the server refused the account, shown over the buttons. */
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<SetupStart | null>(null);
+  // Set before any state or await, so a second tap of either button cannot start another sign-up.
+  const submitting = useRef(false);
   const ready = name.trim() !== "" && email.trim() !== "" && password !== "" && busy === null;
 
   const create = async (start: SetupStart) => {
-    if (!ready) return;
+    if (!ready || submitting.current) return;
 
     if (password.length < MIN_PASSWORD_LENGTH) {
       setPasswordError(`Use at least ${MIN_PASSWORD_LENGTH} characters.`);
@@ -46,6 +48,7 @@ export default function CreateOwnerAccount() {
       return;
     }
 
+    submitting.current = true;
     setBusy(start);
     setError(null);
     // Setup holds this screen while the account is made, then opens its next step.
@@ -62,6 +65,7 @@ export default function CreateOwnerAccount() {
       firstRun.end();
       setError(describeFailure(cause));
       setBusy(null);
+      submitting.current = false;
     }
   };
 

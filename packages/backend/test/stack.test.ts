@@ -945,6 +945,15 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       expect(scans[0]?.id).toBe(jobId);
       expect(
+        (
+          await run(fixture.owner, "jobs.list", {
+            libraryId: fixture.openLibrary,
+            status: "succeeded",
+            limit: 5,
+          })
+        ).map((job) => job.id),
+      ).toContain(jobId);
+      expect(
         scans.every(
           (job) => job.payload.kind === "scan" && job.payload.libraryId === fixture.openLibrary,
         ),
