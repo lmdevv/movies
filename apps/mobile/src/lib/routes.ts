@@ -1,10 +1,11 @@
 /**
  * Links into the player and what they carry: the title, an episode for shows, a chosen version
- * (file), and `start`: `beginning` to start over, or `resume` to resume without asking. Screens link
+ * (file), `start` (`beginning` to start over, `resume` to resume without asking), `at` to start at a
+ * position (a watch room's, when a guest goes on alone), and the watch room to play in. Screens link
  * with `watchHref`, which writes them in one order; the player reads them back with
  * `parseWatchParams`, which never throws.
  */
-import { EpisodeId, MediaFileId, TitleId } from "@movies/contracts/ids";
+import { EpisodeId, MediaFileId, RoomId, TitleId } from "@movies/contracts/ids";
 import { Schema } from "effect";
 import type { Option } from "effect";
 
@@ -20,18 +21,24 @@ export interface WatchTarget {
    * episode does; omit to ask before resuming.
    */
   readonly start?: "beginning" | "resume" | undefined;
+  /** Where to start, in milliseconds, without asking to resume; omit for the saved progress. */
+  readonly at?: number | undefined;
+  /** The watch room this device joined, whose timeline the player follows; omit to play alone. */
+  readonly room?: RoomId | undefined;
 }
 
 /**
  * The player's href for `target`. Present parameters appear in the order `episodeId`, `fileId`,
- * `start`, each URI-encoded, so `new URLSearchParams(query)` reads back the same values.
+ * `start`, `at` (whole milliseconds), `room`, each URI-encoded, so `new URLSearchParams(query)` reads back the same values.
  */
-export const watchHref = ({ titleId, episodeId, fileId, start }: WatchTarget): string => {
+export const watchHref = ({ titleId, episodeId, fileId, start, at, room }: WatchTarget): string => {
   const query = (
     [
       ["episodeId", episodeId],
       ["fileId", fileId],
       ["start", start],
+      ["at", at === undefined ? undefined : String(Math.max(0, Math.round(at)))],
+      ["room", room],
     ] as const
   )
     .flatMap(([key, value]) => (value === undefined ? [] : [`${key}=${encodeURIComponent(value)}`]))
@@ -48,6 +55,8 @@ const WatchParams = Schema.Struct({
   episodeId: Schema.optionalKey(EpisodeId),
   fileId: Schema.optionalKey(MediaFileId),
   start: Schema.optionalKey(Schema.Literals(["beginning", "resume"])),
+  at: Schema.optionalKey(Schema.FiniteFromString.check(Schema.isGreaterThanOrEqualTo(0))),
+  room: Schema.optionalKey(RoomId),
 });
 
 /** What the player plays, read from its route. */
@@ -58,7 +67,7 @@ const decodeWatchParams = Schema.decodeUnknownOption(WatchParams);
 /** A route's params as Expo Router reads them: a repeated key gives an array. */
 type RouteParams = Readonly<Record<string, string | string[] | undefined>>;
 
-const KEYS = ["titleId", "episodeId", "fileId", "start"] as const;
+const KEYS = ["titleId", "episodeId", "fileId", "start", "at", "room"] as const;
 
 /**
  * The player's params from Expo Router's `useLocalSearchParams()`, or none when the title is

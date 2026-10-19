@@ -19,6 +19,7 @@ const TONE_VARIABLES = {
   onMediaMuted: "--color-video-muted",
   inverse: "--color-bg",
   darkMuted: "--color-dark-text-muted",
+  darkDanger: "--color-dark-danger",
 } as const satisfies Record<TextTone, string>;
 
 /**

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { episodeIdParam, fileIdParam, seasonParam, titleIdParam } from "./route-params";
+import {
+  episodeIdParam,
+  fileIdParam,
+  roomIdParam,
+  seasonParam,
+  titleIdParam,
+} from "./route-params";
 
 describe("route params", () => {
   it("reads IDs and treats a missing or empty one as absent", () => {
@@ -11,6 +17,8 @@ describe("route params", () => {
     expect(titleIdParam([])).toBeNull();
     expect(episodeIdParam("e1")).toBe("e1");
     expect(fileIdParam(undefined)).toBeNull();
+    expect(roomIdParam("r7")).toBe("r7");
+    expect(roomIdParam("")).toBeNull();
   });
 
   it("reads whole season numbers only", () => {

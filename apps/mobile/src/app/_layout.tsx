@@ -17,6 +17,7 @@ import { displayHost } from "@/lib/local-network";
 import { useThemeColor } from "@/lib/theme-color";
 import { ActiveProfileContext } from "@/session/active-profile";
 import { ConnectionProvider, useConnection, useServer } from "@/session/connection";
+import { CurrentRoomProvider } from "@/session/current-room";
 import { InviteLinks } from "@/session/invite-links";
 import {
   PendingInviteProvider,
@@ -125,6 +126,10 @@ function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
         <Stack.Screen name="collection/[collectionId]" />
         <Stack.Screen name="genre/[genre]" />
         <Stack.Screen name="person/[personId]" />
+        <Stack.Screen name="together/[titleId]" />
+        <Stack.Screen name="room/[roomId]" />
+        <Stack.Screen name="room/[roomId]/invite" options={sheet} />
+        <Stack.Screen name="room/[roomId]/end" options={sheet} />
         <Stack.Screen
           name="watch/[titleId]"
           options={{
@@ -232,7 +237,9 @@ function ConnectedApp() {
       <ActiveProfileContext.Provider value={settled.kind === "ready" ? settled.active : null}>
         <HideSplash />
         <TitleStatesProvider>
-          <RootStack phase={settled.kind} />
+          <CurrentRoomProvider>
+            <RootStack phase={settled.kind} />
+          </CurrentRoomProvider>
         </TitleStatesProvider>
         {trouble === null ? null : (
           // Modal for VoiceOver too, so the covered screens can't be reached underneath.
