@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { audioTrackLabels, languageName, subtitleTrackLabels } from "./tracks";
+import { languageName } from "../languages";
+import { audioTrackLabels, subtitleTrackLabels } from "./tracks";
 
 const subtitle = {
   language: "eng",

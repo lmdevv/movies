@@ -655,6 +655,50 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       ).toBe("conflict");
     });
 
+    it("changes the password only with the current one and signs out other sessions", async () => {
+      const email = `changer-${id}@movies.test`;
+      const invite = await run(fixture.owner, "invites.create", { email, role: "member" });
+      const phone = await signIn(url, password(email, "signUp", invite.code));
+      const laptop = await signIn(url, password(email, "signIn"));
+      const next = `${PASSWORD}-next`;
+
+      expect(
+        await outcome(
+          run(phone, "account.changePassword", { currentPassword: "wrong-one", newPassword: next }),
+        ),
+      ).toBe("forbidden");
+      expect(
+        await outcome(
+          run(phone, "account.changePassword", { currentPassword: PASSWORD, newPassword: next }),
+        ),
+      ).toBe("succeeded");
+
+      const withNew = {
+        provider: "password",
+        params: { flow: "signIn", email, password: next },
+      } as const;
+
+      expect(await outcome(signIn(url, password(email, "signIn")))).toBe("unauthenticated");
+      expect(await outcome(signIn(url, withNew))).toBe("succeeded");
+      expect(await outcome(run(phone, "account.viewer", {}))).toBe("succeeded");
+      expect(await outcome(run(laptop, "account.viewer", {}))).toBe("unauthenticated");
+
+      const keySessions = [fixture.readKey, fixture.mediaService];
+
+      expect(
+        await Promise.all(
+          keySessions.map((keySession) =>
+            outcome(
+              run(keySession, "account.changePassword", {
+                currentPassword: "x",
+                newPassword: next,
+              }),
+            ),
+          ),
+        ),
+      ).toStrictEqual(["forbidden", "forbidden"]);
+    });
+
     it("keeps members out of admin commands", async () => {
       expect(await outcome(run(fixture.member, "users.list", {}))).toBe("forbidden");
       expect(await outcome(run(fixture.member, "libraries.listDetails", {}))).toBe("forbidden");

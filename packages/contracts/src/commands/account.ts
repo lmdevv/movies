@@ -12,6 +12,7 @@ import {
   DeviceScopes,
   Invite,
   InviteLookup,
+  NewPassword,
   SessionInfo,
   SetupStatus,
   User,
@@ -40,6 +41,14 @@ export const accountCommands = {
     args: NoArgs,
     result: Viewer,
     function: "account:viewer",
+  }),
+  "account.changePassword": action({
+    summary: "Change the account's password after checking the current one",
+    group: "account",
+    scope: "account",
+    args: Schema.Struct({ currentPassword: Schema.String, newPassword: NewPassword }),
+    result: Ok,
+    function: "account:changePassword",
   }),
 };
 

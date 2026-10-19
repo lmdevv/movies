@@ -1,0 +1,76 @@
+/**
+ * H06 · Devices: this iPhone and the account's other password and device sign-ins, each opening
+ * Sign Out (H23), then Approve a Device.
+ */
+import type { SessionInfo } from "@movies/contracts/models/account";
+import { useCommandQuery } from "@movies/sdk/react";
+import { router } from "expo-router";
+import { Airplay, Monitor, Plus, Smartphone } from "lucide-react-native";
+import { useState } from "react";
+import { ActivityIndicator, View } from "react-native";
+
+import { Button } from "@/components/ui/button";
+import { CalmState } from "@/components/ui/calm-state";
+import { ListRow } from "@/components/ui/list-row";
+import { NavHeader } from "@/components/ui/nav-header";
+import { Screen } from "@/components/ui/screen";
+import { deviceDetail, deviceName, listedDevices } from "@/lib/account";
+import { describeFailure } from "@/lib/failure";
+
+/** The glyph of a device: this iPhone, a TV or other device that signed in with a code, or a browser. */
+const deviceIcon = (session: SessionInfo) => {
+  if (session.current) return Smartphone;
+
+  return session.kind === "device" ? Airplay : Monitor;
+};
+
+export default function Devices() {
+  const sessions = useCommandQuery("sessions.list", {});
+  // Sign-in days are counted from when the screen opened.
+  const [now] = useState(Date.now);
+
+  if (sessions.status === "error") {
+    return (
+      <Screen header={<NavHeader title="Devices" fallback="/you" />}>
+        <CalmState
+          title="Couldn’t Load Devices"
+          description={describeFailure(sessions.error)}
+          actions={<Button label="Try Again" onPress={sessions.retry} />}
+        />
+      </Screen>
+    );
+  }
+
+  return (
+    <Screen scroll header={<NavHeader title="Devices" fallback="/you" />}>
+      {sessions.status === "loading" ? (
+        <ActivityIndicator className="py-6" colorClassName="accent-text-muted" />
+      ) : (
+        listedDevices(sessions.data).map((session) => (
+          <ListRow
+            key={session.id}
+            icon={deviceIcon(session)}
+            title={deviceName(session)}
+            detail={deviceDetail(session, now)}
+            {...(session.current
+              ? {}
+              : {
+                  onPress: () =>
+                    router.push({
+                      pathname: "/devices/sign-out",
+                      params: { sessionId: session.id, name: deviceName(session) },
+                    }),
+                })}
+          />
+        ))
+      )}
+      <View className="h-6" />
+      <Button
+        label="Approve a Device"
+        variant="secondary"
+        icon={Plus}
+        onPress={() => router.push("/approve-device")}
+      />
+    </Screen>
+  );
+}

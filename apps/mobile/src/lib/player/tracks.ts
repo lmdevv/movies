@@ -1,57 +1,13 @@
 /**
  * Track names in Audio & Subtitles (F02), as the Apple TV app writes them: the language in its own
  * name, then what sets the track apart: `English · 5.1`, `English · Audio Description`,
- * `English · SDH`, `Español`. Hermes has no `Intl.DisplayNames`, so common languages are listed
- * here by their ISO 639-1 and 639-2 codes; others show their code.
+ * `English · SDH`, `Español`.
  */
 import { BITMAP_SUBTITLE_FORMATS } from "@movies/contracts/media-playback";
 import type { SubtitleTrack } from "@movies/contracts/media-playback";
 import type { AudioStream } from "@movies/contracts/models/catalog";
 
-/** Endonyms by ISO 639-1 code, with the ISO 639-2 codes (bibliographic and terminology) that map to it. */
-const LANGUAGES: ReadonlyArray<readonly [string, string, ReadonlyArray<string>]> = [
-  ["en", "English", ["eng"]],
-  ["es", "Español", ["spa"]],
-  ["fr", "Français", ["fre", "fra"]],
-  ["de", "Deutsch", ["ger", "deu"]],
-  ["it", "Italiano", ["ita"]],
-  ["pt", "Português", ["por"]],
-  ["nl", "Nederlands", ["dut", "nld"]],
-  ["sv", "Svenska", ["swe"]],
-  ["no", "Norsk", ["nor", "nob", "nno"]],
-  ["da", "Dansk", ["dan"]],
-  ["fi", "Suomi", ["fin"]],
-  ["pl", "Polski", ["pol"]],
-  ["cs", "Čeština", ["cze", "ces"]],
-  ["hu", "Magyar", ["hun"]],
-  ["ro", "Română", ["rum", "ron"]],
-  ["el", "Ελληνικά", ["gre", "ell"]],
-  ["tr", "Türkçe", ["tur"]],
-  ["ru", "Русский", ["rus"]],
-  ["uk", "Українська", ["ukr"]],
-  ["ar", "العربية", ["ara"]],
-  ["he", "עברית", ["heb"]],
-  ["hi", "हिन्दी", ["hin"]],
-  ["th", "ไทย", ["tha"]],
-  ["vi", "Tiếng Việt", ["vie"]],
-  ["id", "Bahasa Indonesia", ["ind"]],
-  ["ja", "日本語", ["jpn"]],
-  ["ko", "한국어", ["kor"]],
-  ["zh", "中文", ["chi", "zho"]],
-];
-
-const NAMES: ReadonlyMap<string, string> = new Map(
-  LANGUAGES.flatMap(([code, name, others]) => [code, ...others].map((key) => [key, name] as const)),
-);
-
-/** The language's own name for `code`, such as `Español` for `spa`; null when undetermined. */
-export const languageName = (code: string | null | undefined): string | null => {
-  if (code === null || code === undefined || code === "" || code === "und") return null;
-
-  const base = code.toLowerCase().split(/[-_]/u)[0] ?? "";
-
-  return NAMES.get(base) ?? code.toUpperCase();
-};
+import { languageName } from "../languages";
 
 /** `Mono`, `Stereo`, `5.1`, `7.1`, or `6 ch`. */
 const channelsLabel = (channels: number): string | null => {

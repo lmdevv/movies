@@ -122,6 +122,27 @@ function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
         <Stack.Screen name="title/[titleId]/actions" options={sheet} />
         <Stack.Screen name="title/[titleId]/episode/[episodeId]" options={sheet} />
         <Stack.Screen name="you" />
+        <Stack.Screen name="account" />
+        <Stack.Screen name="change-password" />
+        <Stack.Screen name="connected-server" options={sheet} />
+        <Stack.Screen name="sign-out" options={sheet} />
+        <Stack.Screen name="history" />
+        <Stack.Screen name="history-entry" options={sheet} />
+        <Stack.Screen name="settings/index" />
+        <Stack.Screen name="settings/appearance" options={sheet} />
+        <Stack.Screen name="settings/audio-subtitles" />
+        <Stack.Screen name="settings/choose/[preference]" />
+        <Stack.Screen name="settings/about" />
+        <Stack.Screen name="settings/licenses" />
+        <Stack.Screen name="settings/privacy" options={sheet} />
+        <Stack.Screen name="devices/index" />
+        <Stack.Screen name="devices/sign-out" options={sheet} />
+        <Stack.Screen name="approve-device/index" />
+        <Stack.Screen name="approve-device/scan" />
+        <Stack.Screen name="approve-device/[userCode]" />
+        <Stack.Screen name="api-keys/index" />
+        <Stack.Screen name="api-keys/new" />
+        <Stack.Screen name="api-keys/revoke" options={sheet} />
         <Stack.Screen name="collections" />
         <Stack.Screen name="collection/[collectionId]" />
         <Stack.Screen name="genre/[genre]" />
