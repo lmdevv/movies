@@ -15,10 +15,10 @@
  */
 import type { ClientCapabilities, NegotiateResponse } from "@movies/contracts/media-playback";
 import { Milliseconds } from "@movies/contracts/units";
-import type { CallError, Movies, PlaybackCallError } from "@movies/sdk/effect";
+import type { Movies } from "@movies/sdk/effect";
 import { Playback } from "@movies/sdk/effect";
 import type { useMoviesRuntime } from "@movies/sdk/react";
-import { Data, Effect, Exit, Option, Predicate, Result, Struct } from "effect";
+import { Data, Effect, Exit, Option, Result, Struct } from "effect";
 import { createVideoPlayer } from "expo-video";
 import type { VideoMetadata, VideoPlayer } from "expo-video";
 
@@ -32,6 +32,7 @@ import {
   afterPlayerError,
   offersResume,
   withoutFailedPath,
+  isUnhonoured,
 } from "@/lib/player/policy";
 import { lowerQuality, qualityCap } from "@/lib/player/quality";
 import type { QualityChoice } from "@/lib/player/quality";
@@ -79,20 +80,6 @@ interface SubtitleDelay {
   readonly ms: number;
 }
 
-/**
- * Answers meaning the service cannot give a stream with the quality cap or picture subtitle asked
- * for now. A choice the viewer just made is undone and the current stream plays on; one carried
- * into a recovery is dropped for playback without it.
- */
-const UNHONOURED = [
-  "UnsupportedPlayback",
-  "TranscodeCapacityReached",
-  "InsufficientTranscodeSpace",
-] as const;
-
-const isUnhonoured = (failure: PlaybackCallError | CallError): boolean =>
-  UNHONOURED.some((tag) => Predicate.isTagged(failure, tag));
-
 /** Renew the token and the stream this long before the token expires. */
 const RENEW_BEFORE_MS = 5 * 60 * 1000;
 
@@ -138,6 +125,8 @@ const inGeneration = (
 export interface PlayerControllerOptions {
   /** Start a new playback session at `positionMs`: the old one ended elsewhere. */
   readonly onNewSession: (positionMs: number) => void;
+  /** The quality to start at, from App Settings' Streaming Quality. */
+  readonly quality: QualityChoice;
 }
 
 /** Plays one session's streams. Create it, `start` it with the session, and `dispose` it. */
@@ -189,6 +178,7 @@ export class PlayerController {
   constructor(runtime: Runtime, options: PlayerControllerOptions) {
     this.#runtime = runtime;
     this.#options = options;
+    this.#snapshot = { ...this.#snapshot, quality: options.quality };
     this.#unsubscribePort = this.port.subscribe((event) => {
       if (event === "playing") {
         this.#recoveries = 0;

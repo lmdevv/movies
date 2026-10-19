@@ -25,7 +25,7 @@ import {
   SeekResponse,
   StopRequest,
 } from "@movies/contracts/media-playback";
-import type { Episode } from "@movies/contracts/models/catalog";
+import type { Episode, MediaFile } from "@movies/contracts/models/catalog";
 import type {
   ProgressEvent,
   ProgressReceipt,
@@ -61,6 +61,11 @@ export interface PlaybackRequest {
   readonly startAtMs: Option.Option<Milliseconds>;
   /** ffmpeg stream index of the audio track to play; the file's default track when none. */
   readonly audioStreamIndex: Option.Option<number>;
+  /**
+   * Picks the audio track from the file the session chose, when `audioStreamIndex` is none, so the
+   * first stream already plays a preferred language; none plays the file's default track.
+   */
+  readonly chooseAudio?: (file: MediaFile) => Option.Option<number>;
   /** The most to receive, such as 720p; the best the device plays when none. */
   readonly quality: Option.Option<PlaybackQuality>;
 }
@@ -306,16 +311,16 @@ export const start = Effect.fn("Playback.start")(function* (request: PlaybackReq
 
   const startAt = Option.getOrElse(request.startAtMs, () => started.resumePositionMs);
 
-  const stream = yield* negotiate(
-    started,
-    request.capabilities,
-    startAt,
-    request.audioStreamIndex,
-    {
-      quality: request.quality,
-      burnInSubtitle: Option.none(),
-    },
+  const { chooseAudio } = request;
+
+  const audioStreamIndex = Option.orElse(request.audioStreamIndex, () =>
+    chooseAudio === undefined ? Option.none() : chooseAudio(started.file),
   );
+
+  const stream = yield* negotiate(started, request.capabilities, startAt, audioStreamIndex, {
+    quality: request.quality,
+    burnInSubtitle: Option.none(),
+  });
 
   const playback: Playback = { started, stream };
 

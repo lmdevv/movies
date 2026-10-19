@@ -14,6 +14,7 @@ import type { Playback } from "@movies/sdk/effect";
 import { useCommandQuery, useMoviesRuntime, usePlaybackSession } from "@movies/sdk/react";
 import * as Brightness from "expo-brightness";
 import { useKeepAwake } from "expo-keep-awake";
+import * as Network from "expo-network";
 import { router } from "expo-router";
 import { VideoView } from "expo-video";
 import type { VideoMetadata } from "expo-video";
@@ -36,13 +37,25 @@ import { artworkUrl } from "@/lib/artwork";
 import { deviceId, deviceName } from "@/lib/device";
 import { IOS_CAPABILITIES } from "@/lib/player/capabilities";
 import { NEXT_COUNTDOWN, episodeLine, inCredits } from "@/lib/player/next-episode";
-import { MAX_RECOVERIES, PlaybackStep, PlaybackStop, afterStartFailure } from "@/lib/player/policy";
+import { DATA_SAVER_QUALITY, mobileDataStep } from "@/lib/player/mobile-data";
+import type { Connection, MobileDataStep } from "@/lib/player/mobile-data";
+import {
+  MAX_RECOVERIES,
+  PlaybackStep,
+  PlaybackStop,
+  afterStartFailure,
+  isUnhonoured,
+} from "@/lib/player/policy";
+import { preferredTracks } from "@/lib/player/preferred-tracks";
+import { qualityCap } from "@/lib/player/quality";
+import type { QualityChoice } from "@/lib/player/quality";
 import { chapterRows, scrubTileAt } from "@/lib/player/scrubbing";
 import type { ScrubTile } from "@/lib/player/scrubbing";
 import type { VideoState } from "@/lib/player/video-port";
 import type { WatchParams } from "@/lib/routes";
 import { useActiveProfile } from "@/session/active-profile";
 import { useServer } from "@/session/connection";
+import { usePreferences } from "@/session/preferences";
 
 import { NextEpisodeCard } from "./next-episode-card";
 import { PlayerController, PlayerPhase } from "./playback-controller";
@@ -135,12 +148,25 @@ const useBrightness = (): readonly [number, (value: number) => void] => {
 };
 
 /**
+ * What a session starts with: the quality, and the tracks the viewer picked in a session that
+ * ended elsewhere. Without those tracks, a session starts on App Settings' audio and subtitles.
+ */
+interface StartChoices {
+  readonly quality: QualityChoice;
+  readonly tracks: {
+    readonly audioStreamIndex: number | null;
+    readonly subtitleId: string | null;
+  } | null;
+}
+
+/**
  * Why a new session starts: the same request again (after a start that failed, `failed` counting
- * toward the retry limit), or at a position playback reached before its session ended elsewhere.
+ * toward the retry limit), or at a position playback reached before its session ended elsewhere,
+ * keeping what the viewer had chosen.
  */
 type Restart =
   | { readonly kind: "again"; readonly failed: boolean }
-  | { readonly kind: "at"; readonly positionMs: number };
+  | { readonly kind: "at"; readonly positionMs: number; readonly choices: StartChoices };
 
 /** Props for `PlayerSession`. */
 interface PlayerSessionProps {
@@ -149,6 +175,10 @@ interface PlayerSessionProps {
   readonly onRestart: (restart: Restart) => void;
   /** The watch room the screen opened with, joined. */
   readonly gate: RoomGate;
+  /** What the session starts with: App Settings' choices, or the viewer's from an ended session. */
+  readonly choices: StartChoices;
+  /** The service could not start a stream at the chosen quality; start again without the cap. */
+  readonly onQualityRefused: () => void;
 }
 
 /**
@@ -166,10 +196,22 @@ const useSessionStart = (gate: RoomGate) =>
   }))[0];
 
 /** One playback session in the player. */
-function PlayerSession({ params, attempt, onRestart, gate }: PlayerSessionProps) {
+function PlayerSession({
+  params,
+  attempt,
+  onRestart,
+  gate,
+  choices,
+  onQualityRefused,
+}: PlayerSessionProps) {
   const runtime = useMoviesRuntime();
+  const startQuality = choices.quality;
+  const startTracks = choices.tracks;
   const { profile } = useActiveProfile();
   const { mediaUrl } = useServer();
+  const preferences = usePreferences();
+  // App Settings as the session started, so changing them mid-session does not restart it.
+  const [startPreferences] = useState(preferences);
   const [controller, setController] = useState<PlayerController | null>(null);
   const restart = useRef(onRestart);
   const sessionStart = useSessionStart(gate);
@@ -180,7 +222,19 @@ function PlayerSession({ params, attempt, onRestart, gate }: PlayerSessionProps)
 
   useEffect(() => {
     const created = new PlayerController(runtime, {
-      onNewSession: (positionMs) => restart.current({ kind: "at", positionMs }),
+      onNewSession: (positionMs) => {
+        const ended = created.getSnapshot();
+
+        restart.current({
+          kind: "at",
+          positionMs,
+          choices: {
+            quality: ended.quality,
+            tracks: { audioStreamIndex: ended.audioStreamIndex, subtitleId: ended.subtitleId },
+          },
+        });
+      },
+      quality: startQuality,
     });
 
     setController(created);
@@ -189,7 +243,7 @@ function PlayerSession({ params, attempt, onRestart, gate }: PlayerSessionProps)
       created.dispose();
       setController(null);
     };
-  }, [runtime]);
+  }, [runtime, startQuality]);
 
   const request = useMemo(
     (): Playback.PlaybackRequest => ({
@@ -204,10 +258,23 @@ function PlayerSession({ params, attempt, onRestart, gate }: PlayerSessionProps)
       startAtMs: Option.map(Option.fromNullishOr(attempt.startAtMs ?? sessionStart.atMs), (ms) =>
         Milliseconds.make(ms),
       ),
-      audioStreamIndex: Option.none(),
-      quality: Option.none(),
+      audioStreamIndex: Option.fromNullishOr(startTracks?.audioStreamIndex),
+      // Without the viewer's own track, the first stream plays App Settings' audio language.
+      chooseAudio: (file) =>
+        Option.fromNullishOr(
+          preferredTracks(startPreferences, file.probe.audio, []).audioStreamIndex,
+        ),
+      quality: Option.fromNullishOr(qualityCap(startQuality)),
     }),
-    [profile.id, params, attempt.startAtMs, sessionStart],
+    [
+      profile.id,
+      params,
+      attempt.startAtMs,
+      sessionStart,
+      startQuality,
+      startTracks,
+      startPreferences,
+    ],
   );
 
   const session = usePlaybackSession(
@@ -229,8 +296,22 @@ function PlayerSession({ params, attempt, onRestart, gate }: PlayerSessionProps)
     [session],
   );
 
+  // A start the service refused at the chosen quality starts over without the cap instead.
+  const qualityRefused =
+    startQuality !== "auto" &&
+    session !== null &&
+    Result.isFailure(session) &&
+    isUnhonoured(session.failure);
+
+  useEffect(() => {
+    if (qualityRefused) onQualityRefused();
+  }, [qualityRefused, onQualityRefused]);
+
   const retryable =
-    startStep !== null && !PlaybackStep.$is("Stop")(startStep) && attempt.failures < MAX_RECOVERIES;
+    !qualityRefused &&
+    startStep !== null &&
+    !PlaybackStep.$is("Stop")(startStep) &&
+    attempt.failures < MAX_RECOVERIES;
 
   useEffect(() => {
     if (startStep === null || !retryable) return undefined;
@@ -346,8 +427,28 @@ function PlayerSession({ params, attempt, onRestart, gate }: PlayerSessionProps)
   const durationSeconds = (started?.file.probe.durationMs ?? 0) / 1000;
   const stop = startStep !== null && PlaybackStep.$is("Stop")(startStep) ? startStep.stop : null;
   const stopped = PlayerPhase.$is("Stopped")(snapshot.phase) ? snapshot.phase.stop : stop;
-  const failedStart = startStep !== null && !retryable && stop === null;
+  const failedStart = startStep !== null && !retryable && !qualityRefused && stop === null;
   const playing = PlayerPhase.$is("Playing")(snapshot.phase);
+
+  // Each new session shows App Settings' subtitles once it plays (its audio came with the first
+  // stream), or the subtitles the viewer had when it replaces one that ended elsewhere.
+  const subtitlesFor = useRef<string | null>(null);
+
+  useEffect(() => {
+    const playback = snapshot.playback;
+
+    if (!playing || controller === null || playback === null) return;
+
+    if (subtitlesFor.current === playback.started.sessionId) return;
+    subtitlesFor.current = playback.started.sessionId;
+
+    const subtitleId =
+      startTracks === null
+        ? preferredTracks(startPreferences, [], playback.stream.subtitles).subtitleId
+        : startTracks.subtitleId;
+
+    if (subtitleId !== null) controller.selectSubtitle(subtitleId);
+  }, [playing, controller, snapshot.playback, startPreferences, startTracks]);
   const choosing = PlayerPhase.$is("Choosing")(snapshot.phase) ? snapshot.phase : null;
 
   const next = nextEpisode.status === "success" ? nextEpisode.data : null;
@@ -392,9 +493,11 @@ function PlayerSession({ params, attempt, onRestart, gate }: PlayerSessionProps)
   }, [roomCardShown, setPane]);
   const [countdownStart, setCountdownStart] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  // Without autoplay (App Settings), the card offers the next episode without counting down.
+  const autoplay = preferences.autoplayNext;
 
   useEffect(() => {
-    if (!showNext) {
+    if (!showNext || !autoplay) {
       setCountdownStart(null);
 
       return undefined;
@@ -406,7 +509,7 @@ function PlayerSession({ params, attempt, onRestart, gate }: PlayerSessionProps)
     const timer = setInterval(() => setNow(Date.now()), NEXT_COUNTDOWN.stepMs / 4);
 
     return () => clearInterval(timer);
-  }, [showNext]);
+  }, [showNext, autoplay]);
 
   const countdownMs =
     countdownStart === null
@@ -667,6 +770,7 @@ function PlayerSession({ params, attempt, onRestart, gate }: PlayerSessionProps)
           next={next}
           stillUrl={stillOf(next)}
           countdownMs={countdownMs}
+          {...(autoplay ? {} : { headline: "Next Episode" })}
           onWatchCredits={() => setCreditsDismissed(true)}
           onPlayNext={() => playEpisode(next.id)}
         />
@@ -855,9 +959,116 @@ function StoppedPanel({
   });
 }
 
+/** The network as the player needs to know it, from the system's network state. */
+const connectionOf = (state: Network.NetworkState): Connection => {
+  if (state.type === Network.NetworkStateType.CELLULAR) return "cellular";
+
+  return state.type === undefined || state.type === Network.NetworkStateType.UNKNOWN
+    ? "unknown"
+    : "other";
+};
+
+interface MobileDataGate {
+  readonly step: MobileDataStep | "checking";
+  /** Lets playback start, after Ask First was answered. */
+  readonly allow: () => void;
+}
+
+/**
+ * App Settings' Mobile Data before the first stream: `checking` while the network is read, then
+ * the step for it. The network is read once, when the player opens.
+ */
+const useMobileDataGate = (): MobileDataGate => {
+  const { mobileData } = usePreferences();
+  const [preference] = useState(mobileData);
+  const [step, setStep] = useState<MobileDataStep | "checking">("checking");
+
+  useEffect(() => {
+    let live = true;
+
+    // A network the system can't report counts as unknown, which plays.
+    const read = async (): Promise<Connection> => {
+      try {
+        return connectionOf(await Network.getNetworkStateAsync());
+      } catch {
+        return "unknown";
+      }
+    };
+
+    void read().then((connection) => {
+      if (live) setStep(mobileDataStep(preference, connection));
+
+      return undefined;
+    });
+
+    return () => {
+      live = false;
+    };
+  }, [preference]);
+
+  return { step, allow: () => setStep("play") };
+};
+
+/** Leaves the player. */
+const closePlayer = (): void => router.back();
+
+/** Before streaming on mobile data: Ask First's question, or Wi-Fi Only's stop. */
+function MobileDataPanel({
+  step,
+  onPlay,
+}: {
+  readonly step: Exclude<MobileDataStep, "play"> | "checking";
+  /** Plays, at `quality` to save data or at the chosen quality with null. */
+  readonly onPlay: (quality: QualityChoice | null) => void;
+}) {
+  if (step === "checking") {
+    return (
+      <View className="flex-1 items-center justify-center bg-dark-bg">
+        <Spinner />
+      </View>
+    );
+  }
+
+  if (step === "ask") {
+    return (
+      <View className="flex-1 bg-dark-bg">
+        <ProblemPanel
+          title="Play on mobile data?"
+          description="This iPhone isn't on Wi-Fi. Streaming uses mobile data."
+          primary={{ label: "Play", retry: false, onPress: () => onPlay(null) }}
+          secondary={{
+            label: `Play at ${DATA_SAVER_QUALITY} to Save Data`,
+            onPress: () => onPlay(DATA_SAVER_QUALITY),
+          }}
+          onClose={closePlayer}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View className="flex-1 bg-dark-bg">
+      <ProblemPanel
+        title="Wi-Fi only"
+        description="App Settings streams on Wi-Fi only, and this iPhone is on mobile data."
+        primary={{ label: "Close", retry: false, onPress: closePlayer }}
+        secondary={null}
+        onClose={closePlayer}
+      />
+    </View>
+  );
+}
+
 /** The player for `params`, starting a new session when the last one ended or failed to start. */
 export function PlayerScreen({ params }: { readonly params: WatchParams }) {
   const gate = useRoomGate(params);
+  const preferences = usePreferences();
+
+  // App Settings' quality is where playback starts; the player's own menu changes it from there.
+  const [choices, setChoices] = useState<StartChoices>({
+    quality: preferences.quality,
+    tracks: null,
+  });
 
   // A room plays from its own position, never from the profile's saved one; `at` (a room's
   // position, for a guest going on alone) starts there without asking.
@@ -874,6 +1085,8 @@ export function PlayerScreen({ params }: { readonly params: WatchParams }) {
   });
 
   const restart = useCallback((next: Restart) => {
+    if (next.kind === "at") setChoices(next.choices);
+
     setAttempt((current) =>
       next.kind === "again"
         ? { ...current, key: current.key + 1, failures: next.failed ? current.failures + 1 : 0 }
@@ -881,8 +1094,29 @@ export function PlayerScreen({ params }: { readonly params: WatchParams }) {
     );
   }, []);
 
+  const uncapped = useCallback(() => {
+    setChoices((current) => ({ ...current, quality: "auto" }));
+    restart({ kind: "again", failed: false });
+  }, [restart]);
+
+  const data = useMobileDataGate();
+
   // The player's own safe area: the modal turns to landscape, where the app's provider would still
   // report the portrait insets.
+  if (data.step !== "play") {
+    return (
+      <SafeAreaProvider>
+        <MobileDataPanel
+          step={data.step}
+          onPlay={(quality) => {
+            if (quality !== null) setChoices((current) => ({ ...current, quality }));
+            data.allow();
+          }}
+        />
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       {gate.admitted ? (
@@ -892,6 +1126,8 @@ export function PlayerScreen({ params }: { readonly params: WatchParams }) {
           attempt={attempt}
           onRestart={restart}
           gate={gate}
+          choices={choices}
+          onQualityRefused={uncapped}
         />
       ) : (
         <RoomEntry gate={gate} params={params} />

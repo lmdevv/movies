@@ -1,65 +1,110 @@
 /**
- * You (placeholder): the profile on screen, switching profiles, and signing out. The You and
- * settings screens (H01–H31) replace this.
+ * H01 · You: the profile on screen with Switch Profile, then My List, Watch History, Account, App
+ * Settings, Devices, Approve a Device, and Owner Settings for sessions that may manage the server.
+ * Signing out lives in Account.
  */
-import { useState } from "react";
-import { Alert, View } from "react-native";
+import { useCommandQuery } from "@movies/sdk/react";
+import { router } from "expo-router";
+import {
+  Airplay,
+  Bookmark,
+  ChevronDown,
+  History,
+  Server,
+  Settings2,
+  TvMinimal,
+  UserRound,
+} from "lucide-react-native";
+import { Pressable, ScrollView, View } from "react-native";
 
+import { mayOpenOwnerSettings } from "@/components/owner/viewer";
 import { ProfileAvatar } from "@/components/profile-avatar";
-import { Button } from "@/components/ui/button";
-import { NavHeader } from "@/components/ui/nav-header";
+import { Icon } from "@/components/ui/icon";
+import { IconButton } from "@/components/ui/icon-button";
+import { ListRow } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
 import { Text } from "@/components/ui/text";
-import { describeFailure } from "@/lib/failure";
+import { plural } from "@/lib/browse";
 import { useActiveProfile } from "@/session/active-profile";
-import { useProfileChoice } from "@/session/profile-choice";
-import { useSignOut } from "@/session/viewer";
 
 export default function You() {
   const { profile } = useActiveProfile();
-  const { choose } = useProfileChoice();
-  const signOut = useSignOut();
-  const [busy, setBusy] = useState<"switch" | "signOut" | null>(null);
+  const list = useCommandQuery("myList.list", { profileId: profile.id });
+  const viewer = useCommandQuery("account.viewer", {});
 
-  const run = async (action: "switch" | "signOut", work: () => Promise<void>) => {
-    setBusy(action);
-
-    try {
-      await work();
-    } catch (cause) {
-      Alert.alert(
-        action === "switch" ? "Couldn't Switch" : "Couldn't Sign Out",
-        describeFailure(cause),
-      );
-    } finally {
-      setBusy(null);
-    }
-  };
+  // Devices and device approval need the account scope, which a session signed in with a code may
+  // lack; owner settings need a session that may manage the server or its accounts.
+  const accountSettings = viewer.status === "success" && viewer.data.scopes.includes("account");
+  const ownerSettings = viewer.status === "success" && mayOpenOwnerSettings(viewer.data);
 
   return (
-    <Screen header={<NavHeader title="You" />} contentClassName="gap-8 px-5 pt-6">
-      <View className="items-center gap-3">
-        <ProfileAvatar profile={profile} />
-        <Text variant="title" accessibilityRole="header">
-          {profile.name}
-        </Text>
-      </View>
-      <View className="gap-3">
-        <Button
-          label="Switch Profile"
-          variant="secondary"
-          busy={busy === "switch"}
-          disabled={busy !== null}
-          onPress={() => void run("switch", () => choose(null))}
+    <Screen
+      edges={["top"]}
+      header={
+        <View className="h-16 flex-row items-center gap-3 px-5">
+          <Text
+            variant="largeTitle"
+            className="flex-1"
+            numberOfLines={1}
+            accessibilityRole="header"
+          >
+            You
+          </Text>
+          <IconButton
+            icon={Settings2}
+            label="App Settings"
+            onPress={() => router.push("/settings")}
+          />
+        </View>
+      }
+    >
+      <ScrollView
+        contentContainerClassName="gap-2 px-5 py-4"
+        contentInsetAdjustmentBehavior="never"
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${profile.name}, Switch Profile`}
+          onPress={() => router.push("/switch-profile")}
+          className="flex-row items-center gap-4 py-3 active:opacity-70"
+        >
+          <ProfileAvatar profile={profile} size="row" />
+          <View className="flex-1 gap-1">
+            <Text variant="title" numberOfLines={1}>
+              {profile.name}
+            </Text>
+            <Text variant="label" tone="muted">
+              Switch Profile
+            </Text>
+          </View>
+          <Icon icon={ChevronDown} size="inline" />
+        </Pressable>
+        <ListRow
+          icon={Bookmark}
+          title="My List"
+          {...(list.status === "success"
+            ? { detail: plural(list.data.length, "Title", "Titles") }
+            : {})}
+          onPress={() => router.navigate("/my-list")}
         />
-        <Button
-          label="Sign Out"
-          variant="destructive"
-          busy={busy === "signOut"}
-          disabled={busy !== null}
-          onPress={() => void run("signOut", signOut)}
-        />
-      </View>
+        <ListRow icon={History} title="Watch History" onPress={() => router.push("/history")} />
+        <View className="h-4" />
+        <ListRow icon={UserRound} title="Account" onPress={() => router.push("/account")} />
+        <ListRow icon={Settings2} title="App Settings" onPress={() => router.push("/settings")} />
+        {accountSettings ? (
+          <>
+            <ListRow icon={TvMinimal} title="Devices" onPress={() => router.push("/devices")} />
+            <ListRow
+              icon={Airplay}
+              title="Approve a Device"
+              onPress={() => router.push("/approve-device")}
+            />
+          </>
+        ) : null}
+        {ownerSettings ? (
+          <ListRow icon={Server} title="Owner Settings" onPress={() => router.push("/owner")} />
+        ) : null}
+      </ScrollView>
     </Screen>
   );
 }
