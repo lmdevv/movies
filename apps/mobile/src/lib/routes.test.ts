@@ -56,13 +56,13 @@ describe("watchHref", () => {
         id,
         fc.option(id, { nil: undefined }),
         fc.option(id, { nil: undefined }),
-        fc.boolean(),
-        (title, episode, file, beginning) => {
+        fc.constantFrom(undefined, "beginning" as const, "resume" as const),
+        (title, episode, file, start) => {
           const href = watchHref({
             titleId: titleId(title),
             episodeId: episode === undefined ? undefined : episodeId(episode),
             fileId: file === undefined ? undefined : fileId(file),
-            start: beginning ? "beginning" : undefined,
+            start,
           });
 
           const url = new URL(href, "movies://app");
@@ -71,14 +71,14 @@ describe("watchHref", () => {
           expect(decodeURIComponent(url.pathname)).toBe(`/watch/${title}`);
           expect(query.get("episodeId") ?? undefined).toBe(episode);
           expect(query.get("fileId") ?? undefined).toBe(file);
-          expect(query.get("start")).toBe(beginning ? "beginning" : null);
+          expect(query.get("start") ?? undefined).toBe(start);
 
           const parsed = Option.getOrThrow(parseWatchParams(routeParams(href)));
 
           expect(parsed.titleId).toBe(title);
           expect(parsed.episodeId).toBe(episode);
           expect(parsed.fileId).toBe(file);
-          expect(parsed.start).toBe(beginning ? "beginning" : undefined);
+          expect(parsed.start).toBe(start);
         },
       ),
     );

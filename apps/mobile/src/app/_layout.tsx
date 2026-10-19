@@ -4,7 +4,7 @@ import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Alert, View } from "react-native";
+import { Alert, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useUniwind } from "uniwind";
 
@@ -57,14 +57,21 @@ function NavigationTheme({ children }: { readonly children: ReactNode }) {
   );
 }
 
-/** A native sheet sized to its content, with the grabber. */
+/**
+ * Phones browse upright like the Apple TV app; only the player turns sideways. iPad follows the
+ * device.
+ */
+const browseOrientation = Platform.OS === "ios" && Platform.isPad ? "default" : "portrait_up";
+
 /**
  * Every screen, grouped by the phase that may show it. Changing phase sends the stack to the
  * first screen the new phase allows.
  */
 function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
   const invite = usePendingInvite();
+  const { theme } = useUniwind();
 
+  /** A native sheet sized to its content, with the grabber. */
   const sheet = {
     presentation: "formSheet",
     sheetAllowedDetents: "fitToContents",
@@ -74,7 +81,13 @@ function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
   } as const;
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        orientation: browseOrientation,
+        statusBarStyle: theme === "light" ? "dark" : "light",
+      }}
+    >
       <Stack.Protected guard={phase === "disconnected"}>
         <Stack.Screen name="welcome" />
         <Stack.Screen name="connect" />
