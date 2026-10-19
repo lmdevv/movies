@@ -9,6 +9,8 @@ import { Button } from "@movies/ui/components/button";
 import { Input } from "@movies/ui/components/input";
 import { FieldError } from "@movies/ui/components/text-field";
 import { ChevronDownIcon } from "lucide-react";
+import { mappingsFor, mappingsWith, userRows } from "@movies/contracts/migration-plan";
+import type { UserChoice, UserRow } from "@movies/contracts/migration-plan";
 import { Option } from "effect";
 import { useId, useMemo, useState } from "react";
 import type { FormEvent } from "react";
@@ -21,8 +23,7 @@ import { useActiveProfile } from "@/session/guards";
 import { usePreview } from "./connect";
 import type { Preview } from "./connect";
 import type { SourceForm } from "./migration-model";
-import { currentMappings, mappingsWith, userRows, withChoice } from "./migration-model";
-import type { UserChoice, UserRow } from "./migration-model";
+
 import { Caution, SectionLabel, Stat, Stats } from "./parts";
 
 type Ready = Extract<Preview, { readonly status: "ready" }>;
@@ -160,7 +161,13 @@ export function Review({
 
   const rows = useMemo(
     () =>
-      userRows(connection, report, profiles, accounts.status === "success" ? accounts.data : []),
+      userRows(
+        connection,
+        report,
+        profiles,
+        accounts.status === "success" ? accounts.data : [],
+        "Don’t import",
+      ),
     [connection, report, profiles, accounts],
   );
 
@@ -186,7 +193,7 @@ export function Review({
     async (): Promise<void> => {
       const result = await start({
         connectionId: connection.connectionId,
-        users: currentMappings(rows),
+        users: mappingsFor(rows),
       });
 
       if (result.status === "failed") onFailed(result);
@@ -205,7 +212,7 @@ export function Review({
     void refresh
       .run({
         connectionId: connection.connectionId,
-        users: withChoice(rows, sourceUserId, choice),
+        users: mappingsFor(rows, { sourceUserId, choice }),
       })
       .then(settle);
   };
@@ -215,7 +222,7 @@ export function Review({
 
     if (Option.isNone(mappings)) return false;
 
-    settle(await remap.run(form, { users: currentMappings(rows), pathMappings: mappings.value }));
+    settle(await remap.run(form, { users: mappingsFor(rows), pathMappings: mappings.value }));
 
     return true;
   };

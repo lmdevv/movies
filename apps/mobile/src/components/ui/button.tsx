@@ -33,7 +33,7 @@ type ButtonVariant = keyof typeof VARIANTS;
 export interface ButtonProps extends Omit<PressableProps, "children" | "style"> {
   readonly label: string;
   readonly variant?: ButtonVariant;
-  readonly icon?: LucideIcon;
+  readonly icon?: LucideIcon | undefined;
   /** Filled icons, such as the play triangle, draw with a fill instead of a stroke. */
   readonly iconFilled?: boolean;
   /** Shows a spinner and ignores presses while an action runs. */

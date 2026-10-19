@@ -15,14 +15,14 @@ import type { TextTone } from "./text";
 /** Props for `ListRow`. */
 export interface ListRowProps {
   readonly title: string;
-  readonly icon?: LucideIcon;
-  readonly detail?: string;
+  readonly icon?: LucideIcon | undefined;
+  readonly detail?: string | undefined;
   /** A second line under the title. */
-  readonly subtitle?: string;
+  readonly subtitle?: string | undefined;
   readonly tone?: TextTone;
   readonly chevron?: boolean;
   readonly trailing?: ReactNode;
-  readonly onPress?: () => void;
+  readonly onPress?: (() => void) | undefined;
   readonly disabled?: boolean;
 }
 

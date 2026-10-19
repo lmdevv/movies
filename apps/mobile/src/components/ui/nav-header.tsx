@@ -13,9 +13,9 @@ import { Text } from "./text";
 
 /** Props for `NavHeader`. */
 export interface NavHeaderProps {
-  readonly title?: string;
+  readonly title?: string | undefined;
   /** Overrides going back, such as closing a flow. */
-  readonly onBack?: () => void;
+  readonly onBack?: (() => void) | undefined;
   /**
    * Where back goes when nothing is under this screen, such as after the app reopens on it;
    * `/` by default.

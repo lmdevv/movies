@@ -1,5 +1,6 @@
 import type { LibraryId } from "@movies/contracts/ids";
 import type { Job } from "@movies/contracts/models/jobs";
+import { folderTroubleOf } from "@movies/contracts/scan-failure";
 import { useCommandQuery } from "@movies/sdk/react";
 import { useMemo } from "react";
 
@@ -30,11 +31,6 @@ export const useLatestScans = (): ReadonlyMap<LibraryId, Job> => {
 export const isActive = (job: Job | undefined): boolean =>
   job !== undefined && (job.status === "pending" || job.status === "running");
 
-/** The scanner's failure prefixes for an unreachable library folder (see `library-scanner.ts`). */
-const UNREACHABLE_PREFIXES = ["Library root unavailable", "Library folder unreadable"] as const;
-
 /** Whether a failed scan could not read the library's folders, such as an offline NAS share. */
 export const isUnreachable = (job: Job): boolean =>
-  job.status === "failed" &&
-  job.error !== null &&
-  UNREACHABLE_PREFIXES.some((prefix) => job.error?.startsWith(prefix) === true);
+  job.status === "failed" && folderTroubleOf(job.error) === "offline";

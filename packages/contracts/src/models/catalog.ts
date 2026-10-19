@@ -616,3 +616,30 @@ export const LibraryFileSummary = Schema.Struct({
 
 /** What needs attention in a library. */
 export interface LibraryFileSummary extends Schema.Schema.Type<typeof LibraryFileSummary> {}
+
+/** A folder on the media host that a library could use. */
+export const ServerFolder = Schema.Struct({
+  name: Schema.String,
+  path: LibraryRoot,
+});
+
+/** A folder on the media host. */
+export interface ServerFolder extends Schema.Schema.Type<typeof ServerFolder> {}
+
+/**
+ * One level of the media host's folders inside its approved library roots (`LIBRARY_ROOTS`), for
+ * choosing a library's folder. `path` null lists the approved roots themselves.
+ */
+export const ServerFolders = Schema.Struct({
+  /** The folder listed; null for the list of approved roots. */
+  path: Schema.NullOr(LibraryRoot),
+  /** The folder one level up; null at an approved root, whose parent is the list of roots. */
+  parent: Schema.NullOr(LibraryRoot),
+  /** The folders inside it by name, hidden ones and links leading out of the roots left out. */
+  folders: Schema.Array(ServerFolder),
+  /** Whether it holds more than one listing shows; type the path of a folder past them. */
+  truncated: Schema.Boolean,
+});
+
+/** One level of the media host's folders. */
+export interface ServerFolders extends Schema.Schema.Type<typeof ServerFolders> {}
