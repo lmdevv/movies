@@ -104,7 +104,8 @@ A review of `packages/backend` found these after the table above; each has a sta
   either cap (backend stack test "keeps eight downloads on the account"). Their tokens carry
   `pur: "download"`: streaming routes refuse them and download routes refuse playback tokens
   (`wrong_purpose`; `playback-token.test.ts`, `downloads-http.test.ts`). A download session
-  queues at most one MP4, and queued MP4s reserve their space against streams. The MP4 route takes
+  queues at most one MP4, the MP4 being written reserves its space against streams, and a hung run
+  fails after ten minutes without output. The MP4 route takes
   a file ID and a 24-hex-character name, must match the token's file, and serves only an MP4 the
   service finished for that file. A failure's detail never names a server path. Files already on
   a device stay there; the app plays them only for the account and profile that downloaded them.

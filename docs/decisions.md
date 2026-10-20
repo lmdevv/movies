@@ -420,17 +420,21 @@ choices made while implementing them. Update it in the same PR that changes a de
   Text subtitles come as the existing WebVTT URLs; picture subtitles are not downloaded.
 - The MP4s are written one at a time at the lowest CPU priority (`ffmpegInBackground`) and take no
   transcode slot, so playback always wins; no new setting. They live in
-  `TRANSCODE_DIR/downloads/<fileId>/<hash>.mp4`, where the hash covers the file's identity (ID,
-  size, modification time) and the plan, so devices asking for the same thing share one file. A
-  download session holds one MP4 at a time: asking for another (or for the original) stops the one
-  it asked for before if nobody else wants it and it is not written yet, so the queue holds at
-  most one job per download session. A queued or running MP4 reserves its estimate in a ledger
-  streams share (`TranscodeSpace`): a new job or stream starts only when `TRANSCODE_DIR` keeps
-  `MIN_FREE_TRANSCODE_MB` beyond every reservation and the new job's estimate
-  (`InsufficientTranscodeSpace` otherwise). A queued or running MP4 is kept while one of its
-  download sessions is live, however long the queue, and stopped once they all ended (a cancelled
-  download, a sign-out) or nobody asked about it for a token's lifetime (an app gone away). A
-  finished or failed MP4 nobody asked for in six hours is deleted, and a restart empties
+  `TRANSCODE_DIR/downloads/<fileId>/<name>.mp4`. One job per hash of the file's identity (ID,
+  size, modification time) and the plan, so devices asking for the same thing share one file;
+  each run gets a random name, so a plan written again is served at a new URL and a resumed
+  transfer never mixes bytes of two runs. A download session holds one MP4 at a time: asking for
+  another (or for the original) stops the one it asked for before if nobody else wants it and it
+  is not written yet, so the queue holds at most one job per download session. The MP4 being
+  written reserves its estimate in a ledger streams share (`TranscodeSpace`), so streams keep
+  `MIN_FREE_TRANSCODE_MB` beyond it; queued MP4s reserve nothing and never refuse a stream. A new
+  MP4 is queued only when the disk holds the minimum, the reservation, and the estimates of every
+  queued MP4 and its own (`InsufficientTranscodeSpace` otherwise). A queued or running MP4 is kept
+  while one of its download sessions is live, however long the queue; it is stopped once none has
+  asked for it for two minutes (a cancelled download, a sign-out; the grace lets a download started
+  again ask first) or nobody asked about it for a token's lifetime (an app gone away). A run whose
+  ffmpeg writes nothing further for ten minutes (a NAS gone quiet) fails, so it cannot hold the
+  queue. A finished or failed MP4 nobody asked for in six hours is deleted, and a restart empties
   `TRANSCODE_DIR` as before; the app then prepares again. A failed job answers `TranscodeFailed` for ten minutes
   before a prepare tries again, so a broken file is not encoded in full by every retry.
 - `/media/downloads/<fileId>/<hash>.mp4` serves a finished MP4 with the direct route's validators
@@ -438,7 +442,8 @@ choices made while implementing them. Update it in the same PR that changes a de
   A failed job's `TranscodeFailed.detail` is ffmpeg's path-scrubbed output, or a fixed sentence
   for any other failure, so it never names a path in `TRANSCODE_DIR`.
 - `downloads.recordProgress` saves progress the device made playing a download, sent when it is
-  back online with the time it played. It applies unless the item's progress was played since
+  back online with the time it played and its clock at sending, so a fast or slow device clock is
+  corrected by its offset. It applies unless the item's progress was played since
   (`lastPlayedAt`), so an old offline viewing never drags a newer one back, and it marks the item
   watched at 90 percent. It needs the profile to still see the title, and the file to still be the
   item's (it may have left the disk); `playedAt` is checked like the positions.

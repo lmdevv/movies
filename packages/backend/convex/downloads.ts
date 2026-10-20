@@ -110,8 +110,9 @@ export const end = mutation({
 });
 
 /**
- * Saves progress a device made playing a download, possibly offline and long ago. It applies
- * unless the item was played elsewhere since `playedAt` (`applied: false`); reaching 90 percent
+ * Saves progress a device made playing a download, possibly offline and long ago. `playedAt` is
+ * by the device's clock and `sentAt` its clock now, so a fast or slow clock is corrected. It
+ * applies unless the item was played elsewhere since (`applied: false`); reaching 90 percent
  * marks it watched. The profile must still see the title.
  */
 export const recordProgress = mutation({
@@ -123,6 +124,7 @@ export const recordProgress = mutation({
     positionMs: v.number(),
     durationMs: v.number(),
     playedAt: v.number(),
+    sentAt: v.number(),
   },
   returns: progressReceipt,
   handler: async (ctx, args) => {
@@ -130,6 +132,7 @@ export const recordProgress = mutation({
     checkMilliseconds(args.positionMs, "Positions");
     checkMilliseconds(args.durationMs, "Durations");
     checkMilliseconds(args.playedAt, "Play times");
+    checkMilliseconds(args.sentAt, "Send times");
     const audience = await loadAudience(ctx, viewer, args.profileId);
     const title = await loadVisibleTitle(ctx, audience, args.titleId);
     const played = await resolveEpisode(ctx, title, args.episodeId ?? null);
@@ -141,7 +144,9 @@ export const recordProgress = mutation({
       return fail("not_found", "No such file for this title");
     }
 
-    const playedAt = Math.min(args.playedAt, Date.now());
+    const now = Date.now();
+    // The device's clock may be off; its offset from ours at sending moves `playedAt` back in line.
+    const playedAt = Math.min(Math.max(0, args.playedAt + (now - args.sentAt)), now);
     const saved = await findProgress(ctx, args.profileId, title._id, episodeId);
 
     if (saved !== null && saved.lastPlayedAt >= playedAt) {

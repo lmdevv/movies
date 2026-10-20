@@ -441,8 +441,10 @@ export const playbackCommands = {
       fileId: MediaFileId,
       positionMs: Milliseconds,
       durationMs: Milliseconds,
-      /** When the device played to `positionMs`; newer progress from elsewhere wins. */
+      /** When the device played to `positionMs`, by its clock; newer progress elsewhere wins. */
       playedAt: EpochMillis,
+      /** The device's clock as it sends this, so the server corrects `playedAt` for its skew. */
+      sentAt: EpochMillis,
     }),
     result: ProgressReceipt,
     function: "downloads:recordProgress",

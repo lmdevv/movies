@@ -22,17 +22,18 @@ layer(spaceLayer)("TranscodeSpace", (it) => {
       // Most of the free space, so two such claims never fit together.
       const most = Math.floor((yield* Effect.promise(() => freeBytes(transcodeDir))) * 0.6);
 
-      yield* space.claim(most, "download:a");
+      yield* space.check(most);
+      yield* space.reserve("download:a", most);
 
-      const refused = yield* space.claim(most).pipe(Effect.flip);
+      const refused = yield* space.check(most).pipe(Effect.flip);
 
       assert.instanceOf(refused, InsufficientTranscodeSpace);
       assert.isAbove(refused.requiredBytes, 2 * most);
 
       // A stream claims nothing for itself but still needs the minimum beyond reservations.
-      yield* space.claim(0);
+      yield* space.check(0);
       yield* space.release("download:a");
-      yield* space.claim(most);
+      yield* space.check(most);
     }),
   );
 });

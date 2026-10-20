@@ -72,6 +72,31 @@ const burnedStreamIndex = (
 export const withToken = (url: string, token: Redacted.Redacted): string =>
   `${url}?token=${encodeURIComponent(Redacted.value(token))}`;
 
+/**
+ * The subtitle tracks of `file` as players see them; text tracks carry their WebVTT URL under
+ * `base`, authorized by `token`.
+ */
+export const subtitleViews = (
+  file: FileResolver.CheckedMediaFile,
+  base: string,
+  token: Redacted.Redacted,
+) =>
+  subtitleTracks(file).map((track) => ({
+    id: track.id,
+    source: track.source,
+    codec: track.codec,
+    kind: track.kind,
+    language: track.language,
+    title: track.title,
+    forced: track.forced,
+    default: track.default,
+    hearingImpaired: track.hearingImpaired,
+    url:
+      track.kind === "text"
+        ? withToken(`${base}/media/subtitles/${file.fileId}/${track.id}.vtt`, token)
+        : undefined,
+  }));
+
 /** Builds the negotiator. */
 const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
@@ -153,21 +178,7 @@ const make = Effect.gen(function* () {
 
     const base = config.mediaBaseUrl;
 
-    const subtitles = subtitleTracks(file).map((track) => ({
-      id: track.id,
-      source: track.source,
-      codec: track.codec,
-      kind: track.kind,
-      language: track.language,
-      title: track.title,
-      forced: track.forced,
-      default: track.default,
-      hearingImpaired: track.hearingImpaired,
-      url:
-        track.kind === "text"
-          ? withToken(`${base}/media/subtitles/${grant.fileId}/${track.id}.vtt`, request.token)
-          : undefined,
-    }));
+    const subtitles = subtitleViews(file, base, request.token);
 
     const audioIndex = PlaybackPlan.$is("Direct")(plan)
       ? plan.audioIndex

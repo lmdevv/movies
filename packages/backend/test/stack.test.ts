@@ -2125,6 +2125,7 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           ...offline,
           positionMs: ms(DURATION_MS * 0.5),
           playedAt: EpochMillis.make(Date.now()),
+          sentAt: EpochMillis.make(Date.now()),
         }),
       ).toStrictEqual({ applied: true, watched: false });
       expect((await run(fixture.member, "titles.get", base)).progress?.positionMs).toBe(
@@ -2137,6 +2138,7 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           ...offline,
           positionMs: ms(DURATION_MS * 0.95),
           playedAt: EpochMillis.make(Date.now() - 60 * 60 * 1000),
+          sentAt: EpochMillis.make(Date.now()),
         }),
       ).toStrictEqual({ applied: false, watched: false });
       expect(
@@ -2144,8 +2146,21 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           ...offline,
           positionMs: ms(DURATION_MS * 0.95),
           playedAt: EpochMillis.make(Date.now()),
+          sentAt: EpochMillis.make(Date.now()),
         }),
       ).toStrictEqual({ applied: true, watched: true });
+
+      // A device two hours fast played an hour ago: corrected, the later play still wins.
+      const hour = 60 * 60 * 1000;
+
+      expect(
+        await run(fixture.member, "downloads.recordProgress", {
+          ...offline,
+          positionMs: ms(DURATION_MS * 0.2),
+          playedAt: EpochMillis.make(Date.now() + 2 * hour - hour),
+          sentAt: EpochMillis.make(Date.now() + 2 * hour),
+        }),
+      ).toStrictEqual({ applied: false, watched: true });
       expect(
         await outcome(
           run(fixture.member, "downloads.recordProgress", {
@@ -2153,6 +2168,7 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
             titleId: fixture.titles.unrated,
             positionMs: ms(0),
             playedAt: EpochMillis.make(Date.now()),
+            sentAt: EpochMillis.make(Date.now()),
           }),
         ),
       ).toBe("not_found");

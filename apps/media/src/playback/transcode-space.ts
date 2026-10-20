@@ -1,11 +1,12 @@
 /**
- * Free space in `TRANSCODE_DIR`, shared by streams and download MP4s. A queued or running MP4 has
- * not written its bytes yet, so it reserves its estimate here until it finishes or stops; every
- * new stream or MP4 then needs `MIN_FREE_TRANSCODE_MB` beyond what the disk has left after those
- * reservations.
+ * Free space in `TRANSCODE_DIR`, shared by streams and download MP4s. The MP4 being written has
+ * not written all its bytes yet, so it reserves its estimate here until it finishes or stops; every
+ * new stream or MP4 then needs `MIN_FREE_TRANSCODE_MB` beyond what the disk has left after that
+ * reservation. MP4s waiting in the queue reserve nothing, so they never keep a stream from
+ * starting.
  */
 import { InsufficientTranscodeSpace } from "@movies/contracts/media-playback";
-import { Context, Effect, Layer, Ref, Semaphore } from "effect";
+import { Context, Effect, Layer, Ref } from "effect";
 
 import * as MediaConfig from "../media-config.ts";
 import { errorCode, freeBytes } from "../platform/node-directories.ts";
@@ -14,10 +15,12 @@ import { errorCode, freeBytes } from "../platform/node-directories.ts";
 export interface Interface {
   /**
    * Fails with `InsufficientTranscodeSpace` unless the disk holds the configured minimum plus
-   * every reservation plus `bytes`, then reserves `bytes` under `key` when it is given. An unknown
-   * free space (the directory cannot be read) passes, as the write will fail anyway.
+   * every reservation plus `bytes`. An unknown free space (the directory cannot be read) passes, as
+   * the write will fail anyway.
    */
-  readonly claim: (bytes: number, key?: string) => Effect.Effect<void, InsufficientTranscodeSpace>;
+  readonly check: (bytes: number) => Effect.Effect<void, InsufficientTranscodeSpace>;
+  /** Counts `bytes` as used under `key` until it is released. */
+  readonly reserve: (key: string, bytes: number) => Effect.Effect<void>;
   /** Drops the reservation under `key`, once its bytes are on disk or never will be. */
   readonly release: (key: string) => Effect.Effect<void>;
 }
@@ -33,10 +36,8 @@ export const layer: Layer.Layer<Service, never, MediaConfig.Service> = Layer.eff
   Effect.gen(function* () {
     const config = yield* MediaConfig.Service;
     const reserved = yield* Ref.make<ReadonlyMap<string, number>>(new Map());
-    // Checking and reserving happen together, so two claims never both count the same bytes.
-    const lock = yield* Semaphore.make(1);
 
-    const claim = Effect.fn("TranscodeSpace.claim")(function* (bytes: number, key?: string) {
+    const check = Effect.fn("TranscodeSpace.check")(function* (bytes: number) {
       const available = yield* Effect.tryPromise(() => freeBytes(config.transcodeDir)).pipe(
         Effect.tapError((error) =>
           Effect.logWarning("TranscodeSpace.free_space_unknown").pipe(
@@ -53,17 +54,13 @@ export const layer: Layer.Layer<Service, never, MediaConfig.Service> = Layer.eff
 
       const required = config.minFreeTranscodeBytes + pending + bytes;
 
-      if (available < required) {
-        return yield* new InsufficientTranscodeSpace({
-          freeBytes: available,
-          requiredBytes: required,
-        });
-      }
+      return yield* available < required
+        ? new InsufficientTranscodeSpace({ freeBytes: available, requiredBytes: required })
+        : Effect.void;
+    });
 
-      return yield* key === undefined
-        ? Effect.void
-        : Ref.update(reserved, (current) => new Map(current).set(key, bytes));
-    }, lock.withPermits(1));
+    const reserve = (key: string, bytes: number) =>
+      Ref.update(reserved, (current) => new Map(current).set(key, bytes));
 
     const release = (key: string) =>
       Ref.update(reserved, (current) => {
@@ -74,6 +71,6 @@ export const layer: Layer.Layer<Service, never, MediaConfig.Service> = Layer.eff
         return next;
       });
 
-    return Service.of({ claim, release });
+    return Service.of({ check, reserve, release });
   }),
 );

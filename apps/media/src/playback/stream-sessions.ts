@@ -796,8 +796,8 @@ const make = Effect.gen(function* () {
 
     yield* acquireSlot(scope, transcoding, replacing.length);
 
-    // Space download MP4s have reserved counts as used.
-    yield* space.claim(0);
+    // Space the download MP4 being written has reserved counts as used.
+    yield* space.check(0);
 
     const quickStart = file.probe.startSeconds + request.startSeconds;
 
