@@ -8,6 +8,7 @@ import { Alert, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useUniwind } from "uniwind";
 
+import { StorageFullPrompt } from "@/components/downloads/storage-full-prompt";
 import { ServerUnavailable } from "@/components/server-unavailable";
 import { TitleStatesProvider } from "@/components/browse/title-states";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,8 @@ import { useThemeColor } from "@/lib/theme-color";
 import { ActiveProfileContext } from "@/session/active-profile";
 import { ConnectionProvider, useConnection, useServer } from "@/session/connection";
 import { CurrentRoomProvider } from "@/session/current-room";
+import { DownloadsProvider, rememberProfile, useOfflineProfile } from "@/session/downloads";
+import { OfflineContext } from "@/session/offline";
 import { FirstRunProvider, useHomeAfterSetup } from "@/session/first-run";
 import { InviteLinks } from "@/session/invite-links";
 import {
@@ -70,7 +73,7 @@ const browseOrientation = Platform.OS === "ios" && Platform.isPad ? "default" : 
  * Every screen, grouped by the phase that may show it. Changing phase sends the stack to the
  * first screen the new phase allows.
  */
-function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
+function RootStack({ phase }: { readonly phase: SessionPhase["kind"] | "offline" }) {
   const invite = usePendingInvite();
   const { theme } = useUniwind();
 
@@ -152,6 +155,20 @@ function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
         <Stack.Screen name="room/[roomId]" />
         <Stack.Screen name="room/[roomId]/invite" options={sheet} />
         <Stack.Screen name="room/[roomId]/end" options={sheet} />
+      </Stack.Protected>
+      <Stack.Protected guard={phase === "offline"}>
+        <Stack.Screen name="offline" options={{ animation: "fade" }} />
+      </Stack.Protected>
+      {/* Downloads and the player work without the server too. */}
+      <Stack.Protected guard={phase === "ready" || phase === "offline"}>
+        <Stack.Screen name="download/[downloadId]" />
+        <Stack.Screen name="download/[downloadId]/actions" options={sheet} />
+        <Stack.Screen name="download/[downloadId]/remove" options={sheet} />
+        <Stack.Screen name="download/[downloadId]/storage-full" options={sheet} />
+        <Stack.Screen name="download-settings/index" />
+        <Stack.Screen name="download-settings/quality" options={sheet} />
+        <Stack.Screen name="download-settings/remove-all" options={sheet} />
+        <Stack.Screen name="download-settings/menu" options={sheet} />
         <Stack.Screen
           name="watch/[titleId]"
           options={{
@@ -200,14 +217,16 @@ const useSlowLoad = (loading: boolean): boolean => {
 /**
  * A08 · Server Unavailable for the remembered server, shown instead of the splash when the session
  * cannot load, such as when the account server is unreachable or the stored session was revoked:
- * try again, pick another server, or sign out.
+ * try again, go to the downloads kept on this iPhone, pick another server, or sign out.
  */
 function ConnectionTrouble({
   description,
   retry,
+  onDownloads,
 }: {
   readonly description?: string;
   readonly retry?: () => void;
+  readonly onDownloads?: (() => void) | undefined;
 }) {
   const { disconnect } = useConnection();
   const server = useServer();
@@ -221,15 +240,20 @@ function ConnectionTrouble({
         onRetry={retry}
         onChangeServer={disconnect}
         extra={
-          <Button
-            label="Sign Out"
-            variant="plain"
-            onPress={() => {
-              void signOut().catch((cause: unknown) => {
-                Alert.alert("Couldn’t Sign Out", describeFailure(cause));
-              });
-            }}
-          />
+          <>
+            {onDownloads === undefined ? null : (
+              <Button label="Go to Downloads" variant="secondary" onPress={onDownloads} />
+            )}
+            <Button
+              label="Sign Out"
+              variant="plain"
+              onPress={() => {
+                void signOut().catch((cause: unknown) => {
+                  Alert.alert("Couldn’t Sign Out", describeFailure(cause));
+                });
+              }}
+            />
+          </>
         }
       />
     </>
@@ -243,16 +267,57 @@ function ConnectionTrouble({
 function ConnectedApp() {
   const phase = useLiveSessionPhase();
   const settled = useSettledPhase(phase);
+  const { mediaUrl } = useServer();
+  const offlineProfile = useOfflineProfile();
+  const [offline, setOffline] = useState(false);
 
   useDropInviteWhenSignedIn(settled !== null && settled.kind !== "signedOut");
   const slow = useSlowLoad(phase.kind === "loading");
+  const active = settled?.kind === "ready" ? settled.active.profile : null;
 
+  // The profile on screen is the one whose downloads show when the server is out of reach.
+  useEffect(() => {
+    if (active !== null) rememberProfile(mediaUrl, active);
+  }, [active, mediaUrl]);
+
+  if (offline && offlineProfile !== null) {
+    return (
+      <OfflineContext.Provider
+        value={{
+          leave: () => {
+            setOffline(false);
+
+            if (phase.kind === "unavailable") phase.retry();
+          },
+        }}
+      >
+        <ActiveProfileContext.Provider
+          value={{ profile: offlineProfile, profiles: [offlineProfile] }}
+        >
+          <HideSplash />
+          <TitleStatesProvider>
+            <CurrentRoomProvider>
+              <RootStack phase="offline" />
+            </CurrentRoomProvider>
+          </TitleStatesProvider>
+        </ActiveProfileContext.Provider>
+      </OfflineContext.Provider>
+    );
+  }
+
+  const toDownloads = offlineProfile === null ? undefined : () => setOffline(true);
   let trouble: ReactNode = null;
 
   if (phase.kind === "unavailable") {
-    trouble = <ConnectionTrouble description={describeFailure(phase.cause)} retry={phase.retry} />;
+    trouble = (
+      <ConnectionTrouble
+        description={describeFailure(phase.cause)}
+        retry={phase.retry}
+        onDownloads={toDownloads}
+      />
+    );
   } else if (phase.kind === "loading" && slow) {
-    trouble = <ConnectionTrouble />;
+    trouble = <ConnectionTrouble onDownloads={toDownloads} />;
   }
 
   if (settled === null) return trouble;
@@ -264,6 +329,7 @@ function ConnectedApp() {
         <TitleStatesProvider>
           <CurrentRoomProvider>
             <RootStack phase={settled.kind} />
+            {settled.kind === "ready" ? <StorageFullPrompt /> : null}
           </CurrentRoomProvider>
         </TitleStatesProvider>
         {trouble === null ? null : (
@@ -293,7 +359,10 @@ function App() {
     <SdkProvider key={connection.convexUrl} connection={connection}>
       <ProfileChoiceProvider>
         <FirstRunProvider>
-          <ConnectedApp />
+          {/* Above the phases: downloads stay reachable while the server is not. */}
+          <DownloadsProvider>
+            <ConnectedApp />
+          </DownloadsProvider>
         </FirstRunProvider>
       </ProfileChoiceProvider>
     </SdkProvider>

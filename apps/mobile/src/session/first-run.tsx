@@ -69,7 +69,7 @@ export const useFirstRun = (): FirstRun => {
  * Goes Home when owner setup ends. The owner screens stay allowed once the app is ready, so the
  * stack would otherwise keep showing them instead of moving to Home by itself.
  */
-export const useHomeAfterSetup = (phase: SessionPhase["kind"]): void => {
+export const useHomeAfterSetup = (phase: SessionPhase["kind"] | "offline"): void => {
   const previous = useRef(phase);
 
   useEffect(() => {

@@ -448,6 +448,26 @@ choices made while implementing them. Update it in the same PR that changes a de
   watched at 90 percent. It needs the profile to still see the title, and the file to still be the
   item's (it may have left the disk); `playedAt` is checked like the positions.
 
+- The iOS app keeps one store per server and account in `downloads/<server>/<account>/index.json`
+  under its documents folder, with one folder per download: the video, its text subtitles as
+  WebVTT, and its picture. The pure model (`apps/mobile/src/lib/downloads`) reduces every change;
+  the engine (`session/download-engine.ts`) works through the store one download at a time:
+  - a session, prepare every three seconds until ready, a space check (keeping 500 MB free, H21),
+    then the video in an iOS background-capable download task;
+  - Wi-Fi Only pauses the task off Wi-Fi and keeps its resume data, so it continues where it
+    stopped; an app that quits starts what was under way again;
+  - failures follow `afterDownloadFailure`: an expired token renews, an ended session starts a
+    new one, anything else stops with H19's short line and Retry.
+- A download belongs to the profile that made it, and the Downloads list shows only the active
+  profile's, so a Kids profile never sees another profile's downloads. Signing out keeps the files
+  (H15) but shows none: they come back only when the same account signs in on this server.
+- A kept download plays in the normal player from its local file and subtitles, as a direct
+  stream, with no server call. Progress is recorded every ten seconds and on pause, seek, and end,
+  queued in the store, and sent with `downloads.recordProgress` whenever the server answers.
+- When the server cannot be reached at launch, A08 offers Go to Downloads for the profile last
+  used on this iPhone, while it is still signed in and chosen; the root stack then has only the
+  Downloads screens and the player, and Try Again goes back to the server.
+
 ## Subtitle delay
 
 - The web player shifts text subtitles for the viewer: a positive delay shows each cue later than
