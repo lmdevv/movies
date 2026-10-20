@@ -11,7 +11,7 @@ import {
   heroFacts,
   heroTitles,
   homeLayout,
-  isNarrowed,
+  homeScreen,
   kindFacts,
   librariesFor,
   listArgs,
@@ -159,6 +159,25 @@ describe("browse", () => {
     expect(homeLayout(home(card("dune"), 1), [library("movies")])).toBe("rows");
   });
 
+  it("fills Home's top with the hero only for rows on a profile that isn't Kids", () => {
+    const rows = home(card("dune"), 2);
+
+    expect(homeScreen(rows, [library("movies")], false)).toMatchObject({
+      layout: "rows",
+      fullBleed: true,
+    });
+    expect(homeScreen(rows, [library("movies")], true).fullBleed).toBe(false);
+    expect(homeScreen(home(null, 0), [], false)).toMatchObject({
+      layout: "empty",
+      fullBleed: false,
+    });
+    expect(homeScreen(rows, [library("movies")], false).pages.map((page) => page.id)).toEqual([
+      "dune",
+      "movie-0",
+      "movie-1",
+    ]);
+  });
+
   it("offers the libraries that hold a kind", () => {
     const all = [library("movies"), library("shows"), library("mixed")];
 
@@ -187,9 +206,6 @@ describe("browse", () => {
       cursor: "next",
       limit: 60,
     });
-
-    expect(isNarrowed(DEFAULT_FILTERS)).toBe(false);
-    expect(isNarrowed(narrowed)).toBe(true);
   });
 
   it("counts a collection by kind", () => {

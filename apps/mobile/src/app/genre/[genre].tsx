@@ -48,7 +48,7 @@ export default function GenrePage() {
           }
         />
       </Screen>
-      <UndoBar above="screen" />
+      <UndoBar />
     </>
   );
 }

@@ -194,6 +194,28 @@ export const homeLayout = (home: Home, libraries: ReadonlyArray<Library>): HomeL
   return "rows";
 };
 
+/** What Home draws for a profile: its layout, the arrivals, the hero's pages, and whether the hero fills the top. */
+export interface HomeScreen {
+  readonly layout: HomeLayout;
+  readonly arrived: ReadonlyArray<TitleCard>;
+  readonly pages: ReadonlyArray<TitleCard>;
+  /** The full-bleed hero under the large title (C01), rather than the title on the page. */
+  readonly fullBleed: boolean;
+}
+
+/** Home for these rows and libraries; Kids profiles get the inset billboard instead of the hero. */
+export const homeScreen = (
+  home: Home,
+  libraries: ReadonlyArray<Library>,
+  kids: boolean,
+): HomeScreen => {
+  const layout = homeLayout(home, libraries);
+  const arrived = newestFirst(home.recentlyAddedMovies, home.recentlyAddedShows);
+  const pages = heroTitles(home.featured, arrived);
+
+  return { layout, arrived, pages, fullBleed: layout === "rows" && !kids && pages.length > 0 };
+};
+
 /** The libraries that hold titles of `kind`: their own kind, or mixed. */
 export const librariesFor = (
   libraries: ReadonlyArray<Library>,
@@ -213,10 +235,6 @@ export interface BrowseFilters {
 
 /** Newest arrivals first, every genre, every library. */
 export const DEFAULT_FILTERS: BrowseFilters = { sort: "added", genre: null, libraryId: null };
-
-/** Whether a genre or library hides some titles. */
-export const isNarrowed = (filters: BrowseFilters): boolean =>
-  filters.genre !== null || filters.libraryId !== null;
 
 type Mutable<Value> = { -readonly [Key in keyof Value]: Value[Key] };
 

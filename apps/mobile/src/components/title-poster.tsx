@@ -23,18 +23,18 @@ export interface TitlePosterProps {
    * none.
    */
   readonly caption?: "rail" | "grid" | "none";
-  /** Tailwind width class, such as `w-28`; grids pass `flex-1`. Stills are always 264pt wide. */
-  readonly widthClassName?: string;
   /** The 2:3 poster, or the title's wide still. */
   readonly artwork?: "poster" | "still";
+  /** Tailwind width class; `w-28` for posters and `w-66` (264pt) for stills, and grids pass `flex-1`. */
+  readonly widthClassName?: string;
 }
 
 /** A poster that opens the title, with its actions on a long press. */
 export function TitlePoster({
   title,
   caption = "rail",
-  widthClassName = "w-28",
   artwork = "poster",
+  widthClassName = artwork === "still" ? "w-66" : "w-28",
 }: TitlePosterProps) {
   const { mediaUrl } = useServer();
   const still = artwork === "still";
@@ -48,7 +48,7 @@ export function TitlePoster({
   // One view around the link, sized here: its preview and menu render beside the poster and would
   // take a parent's gap of their own.
   return (
-    <View className={still ? "w-66" : widthClassName}>
+    <View className={widthClassName}>
       <Link href={`/title/${title.id}`} asChild>
         <Link.Trigger>
           <Pressable

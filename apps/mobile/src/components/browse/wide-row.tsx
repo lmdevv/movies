@@ -25,17 +25,17 @@ export function WideRow({ title }: { readonly title: TitleCard }) {
   const menu = useTitleMenu(title, watchHref({ titleId: title.id }));
   const detail = kindFacts(title);
 
-  // One view around the link: its preview and menu render beside the row and would take a parent's
-  // gap of their own.
+  // The link sits in its own row beside `…`: its preview and menu render beside the row and would
+  // take a parent's gap of their own, and `…` stays a separate VoiceOver element.
   return (
-    <View>
+    <View className="flex-row items-center gap-3">
       <Link href={`/title/${title.id}`} asChild>
         <Link.Trigger>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${title.name}, ${detail}`}
             accessibilityHint="Opens the title. Touch and hold for actions."
-            className="flex-row items-center gap-3 active:opacity-80"
+            className="flex-1 flex-row items-center gap-3 active:opacity-80"
           >
             <View className="h-19 w-32 overflow-hidden rounded-control bg-surface-raised">
               {uri === undefined ? null : (
@@ -53,20 +53,20 @@ export function WideRow({ title }: { readonly title: TitleCard }) {
                 {detail}
               </Text>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`More for ${title.name}`}
-              hitSlop={12}
-              onPress={() => router.push(`/title/${title.id}/actions`)}
-              className="w-7 items-center active:opacity-60"
-            >
-              <Icon icon={Ellipsis} size="row" />
-            </Pressable>
           </Pressable>
         </Link.Trigger>
         <Link.Preview />
         {menu}
       </Link>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`More for ${title.name}`}
+        hitSlop={12}
+        onPress={() => router.push(`/title/${title.id}/actions`)}
+        className="w-7 items-center active:opacity-60"
+      >
+        <Icon icon={Ellipsis} size="row" />
+      </Pressable>
     </View>
   );
 }

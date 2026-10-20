@@ -8,7 +8,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useState } from "react";
 import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
-import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
+import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -72,26 +72,22 @@ export function LargeTitle({
   );
 }
 
-/** The bar's height under the status bar: the 64pt title row and the top fade's tail. */
-const BAR_HEIGHT = 64 + TOP_FADE_TAIL;
-
-/** How far the content under the bar moves up to start at the top of the screen. */
-export const useBarOverlap = (): number => useSafeAreaInsets().top + BAR_HEIGHT;
-
 /**
  * The bar over Home, the scroll view's sticky first child so the scroll view stays the page's
  * root, where UIKit finds it to minimize the tab bar: only the trailing buttons until the large
- * title has scrolled away, then the top fade with the compact title. The content after it moves up
- * by `useBarOverlap` to start under it.
+ * title has scrolled away, then the top fade with the compact title. The page moves its content up
+ * by the height `onLayout` reports, so the content starts under the bar.
  */
 export function CompactBar({
   title,
   collapsed,
   trailing,
+  onLayout,
 }: {
   readonly title: string;
   readonly collapsed: boolean;
   readonly trailing?: ReactNode;
+  readonly onLayout?: (event: LayoutChangeEvent) => void;
 }) {
   const insets = useSafeAreaInsets();
   const page = useThemeColor("--color-bg");
@@ -99,7 +95,12 @@ export function CompactBar({
   const clear = useThemeColor("--color-bg-clear");
 
   return (
-    <View style={{ paddingTop: insets.top, paddingBottom: TOP_FADE_TAIL }} pointerEvents="box-none">
+    // The sticky header takes this style, so `pointerEvents` lives here: touches outside the
+    // trailing buttons reach the content under the bar.
+    <View
+      style={{ paddingTop: insets.top, paddingBottom: TOP_FADE_TAIL, pointerEvents: "box-none" }}
+      onLayout={onLayout}
+    >
       {collapsed ? (
         <Animated.View
           entering={FadeIn.duration(180)}

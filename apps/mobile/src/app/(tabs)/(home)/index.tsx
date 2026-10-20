@@ -10,6 +10,7 @@ import type { Home as HomeRows, Library } from "@movies/contracts/models/catalog
 import { useCommandQuery } from "@movies/sdk/react";
 import { router } from "expo-router";
 import { Folder, Plus, Popcorn } from "lucide-react-native";
+import { useState } from "react";
 import { ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -21,12 +22,13 @@ import { ProfileButton } from "@/components/browse/profile-button";
 import { Rail } from "@/components/browse/rail";
 import { ReturnToRoom } from "@/components/rooms/room-pill";
 import { ScanStatus } from "@/components/browse/scan-status";
-import { CompactBar, LargeTitle, useBarOverlap, useCollapse } from "@/components/browse/tab-chrome";
+import { CompactBar, LargeTitle, useCollapse } from "@/components/browse/tab-chrome";
 import { ContinueCard } from "@/components/continue-card";
 import { TitlePoster } from "@/components/title-poster";
 import { Button } from "@/components/ui/button";
 import { CalmState } from "@/components/ui/calm-state";
-import { heroTitles, homeLayout, newestFirst } from "@/lib/browse";
+import { homeScreen } from "@/lib/browse";
+import type { HomeScreen } from "@/lib/browse";
 import { describeFailure } from "@/lib/failure";
 import { useActiveProfile } from "@/session/active-profile";
 
@@ -42,24 +44,20 @@ export default function Home() {
   const libraries = useCommandQuery("libraries.list", {});
   const collapse = useCollapse();
   const insets = useSafeAreaInsets();
-  const overlap = useBarOverlap();
-
-  const failed = home.status === "error" || libraries.status === "error";
+  // The content moves up by the bar's height to start under it, at the top of the screen.
+  const [barHeight, setBarHeight] = useState(0);
 
   const loaded =
     home.status === "success" && libraries.status === "success"
-      ? { rows: home.data, libraries: libraries.data }
+      ? {
+          rows: home.data,
+          libraries: libraries.data,
+          screen: homeScreen(home.data, libraries.data, profile.kids),
+        }
       : null;
 
-  const layout = loaded === null ? null : homeLayout(loaded.rows, loaded.libraries);
-
-  const arrived =
-    loaded === null
-      ? []
-      : newestFirst(loaded.rows.recentlyAddedMovies, loaded.rows.recentlyAddedShows);
-
-  const pages = loaded === null ? [] : heroTitles(loaded.rows.featured, arrived);
-  const fullBleed = layout === "rows" && !profile.kids && pages.length > 0;
+  const failure =
+    home.status === "error" ? home.error : libraries.status === "error" ? libraries.error : null;
 
   // The scroll view is the page itself, from the first render on: UIKit looks for it there as the
   // tab appears, to minimize the tab bar as it scrolls and soften the content behind it (C02).
@@ -75,20 +73,17 @@ export default function Home() {
       <CompactBar
         title="Home"
         collapsed={collapse.collapsed}
-        trailing={<ProfileButton overMedia={fullBleed && !collapse.collapsed} />}
+        trailing={
+          <ProfileButton overMedia={loaded?.screen.fullBleed === true && !collapse.collapsed} />
+        }
+        onLayout={(event) => setBarHeight(event.nativeEvent.layout.height)}
       />
-      <View className="flex-1" style={{ marginTop: -overlap }}>
-        {failed ? (
+      <View className="flex-1" style={{ marginTop: -barHeight }}>
+        {failure !== null ? (
           <View className="flex-1" style={{ paddingTop: insets.top }}>
             <CalmState
               title="Couldn't Load Home"
-              description={describeFailure(
-                home.status === "error"
-                  ? home.error
-                  : libraries.status === "error"
-                    ? libraries.error
-                    : null,
-              )}
+              description={describeFailure(failure)}
               actions={
                 <Button
                   label="Try Again"
@@ -101,11 +96,11 @@ export default function Home() {
               }
             />
           </View>
-        ) : loaded === null || layout === null ? null : (
+        ) : loaded === null ? null : (
           <>
-            {fullBleed ? (
+            {loaded.screen.fullBleed ? (
               <Hero
-                titles={pages}
+                titles={loaded.screen.pages}
                 header={
                   <>
                     <LargeTitle title="Home" overMedia />
@@ -120,7 +115,7 @@ export default function Home() {
               </>
             )}
             <HomeBody
-              layout={layout}
+              screen={loaded.screen}
               home={loaded.rows}
               libraries={loaded.libraries}
               kids={profile.kids}
@@ -145,18 +140,16 @@ function AddLibrary() {
 
 /** What follows the hero or the title, by layout. */
 function HomeBody({
-  layout,
+  screen: { layout, arrived },
   home,
   libraries,
   kids,
 }: {
-  readonly layout: ReturnType<typeof homeLayout>;
+  readonly screen: HomeScreen;
   readonly home: HomeRows;
   readonly libraries: ReadonlyArray<Library>;
   readonly kids: boolean;
 }) {
-  const arrived = newestFirst(home.recentlyAddedMovies, home.recentlyAddedShows);
-
   if (layout === "empty") {
     return <EmptyState icon={Folder} title="Your library is empty." action={<AddLibrary />} />;
   }

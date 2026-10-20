@@ -77,7 +77,7 @@ export default function MyList() {
           }
         />
       </Screen>
-      <UndoBar above="screen" />
+      <UndoBar />
     </>
   );
 }

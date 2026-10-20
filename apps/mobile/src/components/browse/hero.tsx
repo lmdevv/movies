@@ -40,9 +40,10 @@ const DARK_SCRIM_LOCATIONS = [0, 0.3, 0.96] as const;
 
 /**
  * C18's scrim: the dark top, clear, dark again behind the title, then the white page. Paper's
- * stops (0.62, 0.96) move down with the title, which sits lower here to leave room for the dots.
+ * stops (0.62, 0.96) move down with the title and its facts, which sit lower here to leave room
+ * for the dots, so the white facts line stays on the dark band.
  */
-const LIGHT_SCRIM_LOCATIONS = [0, 0.28, 0.7, 1] as const;
+const LIGHT_SCRIM_LOCATIONS = [0, 0.28, 0.8, 1] as const;
 
 /** One page of the hero: the artwork and the title's art. */
 function HeroPage({ title, width }: { readonly title: TitleCard; readonly width: number }) {

@@ -8,15 +8,13 @@
  */
 import type { PersonCard, TitleCard } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
-import { Stack, router } from "expo-router";
+import { Stack, router, useFocusEffect, useNavigation } from "expo-router";
 import { Search as SearchIcon } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, View } from "react-native";
 import type { SearchBarCommands } from "react-native-screens";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Chip, KindChips } from "@/components/browse/chip";
-import { TAB_BAR_CLEARANCE } from "@/components/browse/layout";
 import { EmptyState } from "@/components/browse/empty-state";
 import { PersonRow } from "@/components/browse/person-row";
 import { useOnSearchActivate } from "@/components/browse/search-activation";
@@ -58,18 +56,31 @@ const useSettled = (text: string): string => {
 
 export default function Search() {
   const { profile } = useActiveProfile();
-  const insets = useSafeAreaInsets();
   const accent = useThemeColor("--color-accent");
   const search = useRef<SearchBarCommands>(null);
   const [text, setText] = useState("");
   const query = useSettled(text);
 
-  const focusField = useCallback(() => {
-    // The field joins the tab bar once the tab is on screen.
-    requestAnimationFrame(() => search.current?.focus());
-  }, []);
+  const navigation = useNavigation();
+  // Set when the Search tab is selected while another tab is on screen; the field focuses once
+  // this screen is.
+  const focusOnArrival = useRef(false);
 
-  useOnSearchActivate(focusField);
+  useOnSearchActivate(
+    useCallback(() => {
+      if (navigation.isFocused()) search.current?.focus();
+      else focusOnArrival.current = true;
+    }, [navigation]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!focusOnArrival.current) return;
+
+      focusOnArrival.current = false;
+      search.current?.focus();
+    }, []),
+  );
 
   const clear = () => {
     search.current?.clearText();
@@ -94,7 +105,6 @@ export default function Search() {
         keyboardShouldPersistTaps="handled"
         className="flex-1 bg-bg"
         contentContainerClassName="gap-6 px-5 pt-2"
-        contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }}
       >
         {query === "" ? (
           <Explore />
