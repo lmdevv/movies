@@ -1,6 +1,7 @@
 /**
  * The stack options of the Search and Downloads tabs: the native header with a 34pt large title
- * that collapses into the bar as the content scrolls, on the page's background (E01, C20).
+ * that collapses into the bar as the content scrolls, on the page's background (E01, C20). The bar
+ * keeps the system's own background: on iOS 26 a `headerStyle` color paints over the large title.
  */
 import type { NativeStackNavigationOptions } from "expo-router";
 import { useCSSVariable } from "uniwind";
@@ -15,8 +16,7 @@ export const useTabStackOptions = (): NativeStackNavigationOptions => {
   const semibold = useCSSVariable("--font-sans-semibold");
 
   return {
-    headerLargeTitle: true,
-    headerStyle: { backgroundColor: background },
+    headerLargeTitleEnabled: true,
     headerShadowVisible: false,
     headerLargeTitleShadowVisible: false,
     headerTintColor: text,

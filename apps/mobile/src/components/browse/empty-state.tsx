@@ -15,12 +15,23 @@ export interface EmptyStateProps {
   readonly title: string;
   readonly description?: string;
   readonly action?: ReactNode;
+  /**
+   * `page` fills a screen of its own (C12, C20); `results` sits in Search's padded results, closer
+   * under the title (E04).
+   */
+  readonly placement?: "page" | "results";
 }
 
 /** A centered empty state. */
-export function EmptyState({ icon, title, description, action }: EmptyStateProps) {
+export function EmptyState({
+  icon,
+  title,
+  description,
+  action,
+  placement = "page",
+}: EmptyStateProps) {
   return (
-    <View className="gap-4 px-5 pt-30">
+    <View className={placement === "page" ? "gap-4 px-5 pt-30" : "gap-4 pt-14"}>
       <View className="items-center gap-4 py-6">
         <View className="size-18 items-center justify-center rounded-pill bg-surface">
           <Icon icon={icon} size="badge" />

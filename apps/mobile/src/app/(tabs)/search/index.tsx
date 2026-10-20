@@ -10,7 +10,7 @@ import type { PersonCard, TitleCard } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { Stack, router } from "expo-router";
 import { Search as SearchIcon } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, View } from "react-native";
 import type { SearchBarCommands } from "react-native-screens";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -19,6 +19,7 @@ import { Chip, KindChips } from "@/components/browse/chip";
 import { TAB_BAR_CLEARANCE } from "@/components/browse/layout";
 import { EmptyState } from "@/components/browse/empty-state";
 import { PersonRow } from "@/components/browse/person-row";
+import { useOnSearchActivate } from "@/components/browse/search-activation";
 import { WideRow } from "@/components/browse/wide-row";
 import { TitlePoster } from "@/components/title-poster";
 import { Button } from "@/components/ui/button";
@@ -36,7 +37,7 @@ const DEBOUNCE_MS = 250;
 /** Results asked for of each kind. */
 const RESULT_LIMIT = 30;
 
-/** Genres offered before typing. */
+/** Genres offered before typing, in one sideways row. */
 const EXPLORE_GENRES = 6;
 
 /** Titles offered before typing. */
@@ -63,6 +64,13 @@ export default function Search() {
   const [text, setText] = useState("");
   const query = useSettled(text);
 
+  const focusField = useCallback(() => {
+    // The field joins the tab bar once the tab is on screen.
+    requestAnimationFrame(() => search.current?.focus());
+  }, []);
+
+  useOnSearchActivate(focusField);
+
   const clear = () => {
     search.current?.clearText();
     setText("");
@@ -75,6 +83,7 @@ export default function Search() {
         placeholder="Movies, shows, people"
         tintColor={accent}
         hideWhenScrolling={false}
+        hideNavigationBar={false}
         autoCapitalize="none"
         onChangeText={(event) => setText(event.nativeEvent.text)}
         onCancelButtonPress={() => setText("")}
@@ -112,7 +121,12 @@ function Explore() {
           <Text variant="heading" accessibilityRole="header">
             Explore
           </Text>
-          <View className="flex-row flex-wrap gap-2">
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            className="-mx-5"
+            contentContainerClassName="gap-2 px-5"
+          >
             {genres.data.slice(0, EXPLORE_GENRES).map((genre, index) => (
               <Chip
                 key={genre.name}
@@ -121,7 +135,7 @@ function Explore() {
                 onPress={() => router.push(`/genre/${encodeURIComponent(genre.name)}`)}
               />
             ))}
-          </View>
+          </ScrollView>
         </View>
       ) : null}
       {popular.length > 0 ? (
@@ -187,6 +201,7 @@ function Results({
       <EmptyState
         icon={SearchIcon}
         title={`No results for “${query}”`}
+        placement="results"
         action={<Button label="Clear Search" variant="secondary" onPress={onClear} />}
       />
     );

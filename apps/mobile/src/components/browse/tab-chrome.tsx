@@ -72,9 +72,17 @@ export function LargeTitle({
   );
 }
 
+/** The bar's height under the status bar: the 64pt title row and the top fade's tail. */
+const BAR_HEIGHT = 64 + TOP_FADE_TAIL;
+
+/** How far the content under the bar moves up to start at the top of the screen. */
+export const useBarOverlap = (): number => useSafeAreaInsets().top + BAR_HEIGHT;
+
 /**
- * The fixed bar over Home: only the trailing buttons until the large title has scrolled away, then
- * the top fade with the compact title, and the fade behind the tab bar.
+ * The bar over Home, the scroll view's sticky first child so the scroll view stays the page's
+ * root, where UIKit finds it to minimize the tab bar: only the trailing buttons until the large
+ * title has scrolled away, then the top fade with the compact title. The content after it moves up
+ * by `useBarOverlap` to start under it.
  */
 export function CompactBar({
   title,
@@ -91,49 +99,33 @@ export function CompactBar({
   const clear = useThemeColor("--color-bg-clear");
 
   return (
-    <>
+    <View style={{ paddingTop: insets.top, paddingBottom: TOP_FADE_TAIL }} pointerEvents="box-none">
       {collapsed ? (
         <Animated.View
           entering={FadeIn.duration(180)}
           exiting={FadeOut.duration(180)}
-          className="absolute inset-x-0 bottom-0 h-30"
+          style={StyleSheet.absoluteFill}
           pointerEvents="none"
         >
-          <LinearGradient colors={[clear, fade]} style={StyleSheet.absoluteFill} />
+          <LinearGradient
+            colors={[page, page, fade, clear]}
+            locations={TOP_FADE_LOCATIONS}
+            style={StyleSheet.absoluteFill}
+          />
         </Animated.View>
       ) : null}
-      <View
-        className="absolute inset-x-0 top-0"
-        style={{ paddingTop: insets.top, paddingBottom: TOP_FADE_TAIL }}
-        pointerEvents="box-none"
-      >
-        {collapsed ? (
-          <Animated.View
-            entering={FadeIn.duration(180)}
-            exiting={FadeOut.duration(180)}
-            style={StyleSheet.absoluteFill}
-            pointerEvents="none"
-          >
-            <LinearGradient
-              colors={[page, page, fade, clear]}
-              locations={TOP_FADE_LOCATIONS}
-              style={StyleSheet.absoluteFill}
-            />
-          </Animated.View>
-        ) : null}
-        <View className="h-16 flex-row items-center gap-3 px-5" pointerEvents="box-none">
-          <View className="flex-1" pointerEvents="none">
-            {collapsed ? (
-              <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)}>
-                <Text variant="navTitle" numberOfLines={1}>
-                  {title}
-                </Text>
-              </Animated.View>
-            ) : null}
-          </View>
-          {trailing}
+      <View className="h-16 flex-row items-center gap-3 px-5" pointerEvents="box-none">
+        <View className="flex-1" pointerEvents="none">
+          {collapsed ? (
+            <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)}>
+              <Text variant="navTitle" numberOfLines={1}>
+                {title}
+              </Text>
+            </Animated.View>
+          ) : null}
         </View>
+        {trailing}
       </View>
-    </>
+    </View>
   );
 }

@@ -45,37 +45,41 @@ export function TitlePoster({
 
   const menu = useTitleMenu(title, watchHref({ titleId: title.id }));
 
+  // One view around the link, sized here: its preview and menu render beside the poster and would
+  // take a parent's gap of their own.
   return (
-    <Link href={`/title/${title.id}`} asChild>
-      <Link.Trigger>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={title.name}
-          accessibilityHint="Opens the title. Touch and hold for actions."
-          className={`${still ? "w-66" : widthClassName} gap-1.5 active:opacity-80`}
-        >
-          <View
-            className={`${still ? "h-37" : "aspect-2/3"} w-full overflow-hidden rounded-control bg-surface-raised`}
+    <View className={still ? "w-66" : widthClassName}>
+      <Link href={`/title/${title.id}`} asChild>
+        <Link.Trigger>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={title.name}
+            accessibilityHint="Opens the title. Touch and hold for actions."
+            className="w-full gap-1.5 active:opacity-80"
           >
-            {uri === undefined ? (
-              <View className="flex-1 items-center justify-center p-2">
-                <Text variant="caption" tone="muted" className="text-center" numberOfLines={3}>
-                  {title.name}
-                </Text>
-              </View>
-            ) : (
-              <Image source={{ uri }} contentFit="cover" transition={150} className="size-full" />
+            <View
+              className={`${still ? "h-37" : "aspect-2/3"} w-full overflow-hidden rounded-control bg-surface-raised`}
+            >
+              {uri === undefined ? (
+                <View className="flex-1 items-center justify-center p-2">
+                  <Text variant="caption" tone="muted" className="text-center" numberOfLines={3}>
+                    {title.name}
+                  </Text>
+                </View>
+              ) : (
+                <Image source={{ uri }} contentFit="cover" transition={150} className="size-full" />
+              )}
+            </View>
+            {caption === "none" ? null : (
+              <Text variant={caption === "rail" ? "label" : "metaStrong"} numberOfLines={2}>
+                {title.name}
+              </Text>
             )}
-          </View>
-          {caption === "none" ? null : (
-            <Text variant={caption === "rail" ? "label" : "metaStrong"} numberOfLines={2}>
-              {title.name}
-            </Text>
-          )}
-        </Pressable>
-      </Link.Trigger>
-      <Link.Preview />
-      {menu}
-    </Link>
+          </Pressable>
+        </Link.Trigger>
+        <Link.Preview />
+        {menu}
+      </Link>
+    </View>
   );
 }

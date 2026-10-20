@@ -21,8 +21,7 @@ import { ProfileButton } from "@/components/browse/profile-button";
 import { Rail } from "@/components/browse/rail";
 import { ReturnToRoom } from "@/components/rooms/room-pill";
 import { ScanStatus } from "@/components/browse/scan-status";
-import { CompactBar, LargeTitle, useCollapse } from "@/components/browse/tab-chrome";
-import { UndoBar } from "@/components/browse/undo-bar";
+import { CompactBar, LargeTitle, useBarOverlap, useCollapse } from "@/components/browse/tab-chrome";
 import { ContinueCard } from "@/components/continue-card";
 import { TitlePoster } from "@/components/title-poster";
 import { Button } from "@/components/ui/button";
@@ -30,6 +29,9 @@ import { CalmState } from "@/components/ui/calm-state";
 import { heroTitles, homeLayout, newestFirst } from "@/lib/browse";
 import { describeFailure } from "@/lib/failure";
 import { useActiveProfile } from "@/session/active-profile";
+
+/** The bar over Home is the scroll view's first child, and stays at the top. */
+const STICKY_BAR = [0];
 
 /** Collections in Home's row; the Collections page lists the rest. */
 const ROW_COLLECTIONS = 20;
@@ -40,73 +42,93 @@ export default function Home() {
   const libraries = useCommandQuery("libraries.list", {});
   const collapse = useCollapse();
   const insets = useSafeAreaInsets();
+  const overlap = useBarOverlap();
 
-  if (home.status === "loading" || libraries.status === "loading") {
-    return <View className="flex-1 bg-bg" />;
-  }
+  const failed = home.status === "error" || libraries.status === "error";
 
-  if (home.status === "error" || libraries.status === "error") {
-    const cause =
-      home.status === "error" ? home.error : libraries.status === "error" ? libraries.error : null;
+  const loaded =
+    home.status === "success" && libraries.status === "success"
+      ? { rows: home.data, libraries: libraries.data }
+      : null;
 
-    return (
-      <View className="flex-1 bg-bg">
-        <CalmState
-          title="Couldn't Load Home"
-          description={describeFailure(cause)}
-          actions={
-            <Button
-              label="Try Again"
-              onPress={() => {
-                if (home.status === "error") home.retry();
+  const layout = loaded === null ? null : homeLayout(loaded.rows, loaded.libraries);
 
-                if (libraries.status === "error") libraries.retry();
-              }}
-            />
-          }
-        />
-      </View>
-    );
-  }
+  const arrived =
+    loaded === null
+      ? []
+      : newestFirst(loaded.rows.recentlyAddedMovies, loaded.rows.recentlyAddedShows);
 
-  const layout = homeLayout(home.data, libraries.data);
-  const arrived = newestFirst(home.data.recentlyAddedMovies, home.data.recentlyAddedShows);
-  const pages = heroTitles(home.data.featured, arrived);
+  const pages = loaded === null ? [] : heroTitles(loaded.rows.featured, arrived);
   const fullBleed = layout === "rows" && !profile.kids && pages.length > 0;
 
+  // The scroll view is the page itself, from the first render on: UIKit looks for it there as the
+  // tab appears, to minimize the tab bar as it scrolls and soften the content behind it (C02).
   return (
-    <View className="flex-1 bg-bg">
-      <ScrollView
-        onScroll={collapse.onScroll}
-        scrollEventThrottle={16}
-        contentInsetAdjustmentBehavior="never"
-        contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }}
-      >
-        {fullBleed ? (
-          <Hero
-            titles={pages}
-            header={
-              <>
-                <LargeTitle title="Home" overMedia />
-                <ReturnToRoom />
-              </>
-            }
-          />
-        ) : (
-          <>
-            <LargeTitle title="Home" />
-            <ReturnToRoom />
-          </>
-        )}
-        <HomeBody layout={layout} home={home.data} libraries={libraries.data} kids={profile.kids} />
-      </ScrollView>
+    <ScrollView
+      onScroll={collapse.onScroll}
+      scrollEventThrottle={16}
+      contentInsetAdjustmentBehavior="never"
+      stickyHeaderIndices={STICKY_BAR}
+      className="flex-1 bg-bg"
+      contentContainerStyle={{ flexGrow: 1, paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }}
+    >
       <CompactBar
         title="Home"
         collapsed={collapse.collapsed}
         trailing={<ProfileButton overMedia={fullBleed && !collapse.collapsed} />}
       />
-      <UndoBar above="tabBar" />
-    </View>
+      <View className="flex-1" style={{ marginTop: -overlap }}>
+        {failed ? (
+          <View className="flex-1" style={{ paddingTop: insets.top }}>
+            <CalmState
+              title="Couldn't Load Home"
+              description={describeFailure(
+                home.status === "error"
+                  ? home.error
+                  : libraries.status === "error"
+                    ? libraries.error
+                    : null,
+              )}
+              actions={
+                <Button
+                  label="Try Again"
+                  onPress={() => {
+                    if (home.status === "error") home.retry();
+
+                    if (libraries.status === "error") libraries.retry();
+                  }}
+                />
+              }
+            />
+          </View>
+        ) : loaded === null || layout === null ? null : (
+          <>
+            {fullBleed ? (
+              <Hero
+                titles={pages}
+                header={
+                  <>
+                    <LargeTitle title="Home" overMedia />
+                    <ReturnToRoom />
+                  </>
+                }
+              />
+            ) : (
+              <>
+                <LargeTitle title="Home" />
+                <ReturnToRoom />
+              </>
+            )}
+            <HomeBody
+              layout={layout}
+              home={loaded.rows}
+              libraries={loaded.libraries}
+              kids={profile.kids}
+            />
+          </>
+        )}
+      </View>
+    </ScrollView>
   );
 }
 
