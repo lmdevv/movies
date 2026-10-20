@@ -1,9 +1,10 @@
 /**
  * G01 · Watch Together, from a title's page: what the room will play, then Start Room, which opens
  * the room (G02) to invite people before anyone presses play. A movie starts where the profile
- * stopped; a show at its next episode.
+ * stopped; a show at its next episode, or at the episode its actions (D07) were opened on.
  */
-import type { TitleDetail } from "@movies/contracts/models/catalog";
+import type { TitleId } from "@movies/contracts/ids";
+import type { Episode, TitleDetail } from "@movies/contracts/models/catalog";
 import { Milliseconds } from "@movies/contracts/units";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import * as Haptics from "expo-haptics";
@@ -13,7 +14,8 @@ import { useState } from "react";
 import { ActivityIndicator, ScrollView, View } from "react-native";
 
 import { RoomArtwork } from "@/components/rooms/room-parts";
-import { titleIdParam } from "@/components/title/route-params";
+import { episodeIdParam, seasonParam, titleIdParam } from "@/components/title/route-params";
+import { useSeasonEpisode } from "@/components/title/use-season-episode";
 import { Button } from "@/components/ui/button";
 import { CalmState } from "@/components/ui/calm-state";
 import { NavHeader } from "@/components/ui/nav-header";
@@ -27,14 +29,20 @@ import { roomStart } from "@/lib/rooms/room-start";
 import { useActiveProfile } from "@/session/active-profile";
 import { useServer } from "@/session/connection";
 
-/** The start screen for a loaded title. */
-function StartRoom({ title }: { readonly title: TitleDetail }) {
+/** The start screen for a loaded title, playing `chosen` when an episode was picked. */
+function StartRoom({
+  title,
+  chosen,
+}: {
+  readonly title: TitleDetail;
+  readonly chosen: Episode | null;
+}) {
   const { profile } = useActiveProfile();
   const { mediaUrl } = useServer();
   const create = useCommand("rooms.create");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const start = roomStart(title);
+  const start = roomStart(title, chosen);
   const { episode } = start;
 
   const startRoom = () => {
@@ -92,26 +100,54 @@ function StartRoom({ title }: { readonly title: TitleDetail }) {
   );
 }
 
+/**
+ * The episode picked on D07: none when the link names no episode, and missing when it names one
+ * that is malformed or not in its season, so a room never starts on another episode by mistake.
+ */
+const useChosenEpisode = (
+  titleId: TitleId | null,
+  rawEpisode: string | undefined,
+  rawSeason: string | undefined,
+) => {
+  const episodeId = episodeIdParam(rawEpisode);
+  const seasonNumber = seasonParam(rawSeason);
+  const episode = useSeasonEpisode(titleId, episodeId, seasonNumber);
+
+  if (rawEpisode === undefined) return { status: "none" } as const;
+
+  if (episodeId === null || seasonNumber === null) return { status: "missing" } as const;
+
+  if (episode.status !== "success") return episode;
+
+  return episode.data === null ? ({ status: "missing" } as const) : episode;
+};
+
 export default function WatchTogether() {
-  const params = useLocalSearchParams<{ titleId: string }>();
+  const params = useLocalSearchParams<{ titleId: string; episodeId?: string; season?: string }>();
   const titleId = titleIdParam(params.titleId);
   const { profile } = useActiveProfile();
+  const chosen = useChosenEpisode(titleId, params.episodeId, params.season);
 
   const title = useCommandQuery(
     "titles.get",
     titleId === null ? "skip" : { profileId: profile.id, titleId },
   );
 
+  const failure = title.status === "error" ? title : chosen.status === "error" ? chosen : null;
+
   return (
     <Screen header={<NavHeader title="Watch Together" />}>
-      {title.status === "success" ? (
-        <StartRoom title={title.data} />
-      ) : title.status === "error" ? (
+      {chosen.status === "missing" ? (
+        <CalmState icon={CircleAlert} title="Episode Not Found" />
+      ) : title.status === "success" &&
+        (chosen.status === "success" || chosen.status === "none") ? (
+        <StartRoom title={title.data} chosen={chosen.status === "success" ? chosen.data : null} />
+      ) : failure !== null ? (
         <CalmState
           icon={CircleAlert}
           title="Couldn’t Load This Title"
-          description={describeFailure(title.error)}
-          actions={<Button label="Try Again" onPress={title.retry} />}
+          description={describeFailure(failure.error)}
+          actions={<Button label="Try Again" onPress={failure.retry} />}
         />
       ) : titleId === null ? (
         <CalmState icon={CircleAlert} title="Title Not Found" />

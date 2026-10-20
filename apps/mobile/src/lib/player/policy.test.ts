@@ -22,7 +22,6 @@ import {
   afterSessionFailure,
   afterStartFailure,
   isUnhonoured,
-  offersResume,
   withoutFailedPath,
 } from "./policy";
 
@@ -33,14 +32,6 @@ const transport = new TransportError({
 });
 
 const video = { codec: "hevc", width: 1920, height: 1080, dynamicRange: "sdr" } as const;
-
-describe("offersResume", () => {
-  it("asks only from ten seconds in", () => {
-    expect(offersResume(0)).toBe(false);
-    expect(offersResume(9_999)).toBe(false);
-    expect(offersResume(10_000)).toBe(true);
-  });
-});
 
 describe("afterSessionFailure", () => {
   it("shows File Unavailable when every file of the title is gone", () => {

@@ -3,7 +3,7 @@ import { Option, Schema } from "effect";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { parseWatchParams, watchHref } from "./routes";
+import { parseWatchParams, togetherHref, watchHref } from "./routes";
 
 const titleId = Schema.decodeSync(TitleId);
 
@@ -118,5 +118,14 @@ describe("parseWatchParams", () => {
     const parsed = parseWatchParams({ titleId: "t", fileId: "", start: "" });
 
     expect(parsed).toStrictEqual(Option.some({ titleId: "t" }));
+  });
+});
+
+describe("togetherHref", () => {
+  it("starts a title's room, or one on a chosen episode with its season", () => {
+    expect(togetherHref({ titleId: titleId("t1") })).toBe("/together/t1");
+    expect(
+      togetherHref({ titleId: titleId("t1"), episode: { id: episodeId("e2"), seasonNumber: 3 } }),
+    ).toBe("/together/t1?episodeId=e2&season=3");
   });
 });

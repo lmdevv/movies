@@ -68,7 +68,6 @@ import {
   EpisodesPanel,
   ProblemPanel,
   QualityPanel,
-  ResumePanel,
   SpeedPanel,
   speedLabel,
 } from "./player-panels";
@@ -84,12 +83,11 @@ const UNLOCK_HINT_MS = 3_000;
 /** A sheet over the player. */
 type Panel = "audio" | "quality" | "speed" | "episodes" | "chapters";
 
-/** One try at a session: where it starts and whether a saved position may ask to resume. */
+/** One try at a session and where it starts. */
 interface Attempt {
   readonly key: number;
   /** Where to start; none for the saved progress. */
   readonly startAtMs: number | null;
-  readonly askResume: boolean;
   /** Tries in a row that failed to start. */
   readonly failures: number;
 }
@@ -284,12 +282,12 @@ function PlayerSession({
 
   useEffect(() => {
     if (controller !== null && session !== null && Result.isSuccess(session)) {
-      controller.start(session.success, attempt.askResume);
+      controller.start(session.success);
     }
-  }, [controller, session, attempt.askResume]);
+  }, [controller, session]);
 
   // A session that could not start tries the same request again after the pause its failure calls
-  // for, keeping where it was asked to start (the saved progress, and its resume prompt).
+  // for, keeping where it was asked to start.
   const startStep = useMemo(
     () =>
       session !== null && Result.isFailure(session) ? afterStartFailure(session.failure) : null,
@@ -449,7 +447,6 @@ function PlayerSession({
 
     if (subtitleId !== null) controller.selectSubtitle(subtitleId);
   }, [playing, controller, snapshot.playback, startPreferences, startTracks]);
-  const choosing = PlayerPhase.$is("Choosing")(snapshot.phase) ? snapshot.phase : null;
 
   const next = nextEpisode.status === "success" ? nextEpisode.data : null;
 
@@ -875,23 +872,6 @@ function PlayerSession({
         />
       ) : null}
 
-      {choosing !== null && stopped === null ? (
-        <ResumePanel
-          title={episode === null ? name : episode.name}
-          resumeAtMs={choosing.resumeAtMs}
-          durationMs={durationSeconds * 1000}
-          onResume={() => {
-            controller?.choose("resume");
-            poke();
-          }}
-          onBeginning={() => {
-            controller?.choose("beginning");
-            poke();
-          }}
-          onClose={close}
-        />
-      ) : null}
-
       {stopped === null && !failedStart ? null : (
         <StoppedPanel
           stop={stopped}
@@ -1071,7 +1051,7 @@ export function PlayerScreen({ params }: { readonly params: WatchParams }) {
   });
 
   // A room plays from its own position, never from the profile's saved one; `at` (a room's
-  // position, for a guest going on alone) starts there without asking.
+  // position, for a guest going on alone) starts there.
   const [attempt, setAttempt] = useState<Attempt>(() => {
     const own = params.room === undefined;
     const at = own ? (params.at ?? (params.start === "beginning" ? 0 : null)) : null;
@@ -1079,7 +1059,6 @@ export function PlayerScreen({ params }: { readonly params: WatchParams }) {
     return {
       key: 0,
       startAtMs: at,
-      askResume: own && at === null && params.start === undefined,
       failures: 0,
     };
   });
@@ -1090,7 +1069,7 @@ export function PlayerScreen({ params }: { readonly params: WatchParams }) {
     setAttempt((current) =>
       next.kind === "again"
         ? { ...current, key: current.key + 1, failures: next.failed ? current.failures + 1 : 0 }
-        : { key: current.key + 1, startAtMs: next.positionMs, askResume: false, failures: 0 },
+        : { key: current.key + 1, startAtMs: next.positionMs, failures: 0 },
     );
   }, []);
 
