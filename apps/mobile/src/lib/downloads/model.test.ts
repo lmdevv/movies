@@ -14,6 +14,7 @@ import {
   DownloadEvent,
   EMPTY_STORE,
   downloadIdOf,
+  downloadFor,
   downloadsOf,
   factsOf,
   headingOf,
@@ -124,6 +125,10 @@ describe("the download store", () => {
       showId,
     ]);
     expect(downloadsOf(store, kids)).toHaveLength(1);
+    // Each profile opens only its own: the kids' copy of the movie is theirs alone.
+    expect(downloadFor(store, movieId, alex)?.profileId).toBe(alex);
+    expect(downloadFor(store, showId, kids)).toBeUndefined();
+    expect(downloadFor(store, null, alex)).toBeUndefined();
     expect(nextToRun(store)?.id).toBe(movieId);
     expect(nextToRun(store, new Set([movieId]))?.id).toBe(showId);
   });

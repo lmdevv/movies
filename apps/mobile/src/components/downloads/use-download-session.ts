@@ -10,7 +10,9 @@ import type { Playback } from "@movies/sdk/effect";
 import { Result } from "effect";
 import { useEffect, useState } from "react";
 
+import { downloadFor } from "@/lib/downloads/model";
 import { downloadPlayback } from "@/lib/downloads/playback";
+import { useActiveProfile } from "@/session/active-profile";
 import { useDownloads } from "@/session/downloads";
 
 /** How often a playing download's position is recorded. */
@@ -18,14 +20,18 @@ const RECORD_EVERY_MS = 10_000;
 
 /**
  * The playback of download `downloadId` and its progress from `player`; null for no download, or
- * while the downloads load. A download that is gone or not ready fails as a missing file.
+ * while the downloads load. A download that is gone, not ready, or another profile's fails as a
+ * missing file.
  */
 export const useDownloadSession = (
   downloadId: string | null,
   player: PlayerPort | null,
 ): Result.Result<Playback.Playback, MediaFileNotFound> | null => {
   const { engine, snapshot } = useDownloads();
-  const download = snapshot?.store.downloads.find((candidate) => candidate.id === downloadId);
+  const { profile } = useActiveProfile();
+
+  const download =
+    snapshot === null ? undefined : downloadFor(snapshot.store, downloadId, profile.id);
 
   const open = (): Result.Result<Playback.Playback, MediaFileNotFound> | null => {
     if (downloadId === null || engine === null) return null;

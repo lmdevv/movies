@@ -15,9 +15,11 @@ import type { ReactNode } from "react";
 
 import { deviceId, deviceName } from "@/lib/device";
 import { accountFolder } from "@/lib/downloads/files";
+import { downloadFor } from "@/lib/downloads/model";
 import type { DownloadRecord, NetworkNow } from "@/lib/downloads/model";
 import { readValue, writeValue } from "@/lib/secure-storage";
 
+import { useActiveProfile } from "./active-profile";
 import { DownloadEngine } from "./download-engine";
 import type { DownloadsSnapshot } from "./download-engine";
 import { useDownloadSettings } from "./download-settings";
@@ -155,12 +157,16 @@ export const useDownloads = (): Downloads => {
   return { engine, snapshot };
 };
 
-/** One download by its ID, with the engine that keeps it; null when there is no such download. */
+/**
+ * One download of the profile on screen by its ID, with the engine that keeps it; null when it
+ * has no such download.
+ */
 export const useDownload = (
   id: string | null,
 ): { readonly engine: DownloadEngine; readonly download: DownloadRecord } | null => {
   const { engine, snapshot } = useDownloads();
-  const download = snapshot?.store.downloads.find((candidate) => candidate.id === id);
+  const { profile } = useActiveProfile();
+  const download = snapshot === null ? undefined : downloadFor(snapshot.store, id, profile.id);
 
   return engine === null || download === undefined ? null : { engine, download };
 };

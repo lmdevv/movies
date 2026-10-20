@@ -404,6 +404,17 @@ export const downloadsOf = (
     (left, right) => left.addedAt - right.addedAt,
   );
 
+/**
+ * Download `id` when profile `profileId` made it, else none: a download opens and plays only for
+ * the profile that downloaded it. The account is the store's own, one store per account folder.
+ */
+export const downloadFor = (
+  store: DownloadStore,
+  id: string | null,
+  profileId: ProfileId,
+): DownloadRecord | undefined =>
+  store.downloads.find((download) => download.id === id && download.profileId === profileId);
+
 /** The bytes a download takes on this iPhone now. */
 const bytesKept = (download: DownloadRecord): number =>
   download.phase === "ready" ? (download.totalBytes ?? 0) : download.receivedBytes;
