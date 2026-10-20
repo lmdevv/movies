@@ -1979,6 +1979,141 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       expect(ended.map((session) => session.sessionId)).toContain(newer.sessionId);
     });
 
+    it("downloads beside the device's playback, four at a time, until the sign-in ends", async () => {
+      const phone = await signIn(url, password(fixture.memberEmail, "signIn"));
+      const deviceId = device("downloads");
+      const base = { profileId: fixture.memberProfile, deviceId } as const;
+
+      const playing = await run(phone, "playback.createSession", {
+        ...base,
+        titleId: fixture.titles.allAges,
+      });
+
+      const first = await run(phone, "downloads.start", {
+        ...base,
+        titleId: fixture.titles.allAges,
+      });
+
+      const again = await run(phone, "downloads.start", {
+        ...base,
+        titleId: fixture.titles.allAges,
+      });
+
+      const status = (sessionId: PlaybackSessionId) =>
+        service(fixture.mediaService, "mediaService.sessionStatus", { sessionId }).then(
+          (session) => session.status,
+        );
+
+      // Downloading leaves the device's playback alone; the same file again replaces its download.
+      expect(await status(playing.sessionId)).toBe("active");
+      expect(await status(first.sessionId)).toBe("ended");
+      expect(await status(again.sessionId)).toBe("active");
+      expect((await run(phone, "playback.active", {})).map((session) => session.id)).not.toContain(
+        again.sessionId,
+      );
+
+      // A download reports no progress, and renewing its token keeps it going.
+      expect(
+        await run(phone, "playback.reportProgress", {
+          sessionId: again.sessionId,
+          positionMs: ms(5_000),
+          event: "tick",
+        }),
+      ).toStrictEqual({ applied: false, watched: false });
+      expect(await outcome(run(phone, "playback.renewToken", { sessionId: again.sessionId }))).toBe(
+        "succeeded",
+      );
+      expect(await outcome(run(phone, "downloads.end", { sessionId: playing.sessionId }))).toBe(
+        "invalid_args",
+      );
+
+      const episodes = await run(phone, "titles.episodes", {
+        profileId: fixture.memberProfile,
+        titleId: fixture.titles.show,
+        seasonNumber: 1,
+      });
+
+      // One after another, so the earlier download is the quietest when a fifth starts.
+      const unrated = await run(phone, "downloads.start", {
+        ...base,
+        titleId: fixture.titles.unrated,
+      });
+
+      await run(phone, "downloads.start", { ...base, titleId: fixture.titles.hidden });
+
+      await episodes.slice(0, 2).reduce(async (earlier, episode) => {
+        await earlier;
+        await run(phone, "downloads.start", {
+          ...base,
+          titleId: fixture.titles.show,
+          episodeId: episode.id,
+        });
+      }, Promise.resolve());
+
+      expect(episodes).toHaveLength(2);
+      expect(await status(again.sessionId)).toBe("ended");
+      expect(await status(unrated.sessionId)).toBe("active");
+      expect(await status(playing.sessionId)).toBe("active");
+
+      await phone.client.action(makeFunctionReference<"action">("auth:signOut"), {});
+
+      expect(await status(unrated.sessionId)).toBe("ended");
+    });
+
+    it("saves offline progress unless the item was played elsewhere since", async () => {
+      const base = { profileId: fixture.memberProfile, titleId: fixture.titles.allAges } as const;
+
+      const download = await run(fixture.member, "downloads.start", {
+        ...base,
+        deviceId: device("offline"),
+      });
+
+      await run(fixture.member, "downloads.end", { sessionId: download.sessionId });
+
+      const offline = {
+        ...base,
+        fileId: download.file.id,
+        durationMs: ms(DURATION_MS),
+      } as const;
+
+      expect(
+        await run(fixture.member, "downloads.recordProgress", {
+          ...offline,
+          positionMs: ms(DURATION_MS * 0.5),
+          playedAt: EpochMillis.make(Date.now()),
+        }),
+      ).toStrictEqual({ applied: true, watched: false });
+      expect((await run(fixture.member, "titles.get", base)).progress?.positionMs).toBe(
+        DURATION_MS * 0.5,
+      );
+
+      // Watched an hour ago, offline: the later play wins.
+      expect(
+        await run(fixture.member, "downloads.recordProgress", {
+          ...offline,
+          positionMs: ms(DURATION_MS * 0.95),
+          playedAt: EpochMillis.make(Date.now() - 60 * 60 * 1000),
+        }),
+      ).toStrictEqual({ applied: false, watched: false });
+      expect(
+        await run(fixture.member, "downloads.recordProgress", {
+          ...offline,
+          positionMs: ms(DURATION_MS * 0.95),
+          playedAt: EpochMillis.make(Date.now()),
+        }),
+      ).toStrictEqual({ applied: true, watched: true });
+      expect(
+        await outcome(
+          run(fixture.member, "downloads.recordProgress", {
+            ...offline,
+            titleId: fixture.titles.unrated,
+            positionMs: ms(0),
+            playedAt: EpochMillis.make(Date.now()),
+          }),
+        ),
+      ).toBe("not_found");
+    });
+
     it("offers the next episode after a finished one", async () => {
       const show = await run(fixture.member, "titles.get", {
         profileId: fixture.memberProfile,

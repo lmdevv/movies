@@ -41,7 +41,7 @@ import {
   StartedPlayback,
 } from "../models/playback";
 import { AvatarKey, CreateProfileArgs, Pin, Profile, UnlockResult } from "../models/profiles";
-import { Milliseconds } from "../units";
+import { EpochMillis, Milliseconds } from "../units";
 import { mutation, query } from "./command";
 
 const OnProfile = { profileId: ProfileId };
@@ -404,6 +404,48 @@ export const playbackCommands = {
     args: Schema.Struct({ ...OnProfile, episodeId: EpisodeId }),
     result: Schema.NullOr(Episode),
     function: "playback:nextEpisode",
+  }),
+  "downloads.start": mutation({
+    summary: "Start downloading a movie or episode to keep on this device",
+    group: "playback",
+    scope: "play",
+    args: Schema.Struct({
+      ...OnProfile,
+      deviceId: DeviceId,
+      deviceName: Schema.optionalKey(DisplayName),
+      titleId: TitleId,
+      episodeId: Schema.optionalKey(EpisodeId),
+      /** A specific version from `titles.versions`; omit to choose as `playback.createSession` does. */
+      fileId: Schema.optionalKey(MediaFileId),
+      capabilities: Schema.optionalKey(ClientCapabilities),
+    }),
+    result: StartedPlayback,
+    function: "downloads:start",
+  }),
+  "downloads.end": mutation({
+    summary: "End a finished or cancelled download's session",
+    group: "playback",
+    scope: "play",
+    args: Schema.Struct({ sessionId: PlaybackSessionId }),
+    result: Ok,
+    function: "downloads:end",
+  }),
+  "downloads.recordProgress": mutation({
+    summary: "Save progress made while playing a download offline",
+    group: "playback",
+    scope: "play",
+    args: Schema.Struct({
+      ...OnProfile,
+      titleId: TitleId,
+      episodeId: Schema.optionalKey(EpisodeId),
+      fileId: MediaFileId,
+      positionMs: Milliseconds,
+      durationMs: Milliseconds,
+      /** When the device played to `positionMs`; newer progress from elsewhere wins. */
+      playedAt: EpochMillis,
+    }),
+    result: ProgressReceipt,
+    function: "downloads:recordProgress",
   }),
   "playback.active": query({
     summary: "List this account's active playback on every device",

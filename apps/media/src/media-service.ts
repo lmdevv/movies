@@ -9,6 +9,7 @@ import { Layer } from "effect";
 import * as ArtworkKeys from "./artwork/artwork-keys.ts";
 import * as ArtworkStore from "./artwork/artwork-store.ts";
 import * as DiskCache from "./disk-cache.ts";
+import * as Downloads from "./downloads/downloads.ts";
 import * as LibraryScanner from "./library/library-scanner.ts";
 import * as MediaTools from "./media/media-tools.ts";
 import * as MetadataResolver from "./metadata/title-metadata.ts";
@@ -23,9 +24,10 @@ import * as StreamSessions from "./playback/stream-sessions.ts";
 import * as SubtitleConverter from "./subtitles/subtitle-tracks.ts";
 import * as TrickplayStore from "./trickplay/trickplay-store.ts";
 
-/** Scanning, metadata, negotiation, streaming, and subtitles over the integration seams. */
+/** Scanning, metadata, negotiation, streaming, downloads, and subtitles over the integration seams. */
 export const servicesLayer = Layer.mergeAll(
   PlaybackNegotiator.layer,
+  Downloads.layer,
   LibraryScanner.layer,
   SubtitleConverter.layer,
 ).pipe(

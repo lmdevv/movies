@@ -46,6 +46,7 @@ import * as authParams from "../convex/authParams";
 import * as backups from "../convex/backups";
 import * as collections from "../convex/collections";
 import * as deviceAuth from "../convex/deviceAuth";
+import * as downloads from "../convex/downloads";
 import * as history from "../convex/history";
 import * as invites from "../convex/invites";
 import * as jobs from "../convex/jobs";
@@ -83,6 +84,7 @@ const modules = {
   backups,
   collections,
   deviceAuth,
+  downloads,
   history,
   invites,
   jobs,

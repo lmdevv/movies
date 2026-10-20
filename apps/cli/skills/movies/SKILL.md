@@ -314,6 +314,9 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies playback report-progress --session-id <id> --position-ms <number> [--duration-ms <number>] --event <tick|pause|resume|seek|ended>`: Report this device's position. (scope play)
 - `movies playback end-session --session-id <id> --position-ms <number>`: Stop playback on this device. (scope play)
 - `movies playback next-episode [--profile-id <id>] <episode-id>`: Show the episode after this one. (scope read)
+- `movies downloads start [--profile-id <id>] [--device-id <id>] [--device-name <text>] <title-id> [--episode-id <id>] [--file-id <id>] [--capabilities <json>]`: Start downloading a movie or episode to keep on this device. (scope play)
+- `movies downloads end <session-id>`: End a finished or cancelled download's session. (scope play)
+- `movies downloads record-progress [--profile-id <id>] --title-id <id> [--episode-id <id>] --file-id <id> --position-ms <number> --duration-ms <number> --played-at <int>`: Save progress made while playing a download offline. (scope play)
 - `movies playback active`: List this account's active playback on every device. (scope read)
 
 ### rooms

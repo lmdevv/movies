@@ -17,6 +17,21 @@ import { Effect, Option, Redacted, Schema } from "effect";
 import type { CallError } from "./sdk-errors";
 import { ProtocolError, TransportError } from "./sdk-errors";
 
+/** `path` on the media service of a started session. */
+export const mediaUrl = (started: { readonly mediaBaseUrl: string }, path: string): string =>
+  `${started.mediaBaseUrl.replace(/\/+$/u, "")}${path}`;
+
+/** `value` as the JSON its schema's JSON codec writes, for a request body. */
+export const encodeJson = <A, I>(
+  schema: Schema.Codec<A, I>,
+  value: A,
+): Effect.Effect<Schema.Json> =>
+  Schema.encodeEffect(Schema.toCodecJson(schema))(value).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)),
+    // The request schemas only hold JSON values; failing to encode one is a defect.
+    Effect.orDie,
+  );
+
 /** One request to the media service. */
 export interface MediaRequest {
   /** What the request does, for errors and traces, such as `playback.negotiate`. */

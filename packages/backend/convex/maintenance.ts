@@ -10,6 +10,7 @@ import { sortKeyOf } from "./lib/catalog";
 import { removeTitleGenres, syncTitleGenres } from "./lib/genres";
 import { removeTitleCredits } from "./lib/people";
 import { overlappingLibraries as findOverlaps } from "./lib/roots";
+import { PLAYBACK_TOKEN_LIFETIME_MS } from "./lib/playbackToken";
 import { forgetTrickplay } from "./lib/trickplay";
 import { endAuthSession } from "./lib/viewer";
 import {
@@ -21,6 +22,12 @@ import {
 
 /** Playback sessions without a report for this long end. */
 const IDLE_PLAYBACK_MS = 30 * 60 * 1000;
+
+/**
+ * Download sessions report nothing while they transfer; one whose token was not renewed for a
+ * token's lifetime can fetch nothing more, so it ends.
+ */
+const IDLE_DOWNLOAD_MS = PLAYBACK_TOKEN_LIFETIME_MS;
 
 /** Expired device codes are deleted after this long. */
 const DEVICE_CODE_RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -139,7 +146,10 @@ export const releaseExpiredLeases = internalMutation({
   },
 });
 
-/** Ends playback sessions that stopped reporting or whose sign-in ended. */
+/**
+ * Ends playback sessions that stopped reporting, download sessions whose token was not renewed,
+ * and sessions whose sign-in ended.
+ */
 export const endIdlePlayback = internalMutation({
   args: {},
   returns: v.null(),
@@ -153,7 +163,10 @@ export const endIdlePlayback = internalMutation({
 
     await Promise.all(
       active.map(async (session) => {
-        const idle = now - session.lastReportAt > IDLE_PLAYBACK_MS;
+        const idle =
+          now - session.lastReportAt >
+          (session.purpose === "download" ? IDLE_DOWNLOAD_MS : IDLE_PLAYBACK_MS);
+
         const signedOut = (await ctx.db.get(session.authSessionId)) === null;
 
         if (idle || signedOut) {
