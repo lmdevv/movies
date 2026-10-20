@@ -10,11 +10,15 @@ choices made while implementing them. Update it in the same PR that changes a de
   signature is base64url HMAC-SHA256 over the ASCII string `v1.<payload>` with the raw bytes of
   `PLAYBACK_TOKEN_SECRET` (a base64url string of at least 32 random bytes, decoded before use).
 - Payload fields: `aud` (`"media"`), `sub` (user ID), `pid` (profile ID), `fid` (file ID), `sid`
-  (playback session ID), `iat` and `exp` (milliseconds since the epoch). Lifetime six hours.
+  (playback session ID), `iat` and `exp` (milliseconds since the epoch), and `pur: "download"`
+  last for a download session's token only. Lifetime six hours.
 - Convex signs with WebCrypto in plain TypeScript. The media service verifies with the shared
   verifier in `@movies/contracts/playback-token` (constant time; a wrong audience, a bad or
   non-canonically encoded signature, or `exp <= now` is refused). Shared test vectors in
   `packages/contracts` keep both sides honest.
+- Each media route takes tokens of one purpose: negotiation, seeking, HLS, and trickplay only
+  playback tokens; `prepare` and the download MP4s only download tokens; the original file and its
+  subtitles either. Any other is `PlaybackTokenInvalid` with reason `wrong_purpose` (401).
 - A token whose playback session has ended is refused with `PlaybackSessionEnded` (410) even
   before it expires: the media service follows `mediaService:endedSessions`, stops the session's
   HLS streams, and remembers ended sessions for a token's lifetime (catching up on the last six
@@ -396,8 +400,9 @@ choices made while implementing them. Update it in the same PR that changes a de
   choice, and every path that ends playback (sign-out, an ended sign-in, a removed library or
   profile, the media service's ended-session list) ends it too, without new plumbing. It neither
   ends nor is ended by the device's playback, is not listed in `playback.active`, and records no
-  progress. One device holds at most four download sessions; a fifth ends the quietest, and the
-  same file again replaces its earlier download. `playback.renewToken` renews its token and keeps
+  progress. One device holds at most four download sessions and the account eight, beside the
+  eight devices it plays on; past either cap the quietest ends, and the same file again replaces
+  its earlier download on that device. Its token names its purpose, so it cannot stream. `playback.renewToken` renews its token and keeps
   it alive; the app renews before the token expires, and the idle sweep ends a download not renewed
   for a token's lifetime and an hour more.
   `downloads.end` ends it once the file is on the device.
@@ -411,20 +416,27 @@ choices made while implementing them. Update it in the same PR that changes a de
   is written, prepare answers `Preparing` with progress (the tail of ffmpeg's `-progress` output)
   and an upper bound on the size (the encode's rates, with copied audio counted at 1.6 Mb/s), and
   the app asks again. Unlike playback, the quality is a limit: a source this host cannot bring
-  within it (HDR without tone mapping) is `UnsupportedPlayback`, never the full-size original. Text subtitles come as the existing WebVTT URLs;
-  picture subtitles are not downloaded.
+  within it (HDR without tone mapping) is `UnsupportedPlayback`, never the full-size original.
+  Text subtitles come as the existing WebVTT URLs; picture subtitles are not downloaded.
 - The MP4s are written one at a time at the lowest CPU priority (`ffmpegInBackground`) and take no
   transcode slot, so playback always wins; no new setting. They live in
   `TRANSCODE_DIR/downloads/<fileId>/<hash>.mp4`, where the hash covers the file's identity (ID,
   size, modification time) and the plan, so devices asking for the same thing share one file. A
-  job starts only when `TRANSCODE_DIR` keeps `MIN_FREE_TRANSCODE_MB` beyond its estimate and those
-  of the jobs not yet written (`InsufficientTranscodeSpace` otherwise). A finished or failed MP4
-  nobody asked for in six hours is deleted, a queued or running one nobody asked about for half an
-  hour is stopped (a cancelled download, an app gone away), and a restart empties `TRANSCODE_DIR`
-  as before; the app then prepares again. A failed job answers `TranscodeFailed` for ten minutes
+  download session holds one MP4 at a time: asking for another (or for the original) stops the one
+  it asked for before if nobody else wants it and it is not written yet, so the queue holds at
+  most one job per download session. A queued or running MP4 reserves its estimate in a ledger
+  streams share (`TranscodeSpace`): a new job or stream starts only when `TRANSCODE_DIR` keeps
+  `MIN_FREE_TRANSCODE_MB` beyond every reservation and the new job's estimate
+  (`InsufficientTranscodeSpace` otherwise). A queued or running MP4 is kept while one of its
+  download sessions is live, however long the queue, and stopped once they all ended (a cancelled
+  download, a sign-out) or nobody asked about it for a token's lifetime (an app gone away). A
+  finished or failed MP4 nobody asked for in six hours is deleted, and a restart empties
+  `TRANSCODE_DIR` as before; the app then prepares again. A failed job answers `TranscodeFailed` for ten minutes
   before a prepare tries again, so a broken file is not encoded in full by every retry.
 - `/media/downloads/<fileId>/<hash>.mp4` serves a finished MP4 with the direct route's validators
-  and single byte ranges, so a transfer resumes; the token must be for that file.
+  and single byte ranges, so a transfer resumes; the token must be a download token for that file.
+  A failed job's `TranscodeFailed.detail` is ffmpeg's path-scrubbed output, or a fixed sentence
+  for any other failure, so it never names a path in `TRANSCODE_DIR`.
 - `downloads.recordProgress` saves progress the device made playing a download, sent when it is
   back online with the time it played. It applies unless the item's progress was played since
   (`lastPlayedAt`), so an old offline viewing never drags a newer one back, and it marks the item

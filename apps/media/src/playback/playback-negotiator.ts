@@ -87,7 +87,7 @@ const make = Effect.gen(function* () {
   const negotiate = Effect.fn("PlaybackNegotiator.negotiate")(function* (
     request: NegotiateRequest,
   ) {
-    const grant = yield* verifier.verify(request.token);
+    const grant = yield* verifier.verify(request.token, PlaybackToken.PLAY);
 
     const file = yield* resolveInsideRoots(grant.fileId, { sidecars: true }).pipe(
       Effect.provideService(FileResolver.Service, resolver),

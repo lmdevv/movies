@@ -25,7 +25,7 @@ const playbackHandlers = HttpApiBuilder.group(
     return handlers.handleAll({
       negotiate: ({ payload }) => negotiator.negotiate(payload),
       seek: Effect.fn("Api.seek")(function* ({ payload }) {
-        const grant = yield* verifier.verify(payload.token);
+        const grant = yield* verifier.verify(payload.token, PlaybackToken.PLAY);
         const view = yield* sessions.seek(payload.streamId, payload.positionSeconds, grant);
 
         return {
@@ -38,7 +38,7 @@ const playbackHandlers = HttpApiBuilder.group(
         };
       }),
       stop: Effect.fn("Api.stop")(function* ({ payload }) {
-        const grant = yield* verifier.verify(payload.token);
+        const grant = yield* verifier.verify(payload.token, PlaybackToken.PLAY);
         yield* sessions.stop(payload.streamId, grant);
       }),
     });

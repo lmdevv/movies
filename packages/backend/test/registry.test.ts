@@ -281,4 +281,20 @@ describe("constants shared across the seam", () => {
       }),
     ).resolves.toBe(token);
   });
+
+  it("signs the shared download token vector exactly", async () => {
+    const { payload, token } = PLAYBACK_TOKEN_TEST_VECTORS.download;
+
+    await expect(
+      signPlaybackToken(PLAYBACK_TOKEN_TEST_VECTORS.secret, {
+        sub: payload.sub,
+        pid: payload.pid,
+        fid: payload.fid,
+        sid: payload.sid,
+        iat: payload.iat,
+        exp: payload.exp,
+        pur: payload.pur,
+      }),
+    ).resolves.toBe(token);
+  });
 });

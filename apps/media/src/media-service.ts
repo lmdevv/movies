@@ -21,6 +21,7 @@ import * as EndedSessions from "./playback/ended-sessions.ts";
 import * as PlaybackNegotiator from "./playback/playback-negotiator.ts";
 import * as PlaybackToken from "./playback/playback-token.ts";
 import * as StreamSessions from "./playback/stream-sessions.ts";
+import * as TranscodeSpace from "./playback/transcode-space.ts";
 import * as SubtitleConverter from "./subtitles/subtitle-tracks.ts";
 import * as TrickplayStore from "./trickplay/trickplay-store.ts";
 
@@ -32,6 +33,7 @@ export const servicesLayer = Layer.mergeAll(
   SubtitleConverter.layer,
 ).pipe(
   Layer.provideMerge(StreamSessions.layer),
+  Layer.provideMerge(TranscodeSpace.layer),
   Layer.provideMerge(KeyframeIndex.layer),
   Layer.provideMerge(HardwareAcceleration.layer),
   Layer.provideMerge(MetadataResolver.layer),

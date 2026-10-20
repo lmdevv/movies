@@ -2060,6 +2060,50 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       expect(await status(unrated.sessionId)).toBe("ended");
     });
 
+    it("signs download tokens for downloading and keeps eight downloads on the account", async () => {
+      const devices = Array.from({ length: 9 }, (_, index) => device(`fleet-${index}`));
+
+      // One after another, so the first device's download is the quietest when the ninth starts.
+      const started = await devices.reduce<
+        Promise<Array<{ readonly sessionId: PlaybackSessionId; readonly token: string }>>
+      >(
+        async (earlier, deviceId) => [
+          ...(await earlier),
+          await run(fixture.member, "downloads.start", {
+            profileId: fixture.memberProfile,
+            deviceId,
+            titleId: fixture.titles.allAges,
+          }),
+        ],
+        Promise.resolve([]),
+      );
+
+      const statuses = await Promise.all(
+        started.map(({ sessionId }) =>
+          service(fixture.mediaService, "mediaService.sessionStatus", { sessionId }).then(
+            (session) => session.status,
+          ),
+        ),
+      );
+
+      expect(statuses).toStrictEqual(["ended", ...Array.from({ length: 8 }, () => "active")]);
+
+      const secret = Redacted.make(stack?.playbackTokenSecret ?? "");
+      const last = started.at(-1);
+
+      const payload = await Effect.runPromise(
+        Effect.flatMap(importPlaybackTokenSecret(secret), (key) =>
+          verifyPlaybackToken(key, last?.token ?? ""),
+        ),
+      );
+
+      expect(payload.pur).toBe("download");
+
+      await Promise.all(
+        started.map(({ sessionId }) => run(fixture.member, "downloads.end", { sessionId })),
+      );
+    });
+
     it("saves offline progress unless the item was played elsewhere since", async () => {
       const base = { profileId: fixture.memberProfile, titleId: fixture.titles.allAges } as const;
 

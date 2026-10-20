@@ -25,21 +25,26 @@ import { reachedEnd } from "./viewing";
 export const isDownload = (session: Doc<"playbackSessions">): boolean =>
   session.purpose === "download";
 
-/** Signs a fresh playback token for `session`. */
+/** Signs a fresh playback token for `session`; a download's names its purpose. */
 export const issueToken = async (
   session: Doc<"playbackSessions">,
 ): Promise<{ readonly token: string; readonly tokenExpiresAt: number }> => {
   const iat = Date.now();
   const tokenExpiresAt = iat + PLAYBACK_TOKEN_LIFETIME_MS;
 
-  const token = await signPlaybackToken(playbackTokenSecret(), {
+  const claims = {
     sub: session.userId,
     pid: session.profileId,
     fid: session.fileId,
     sid: session._id,
     iat,
     exp: tokenExpiresAt,
-  });
+  };
+
+  const token = await signPlaybackToken(
+    playbackTokenSecret(),
+    isDownload(session) ? { ...claims, pur: "download" } : claims,
+  );
 
   return { token, tokenExpiresAt };
 };

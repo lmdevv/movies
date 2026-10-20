@@ -5,6 +5,7 @@
  */
 import { v } from "convex/values";
 
+import type { Doc } from "./_generated/dataModel";
 import { mutation } from "./_generated/server";
 import { loadAudience, loadVisibleTitle } from "./lib/access";
 import { checkDeviceId, checkMilliseconds } from "./lib/bounds";
@@ -27,11 +28,17 @@ import { reachedEnd, writeProgress } from "./lib/viewing";
 const MAX_DEVICE_DOWNLOADS = 4;
 
 /**
+ * Most files one account downloads at once on all its devices, beside the eight devices it plays
+ * on; starting another ends the quietest, so downloads cannot hold unbounded media service work.
+ */
+const MAX_ACCOUNT_DOWNLOADS = 8;
+
+/**
  * Starts downloading a movie or episode to keep on this device and signs a playback token for the
  * media service, with the checks playback has: the profile, its age limit, and its libraries.
  * The file is chosen as `createSession` chooses it. The device's playback goes on; downloading the
- * same file again ends its earlier download, and past four downloads on one device the quietest
- * ends. Renew the token with `playback.renewToken` and end the session with `end` when done.
+ * same file again ends its earlier download, and past four downloads on one device or eight on the
+ * account the quietest ends. Renew the token with `playback.renewToken` and end the session with `end` when done.
  */
 export const start = mutation({
   args: {
@@ -58,18 +65,27 @@ export const start = mutation({
 
     const now = Date.now();
 
-    const downloads = (await activeSessions(ctx, viewer)).filter(
-      (session) => isDownload(session) && session.deviceId === args.deviceId,
-    );
+    const downloads = (await activeSessions(ctx, viewer)).filter(isDownload);
 
+    const replaced = (session: Doc<"playbackSessions">) =>
+      session.deviceId === args.deviceId && session.fileId === chosen.playable.file._id;
+
+    // Busiest first, so the quietest fall past each cap.
     const others = downloads
-      .filter((session) => session.fileId !== chosen.playable.file._id)
+      .filter((session) => !replaced(session))
       .toSorted((left, right) => right.lastReportAt - left.lastReportAt);
 
-    const ending = [
-      ...downloads.filter((session) => session.fileId === chosen.playable.file._id),
-      ...others.slice(MAX_DEVICE_DOWNLOADS - 1),
-    ];
+    const overDevice = new Set(
+      others
+        .filter((session) => session.deviceId === args.deviceId)
+        .slice(MAX_DEVICE_DOWNLOADS - 1),
+    );
+
+    const overAccount = others
+      .filter((session) => !overDevice.has(session))
+      .slice(MAX_ACCOUNT_DOWNLOADS - 1);
+
+    const ending = [...downloads.filter(replaced), ...overDevice, ...overAccount];
 
     await Promise.all(ending.map((session) => endPlaybackSession(ctx, session, now)));
 

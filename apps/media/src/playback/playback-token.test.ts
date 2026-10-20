@@ -41,11 +41,11 @@ const sign = (payload: string, key: Buffer = secretBytes): string => {
   return `v1.${encoded}.${signature}`;
 };
 
-const verify = (token: string) =>
+const verify = (token: string, purposes = PlaybackToken.PLAY) =>
   Effect.gen(function* () {
     const verifier = yield* PlaybackToken.make(secret).pipe(Effect.orDie);
 
-    return yield* verifier.verify(Redacted.make(token));
+    return yield* verifier.verify(Redacted.make(token), purposes);
   });
 
 /** Why verification failed: the token's rejection reason, or `session-ended`. */
@@ -56,7 +56,8 @@ const reasonOf = Match.type<PlaybackTokenInvalid | PlaybackSessionEnded>().pipe(
   }),
 );
 
-const rejection = (token: string) => verify(token).pipe(Effect.flip, Effect.map(reasonOf));
+const rejection = (token: string, purposes = PlaybackToken.PLAY) =>
+  verify(token, purposes).pipe(Effect.flip, Effect.map(reasonOf));
 
 layer(EndedSessions.layer)("PlaybackToken", (it) => {
   it.effect("accepts a token signed with the shared secret before it expires", () =>
@@ -69,8 +70,28 @@ layer(EndedSessions.layer)("PlaybackToken", (it) => {
         profileId: "profile_1",
         fileId: "file_1",
         sessionId: "session_1",
+        purpose: "play",
         expiresAt: 21_601_000,
       });
+    }),
+  );
+
+  it.effect("keeps streaming and downloading tokens to their own routes", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(5_000);
+      const playing = sign(JSON.stringify(claims));
+      const downloading = sign(JSON.stringify({ ...claims, pur: "download" }));
+
+      assert.strictEqual(yield* rejection(downloading, PlaybackToken.PLAY), "wrong_purpose");
+      assert.strictEqual(yield* rejection(playing, PlaybackToken.DOWNLOAD), "wrong_purpose");
+      assert.strictEqual((yield* verify(downloading, PlaybackToken.DOWNLOAD)).purpose, "download");
+      assert.deepStrictEqual(
+        [
+          (yield* verify(playing, PlaybackToken.PLAY_OR_DOWNLOAD)).purpose,
+          (yield* verify(downloading, PlaybackToken.PLAY_OR_DOWNLOAD)).purpose,
+        ],
+        ["play", "download"],
+      );
     }),
   );
 
@@ -170,7 +191,7 @@ layer(EndedSessions.layer)("PlaybackToken", (it) => {
       const verifier = yield* PlaybackToken.make(Redacted.make(vectors.secret)).pipe(Effect.orDie);
 
       yield* TestClock.setTime(vectors.valid.verifyAt);
-      const grant = yield* verifier.verify(Redacted.make(vectors.valid.token));
+      const grant = yield* verifier.verify(Redacted.make(vectors.valid.token), PlaybackToken.PLAY);
 
       assert.deepStrictEqual(
         [
@@ -189,9 +210,21 @@ layer(EndedSessions.layer)("PlaybackToken", (it) => {
         ],
       );
 
+      yield* TestClock.setTime(vectors.download.verifyAt);
+
+      const download = yield* verifier.verify(
+        Redacted.make(vectors.download.token),
+        PlaybackToken.DOWNLOAD,
+      );
+
+      assert.strictEqual(download.purpose, "download");
+
       for (const rejected of vectors.rejected) {
         yield* TestClock.setTime(rejected.verifyAt);
-        const error = yield* verifier.verify(Redacted.make(rejected.token)).pipe(Effect.flip);
+
+        const error = yield* verifier
+          .verify(Redacted.make(rejected.token), PlaybackToken.PLAY_OR_DOWNLOAD)
+          .pipe(Effect.flip);
 
         assert.strictEqual(reasonOf(error), rejected.reason, rejected.description);
       }
@@ -206,10 +239,13 @@ layer(EndedSessions.layer)("PlaybackToken", (it) => {
       const token = Redacted.make(sign(JSON.stringify(claims)));
       const sessionId = PlaybackSessionId.make("session_1");
 
-      assert.strictEqual((yield* verifier.verify(token)).sessionId, "session_1");
+      assert.strictEqual(
+        (yield* verifier.verify(token, PlaybackToken.PLAY)).sessionId,
+        "session_1",
+      );
       yield* ended.record([{ sessionId, endedAt: 4_000 }]);
 
-      const error = yield* verifier.verify(token).pipe(Effect.flip);
+      const error = yield* verifier.verify(token, PlaybackToken.PLAY).pipe(Effect.flip);
 
       assert.deepStrictEqual(error, new PlaybackSessionEnded({ sessionId }));
     }),

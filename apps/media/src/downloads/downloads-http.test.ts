@@ -39,6 +39,11 @@ const tinyScreen: ClientCapabilities = {
   mse: false,
 };
 
+/** The reason in a refused token's JSON body. */
+const decodeRefusal = Schema.decodeUnknownEffect(Schema.Struct({ reason: Schema.String }));
+
+const byName = (left: string, right: string) => left.localeCompare(right);
+
 const decodePrepared = Schema.decodeUnknownEffect(Schema.toCodecJson(PrepareDownloadResponse));
 
 /** The path and query of a URL the service built with its public base URL. */
@@ -135,7 +140,7 @@ describe.skipIf(!hasFfmpeg)("downloads over HTTP", () => {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const fileId = server.fileId("movies", library.directMovie);
-        const token = signTestToken({ fid: fileId, sid: "download-direct" });
+        const token = signTestToken({ fid: fileId, sid: "download-direct", pur: "download" });
 
         const result = yield* readyOf(
           yield* prepared({ token, capabilities: iphone, quality: "standard" }),
@@ -159,7 +164,7 @@ describe.skipIf(!hasFfmpeg)("downloads over HTTP", () => {
         const server = yield* MediaTestServer.Service;
         const { library } = yield* FixtureWorkspace.Service;
         const fileId = server.fileId("movies", library.remuxMovie);
-        const token = signTestToken({ fid: fileId, sid: "download-remux" });
+        const token = signTestToken({ fid: fileId, sid: "download-remux", pur: "download" });
         const first = yield* prepared({ token, capabilities: iphone, quality: "standard" });
 
         assert.isTrue(Predicate.isTagged(first, "Preparing"));
@@ -213,7 +218,7 @@ describe.skipIf(!hasFfmpeg)("downloads over HTTP", () => {
         // Another device downloading the same file gets the same MP4 at once.
         const again = yield* readyOf(
           yield* prepared({
-            token: signTestToken({ fid: fileId, sid: "download-remux-2" }),
+            token: signTestToken({ fid: fileId, sid: "download-remux-2", pur: "download" }),
             capabilities: iphone,
             quality: "standard",
           }),
@@ -230,7 +235,7 @@ describe.skipIf(!hasFfmpeg)("downloads over HTTP", () => {
         const remux = server.fileId("movies", library.remuxMovie);
 
         const { ready: other } = yield* untilReady({
-          token: signTestToken({ fid: remux, sid: "download-audio" }),
+          token: signTestToken({ fid: remux, sid: "download-audio", pur: "download" }),
           capabilities: iphone,
           quality: "high",
           audioStreamIndex: 2,
@@ -242,7 +247,7 @@ describe.skipIf(!hasFfmpeg)("downloads over HTTP", () => {
         const direct = server.fileId("movies", library.directMovie);
 
         const { ready } = yield* untilReady({
-          token: signTestToken({ fid: direct, sid: "download-encode" }),
+          token: signTestToken({ fid: direct, sid: "download-encode", pur: "download" }),
           capabilities: tinyScreen,
           quality: "standard",
         });
@@ -256,19 +261,62 @@ describe.skipIf(!hasFfmpeg)("downloads over HTTP", () => {
       }),
     );
 
+    it.effect("stops the MP4 a download session no longer asks for", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const { library } = yield* FixtureWorkspace.Service;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const fileId = server.fileId("movies", library.remuxMovie);
+        const token = signTestToken({ fid: fileId, sid: "download-switch", pur: "download" });
+        const folder = path.join(server.transcodeDir, "downloads", fileId);
+        const listing = fs.readDirectory(folder).pipe(Effect.orElseSucceed(() => []));
+        const before = yield* listing;
+
+        const smallerScreen: ClientCapabilities = {
+          containers: tinyScreen.containers,
+          videoCodecs: tinyScreen.videoCodecs,
+          audioCodecs: tinyScreen.audioCodecs,
+          maxWidth: tinyScreen.maxWidth,
+          maxHeight: 90,
+          hls: true,
+          mse: false,
+        };
+
+        const first = yield* prepared({ token, capabilities: smallerScreen, quality: "standard" });
+
+        assert.isTrue(Predicate.isTagged(first, "Preparing"));
+
+        // The same session asks for another version while the first is written.
+        const { ready } = yield* untilReady({
+          token,
+          capabilities: tinyScreen,
+          quality: "standard",
+        });
+
+        const name = new URL(ready.url).pathname.split("/").at(-1) ?? "";
+
+        assert.strictEqual(ready.video.height, 120);
+        assert.deepStrictEqual(
+          (yield* listing).toSorted(byName),
+          [...before, name].toSorted(byName),
+        );
+      }),
+    );
+
     it.effect("serves a download only to a token for its file", () =>
       Effect.gen(function* () {
         const server = yield* MediaTestServer.Service;
         const { library } = yield* FixtureWorkspace.Service;
         const fileId = server.fileId("movies", library.remuxMovie);
-        const token = signTestToken({ fid: fileId, sid: "download-access" });
+        const token = signTestToken({ fid: fileId, sid: "download-access", pur: "download" });
 
         const { ready } = yield* untilReady({ token, capabilities: iphone, quality: "standard" });
         const name = new URL(ready.url).pathname.split("/").at(-1) ?? "";
         const other = server.fileId("movies", library.directMovie);
 
         const otherToken = encodeURIComponent(
-          signTestToken({ fid: other, sid: "download-access" }),
+          signTestToken({ fid: other, sid: "download-access", pur: "download" }),
         );
 
         const denied = yield* get(
@@ -290,6 +338,62 @@ describe.skipIf(!hasFfmpeg)("downloads over HTTP", () => {
         });
 
         assert.strictEqual(unsigned.status, 401);
+      }),
+    );
+
+    it.effect("keeps download tokens to downloads and playback tokens to streaming", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const { library } = yield* FixtureWorkspace.Service;
+        const fileId = server.fileId("movies", library.remuxMovie);
+
+        const downloading = signTestToken({
+          fid: fileId,
+          sid: "purpose-download",
+          pur: "download",
+        });
+
+        const playing = signTestToken({ fid: fileId, sid: "purpose-play" });
+
+        const { ready } = yield* untilReady({
+          token: downloading,
+          capabilities: iphone,
+          quality: "standard",
+        });
+
+        const refused = yield* prepare({
+          token: playing,
+          capabilities: iphone,
+          quality: "standard",
+        });
+
+        assert.deepStrictEqual(
+          [refused.status, (yield* decodeRefusal(refused.body).pipe(Effect.orDie)).reason],
+          [401, "wrong_purpose"],
+        );
+
+        const played = yield* get(
+          local(server.baseUrl, ready.url).replace(
+            encodeURIComponent(downloading),
+            encodeURIComponent(playing),
+          ),
+        );
+
+        assert.strictEqual(played.status, 401);
+
+        const streamed = yield* HttpClient.execute(
+          HttpClientRequest.post(`${server.baseUrl}/api/playback/negotiate`).pipe(
+            HttpClientRequest.bodyJsonUnsafe({ token: downloading, capabilities: iphone }),
+          ),
+        ).pipe(Effect.orDie);
+
+        assert.deepStrictEqual(
+          [
+            streamed.status,
+            (yield* streamed.json.pipe(Effect.flatMap(decodeRefusal), Effect.orDie)).reason,
+          ],
+          [401, "wrong_purpose"],
+        );
       }),
     );
   });

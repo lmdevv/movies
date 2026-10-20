@@ -65,6 +65,15 @@ describe("playback tokens", () => {
     expect(payload).toStrictEqual(decodePayload(vectors.valid.payload));
   });
 
+  it("signs and verifies the download vector with its purpose", async () => {
+    const payload = decodePayload(vectors.download.payload);
+    const token = await run(Effect.flatMap(vectorKey, (key) => signPlaybackToken(key, payload)));
+
+    expect(token).toBe(vectors.download.token);
+    expect(JSON.stringify(vectors.download.payload)).toBe(vectors.download.payloadJson);
+    await expect(run(verifyAt(token, vectors.download.verifyAt))).resolves.toStrictEqual(payload);
+  });
+
   it.each(vectors.rejected)("rejects $description", async (vector) => {
     const error = await run(Effect.flip(verifyAt(vector.token, vector.verifyAt)));
 
