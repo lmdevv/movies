@@ -122,6 +122,7 @@ function RootStack({ phase }: { readonly phase: SessionPhase["kind"] }) {
         <Stack.Screen name="title/[titleId]/actions" options={sheet} />
         <Stack.Screen name="title/[titleId]/episode/[episodeId]" options={sheet} />
         <Stack.Screen name="you" />
+        <Stack.Screen name="my-list" />
         <Stack.Screen name="account" />
         <Stack.Screen name="change-password" />
         <Stack.Screen name="connected-server" options={sheet} />
