@@ -1,7 +1,8 @@
 /**
- * What the player decides without side effects: what to do about each way playback can fail, and how to narrow the capabilities after a path failed. Media service
- * failures follow the SDK's `Playback.recoveryFor`; a file that is gone shows File Unavailable
- * (F13), and anything the player cannot recover from shows Playback Interrupted (F09).
+ * What the player decides without side effects: what to do about each way playback can fail, and
+ * how to narrow the capabilities after a path failed. Media service failures follow the SDK's
+ * `Playback.recoveryFor`; a file that is gone shows File Unavailable (F13), and anything the player
+ * cannot recover from shows Playback Interrupted (F09).
  */
 import type { ClientCapabilities, NegotiateResponse } from "@movies/contracts/media-playback";
 import { PlaybackApiError } from "@movies/contracts/media-playback";

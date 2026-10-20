@@ -12,10 +12,11 @@ import { Check, Clapperboard, EyeOff, RotateCcw, UsersRound } from "lucide-react
 import { episodeIdParam, seasonParam, titleIdParam } from "@/components/title/route-params";
 import { Sheet, useSheetExit } from "@/components/title/sheet";
 import { episodeSubtitle, resumeOf } from "@/components/title/title-model";
+import { useSeasonEpisode } from "@/components/title/use-season-episode";
 import { useRunner } from "@/components/title/use-title-actions";
 import { ListRow } from "@/components/ui/list-row";
 import { describeFailure } from "@/lib/failure";
-import { watchHref } from "@/lib/routes";
+import { togetherHref, watchHref } from "@/lib/routes";
 import { useActiveProfile } from "@/session/active-profile";
 
 /** The actions of one loaded episode. */
@@ -64,7 +65,10 @@ function EpisodeActions({ episode }: { readonly episode: SeasonEpisode }) {
         disabled={!episode.available}
         onPress={() =>
           exit.leaveFor(
-            `/together/${episode.titleId}?episodeId=${episode.id}&season=${String(episode.seasonNumber)}`,
+            togetherHref({
+              titleId: episode.titleId,
+              episode: { id: episode.id, seasonNumber: episode.seasonNumber },
+            }),
           )
         }
       />
@@ -92,30 +96,22 @@ function EpisodeLoader({
   readonly episodeId: EpisodeId;
   readonly seasonNumber: number;
 }) {
-  const { profile } = useActiveProfile();
+  const episode = useSeasonEpisode(titleId, episodeId, seasonNumber);
 
-  const episodes = useCommandQuery("titles.episodes", {
-    profileId: profile.id,
-    titleId,
-    seasonNumber,
-  });
-
-  if (episodes.status !== "success") {
+  if (episode.status !== "success") {
     return (
       <Sheet
         title="Episode"
-        loading={episodes.status === "loading"}
-        error={episodes.status === "error" ? describeFailure(episodes.error) : null}
+        loading={episode.status === "loading"}
+        error={episode.status === "error" ? describeFailure(episode.error) : null}
       />
     );
   }
 
-  const episode = episodes.data.find((candidate) => candidate.id === episodeId);
-
-  return episode === undefined ? (
+  return episode.data === null ? (
     <Sheet title="Episode" error="This episode isn't here." />
   ) : (
-    <EpisodeActions episode={episode} />
+    <EpisodeActions episode={episode.data} />
   );
 }
 

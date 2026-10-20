@@ -3,7 +3,7 @@
  * the room (G02) to invite people before anyone presses play. A movie starts where the profile
  * stopped; a show at its next episode, or at the episode its actions (D07) were opened on.
  */
-import type { EpisodeId, TitleId } from "@movies/contracts/ids";
+import type { TitleId } from "@movies/contracts/ids";
 import type { Episode, TitleDetail } from "@movies/contracts/models/catalog";
 import { Milliseconds } from "@movies/contracts/units";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
@@ -15,6 +15,7 @@ import { ActivityIndicator, ScrollView, View } from "react-native";
 
 import { RoomArtwork } from "@/components/rooms/room-parts";
 import { episodeIdParam, seasonParam, titleIdParam } from "@/components/title/route-params";
+import { useSeasonEpisode } from "@/components/title/use-season-episode";
 import { Button } from "@/components/ui/button";
 import { CalmState } from "@/components/ui/calm-state";
 import { NavHeader } from "@/components/ui/nav-header";
@@ -99,40 +100,33 @@ function StartRoom({
   );
 }
 
-/** The episode picked on D07, from its season, which the show's page has already subscribed to. */
+/**
+ * The episode picked on D07: none when the link names no episode, and missing when it names one
+ * that is malformed or not in its season, so a room never starts on another episode by mistake.
+ */
 const useChosenEpisode = (
   titleId: TitleId | null,
-  episodeId: EpisodeId | null,
-  seasonNumber: number | null,
+  rawEpisode: string | undefined,
+  rawSeason: string | undefined,
 ) => {
-  const { profile } = useActiveProfile();
+  const episodeId = episodeIdParam(rawEpisode);
+  const seasonNumber = seasonParam(rawSeason);
+  const episode = useSeasonEpisode(titleId, episodeId, seasonNumber);
 
-  const episodes = useCommandQuery(
-    "titles.episodes",
-    titleId === null || episodeId === null || seasonNumber === null
-      ? "skip"
-      : { profileId: profile.id, titleId, seasonNumber },
-  );
+  if (rawEpisode === undefined) return { status: "none" } as const;
 
-  if (episodeId === null) return { status: "none" } as const;
+  if (episodeId === null || seasonNumber === null) return { status: "missing" } as const;
 
-  if (episodes.status !== "success") return episodes;
+  if (episode.status !== "success") return episode;
 
-  const episode = episodes.data.find((candidate) => candidate.id === episodeId);
-
-  return { status: "success", data: episode ?? null } as const;
+  return episode.data === null ? ({ status: "missing" } as const) : episode;
 };
 
 export default function WatchTogether() {
   const params = useLocalSearchParams<{ titleId: string; episodeId?: string; season?: string }>();
   const titleId = titleIdParam(params.titleId);
   const { profile } = useActiveProfile();
-
-  const chosen = useChosenEpisode(
-    titleId,
-    episodeIdParam(params.episodeId),
-    seasonParam(params.season),
-  );
+  const chosen = useChosenEpisode(titleId, params.episodeId, params.season);
 
   const title = useCommandQuery(
     "titles.get",
@@ -143,7 +137,10 @@ export default function WatchTogether() {
 
   return (
     <Screen header={<NavHeader title="Watch Together" />}>
-      {title.status === "success" && (chosen.status === "success" || chosen.status === "none") ? (
+      {chosen.status === "missing" ? (
+        <CalmState icon={CircleAlert} title="Episode Not Found" />
+      ) : title.status === "success" &&
+        (chosen.status === "success" || chosen.status === "none") ? (
         <StartRoom title={title.data} chosen={chosen.status === "success" ? chosen.data : null} />
       ) : failure !== null ? (
         <CalmState
