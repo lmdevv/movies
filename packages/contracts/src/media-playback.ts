@@ -270,7 +270,7 @@ export const DownloadReady = Schema.TaggedStruct("Ready", {
   ),
   /** Text tracks only: picture subtitles cannot be kept beside a file. */
   subtitles: Schema.Array(DownloadSubtitle),
-  /** Token expiry in milliseconds since the epoch; renew the token and prepare again after it. */
+  /** Token expiry in milliseconds since the epoch; renew the token (`playback.renewToken`) before it. */
   expiresAt: Schema.Finite,
 });
 

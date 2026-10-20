@@ -22,7 +22,7 @@ import {
 import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { Effect, Option, Redacted } from "effect";
 
-import { encodeJson, mediaUrl, requestPlayback } from "./media-http";
+import { encodeJson, mediaUrl, requestPlayback, withRenewedToken } from "./media-http";
 import { MoviesClient } from "./movies-client";
 
 /** What to download: a movie, or an episode of a show, in a chosen version or the server's choice. */
@@ -89,25 +89,16 @@ export const prepare = Effect.fn("Downloads.prepare")(function* (
   );
 });
 
-/** The session with a fresh token, which also keeps it from ending as idle. */
+/**
+ * The session with a fresh token, which also keeps it from ending as idle. Renew before
+ * `tokenExpiresAt`; the session ends an hour after a token expires unrenewed.
+ */
 export const renew = Effect.fn("Downloads.renew")(function* (started: StartedPlayback) {
   const client = yield* MoviesClient;
 
-  const { token, tokenExpiresAt } = yield* client.mutate("playback.renewToken", {
+  const renewed = yield* client.mutate("playback.renewToken", {
     sessionId: started.sessionId,
   });
 
-  const renewed: StartedPlayback = {
-    sessionId: started.sessionId,
-    titleId: started.titleId,
-    episodeId: started.episodeId,
-    episode: started.episode,
-    file: started.file,
-    token,
-    tokenExpiresAt,
-    mediaBaseUrl: started.mediaBaseUrl,
-    resumePositionMs: started.resumePositionMs,
-  };
-
-  return renewed;
+  return withRenewedToken(started, renewed);
 });

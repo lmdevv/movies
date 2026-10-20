@@ -153,7 +153,11 @@ export const decidePlayback = (
     : plan;
 };
 
-const decideWithin = (
+/**
+ * Chooses how to deliver `probe` to `client` strictly within the viewer's cap: a cap this host
+ * cannot encode within leaves `Unsupported`. Downloads use this, as their quality is a size limit.
+ */
+export const decideWithin = (
   probe: MediaProbe,
   client: ClientCapabilities,
   options: DecisionOptions,

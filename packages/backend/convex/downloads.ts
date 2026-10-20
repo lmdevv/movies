@@ -113,6 +113,7 @@ export const recordProgress = mutation({
     const viewer = await authorize(ctx, "play");
     checkMilliseconds(args.positionMs, "Positions");
     checkMilliseconds(args.durationMs, "Durations");
+    checkMilliseconds(args.playedAt, "Play times");
     const audience = await loadAudience(ctx, viewer, args.profileId);
     const title = await loadVisibleTitle(ctx, audience, args.titleId);
     const played = await resolveEpisode(ctx, title, args.episodeId ?? null);

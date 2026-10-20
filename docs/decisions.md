@@ -398,7 +398,8 @@ choices made while implementing them. Update it in the same PR that changes a de
   ends nor is ended by the device's playback, is not listed in `playback.active`, and records no
   progress. One device holds at most four download sessions; a fifth ends the quietest, and the
   same file again replaces its earlier download. `playback.renewToken` renews its token and keeps
-  it alive; the idle sweep ends a download not renewed for a token's lifetime (six hours).
+  it alive; the app renews before the token expires, and the idle sweep ends a download not renewed
+  for a token's lifetime and an hour more.
   `downloads.end` ends it once the file is on the device.
 - `POST /api/downloads/prepare` takes the token, the device's capabilities, a quality
   (`standard`: 720p and 4 Mb/s; `high`: 1080p and 10 Mb/s, the players' presets), and an optional
@@ -407,24 +408,28 @@ choices made while implementing them. Update it in the same PR that changes a de
   `/media/direct` URL. Anything else becomes an MP4 by the playback ladder: the video copied when
   the device decodes it within the quality, else encoded to H.264 in software; the audio copied
   when the device decodes it, else stereo AAC; `+faststart` so AVPlayer opens it at once. Until it
-  is written, prepare answers `Preparing` with progress (ffmpeg's `-progress` output) and an upper
-  bound on the size, and the app asks again. Text subtitles come as the existing WebVTT URLs;
+  is written, prepare answers `Preparing` with progress (the tail of ffmpeg's `-progress` output)
+  and an upper bound on the size (the encode's rates, with copied audio counted at 1.6 Mb/s), and
+  the app asks again. Unlike playback, the quality is a limit: a source this host cannot bring
+  within it (HDR without tone mapping) is `UnsupportedPlayback`, never the full-size original. Text subtitles come as the existing WebVTT URLs;
   picture subtitles are not downloaded.
 - The MP4s are written one at a time at the lowest CPU priority (`ffmpegInBackground`) and take no
   transcode slot, so playback always wins; no new setting. They live in
   `TRANSCODE_DIR/downloads/<fileId>/<hash>.mp4`, where the hash covers the file's identity (ID,
   size, modification time) and the plan, so devices asking for the same thing share one file. A
-  job starts only when `TRANSCODE_DIR` keeps `MIN_FREE_TRANSCODE_MB` beyond the estimate
-  (`InsufficientTranscodeSpace` otherwise). A finished or failed MP4 nobody asked for in six hours
-  is deleted, and a restart empties `TRANSCODE_DIR` as before; the app then prepares again. A
-  failed job answers `TranscodeFailed` once and the next prepare tries again.
+  job starts only when `TRANSCODE_DIR` keeps `MIN_FREE_TRANSCODE_MB` beyond its estimate and those
+  of the jobs not yet written (`InsufficientTranscodeSpace` otherwise). A finished or failed MP4
+  nobody asked for in six hours is deleted, a queued or running one nobody asked about for half an
+  hour is stopped (a cancelled download, an app gone away), and a restart empties `TRANSCODE_DIR`
+  as before; the app then prepares again. A failed job answers `TranscodeFailed` for ten minutes
+  before a prepare tries again, so a broken file is not encoded in full by every retry.
 - `/media/downloads/<fileId>/<hash>.mp4` serves a finished MP4 with the direct route's validators
   and single byte ranges, so a transfer resumes; the token must be for that file.
 - `downloads.recordProgress` saves progress the device made playing a download, sent when it is
   back online with the time it played. It applies unless the item's progress was played since
   (`lastPlayedAt`), so an old offline viewing never drags a newer one back, and it marks the item
   watched at 90 percent. It needs the profile to still see the title, and the file to still be the
-  item's (it may have left the disk).
+  item's (it may have left the disk); `playedAt` is checked like the positions.
 
 ## Subtitle delay
 

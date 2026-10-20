@@ -103,20 +103,29 @@ describe("decideDownload", () => {
       mode: "transcode-software",
       video: { _tag: "Encode", encoder: "software", height: 720, bitrate: 4_000_000 },
     });
-    // 4 Mb/s of video and 192 kb/s of audio for 50 minutes.
-    expect(standard).toMatchObject({ estimatedBytes: Math.ceil((4_192_000 * 3000) / 8) });
+    // 4 Mb/s of video and the copied AAC counted at 1.6 Mb/s, for 50 minutes.
+    expect(standard).toMatchObject({ estimatedBytes: Math.ceil((5_600_000 * 3000) / 8) });
     expect(decideDownload(film, iphone, "high", options)).toMatchObject({
       _tag: "Mp4",
       video: { _tag: "Encode", height: 1080, bitrate: 8_000_000 },
     });
   });
 
-  it("keeps the source's quality rather than nothing when HDR cannot be tone-mapped", () => {
+  it("refuses a source it cannot bring within the quality, rather than the whole original", () => {
     const hdr = probe("mp4", video("hevc", 2160, "hdr10"), [aac], 30_000_000);
 
     expect(
       decideDownload(hdr, iphone, "standard", { ...options, softwareToneMapping: false }),
-    ).toStrictEqual(DownloadPlan.Original());
+    ).toStrictEqual(DownloadPlan.Unsupported({ reason: "hdr-tone-mapping-requires-hardware" }));
+  });
+
+  it("bounds the size of an encode with copied audio by a generous audio rate", () => {
+    const film = probe("mkv", video("h264", 1080), [audio(1, "eac3", true)], 12_000_000);
+
+    expect(decideDownload(film, iphone, "standard", options)).toMatchObject({
+      audio: AudioPlan.Copy({ index: 1 }),
+      estimatedBytes: Math.ceil(((4_000_000 + 1_600_000) * 3000) / 8),
+    });
   });
 
   it("refuses a file without video", () => {

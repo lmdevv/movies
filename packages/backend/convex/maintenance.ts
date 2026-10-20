@@ -24,10 +24,10 @@ import {
 const IDLE_PLAYBACK_MS = 30 * 60 * 1000;
 
 /**
- * Download sessions report nothing while they transfer; one whose token was not renewed for a
- * token's lifetime can fetch nothing more, so it ends.
+ * Download sessions report nothing while they transfer, and renewing the token is what keeps them
+ * going; one not renewed for a token's lifetime and an hour more can fetch nothing, so it ends.
  */
-const IDLE_DOWNLOAD_MS = PLAYBACK_TOKEN_LIFETIME_MS;
+const IDLE_DOWNLOAD_MS = PLAYBACK_TOKEN_LIFETIME_MS + 60 * 60 * 1000;
 
 /** Expired device codes are deleted after this long. */
 const DEVICE_CODE_RETENTION_MS = 24 * 60 * 60 * 1000;

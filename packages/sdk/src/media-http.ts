@@ -12,6 +12,7 @@
 import { CommandFailure, commandError } from "@movies/contracts/errors";
 import type { CommandError, ErrorCode } from "@movies/contracts/errors";
 import { PlaybackApiError } from "@movies/contracts/media-playback";
+import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { Effect, Option, Redacted, Schema } from "effect";
 
 import type { CallError } from "./sdk-errors";
@@ -31,6 +32,22 @@ export const encodeJson = <A, I>(
     // The request schemas only hold JSON values; failing to encode one is a defect.
     Effect.orDie,
   );
+
+/** `started` with a token `playback.renewToken` signed for it. */
+export const withRenewedToken = (
+  started: StartedPlayback,
+  renewed: Pick<StartedPlayback, "token" | "tokenExpiresAt">,
+): StartedPlayback => ({
+  sessionId: started.sessionId,
+  titleId: started.titleId,
+  episodeId: started.episodeId,
+  episode: started.episode,
+  file: started.file,
+  token: renewed.token,
+  tokenExpiresAt: renewed.tokenExpiresAt,
+  mediaBaseUrl: started.mediaBaseUrl,
+  resumePositionMs: started.resumePositionMs,
+});
 
 /** One request to the media service. */
 export interface MediaRequest {

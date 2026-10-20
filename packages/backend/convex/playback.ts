@@ -268,11 +268,7 @@ export const active = query({
   returns: v.array(playbackSession),
   handler: async (ctx) => {
     const viewer = await authorize(ctx, "read");
-
-    const sessions = await ctx.db
-      .query("playbackSessions")
-      .withIndex("by_user_status", (q) => q.eq("userId", viewer.userId).eq("status", "active"))
-      .collect();
+    const sessions = await activeSessions(ctx, viewer);
 
     return sessions.flatMap((session) =>
       isDownload(session) ? [] : [presentPlaybackSession(session)],

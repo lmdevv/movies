@@ -5,7 +5,9 @@
  * at a time and at the lowest CPU priority, so playback always comes first. Until it is written,
  * `prepare` answers its progress. Every device asking for the same file, quality, and plan shares
  * one MP4, which is deleted six hours after its last request (or when the service restarts, as
- * `TRANSCODE_DIR` is emptied then).
+ * `TRANSCODE_DIR` is emptied then); one nobody asks about for half an hour while it waits or is
+ * written is abandoned and its ffmpeg stopped. A failure is answered for ten minutes before a
+ * request tries again.
  */
 import { createHash } from "node:crypto";
 
@@ -31,6 +33,7 @@ import {
   Duration,
   Effect,
   Exit,
+  Fiber,
   FileSystem,
   Layer,
   Option,
@@ -79,7 +82,19 @@ export class Service extends Context.Service<Service, Interface>()("@movies/medi
 /** A finished MP4 nobody asked for in this long is deleted. */
 const KEEP_UNUSED = Duration.hours(6);
 
-const SWEEP_EVERY = Duration.minutes(10);
+/**
+ * A queued or running MP4 nobody asked about for this long is abandoned (its download was
+ * cancelled, or its app went away) and its ffmpeg stopped, so it holds the queue no longer.
+ */
+const ABANDONED_AFTER = Duration.minutes(30);
+
+/** A failed MP4 answers its failure for this long before a request tries it again. */
+const FAILED_COOLDOWN = Duration.minutes(10);
+
+const SWEEP_EVERY = Duration.minutes(1);
+
+/** How much of the end of ffmpeg's progress file is read; its last report is in there. */
+const PROGRESS_TAIL_BYTES = 4096;
 
 /** How often a running job's progress is read. */
 const PROGRESS_EVERY = Duration.seconds(1);
@@ -95,7 +110,8 @@ type JobState = Data.TaggedEnum<{
   Queued: {};
   Running: {};
   Finished: { readonly sizeBytes: number };
-  Failed: { readonly error: TranscodeFailed };
+  /** `at` is when it failed, in milliseconds since the epoch. */
+  Failed: { readonly error: TranscodeFailed; readonly at: number };
 }>;
 
 const JobState = Data.taggedEnum<JobState>();
@@ -110,6 +126,8 @@ interface Job {
   readonly state: Ref.Ref<JobState>;
   /** Milliseconds since the epoch of the last `prepare` or byte request. */
   readonly lastUsed: Ref.Ref<number>;
+  /** The fiber writing it, to stop once abandoned. */
+  readonly writer: Ref.Ref<Option.Option<Fiber.Fiber<void>>>;
 }
 
 /** The last `out_time_us` in ffmpeg's `-progress` output, in seconds. */
@@ -165,7 +183,22 @@ const make = Effect.gen(function* () {
     const audioIndex = AudioPlan.$is("None")(plan.audio) ? undefined : plan.audio.index;
     const duration = Math.max(1, file.probe.durationSeconds);
 
-    const readProgress = fs.readFileString(progress).pipe(
+    // ffmpeg appends to the file for the whole run; only its end holds the latest report.
+    const readTail = Effect.scoped(
+      Effect.gen(function* () {
+        const handle = yield* fs.open(progress);
+        const size = Number((yield* handle.stat).size);
+        const start = Math.max(0, size - PROGRESS_TAIL_BYTES);
+        const bytes = yield* handle.readAlloc(size - start, { position: BigInt(start) });
+
+        return Option.match(bytes, {
+          onNone: () => "",
+          onSome: (read) => new TextDecoder().decode(read),
+        });
+      }),
+    );
+
+    const readProgress = readTail.pipe(
       Effect.map(progressSeconds),
       Effect.flatMap((seconds) =>
         seconds === undefined
@@ -207,17 +240,18 @@ const make = Effect.gen(function* () {
       yield* Ref.set(job.state, JobState.Finished({ sizeBytes: Number(info.size) }));
     }).pipe(Effect.scoped);
 
+    // Cleanup runs however the run ends, also when an abandoned job is stopped.
     return queue
       .withPermits(1)(run)
       .pipe(
-        Effect.exit,
-        Effect.flatMap((exit) =>
+        Effect.onExit((exit) =>
           Effect.gen(function* () {
             yield* fs.remove(progress).pipe(Effect.ignore);
 
             if (Exit.isSuccess(exit)) return;
             yield* fs.remove(part).pipe(Effect.ignore);
 
+            if (Cause.hasInterrupts(exit.cause)) return;
             const failure = Cause.squash(exit.cause);
             const detail = failure instanceof Error ? failure.message : String(failure);
 
@@ -233,11 +267,13 @@ const make = Effect.gen(function* () {
                   mode: plan.mode,
                   detail: detail.slice(-400),
                 }),
+                at: yield* Clock.currentTimeMillis,
               }),
             );
             yield* touch(job);
           }),
         ),
+        Effect.ignore,
       );
   };
 
@@ -247,9 +283,19 @@ const make = Effect.gen(function* () {
     plan: Extract<DownloadPlan, { _tag: "Mp4" }>,
   ) {
     const key = keyOf(file, plan);
-    const existing = (yield* Ref.get(jobs)).get(key);
+    const known = yield* Ref.get(jobs);
+    const existing = known.get(key);
 
     if (existing !== undefined) return existing;
+
+    // Queued and running jobs have not written their MP4s yet; their space is spoken for.
+    const pending = yield* Effect.forEach(known.values(), (job) =>
+      Ref.get(job.state).pipe(
+        Effect.map((state) =>
+          JobState.$is("Queued")(state) || JobState.$is("Running")(state) ? job.estimatedBytes : 0,
+        ),
+      ),
+    );
 
     const available = yield* Effect.tryPromise(() => freeBytes(config.transcodeDir)).pipe(
       Effect.tapError((error) =>
@@ -260,7 +306,10 @@ const make = Effect.gen(function* () {
       Effect.orElseSucceed(() => Number.POSITIVE_INFINITY),
     );
 
-    const required = config.minFreeTranscodeBytes + plan.estimatedBytes;
+    const required =
+      config.minFreeTranscodeBytes +
+      plan.estimatedBytes +
+      pending.reduce((total, bytes) => total + bytes, 0);
 
     if (available < required) {
       return yield* new InsufficientTranscodeSpace({
@@ -277,6 +326,7 @@ const make = Effect.gen(function* () {
       progress: yield* Ref.make(0),
       state: yield* Ref.make<JobState>(JobState.Queued()),
       lastUsed: yield* Ref.make(yield* Clock.currentTimeMillis),
+      writer: yield* Ref.make(Option.none<Fiber.Fiber<void>>()),
     };
 
     // Registering the job and forking its run happen together, so no job waits for a run that
@@ -294,7 +344,14 @@ const make = Effect.gen(function* () {
           },
         );
 
-        if (started) yield* write(job, file, plan).pipe(Effect.interruptible, Effect.forkIn(scope));
+        if (started) {
+          const fiber = yield* write(job, file, plan).pipe(
+            Effect.interruptible,
+            Effect.forkIn(scope),
+          );
+
+          yield* Ref.set(job.writer, Option.some(fiber));
+        }
 
         return job;
       }),
@@ -390,16 +447,21 @@ const make = Effect.gen(function* () {
       });
     }
 
-    const job = yield* jobFor(file, plan);
+    const found = yield* jobFor(file, plan);
+    const now = yield* Clock.currentTimeMillis;
+    const before = yield* Ref.get(found.state);
+
+    // A failure is answered for a while, then the next request writes the MP4 again.
+    const retry =
+      JobState.$is("Failed")(before) && now - before.at >= Duration.toMillis(FAILED_COOLDOWN);
+
+    if (retry) yield* forget(found);
+    const job = retry ? yield* jobFor(file, plan) : found;
+
     yield* touch(job);
     const state = yield* Ref.get(job.state);
 
-    if (JobState.$is("Failed")(state)) {
-      // The next request tries again.
-      yield* forget(job);
-
-      return yield* state.error;
-    }
+    if (JobState.$is("Failed")(state)) return yield* state.error;
 
     if (!JobState.$is("Finished")(state)) {
       return DownloadPreparing.make({
@@ -444,16 +506,34 @@ const make = Effect.gen(function* () {
     return Option.some(job.output);
   });
 
-  /** Deletes finished and failed MP4s nobody asked for within `KEEP_UNUSED`. */
+  /**
+   * Deletes finished and failed MP4s nobody asked for within `KEEP_UNUSED`, and stops queued and
+   * running ones nobody asked about within `ABANDONED_AFTER`.
+   */
   const sweep = Effect.gen(function* () {
-    const cutoff = (yield* Clock.currentTimeMillis) - Duration.toMillis(KEEP_UNUSED);
+    const now = yield* Clock.currentTimeMillis;
 
     for (const job of (yield* Ref.get(jobs)).values()) {
       const state = yield* Ref.get(job.state);
       const settled = JobState.$is("Finished")(state) || JobState.$is("Failed")(state);
+      const idle = now - (yield* Ref.get(job.lastUsed));
 
-      if (settled && (yield* Ref.get(job.lastUsed)) < cutoff) {
+      if (
+        settled ? idle > Duration.toMillis(KEEP_UNUSED) : idle > Duration.toMillis(ABANDONED_AFTER)
+      ) {
         yield* forget(job);
+
+        // Stopping the writer kills its ffmpeg and deletes the partial file.
+        if (!settled) {
+          yield* Effect.logInfo("Downloads.mp4_abandoned").pipe(
+            Effect.annotateLogs({ fileId: job.fileId }),
+          );
+
+          const writer = yield* Ref.get(job.writer);
+
+          if (Option.isSome(writer)) yield* Fiber.interrupt(writer.value);
+        }
+
         yield* fs.remove(job.output).pipe(Effect.ignore);
       }
     }

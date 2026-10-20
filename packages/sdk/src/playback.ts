@@ -35,7 +35,7 @@ import { Milliseconds } from "@movies/contracts/units";
 import { Clock, Duration, Effect, Match, Option, Redacted, Schedule, Schema, Stream } from "effect";
 
 import type { PlaybackCallError } from "./media-http";
-import { encodeJson, mediaUrl, requestPlayback } from "./media-http";
+import { encodeJson, mediaUrl, requestPlayback, withRenewedToken } from "./media-http";
 import { MoviesClient } from "./movies-client";
 import type { PlayerEvent, PlayerPort } from "./room-sync/player-port";
 import { playerEvents } from "./room-sync/player-port";
@@ -256,17 +256,7 @@ export const renegotiate = Effect.fn("Playback.renegotiate")(function* (
 
   const started: StartedPlayback = Option.match(renewed, {
     onNone: () => playback.started,
-    onSome: ({ token, tokenExpiresAt }) => ({
-      sessionId: playback.started.sessionId,
-      titleId: playback.started.titleId,
-      episodeId: playback.started.episodeId,
-      episode: playback.started.episode,
-      file: playback.started.file,
-      token,
-      tokenExpiresAt,
-      mediaBaseUrl: playback.started.mediaBaseUrl,
-      resumePositionMs: playback.started.resumePositionMs,
-    }),
+    onSome: (fresh) => withRenewedToken(playback.started, fresh),
   });
 
   const stream = yield* negotiate(started, capabilities, positionMs, audioStreamIndex, choices);

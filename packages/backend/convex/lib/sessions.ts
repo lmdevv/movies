@@ -18,7 +18,7 @@ import {
 } from "./playbackToken";
 import { findProgress, presentEpisodeFor, presentMediaFile } from "./present";
 import type { clientCapabilities, startedPlayback } from "./validators";
-import type { Viewer } from "./viewer";
+import type { ReadCtx, Viewer } from "./viewer";
 import { reachedEnd } from "./viewing";
 
 /** Whether `session` is a download rather than playback. */
@@ -59,7 +59,7 @@ export const loadOwnSession = async (
 
 /** The account's active sessions, playback and downloads, on every device. */
 export const activeSessions = (
-  ctx: MutationCtx,
+  ctx: ReadCtx,
   viewer: Viewer,
 ): Promise<Array<Doc<"playbackSessions">>> =>
   ctx.db

@@ -2,8 +2,9 @@
  * What a download of a file becomes, by the playback ladder (`decidePlayback`) for a client that
  * opens local MP4 and QuickTime files: the original file when the device plays it as it is within
  * the chosen quality, else an MP4 with the video copied (a remux, or only the audio converted),
- * else one with the video encoded to H.264 in software. Pure: it reads a probe, what the client
- * decodes, and what this ffmpeg can do.
+ * else one with the video encoded to H.264 in software. Unlike playback, the quality is a limit: a
+ * source this host cannot bring within it is not downloaded at that quality. Pure: it reads a
+ * probe, what the client decodes, and what this ffmpeg can do.
  */
 import type {
   ClientCapabilities,
@@ -18,7 +19,7 @@ import type { MediaProbe } from "../media/media-probe.ts";
 import {
   AudioPlan,
   type AudioPlan as AudioPlanType,
-  decidePlayback,
+  decideWithin,
   PlaybackPlan,
   VideoPlan,
   type VideoPlan as VideoPlanType,
@@ -38,6 +39,13 @@ const FILE_CONTAINERS: ReadonlySet<string> = new Set(["mp4", "mov"]);
 
 /** Bits per second of the stereo AAC an encode writes (`AudioPlan.Aac`). */
 const AAC_BITRATE = 192_000;
+
+/**
+ * Bits per second a copied audio track is counted at beside an encoded video, as the probe has no
+ * per-track rate: E-AC-3 tops out at about 1.5 Mb/s, and lossless tracks rarely go past it in
+ * stereo or 5.1.
+ */
+const COPIED_AUDIO_BITRATE = 1_600_000;
 
 /** What a download is. */
 export type DownloadPlan = Data.TaggedEnum<{
@@ -79,7 +87,8 @@ export const decideDownload = (
   quality: DownloadQuality,
   options: DownloadOptions,
 ): DownloadPlan => {
-  const plan = decidePlayback(
+  // The quality is a size limit: a source that cannot be brought within it is not downloaded.
+  const plan = decideWithin(
     probe,
     {
       containers: client.containers.filter((container) => FILE_CONTAINERS.has(container)),
@@ -103,12 +112,18 @@ export const decideDownload = (
     Direct: () => DownloadPlan.Original(),
     Unsupported: ({ reason }) => DownloadPlan.Unsupported({ reason }),
     Hls: ({ mode, video, audio }) => {
-      const audioBits = AudioPlan.$is("Aac")(audio) ? AAC_BITRATE : 0;
+      const audioBits = AudioPlan.$match(audio, {
+        None: () => 0,
+        Copy: () => COPIED_AUDIO_BITRATE,
+        Aac: () => AAC_BITRATE,
+      });
 
       const estimatedBytes = VideoPlan.$match(video, {
         // A copy holds the source's streams; converted audio adds at most its own rate.
-        Copy: () => options.sizeBytes + (audioBits * probe.durationSeconds) / 8,
-        Encode: ({ bitrate }) => ((bitrate + AAC_BITRATE) * probe.durationSeconds) / 8,
+        Copy: () =>
+          options.sizeBytes +
+          (AudioPlan.$is("Aac")(audio) ? (AAC_BITRATE * probe.durationSeconds) / 8 : 0),
+        Encode: ({ bitrate }) => ((bitrate + audioBits) * probe.durationSeconds) / 8,
       });
 
       return DownloadPlan.Mp4({ mode, video, audio, estimatedBytes: Math.ceil(estimatedBytes) });
