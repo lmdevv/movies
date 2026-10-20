@@ -11,12 +11,13 @@ import {
   heroFacts,
   heroTitles,
   homeLayout,
-  isNarrowed,
+  homeScreen,
   kindFacts,
   librariesFor,
   listArgs,
   newestFirst,
   playTarget,
+  popularTitles,
   titleCount,
   watchStates,
 } from "./browse";
@@ -158,6 +159,25 @@ describe("browse", () => {
     expect(homeLayout(home(card("dune"), 1), [library("movies")])).toBe("rows");
   });
 
+  it("fills Home's top with the hero only for rows on a profile that isn't Kids", () => {
+    const rows = home(card("dune"), 2);
+
+    expect(homeScreen(rows, [library("movies")], false)).toMatchObject({
+      layout: "rows",
+      fullBleed: true,
+    });
+    expect(homeScreen(rows, [library("movies")], true).fullBleed).toBe(false);
+    expect(homeScreen(home(null, 0), [], false)).toMatchObject({
+      layout: "empty",
+      fullBleed: false,
+    });
+    expect(homeScreen(rows, [library("movies")], false).pages.map((page) => page.id)).toEqual([
+      "dune",
+      "movie-0",
+      "movie-1",
+    ]);
+  });
+
   it("offers the libraries that hold a kind", () => {
     const all = [library("movies"), library("shows"), library("mixed")];
 
@@ -186,9 +206,6 @@ describe("browse", () => {
       cursor: "next",
       limit: 60,
     });
-
-    expect(isNarrowed(DEFAULT_FILTERS)).toBe(false);
-    expect(isNarrowed(narrowed)).toBe(true);
   });
 
   it("counts a collection by kind", () => {
@@ -249,5 +266,25 @@ describe("browse", () => {
 
     expect(ofKind(titles, "all").length).toBe(2);
     expect(ofKind(titles, "show").map((title) => title.id)).toEqual(["b"]);
+  });
+
+  it("offers what is being watched, then the list, then arrivals, each once", () => {
+    const rows = {
+      ...home(null, 0),
+      continueWatching: [
+        { reason: "resume" as const, title: card("dune"), episode: null, progress: null },
+      ],
+      myList: [card("arrival"), card("dune")],
+      recentlyAddedMovies: [card("arrival", { addedAt: 2 }), card("heat", { addedAt: 1 })],
+      recentlyAddedShows: [card("severance", { kind: "show", addedAt: 3 })],
+    };
+
+    expect(popularTitles(rows, 10).map((title) => title.id)).toEqual([
+      "dune",
+      "arrival",
+      "severance",
+      "heat",
+    ]);
+    expect(popularTitles(rows, 2).map((title) => title.id)).toEqual(["dune", "arrival"]);
   });
 });

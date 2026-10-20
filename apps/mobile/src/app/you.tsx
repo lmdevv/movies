@@ -85,7 +85,7 @@ export default function You() {
           {...(list.status === "success"
             ? { detail: plural(list.data.length, "Title", "Titles") }
             : {})}
-          onPress={() => router.navigate("/my-list")}
+          onPress={() => router.push("/my-list")}
         />
         <ListRow icon={History} title="Watch History" onPress={() => router.push("/history")} />
         <View className="h-4" />

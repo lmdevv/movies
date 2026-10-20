@@ -36,7 +36,7 @@ export default function CollectionPage() {
           <CalmState title="This Collection Isn't Here" />
         </Screen>
       )}
-      <UndoBar above="screen" />
+      <UndoBar />
     </>
   );
 }

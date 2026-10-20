@@ -1,6 +1,7 @@
 /**
  * A title's poster in a rail or grid (C01–C11): 2:3 artwork with the control radius and the name
- * under it. Tapping opens the title; a long press previews it with the title's actions (C16).
+ * under it, or a 264 × 148 still in Home's My List row (C02). Tapping opens the title; a long press
+ * previews it with the title's actions (C16).
  */
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import { Link } from "expo-router";
@@ -22,7 +23,9 @@ export interface TitlePosterProps {
    * none.
    */
   readonly caption?: "rail" | "grid" | "none";
-  /** Tailwind width class, such as `w-28`; grids pass `flex-1`. */
+  /** The 2:3 poster, or the title's wide still. */
+  readonly artwork?: "poster" | "still";
+  /** Tailwind width class; `w-28` for posters and `w-66` (264pt) for stills, and grids pass `flex-1`. */
   readonly widthClassName?: string;
 }
 
@@ -30,41 +33,53 @@ export interface TitlePosterProps {
 export function TitlePoster({
   title,
   caption = "rail",
-  widthClassName = "w-28",
+  artwork = "poster",
+  widthClassName = artwork === "still" ? "w-66" : "w-28",
 }: TitlePosterProps) {
   const { mediaUrl } = useServer();
-  const uri = artworkUrl(mediaUrl, title.artwork.poster, "poster");
+  const still = artwork === "still";
+
+  const uri = still
+    ? artworkUrl(mediaUrl, title.artwork.backdrop ?? title.artwork.poster, "card")
+    : artworkUrl(mediaUrl, title.artwork.poster, "poster");
+
   const menu = useTitleMenu(title, watchHref({ titleId: title.id }));
 
+  // One view around the link, sized here: its preview and menu render beside the poster and would
+  // take a parent's gap of their own.
   return (
-    <Link href={`/title/${title.id}`} asChild>
-      <Link.Trigger>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={title.name}
-          accessibilityHint="Opens the title. Touch and hold for actions."
-          className={`${widthClassName} gap-1.5 active:opacity-80`}
-        >
-          <View className="aspect-2/3 w-full overflow-hidden rounded-control bg-surface-raised">
-            {uri === undefined ? (
-              <View className="flex-1 items-center justify-center p-2">
-                <Text variant="caption" tone="muted" className="text-center" numberOfLines={3}>
-                  {title.name}
-                </Text>
-              </View>
-            ) : (
-              <Image source={{ uri }} contentFit="cover" transition={150} className="size-full" />
+    <View className={widthClassName}>
+      <Link href={`/title/${title.id}`} asChild>
+        <Link.Trigger>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={title.name}
+            accessibilityHint="Opens the title. Touch and hold for actions."
+            className="w-full gap-1.5 active:opacity-80"
+          >
+            <View
+              className={`${still ? "h-37" : "aspect-2/3"} w-full overflow-hidden rounded-control bg-surface-raised`}
+            >
+              {uri === undefined ? (
+                <View className="flex-1 items-center justify-center p-2">
+                  <Text variant="caption" tone="muted" className="text-center" numberOfLines={3}>
+                    {title.name}
+                  </Text>
+                </View>
+              ) : (
+                <Image source={{ uri }} contentFit="cover" transition={150} className="size-full" />
+              )}
+            </View>
+            {caption === "none" ? null : (
+              <Text variant={caption === "rail" ? "label" : "metaStrong"} numberOfLines={2}>
+                {title.name}
+              </Text>
             )}
-          </View>
-          {caption === "none" ? null : (
-            <Text variant={caption === "rail" ? "label" : "metaStrong"} numberOfLines={2}>
-              {title.name}
-            </Text>
-          )}
-        </Pressable>
-      </Link.Trigger>
-      <Link.Preview />
-      {menu}
-    </Link>
+          </Pressable>
+        </Link.Trigger>
+        <Link.Preview />
+        {menu}
+      </Link>
+    </View>
   );
 }

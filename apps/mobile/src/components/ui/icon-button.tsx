@@ -57,7 +57,12 @@ export function IconButton({
     >
       {variant === "glass" ? (
         liquidGlass ? (
-          <GlassView glassEffectStyle="regular" style={StyleSheet.absoluteFill} />
+          <GlassView
+            glassEffectStyle="regular"
+            // Glass sits over artwork and video, which stay dark in both appearances (C18).
+            colorScheme="dark"
+            style={StyleSheet.absoluteFill}
+          />
         ) : (
           <BlurView tint="dark" intensity={40} style={StyleSheet.absoluteFill} />
         )

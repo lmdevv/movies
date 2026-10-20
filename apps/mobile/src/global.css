@@ -81,7 +81,7 @@
   --color-video-track: rgb(255 255 255 / 30%);
   --color-video-muted: rgb(255 255 255 / 70%);
   --text-tab: 10px;
-  /* The top corners of sheets (C14, C15). */
+  /* The top corners of sheets (C16, D10). */
   --radius-sheet: 28px;
 }
 
@@ -118,6 +118,9 @@
       --color-success: #46d369;
       --color-warning: #f5a623;
       --color-danger: #ff6b6b;
+      /* The scroll edge fades (C02): the page at Paper's scrim opacity, then clear. */
+      --color-bg-fade: rgb(0 0 0 / 60%);
+      --color-bg-clear: rgb(0 0 0 / 0%);
     }
 
     @variant light {
@@ -130,6 +133,8 @@
       --color-success: #1e9e4a;
       --color-warning: #b76e00;
       --color-danger: #d70f1a;
+      --color-bg-fade: rgb(255 255 255 / 60%);
+      --color-bg-clear: rgb(255 255 255 / 0%);
     }
   }
 }

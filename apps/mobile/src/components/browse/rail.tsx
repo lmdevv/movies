@@ -1,5 +1,5 @@
 /**
- * A titled horizontal row (C01, C03): a 22pt heading over posters or cards that scroll sideways
+ * A titled horizontal row (C01, C02): a 22pt heading over posters or cards that scroll sideways
  * past the screen edge.
  */
 import { ChevronRight } from "lucide-react-native";

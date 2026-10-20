@@ -38,7 +38,7 @@ export default function PersonPage() {
           <CalmState title="This Person Isn't Here" />
         </Screen>
       )}
-      <UndoBar above="screen" />
+      <UndoBar />
     </>
   );
 }

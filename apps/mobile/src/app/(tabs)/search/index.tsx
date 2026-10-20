@@ -1,28 +1,29 @@
 /**
- * E01–E05 · Search: the system search field under a large title. Before typing it offers genres
- * to explore and the newest titles (E01); typing shows live results by kind with people (E02,
- * E03), or says nothing matched with a way to clear it (E04). The server keeps titles above a
- * Kids profile's rating out of results, and Kids profiles see no people (E05).
+ * E00–E05 · Search: a large title over the results, and the system search field, which iOS draws
+ * in the tab bar beside a Home circle and focuses as the tab opens (E00). Before typing it offers
+ * genres to explore and the titles in play (E01); typing shows live results by kind with people
+ * (E02, E03), or says nothing matched with a way to clear it (E04). The server keeps titles above a
+ * Kids profile's rating out of results, and Kids profiles see one grid of top results without
+ * people or kind chips (E05).
  */
 import type { PersonCard, TitleCard } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
-import { Stack, router } from "expo-router";
+import { Stack, router, useFocusEffect, useNavigation } from "expo-router";
 import { Search as SearchIcon } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, View } from "react-native";
 import type { SearchBarCommands } from "react-native-screens";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Chip, KindChips } from "@/components/browse/chip";
-import { TAB_BAR_CLEARANCE } from "@/components/browse/layout";
 import { EmptyState } from "@/components/browse/empty-state";
 import { PersonRow } from "@/components/browse/person-row";
+import { useOnSearchActivate } from "@/components/browse/search-activation";
 import { WideRow } from "@/components/browse/wide-row";
 import { TitlePoster } from "@/components/title-poster";
 import { Button } from "@/components/ui/button";
 import { CalmState } from "@/components/ui/calm-state";
 import { Text } from "@/components/ui/text";
-import { gridCells, newestFirst } from "@/lib/browse";
+import { gridCells, popularTitles } from "@/lib/browse";
 import type { KindFilter } from "@/lib/browse";
 import { describeFailure } from "@/lib/failure";
 import { useThemeColor } from "@/lib/theme-color";
@@ -34,10 +35,10 @@ const DEBOUNCE_MS = 250;
 /** Results asked for of each kind. */
 const RESULT_LIMIT = 30;
 
-/** Genres offered before typing. */
+/** Genres offered before typing, in one sideways row. */
 const EXPLORE_GENRES = 6;
 
-/** Newest titles offered before typing. */
+/** Titles offered before typing. */
 const EXPLORE_TITLES = 8;
 
 /** `text` once it has stopped changing for a moment, trimmed. */
@@ -55,11 +56,31 @@ const useSettled = (text: string): string => {
 
 export default function Search() {
   const { profile } = useActiveProfile();
-  const insets = useSafeAreaInsets();
   const accent = useThemeColor("--color-accent");
   const search = useRef<SearchBarCommands>(null);
   const [text, setText] = useState("");
   const query = useSettled(text);
+
+  const navigation = useNavigation();
+  // Set when the Search tab is selected while another tab is on screen; the field focuses once
+  // this screen is.
+  const focusOnArrival = useRef(false);
+
+  useOnSearchActivate(
+    useCallback(() => {
+      if (navigation.isFocused()) search.current?.focus();
+      else focusOnArrival.current = true;
+    }, [navigation]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!focusOnArrival.current) return;
+
+      focusOnArrival.current = false;
+      search.current?.focus();
+    }, []),
+  );
 
   const clear = () => {
     search.current?.clearText();
@@ -73,6 +94,7 @@ export default function Search() {
         placeholder="Movies, shows, people"
         tintColor={accent}
         hideWhenScrolling={false}
+        hideNavigationBar={false}
         autoCapitalize="none"
         onChangeText={(event) => setText(event.nativeEvent.text)}
         onCancelButtonPress={() => setText("")}
@@ -83,7 +105,6 @@ export default function Search() {
         keyboardShouldPersistTaps="handled"
         className="flex-1 bg-bg"
         contentContainerClassName="gap-6 px-5 pt-2"
-        contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }}
       >
         {query === "" ? (
           <Explore />
@@ -95,19 +116,13 @@ export default function Search() {
   );
 }
 
-/** E01: genres to explore and the newest titles. */
+/** E01: genres to explore and the titles in play. */
 function Explore() {
   const { profile } = useActiveProfile();
   const genres = useCommandQuery("titles.genres", { profileId: profile.id });
   const home = useCommandQuery("titles.home", { profileId: profile.id });
 
-  const newest =
-    home.status === "success"
-      ? newestFirst(home.data.recentlyAddedMovies, home.data.recentlyAddedShows).slice(
-          0,
-          EXPLORE_TITLES,
-        )
-      : [];
+  const popular = home.status === "success" ? popularTitles(home.data, EXPLORE_TITLES) : [];
 
   return (
     <>
@@ -116,7 +131,12 @@ function Explore() {
           <Text variant="heading" accessibilityRole="header">
             Explore
           </Text>
-          <View className="flex-row flex-wrap gap-2">
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            className="-mx-5"
+            contentContainerClassName="gap-2 px-5"
+          >
             {genres.data.slice(0, EXPLORE_GENRES).map((genre, index) => (
               <Chip
                 key={genre.name}
@@ -125,15 +145,15 @@ function Explore() {
                 onPress={() => router.push(`/genre/${encodeURIComponent(genre.name)}`)}
               />
             ))}
-          </View>
+          </ScrollView>
         </View>
       ) : null}
-      {newest.length > 0 ? (
+      {popular.length > 0 ? (
         <View className="gap-4">
           <Text variant="heading" accessibilityRole="header">
-            Recently Added
+            Popular in Your Library
           </Text>
-          {newest.map((title) => (
+          {popular.map((title) => (
             <WideRow key={title.id} title={title} />
           ))}
         </View>
@@ -191,10 +211,13 @@ function Results({
       <EmptyState
         icon={SearchIcon}
         title={`No results for “${query}”`}
+        placement="results"
         action={<Button label="Clear Search" variant="secondary" onPress={onClear} />}
       />
     );
   }
+
+  if (!showPeople) return <ResultGrid title="Top Results" titles={titles.data} />;
 
   const movies = titles.data.filter((title) => title.kind === "movie");
   const shows = titles.data.filter((title) => title.kind === "show");
@@ -204,7 +227,7 @@ function Results({
       {titles.data.length > 0 ? <KindChips kind={kind} onChange={setKind} /> : null}
       {kind === "show" ? null : <ResultGrid title="Movies" titles={movies} />}
       {kind === "movie" ? null : <ResultGrid title="Shows" titles={shows} />}
-      {kind === "all" && showPeople && people.status === "error" ? (
+      {kind === "all" && people.status === "error" ? (
         <View className="gap-2">
           <Text variant="heading" accessibilityRole="header">
             People

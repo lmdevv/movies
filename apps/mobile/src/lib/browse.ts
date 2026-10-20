@@ -1,7 +1,8 @@
 /**
- * What the browse screens (Home, Movies, Shows, My List, Search, collections, genres, people) show,
- * worked out from the server's rows: the hero pages, their facts and play action, which layout
- * Home takes while libraries scan, the grid's filters as `titles.list` arguments, and counts.
+ * What the browse screens (Home, My List, Search, collections, genres, people) show, worked out
+ * from the server's rows: the hero pages, their facts and play action, which layout Home takes
+ * while libraries scan, what Search offers before typing, the grid's filters as `titles.list`
+ * arguments, and counts.
  */
 import type { CommandArgs } from "@movies/contracts/commands";
 import type { LibraryId, ProfileId, TitleId } from "@movies/contracts/ids";
@@ -76,6 +77,33 @@ export const newestFirst = (
   }
 
   return merged;
+};
+
+/**
+ * What Search offers before typing (E01, "Popular in Your Library"): the titles the profile is
+ * watching, then its list, then the newest arrivals, each once. The server keeps no play counts,
+ * so this is what Home already knows to be in play rather than a household ranking.
+ */
+export const popularTitles = (home: Home, limit: number): ReadonlyArray<TitleCard> => {
+  const candidates = [
+    ...home.continueWatching.map((item) => item.title),
+    ...home.myList,
+    ...newestFirst(home.recentlyAddedMovies, home.recentlyAddedShows),
+  ];
+
+  const seen = new Set<TitleId>();
+  const picked: Array<TitleCard> = [];
+
+  for (const title of candidates) {
+    if (picked.length >= limit) break;
+
+    if (!seen.has(title.id)) {
+      seen.add(title.id);
+      picked.push(title);
+    }
+  }
+
+  return picked;
 };
 
 /**
@@ -166,6 +194,28 @@ export const homeLayout = (home: Home, libraries: ReadonlyArray<Library>): HomeL
   return "rows";
 };
 
+/** What Home draws for a profile: its layout, the arrivals, the hero's pages, and whether the hero fills the top. */
+export interface HomeScreen {
+  readonly layout: HomeLayout;
+  readonly arrived: ReadonlyArray<TitleCard>;
+  readonly pages: ReadonlyArray<TitleCard>;
+  /** The full-bleed hero under the large title (C01), rather than the title on the page. */
+  readonly fullBleed: boolean;
+}
+
+/** Home for these rows and libraries; Kids profiles get the inset billboard instead of the hero. */
+export const homeScreen = (
+  home: Home,
+  libraries: ReadonlyArray<Library>,
+  kids: boolean,
+): HomeScreen => {
+  const layout = homeLayout(home, libraries);
+  const arrived = newestFirst(home.recentlyAddedMovies, home.recentlyAddedShows);
+  const pages = heroTitles(home.featured, arrived);
+
+  return { layout, arrived, pages, fullBleed: layout === "rows" && !kids && pages.length > 0 };
+};
+
 /** The libraries that hold titles of `kind`: their own kind, or mixed. */
 export const librariesFor = (
   libraries: ReadonlyArray<Library>,
@@ -185,17 +235,6 @@ export interface BrowseFilters {
 
 /** Newest arrivals first, every genre, every library. */
 export const DEFAULT_FILTERS: BrowseFilters = { sort: "added", genre: null, libraryId: null };
-
-/** Sort orders the server offers, as C14 names them, in the sheet's order. */
-export const SORT_OPTIONS: ReadonlyArray<{ readonly sort: TitleSort; readonly label: string }> = [
-  { sort: "added", label: "Recently Added" },
-  { sort: "name", label: "Title" },
-  { sort: "year", label: "Release Date" },
-];
-
-/** Whether a genre or library hides some titles. */
-export const isNarrowed = (filters: BrowseFilters): boolean =>
-  filters.genre !== null || filters.libraryId !== null;
 
 type Mutable<Value> = { -readonly [Key in keyof Value]: Value[Key] };
 
@@ -221,13 +260,6 @@ export const listArgs = (
   if (filters.libraryId !== null) args.libraryId = filters.libraryId;
 
   return args;
-};
-
-/** `Movies` or `Shows`, or `Titles` for both kinds. */
-export const kindLabel = (kind: TitleKind | null): string => {
-  if (kind === null) return "Titles";
-
-  return kind === "movie" ? "Movies" : "Shows";
 };
 
 /** `8 movies`, `12 shows`, or `5 titles` when a collection holds both kinds. */
