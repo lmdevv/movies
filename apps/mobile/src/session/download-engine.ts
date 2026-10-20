@@ -361,6 +361,8 @@ export class DownloadEngine {
           positionMs: Milliseconds.make(entry.positionMs),
           durationMs: Milliseconds.make(entry.durationMs),
           playedAt: EpochMillis.make(entry.playedAt),
+          // This clock now, so the server corrects `playedAt` if this iPhone's clock is off.
+          sentAt: EpochMillis.make(Date.now()),
           ...Option.match(Option.fromNullishOr(entry.episodeId), {
             onNone: () => ({}),
             onSome: (episodeId) => ({ episodeId }),
