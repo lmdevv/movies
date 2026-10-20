@@ -252,6 +252,9 @@ const make = Effect.gen(function* () {
       const watchdog = Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis;
 
+        // At the end, `+faststart` rewrites the file and reports no further time.
+        if ((yield* Ref.get(written)) >= duration - 1) return false;
+
         return now - (yield* Ref.get(advancedAt)) > Duration.toMillis(STALLED_AFTER);
       }).pipe(
         Effect.repeat({ schedule: Schedule.spaced(PROGRESS_EVERY), until: (stalled) => stalled }),
