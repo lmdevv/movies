@@ -147,13 +147,14 @@ export function BarAction({
   return (
     <Pressable
       onPress={onPress}
+      // 36pt tall like More beside it; the slop keeps the touch target past 44pt.
       hitSlop={8}
       accessibilityRole="button"
       accessibilityLabel={label}
-      className="h-11 flex-row items-center gap-2 active:opacity-60"
+      className="h-9 shrink flex-row items-center gap-2 active:opacity-60"
     >
       {icon === undefined ? null : <Icon icon={icon} tone="onMedia" size="row" />}
-      <Text variant="labelStrong" tone="onMedia">
+      <Text variant="labelStrong" tone="onMedia" numberOfLines={1} className="shrink">
         {label}
       </Text>
     </Pressable>
@@ -376,20 +377,22 @@ export function PlayerControls(props: PlayerControlsProps) {
             disabled={!timeline}
           />
         </View>
+        {/* Paper's condensed toolbar: 4pt above, 12pt below, the actions grouped on the left. */}
         <View
-          className="h-17 flex-row items-center justify-between"
+          className="flex-row items-center gap-8 pt-1 pb-3"
           style={row}
           pointerEvents="box-none"
         >
-          {/* A room plays at one speed for everyone. */}
-          {props.together?.kind === "room" ? null : (
-            <BarAction label={props.rateLabel} onPress={props.onSpeed} />
-          )}
-          <BarAction icon={Captions} label="Audio & Subtitles" onPress={props.onAudioSubtitles} />
-          {props.together === undefined ? null : <Together action={props.together} />}
-          {props.more.length === 0 ? (
-            <View className="size-9" />
-          ) : (
+          {/* The actions give way first, so More stays on the row with large text. */}
+          <View className="min-w-0 flex-1 flex-row items-center gap-8" pointerEvents="box-none">
+            {/* A room plays at one speed for everyone. */}
+            {props.together?.kind === "room" ? null : (
+              <BarAction label={props.rateLabel} onPress={props.onSpeed} />
+            )}
+            <BarAction icon={Captions} label="Audio & Subtitles" onPress={props.onAudioSubtitles} />
+            {props.together === undefined ? null : <Together action={props.together} />}
+          </View>
+          {props.more.length === 0 ? null : (
             <MoreMenu
               items={props.more}
               onOpen={() => onInteract(true)}

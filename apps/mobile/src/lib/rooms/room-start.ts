@@ -1,6 +1,7 @@
 /**
  * What a room started from a title's page (G01) plays: a movie from where the profile stopped, or
- * the show's next episode from where the profile stopped in it, as Play on the page would.
+ * the show's next episode from where the profile stopped in it, as Play on the page would. From an
+ * episode's actions (D07) it plays that episode instead.
  */
 import type { EpisodeId } from "@movies/contracts/ids";
 import type { Episode, Progress, TitleDetail } from "@movies/contracts/models/catalog";
@@ -18,15 +19,16 @@ export interface RoomStart {
 const resumeAt = (progress: Progress | null): number =>
   progress === null || progress.watched ? 0 : progress.positionMs;
 
-/** The room `detail`'s page starts. */
+/** The room `detail`'s page starts, or the room for its `chosen` episode. */
 export const roomStart = (
   detail: Pick<TitleDetail, "kind" | "progress" | "nextEpisode">,
+  chosen: Episode | null = null,
 ): RoomStart => {
   if (detail.kind === "movie") {
     return { episodeId: undefined, positionMs: resumeAt(detail.progress), episode: null };
   }
 
-  const next = detail.nextEpisode;
+  const next = chosen ?? detail.nextEpisode;
 
   return next === null
     ? { episodeId: undefined, positionMs: 0, episode: null }

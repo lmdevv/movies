@@ -1,9 +1,10 @@
 /**
  * Links into the player and what they carry: the title, an episode for shows, a chosen version
- * (file), `start` (`beginning` to start over, `resume` to resume without asking), `at` to start at a
- * position (a watch room's, when a guest goes on alone), and the watch room to play in. Screens link
- * with `watchHref`, which writes them in one order; the player reads them back with
- * `parseWatchParams`, which never throws.
+ * (file), `start` (`beginning` to start over; `resume`, like leaving it out, picks up the saved
+ * progress), `at` to start at a position (a watch room's, when a guest goes on alone), and the watch
+ * room to play in. Screens link with `watchHref`, which writes them in one order; the player reads
+ * them back with `parseWatchParams`, which never throws. `togetherHref` links to starting a watch
+ * room (G01).
  */
 import { EpisodeId, MediaFileId, RoomId, TitleId } from "@movies/contracts/ids";
 import { Schema } from "effect";
@@ -16,12 +17,9 @@ export interface WatchTarget {
   readonly episodeId?: EpisodeId | undefined;
   /** A version from `titles.versions`; omit to let the server choose. */
   readonly fileId?: MediaFileId | undefined;
-  /**
-   * `beginning` for Start Over, `resume` to pick up the saved progress without asking, as the next
-   * episode does; omit to ask before resuming.
-   */
+  /** `beginning` for Start Over; `resume`, or leaving it out, picks up the saved progress. */
   readonly start?: "beginning" | "resume" | undefined;
-  /** Where to start, in milliseconds, without asking to resume; omit for the saved progress. */
+  /** Where to start, in milliseconds; omit for the saved progress. */
   readonly at?: number | undefined;
   /** The watch room this device joined, whose timeline the player follows; omit to play alone. */
   readonly room?: RoomId | undefined;
@@ -84,3 +82,19 @@ export const parseWatchParams = (params: RouteParams): Option.Option<WatchParams
       }),
     ),
   );
+
+/** A watch room to start for a title, on a chosen episode of a show (D07) or else its next one. */
+export interface TogetherTarget {
+  readonly titleId: TitleId;
+  /** The chosen episode and its season, which the room screen loads it from. */
+  readonly episode?: { readonly id: EpisodeId; readonly seasonNumber: number } | undefined;
+}
+
+/** The href of G01 · Watch Together for `target`. */
+export const togetherHref = ({ titleId, episode }: TogetherTarget): string => {
+  const path = `/together/${encodeURIComponent(titleId)}`;
+
+  return episode === undefined
+    ? path
+    : `${path}?episodeId=${encodeURIComponent(episode.id)}&season=${String(episode.seasonNumber)}`;
+};

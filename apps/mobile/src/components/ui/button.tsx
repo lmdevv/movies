@@ -22,7 +22,7 @@ const VARIANTS = {
   plainDestructive: { box: "active:opacity-60", tone: "danger" },
   /** Secondary over artwork and video: white on the glass fill. */
   glass: { box: "bg-glass active:opacity-80", tone: "onMedia" },
-  /** Secondary on the player's dark panels, whatever the theme (F07, F09). */
+  /** Secondary on the player's dark panels, whatever the theme (F09). */
   onDark: { box: "bg-dark-surface-raised active:opacity-80", tone: "onMedia" },
 } as const satisfies Record<string, { box: string; tone: TextTone }>;
 
