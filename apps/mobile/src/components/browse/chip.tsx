@@ -1,5 +1,5 @@
 /**
- * A 36pt pill for filters and genres (C03, C05, C09, E01): white with dark text when selected,
+ * A 36pt pill for filters and genres (C09, E01, E03): white with dark text when selected,
  * the surface fill otherwise.
  */
 import * as Haptics from "expo-haptics";

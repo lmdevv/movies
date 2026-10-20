@@ -1,12 +1,10 @@
 /**
- * A three-column poster grid (C03–C05, C08, C09, C11): the posters with 13pt names under a header,
- * blanks that keep the last row's posters at a third of the width, and room for the tab bar or the
- * home indicator.
+ * A three-column poster grid (C08, C09, C11, My List): the posters with 13pt names under a header,
+ * blanks that keep the last row's posters at a third of the width, and room for the home indicator.
  */
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import type { ReactElement } from "react";
 import { ActivityIndicator, FlatList, View } from "react-native";
-import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "@/components/ui/button";
@@ -15,7 +13,6 @@ import { gridCells } from "@/lib/browse";
 import { describeFailure } from "@/lib/failure";
 
 import { TitlePoster } from "../title-poster";
-import { TAB_BAR_CLEARANCE } from "./layout";
 import type { TitlePages } from "./title-pages";
 
 /** Props for `PosterGrid`. */
@@ -25,26 +22,11 @@ export interface PosterGridProps {
   readonly footer?: ReactElement | undefined;
   readonly empty?: ReactElement | undefined;
   readonly onEndReached?: (() => void) | undefined;
-  readonly onScroll?: ((event: NativeSyntheticEvent<NativeScrollEvent>) => void) | undefined;
-  /**
-   * `tabBar` for a tab's content, which starts under the status bar and clears the floating tab
-   * bar; `screen` under a pushed screen's header.
-   */
-  readonly inside?: "tabBar" | "screen";
 }
 
 /** A scrolling grid of posters. */
-export function PosterGrid({
-  titles,
-  header,
-  footer,
-  empty,
-  onEndReached,
-  onScroll,
-  inside = "screen",
-}: PosterGridProps) {
+export function PosterGrid({ titles, header, footer, empty, onEndReached }: PosterGridProps) {
   const insets = useSafeAreaInsets();
-  const tab = inside === "tabBar";
 
   return (
     <FlatList
@@ -63,13 +45,11 @@ export function PosterGrid({
       ListEmptyComponent={empty}
       ListFooterComponentClassName="pb-6"
       columnWrapperClassName="gap-2 px-5"
-      contentContainerClassName={tab ? "gap-5" : "gap-5 pt-2"}
-      contentContainerStyle={{ paddingBottom: insets.bottom + (tab ? TAB_BAR_CLEARANCE : 0) }}
-      contentInsetAdjustmentBehavior={tab ? "never" : "automatic"}
+      contentContainerClassName="gap-5 pt-2"
+      contentContainerStyle={{ paddingBottom: insets.bottom }}
+      contentInsetAdjustmentBehavior="automatic"
       onEndReached={onEndReached}
       onEndReachedThreshold={1}
-      onScroll={onScroll}
-      scrollEventThrottle={16}
     />
   );
 }

@@ -1,8 +1,10 @@
 /**
- * E01–E05 · Search: the system search field under a large title. Before typing it offers genres
- * to explore and the newest titles (E01); typing shows live results by kind with people (E02,
- * E03), or says nothing matched with a way to clear it (E04). The server keeps titles above a
- * Kids profile's rating out of results, and Kids profiles see no people (E05).
+ * E00–E05 · Search: a large title over the results, and the system search field, which iOS draws
+ * in the tab bar beside a Home circle and focuses as the tab opens (E00). Before typing it offers
+ * genres to explore and the titles in play (E01); typing shows live results by kind with people
+ * (E02, E03), or says nothing matched with a way to clear it (E04). The server keeps titles above a
+ * Kids profile's rating out of results, and Kids profiles see one grid of top results without
+ * people or kind chips (E05).
  */
 import type { PersonCard, TitleCard } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
@@ -22,7 +24,7 @@ import { TitlePoster } from "@/components/title-poster";
 import { Button } from "@/components/ui/button";
 import { CalmState } from "@/components/ui/calm-state";
 import { Text } from "@/components/ui/text";
-import { gridCells, newestFirst } from "@/lib/browse";
+import { gridCells, popularTitles } from "@/lib/browse";
 import type { KindFilter } from "@/lib/browse";
 import { describeFailure } from "@/lib/failure";
 import { useThemeColor } from "@/lib/theme-color";
@@ -37,7 +39,7 @@ const RESULT_LIMIT = 30;
 /** Genres offered before typing. */
 const EXPLORE_GENRES = 6;
 
-/** Newest titles offered before typing. */
+/** Titles offered before typing. */
 const EXPLORE_TITLES = 8;
 
 /** `text` once it has stopped changing for a moment, trimmed. */
@@ -95,19 +97,13 @@ export default function Search() {
   );
 }
 
-/** E01: genres to explore and the newest titles. */
+/** E01: genres to explore and the titles in play. */
 function Explore() {
   const { profile } = useActiveProfile();
   const genres = useCommandQuery("titles.genres", { profileId: profile.id });
   const home = useCommandQuery("titles.home", { profileId: profile.id });
 
-  const newest =
-    home.status === "success"
-      ? newestFirst(home.data.recentlyAddedMovies, home.data.recentlyAddedShows).slice(
-          0,
-          EXPLORE_TITLES,
-        )
-      : [];
+  const popular = home.status === "success" ? popularTitles(home.data, EXPLORE_TITLES) : [];
 
   return (
     <>
@@ -128,12 +124,12 @@ function Explore() {
           </View>
         </View>
       ) : null}
-      {newest.length > 0 ? (
+      {popular.length > 0 ? (
         <View className="gap-4">
           <Text variant="heading" accessibilityRole="header">
-            Recently Added
+            Popular in Your Library
           </Text>
-          {newest.map((title) => (
+          {popular.map((title) => (
             <WideRow key={title.id} title={title} />
           ))}
         </View>
@@ -196,6 +192,8 @@ function Results({
     );
   }
 
+  if (!showPeople) return <ResultGrid title="Top Results" titles={titles.data} />;
+
   const movies = titles.data.filter((title) => title.kind === "movie");
   const shows = titles.data.filter((title) => title.kind === "show");
 
@@ -204,7 +202,7 @@ function Results({
       {titles.data.length > 0 ? <KindChips kind={kind} onChange={setKind} /> : null}
       {kind === "show" ? null : <ResultGrid title="Movies" titles={movies} />}
       {kind === "movie" ? null : <ResultGrid title="Shows" titles={shows} />}
-      {kind === "all" && showPeople && people.status === "error" ? (
+      {kind === "all" && people.status === "error" ? (
         <View className="gap-2">
           <Text variant="heading" accessibilityRole="header">
             People

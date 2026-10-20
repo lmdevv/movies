@@ -1,8 +1,8 @@
 /**
- * The featured billboard of Home, Movies, and Shows (C01, C03, C04): full-bleed artwork under a
- * scrim that keeps the large title and the text legible, the title's logo or name, its facts, Play
- * and My List, and page dots when it pages through several titles. The band stays dark in the
- * light appearance (C18). Kids profiles get the inset card instead (C10).
+ * Home's featured billboard (C01): full-bleed artwork under a scrim that keeps the large title and
+ * the text legible, the title's logo or name, its facts, Play and My List, and page dots when it
+ * pages through several titles. In the light appearance the artwork darkens behind the title and
+ * fades into the white page (C18). Kids profiles get the inset card instead (C10).
  */
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
@@ -12,6 +12,7 @@ import { Check, Play, Plus } from "lucide-react-native";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { FlatList, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { useUniwind } from "uniwind";
 
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
@@ -30,30 +31,24 @@ import { useTitleStates } from "./title-states";
 export interface HeroProps {
   /** The titles to page through, featured first. */
   readonly titles: ReadonlyArray<TitleCard>;
-  /** Home draws the name at 48pt; Movies and Shows at 40pt. */
-  readonly size?: "home" | "tab";
   /** The large title and filters drawn over the top of the artwork. */
   readonly header?: ReactNode;
 }
 
-/** The scrim from Paper: the dark top for the status bar and title, clear, then the page. */
-const SCRIM_LOCATIONS = [0, 0.3, 0.96] as const;
+/** C01's scrim: the dark top for the status bar and title, clear, then the black page. */
+const DARK_SCRIM_LOCATIONS = [0, 0.3, 0.96] as const;
+
+/** C18's scrim: the dark top, clear, dark again behind the title, then the white page. */
+const LIGHT_SCRIM_LOCATIONS = [0, 0.28, 0.62, 0.96] as const;
 
 /** One page of the hero: the artwork and the title's art. */
-function HeroPage({
-  title,
-  width,
-  size,
-}: {
-  readonly title: TitleCard;
-  readonly width: number;
-  readonly size: "home" | "tab";
-}) {
+function HeroPage({ title, width }: { readonly title: TitleCard; readonly width: number }) {
   const { mediaUrl } = useServer();
   const backdrop = artworkUrl(mediaUrl, title.artwork.backdrop ?? title.artwork.poster, "backdrop");
   const logo = artworkUrl(mediaUrl, title.artwork.logo, "card");
   const scrim = useThemeColor("--color-scrim");
-  const band = useThemeColor("--color-dark-bg");
+  const page = useThemeColor("--color-bg");
+  const light = useUniwind().theme === "light";
 
   return (
     <View style={{ width }} className="h-full justify-end">
@@ -68,8 +63,8 @@ function HeroPage({
         />
       )}
       <LinearGradient
-        colors={[scrim, "transparent", band]}
-        locations={SCRIM_LOCATIONS}
+        colors={light ? [scrim, "transparent", scrim, page] : [scrim, "transparent", page]}
+        locations={light ? LIGHT_SCRIM_LOCATIONS : DARK_SCRIM_LOCATIONS}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
@@ -82,7 +77,7 @@ function HeroPage({
       >
         {logo === undefined ? (
           <Text
-            variant={size === "home" ? "heroTitle" : "display"}
+            variant="heroTitle"
             tone="onMedia"
             className="text-center"
             numberOfLines={2}
@@ -99,7 +94,7 @@ function HeroPage({
 }
 
 /** The paging billboard. */
-export function Hero({ titles, size = "home", header }: HeroProps) {
+export function Hero({ titles, header }: HeroProps) {
   const { width } = useWindowDimensions();
   // The page on screen belongs to one list of titles; a new list starts over on its first page.
   const pagesKey = titles.map((title) => title.id).join();
@@ -110,14 +105,14 @@ export function Hero({ titles, size = "home", header }: HeroProps) {
   if (current === undefined) return null;
 
   return (
-    <View className={size === "home" ? "h-146 bg-dark-bg" : "h-142.5 bg-dark-bg"}>
+    <View className="h-146 bg-bg">
       <FlatList
         key={pagesKey}
         horizontal
         pagingEnabled
         data={titles}
         keyExtractor={(title) => title.id}
-        renderItem={({ item }) => <HeroPage title={item} width={width} size={size} />}
+        renderItem={({ item }) => <HeroPage title={item} width={width} />}
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={(event) =>
           setPaging({ pagesKey, index: Math.round(event.nativeEvent.contentOffset.x / width) })
@@ -191,8 +186,8 @@ function HeroDetails({
               key={page}
               className={
                 page === index
-                  ? "h-1.5 w-5 rounded-pill bg-dark-text"
-                  : "size-1.5 rounded-pill bg-dark-text-muted"
+                  ? "h-1.5 w-5 rounded-pill bg-text"
+                  : "size-1.5 rounded-pill bg-text-muted"
               }
             />
           ))}

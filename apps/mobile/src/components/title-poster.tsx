@@ -1,6 +1,7 @@
 /**
  * A title's poster in a rail or grid (C01–C11): 2:3 artwork with the control radius and the name
- * under it. Tapping opens the title; a long press previews it with the title's actions (C16).
+ * under it, or a 264 × 148 still in Home's My List row (C02). Tapping opens the title; a long press
+ * previews it with the title's actions (C16).
  */
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import { Link } from "expo-router";
@@ -22,8 +23,10 @@ export interface TitlePosterProps {
    * none.
    */
   readonly caption?: "rail" | "grid" | "none";
-  /** Tailwind width class, such as `w-28`; grids pass `flex-1`. */
+  /** Tailwind width class, such as `w-28`; grids pass `flex-1`. Stills are always 264pt wide. */
   readonly widthClassName?: string;
+  /** The 2:3 poster, or the title's wide still. */
+  readonly artwork?: "poster" | "still";
 }
 
 /** A poster that opens the title, with its actions on a long press. */
@@ -31,9 +34,15 @@ export function TitlePoster({
   title,
   caption = "rail",
   widthClassName = "w-28",
+  artwork = "poster",
 }: TitlePosterProps) {
   const { mediaUrl } = useServer();
-  const uri = artworkUrl(mediaUrl, title.artwork.poster, "poster");
+  const still = artwork === "still";
+
+  const uri = still
+    ? artworkUrl(mediaUrl, title.artwork.backdrop ?? title.artwork.poster, "card")
+    : artworkUrl(mediaUrl, title.artwork.poster, "poster");
+
   const menu = useTitleMenu(title, watchHref({ titleId: title.id }));
 
   return (
@@ -43,9 +52,11 @@ export function TitlePoster({
           accessibilityRole="button"
           accessibilityLabel={title.name}
           accessibilityHint="Opens the title. Touch and hold for actions."
-          className={`${widthClassName} gap-1.5 active:opacity-80`}
+          className={`${still ? "w-66" : widthClassName} gap-1.5 active:opacity-80`}
         >
-          <View className="aspect-2/3 w-full overflow-hidden rounded-control bg-surface-raised">
+          <View
+            className={`${still ? "h-37" : "aspect-2/3"} w-full overflow-hidden rounded-control bg-surface-raised`}
+          >
             {uri === undefined ? (
               <View className="flex-1 items-center justify-center p-2">
                 <Text variant="caption" tone="muted" className="text-center" numberOfLines={3}>

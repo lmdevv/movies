@@ -1,9 +1,10 @@
 /**
  * C01 · Home: the featured hero under the large title, then Continue Watching, Recently Added, My
- * List, and Collections. Scrolling collapses the title into the glass bar (C02). While a library
- * scans it shows the scan and what has arrived (C13); without libraries, the empty state (C12).
- * Kids profiles see the inset billboard (C10). In a watch room, the room's pill sits under the title
- * (C17).
+ * List as wide stills (hidden while the list is empty), and Collections. Scrolled, the content runs
+ * under a bar that fades from the page into it, with the compact title (C02). In the light
+ * appearance the hero fades into white (C18). While a library scans it shows the scan and what has
+ * arrived (C13); without libraries, the empty state (C12). Kids profiles see the inset billboard
+ * (C10). In a watch room, the room's pill sits under the title (C17).
  */
 import type { Home as HomeRows, Library } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
@@ -21,6 +22,7 @@ import { Rail } from "@/components/browse/rail";
 import { ReturnToRoom } from "@/components/rooms/room-pill";
 import { ScanStatus } from "@/components/browse/scan-status";
 import { CompactBar, LargeTitle, useCollapse } from "@/components/browse/tab-chrome";
+import { UndoBar } from "@/components/browse/undo-bar";
 import { ContinueCard } from "@/components/continue-card";
 import { TitlePoster } from "@/components/title-poster";
 import { Button } from "@/components/ui/button";
@@ -103,6 +105,7 @@ export default function Home() {
         collapsed={collapse.collapsed}
         trailing={<ProfileButton overMedia={fullBleed && !collapse.collapsed} />}
       />
+      <UndoBar above="tabBar" />
     </View>
   );
 }
@@ -171,7 +174,7 @@ function HomeBody({
         title="My List"
         items={home.myList}
         keyOf={(title) => title.id}
-        render={(title) => <TitlePoster title={title} />}
+        render={(title) => <TitlePoster title={title} artwork="still" />}
       />
       <CollectionsRow />
     </View>

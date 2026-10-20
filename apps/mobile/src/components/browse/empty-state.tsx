@@ -1,5 +1,5 @@
 /**
- * A browse screen with nothing to show (C06 My List empty, C12 empty library, E04 no results): a
+ * A browse screen with nothing to show (C12 empty library, C20 no downloads, E04 no results): a
  * glyph in a 72pt circle, a 28pt heading, an optional line, and up to one way forward.
  */
 import type { LucideIcon } from "lucide-react-native";

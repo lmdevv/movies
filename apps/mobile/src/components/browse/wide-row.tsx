@@ -1,10 +1,11 @@
 /**
- * A title as a row (E01): a 128 × 76 still with the play glyph, the name, and its kind and year.
- * Tapping opens the title; a long press previews it with its actions.
+ * A title as a row (E01): a 128 × 76 still with the play glyph, the name, its kind and year, and
+ * `…` for the title's actions sheet. Tapping opens the title; a long press previews it with its
+ * actions.
  */
 import type { TitleCard } from "@movies/contracts/models/catalog";
-import { Link } from "expo-router";
-import { Play } from "lucide-react-native";
+import { Link, router } from "expo-router";
+import { Ellipsis, Play } from "lucide-react-native";
 import { Pressable, View } from "react-native";
 
 import { Icon } from "@/components/ui/icon";
@@ -49,6 +50,15 @@ export function WideRow({ title }: { readonly title: TitleCard }) {
               {detail}
             </Text>
           </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`More for ${title.name}`}
+            hitSlop={12}
+            onPress={() => router.push(`/title/${title.id}/actions`)}
+            className="w-7 items-center active:opacity-60"
+          >
+            <Icon icon={Ellipsis} size="row" />
+          </Pressable>
         </Pressable>
       </Link.Trigger>
       <Link.Preview />

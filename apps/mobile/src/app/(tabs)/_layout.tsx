@@ -1,6 +1,8 @@
 /**
- * The floating glass tab bar (Home, Movies, Shows, My List) with the separate search circle, as
- * iOS draws it natively: it minimizes as the content scrolls down.
+ * The floating glass tab bar (C01): Home and Downloads, with Search as the system search tab in
+ * its own circle, as iOS draws it natively. Scrolling down minimizes the bar to a Home circle and
+ * the Search circle (C02). Selecting Search turns the bar into the search field with the keyboard
+ * up (E00).
  */
 import { NativeTabs } from "expo-router/native-tabs";
 
@@ -15,19 +17,15 @@ export default function TabsLayout() {
         <NativeTabs.Trigger.Icon sf={{ default: "house", selected: "house.fill" }} />
         <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="movies">
-        <NativeTabs.Trigger.Icon sf="film.stack" />
-        <NativeTabs.Trigger.Label>Movies</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="downloads">
+        <NativeTabs.Trigger.Icon sf="arrow.down.to.line" />
+        <NativeTabs.Trigger.Label>Downloads</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="shows">
-        <NativeTabs.Trigger.Icon sf={{ default: "tv", selected: "tv.fill" }} />
-        <NativeTabs.Trigger.Label>Shows</NativeTabs.Trigger.Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="my-list">
-        <NativeTabs.Trigger.Icon sf={{ default: "bookmark", selected: "bookmark.fill" }} />
-        <NativeTabs.Trigger.Label>My List</NativeTabs.Trigger.Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="search" role="search">
+      <NativeTabs.Trigger
+        name="search"
+        role="search"
+        unstable_nativeProps={{ ios: { role: "search", automaticallyActivatesSearch: true } }}
+      >
         <NativeTabs.Trigger.Icon sf="magnifyingglass" />
         <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>

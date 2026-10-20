@@ -1,21 +1,31 @@
 /**
- * The header of the browse tabs: a 34pt large title that scrolls with the content (C01) and, once
- * it has scrolled away, a compact 20pt title on a glass bar that stays at the top (C02). The
- * trailing buttons, such as the profile avatar, stay put in both states.
+ * The chrome of Home: a 34pt large title that scrolls with the content (C01) and, once it has
+ * scrolled away, the scroll edge effect (C02). The content runs under a bar that fades from the
+ * page into it, with a compact 20pt title, and a soft fade rises behind the tab bar. The trailing
+ * buttons, such as the profile avatar, stay put in both states.
  */
-import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useState } from "react";
 import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useUniwind } from "uniwind";
 
 import { Text } from "@/components/ui/text";
+import { useThemeColor } from "@/lib/theme-color";
 
 /** How far the content scrolls before the large title is gone and the bar takes over. */
 const COLLAPSE_AT = 48;
+
+/**
+ * C02's top fade: the page's color through the status bar and title, then Paper's scrim, then
+ * clear. Light fades the same way through white.
+ */
+const TOP_FADE_LOCATIONS = [0, 0.5, 0.8, 1] as const;
+
+/** How far the top fade reaches past the title row, in points (Paper's 140 less 126). */
+const TOP_FADE_TAIL = 14;
 
 /** Whether the large title has scrolled away, and the scroll handler that tracks it. */
 export interface Collapse {
@@ -63,8 +73,8 @@ export function LargeTitle({
 }
 
 /**
- * The fixed bar over a tab: transparent with only the trailing buttons until the large title has
- * scrolled away, then a glass bar with the compact title.
+ * The fixed bar over Home: only the trailing buttons until the large title has scrolled away, then
+ * the top fade with the compact title, and the fade behind the tab bar.
  */
 export function CompactBar({
   title,
@@ -76,35 +86,54 @@ export function CompactBar({
   readonly trailing?: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
-  const { theme } = useUniwind();
+  const page = useThemeColor("--color-bg");
+  const fade = useThemeColor("--color-bg-fade");
+  const clear = useThemeColor("--color-bg-clear");
 
   return (
-    <View className="absolute inset-x-0 top-0" style={{ paddingTop: insets.top }}>
+    <>
       {collapsed ? (
         <Animated.View
           entering={FadeIn.duration(180)}
           exiting={FadeOut.duration(180)}
-          style={StyleSheet.absoluteFill}
+          className="absolute inset-x-0 bottom-0 h-30"
+          pointerEvents="none"
         >
-          <BlurView
-            tint={theme === "light" ? "systemChromeMaterialLight" : "systemChromeMaterialDark"}
-            intensity={100}
-            style={StyleSheet.absoluteFill}
-          />
+          <LinearGradient colors={[clear, fade]} style={StyleSheet.absoluteFill} />
         </Animated.View>
       ) : null}
-      <View className="h-16 flex-row items-center gap-3 px-5">
-        <View className="flex-1">
-          {collapsed ? (
-            <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)}>
-              <Text variant="navTitle" numberOfLines={1}>
-                {title}
-              </Text>
-            </Animated.View>
-          ) : null}
+      <View
+        className="absolute inset-x-0 top-0"
+        style={{ paddingTop: insets.top, paddingBottom: TOP_FADE_TAIL }}
+        pointerEvents="box-none"
+      >
+        {collapsed ? (
+          <Animated.View
+            entering={FadeIn.duration(180)}
+            exiting={FadeOut.duration(180)}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          >
+            <LinearGradient
+              colors={[page, page, fade, clear]}
+              locations={TOP_FADE_LOCATIONS}
+              style={StyleSheet.absoluteFill}
+            />
+          </Animated.View>
+        ) : null}
+        <View className="h-16 flex-row items-center gap-3 px-5" pointerEvents="box-none">
+          <View className="flex-1" pointerEvents="none">
+            {collapsed ? (
+              <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)}>
+                <Text variant="navTitle" numberOfLines={1}>
+                  {title}
+                </Text>
+              </Animated.View>
+            ) : null}
+          </View>
+          {trailing}
         </View>
-        {trailing}
       </View>
-    </View>
+    </>
   );
 }

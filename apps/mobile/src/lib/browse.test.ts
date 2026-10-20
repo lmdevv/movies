@@ -17,6 +17,7 @@ import {
   listArgs,
   newestFirst,
   playTarget,
+  popularTitles,
   titleCount,
   watchStates,
 } from "./browse";
@@ -249,5 +250,25 @@ describe("browse", () => {
 
     expect(ofKind(titles, "all").length).toBe(2);
     expect(ofKind(titles, "show").map((title) => title.id)).toEqual(["b"]);
+  });
+
+  it("offers what is being watched, then the list, then arrivals, each once", () => {
+    const rows = {
+      ...home(null, 0),
+      continueWatching: [
+        { reason: "resume" as const, title: card("dune"), episode: null, progress: null },
+      ],
+      myList: [card("arrival"), card("dune")],
+      recentlyAddedMovies: [card("arrival", { addedAt: 2 }), card("heat", { addedAt: 1 })],
+      recentlyAddedShows: [card("severance", { kind: "show", addedAt: 3 })],
+    };
+
+    expect(popularTitles(rows, 10).map((title) => title.id)).toEqual([
+      "dune",
+      "arrival",
+      "severance",
+      "heat",
+    ]);
+    expect(popularTitles(rows, 2).map((title) => title.id)).toEqual(["dune", "arrival"]);
   });
 });
