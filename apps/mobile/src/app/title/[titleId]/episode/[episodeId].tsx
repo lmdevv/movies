@@ -1,12 +1,13 @@
 /**
- * D07 · Episode Actions: play or resume the episode, play it from the beginning, mark it watched or
- * unwatched, and choose among its versions when it has several.
+ * D07 · Episode Actions: play it from the beginning once it has progress, mark it watched or
+ * unwatched, watch it together, and choose among its versions when it has several. Tapping the
+ * episode itself already plays or resumes it, so the sheet has no Play row.
  */
 import type { EpisodeId, TitleId } from "@movies/contracts/ids";
 import type { SeasonEpisode } from "@movies/contracts/models/catalog";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { useLocalSearchParams } from "expo-router";
-import { Check, Clapperboard, EyeOff, Play, RotateCcw } from "lucide-react-native";
+import { Check, Clapperboard, EyeOff, RotateCcw, UsersRound } from "lucide-react-native";
 
 import { episodeIdParam, seasonParam, titleIdParam } from "@/components/title/route-params";
 import { Sheet, useSheetExit } from "@/components/title/sheet";
@@ -14,7 +15,6 @@ import { episodeSubtitle, resumeOf } from "@/components/title/title-model";
 import { useRunner } from "@/components/title/use-title-actions";
 import { ListRow } from "@/components/ui/list-row";
 import { describeFailure } from "@/lib/failure";
-import { formatRemaining } from "@/lib/format";
 import { watchHref } from "@/lib/routes";
 import { useActiveProfile } from "@/session/active-profile";
 
@@ -44,13 +44,6 @@ function EpisodeActions({ episode }: { readonly episode: SeasonEpisode }) {
 
   return (
     <Sheet title={episode.name} subtitle={episodeSubtitle(episode)} error={mark.error} exit={exit}>
-      <ListRow
-        icon={Play}
-        title={resume === null ? "Play" : "Resume"}
-        {...(resume === null ? {} : { detail: formatRemaining(resume.remainingMs) })}
-        disabled={!episode.available}
-        onPress={() => exit.leaveFor(watchHref(target))}
-      />
       {resume === null ? null : (
         <ListRow
           icon={RotateCcw}
@@ -64,6 +57,16 @@ function EpisodeActions({ episode }: { readonly episode: SeasonEpisode }) {
         title={watched ? "Mark as Unwatched" : "Mark as Watched"}
         disabled={mark.busy}
         onPress={() => void toggleWatched()}
+      />
+      <ListRow
+        icon={UsersRound}
+        title="Watch Together"
+        disabled={!episode.available}
+        onPress={() =>
+          exit.leaveFor(
+            `/together/${episode.titleId}?episodeId=${episode.id}&season=${String(episode.seasonNumber)}`,
+          )
+        }
       />
       {versions.status === "success" && versions.data.length > 1 ? (
         <ListRow

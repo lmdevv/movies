@@ -30,7 +30,6 @@ import {
   STOPPED_MESSAGE,
   afterPlaybackFailure,
   afterPlayerError,
-  offersResume,
   withoutFailedPath,
   isUnhonoured,
 } from "@/lib/player/policy";
@@ -47,8 +46,6 @@ type Runtime = ReturnType<typeof useMoviesRuntime>;
 export type PlayerPhase = Data.TaggedEnum<{
   /** Negotiating and loading a stream, until its first frame (F08). */
   Preparing: {};
-  /** The stream is loaded at the saved position; the viewer chooses where to start (F07). */
-  Choosing: { readonly resumeAtMs: number };
   /** The stream showed its first frame; buffering and pausing are the port's business. */
   Playing: {};
   /** Playback cannot go on without the viewer (F09, F13). */
@@ -220,22 +217,15 @@ export class PlayerController {
 
   /**
    * Plays the session `usePlaybackSession` started, whose stream starts at the saved progress
-   * unless the viewer asked to start over. With `askResume`, a saved position worth resuming loads
-   * paused behind the resume prompt.
+   * unless the viewer asked to start over. It plays at once; there is no resume prompt.
    */
-  start(playback: Playback.Playback, askResume: boolean): void {
+  start(playback: Playback.Playback): void {
     if (this.#original !== null || this.#disposed) return;
     this.#original = playback;
 
-    const startMs = playback.stream.startSeconds * 1000;
-    const choosing = askResume && offersResume(startMs);
-
-    this.#update({
-      phase: choosing ? PlayerPhase.Choosing({ resumeAtMs: startMs }) : PlayerPhase.Preparing(),
-    });
-    this.#load(playback, startMs);
-
-    if (!choosing) void this.port.play();
+    this.#update({ phase: PlayerPhase.Preparing() });
+    this.#load(playback, playback.stream.startSeconds * 1000);
+    void this.port.play();
   }
 
   /** Names what plays on the lock screen and in Control Center, from the next stream on. */
@@ -247,16 +237,6 @@ export class PlayerController {
   seek(positionMs: number): void {
     this.#seeks += 1;
     this.port.seek(positionMs);
-  }
-
-  /** Answers the resume prompt. */
-  choose(from: "resume" | "beginning"): void {
-    if (!PlayerPhase.$is("Choosing")(this.#snapshot.phase)) return;
-
-    this.#update({ phase: this.#frameShown ? PlayerPhase.Playing() : PlayerPhase.Preparing() });
-
-    if (from === "beginning") this.seek(0);
-    void this.port.play();
   }
 
   /** Loads `playback`'s stream in a new native player at `positionMs`, playing as the viewer wanted. */

@@ -147,10 +147,11 @@ export function BarAction({
   return (
     <Pressable
       onPress={onPress}
+      // 36pt tall like More beside it; the slop keeps the touch target past 44pt.
       hitSlop={8}
       accessibilityRole="button"
       accessibilityLabel={label}
-      className="h-11 flex-row items-center gap-2 active:opacity-60"
+      className="h-9 flex-row items-center gap-2 active:opacity-60"
     >
       {icon === undefined ? null : <Icon icon={icon} tone="onMedia" size="row" />}
       <Text variant="labelStrong" tone="onMedia">
@@ -376,8 +377,9 @@ export function PlayerControls(props: PlayerControlsProps) {
             disabled={!timeline}
           />
         </View>
+        {/* Paper's condensed toolbar: 4pt above, 12pt below, the actions grouped on the left. */}
         <View
-          className="h-17 flex-row items-center justify-between"
+          className="flex-row items-center gap-8 pt-1 pb-3"
           style={row}
           pointerEvents="box-none"
         >
@@ -387,9 +389,8 @@ export function PlayerControls(props: PlayerControlsProps) {
           )}
           <BarAction icon={Captions} label="Audio & Subtitles" onPress={props.onAudioSubtitles} />
           {props.together === undefined ? null : <Together action={props.together} />}
-          {props.more.length === 0 ? (
-            <View className="size-9" />
-          ) : (
+          <View className="flex-1" />
+          {props.more.length === 0 ? null : (
             <MoreMenu
               items={props.more}
               onOpen={() => onInteract(true)}

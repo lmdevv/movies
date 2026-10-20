@@ -1,6 +1,6 @@
 /**
  * The player's sheets: Audio & Subtitles (F02), Playback Quality (F03), speed, Episodes (F04),
- * Chapters (F05), the resume prompt (F07), Playback Interrupted (F09), and File Unavailable (F13).
+ * Chapters (F05), Playback Interrupted (F09), and File Unavailable (F13).
  * Rows are 56pt with 17pt labels; a check or `Selected` marks the current choice.
  */
 import type { NegotiateResponse } from "@movies/contracts/media-playback";
@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Image } from "@/components/ui/image";
 import { Text } from "@/components/ui/text";
-import { formatRemaining, formatRuntime } from "@/lib/format";
+import { formatRuntime } from "@/lib/format";
 import { formatClock } from "@/lib/player/clock";
 import { QUALITY_OPTIONS } from "@/lib/player/quality";
 import type { QualityChoice } from "@/lib/player/quality";
@@ -351,39 +351,6 @@ export function ChaptersPanel({
           />
         ))}
       </ScrollView>
-    </SidePanel>
-  );
-}
-
-/** F07: resume from the saved position, or start over. */
-export function ResumePanel({
-  title,
-  resumeAtMs,
-  durationMs,
-  onResume,
-  onBeginning,
-  onClose,
-}: {
-  readonly title: string;
-  readonly resumeAtMs: number;
-  readonly durationMs: number;
-  readonly onResume: () => void;
-  readonly onBeginning: () => void;
-  readonly onClose: () => void;
-}) {
-  return (
-    <SidePanel title={title} widthClassName="w-90" onClose={onClose}>
-      <View className="h-4" />
-      <Text tone="darkMuted">
-        {durationMs > 0 ? formatRemaining(durationMs - resumeAtMs) : formatClock(resumeAtMs / 1000)}
-      </Text>
-      <Button label="Resume" icon={Play} iconFilled onPress={onResume} />
-      <Button
-        label="Start from Beginning"
-        variant="onDark"
-        icon={RotateCcw}
-        onPress={onBeginning}
-      />
     </SidePanel>
   );
 }

@@ -12,12 +12,12 @@ const progress = (positionMs: number, watched = false): Progress => ({
   updatedAt: EpochMillis.make(0),
 });
 
-const episode = (saved: Progress | null): Episode => ({
-  id: EpisodeId.make("e4"),
+const episode = (saved: Progress | null, number = 4): Episode => ({
+  id: EpisodeId.make(`e${String(number)}`),
   titleId: TitleId.make("severance"),
   seasonId: SeasonId.make("s1"),
   seasonNumber: 1,
-  episodeNumber: 4,
+  episodeNumber: number,
   name: "The You You Are",
   overview: null,
   airDate: null,
@@ -57,6 +57,14 @@ describe("roomStart", () => {
     expect(roomStart({ kind: "show", progress: null, nextEpisode: episode(null) }).positionMs).toBe(
       0,
     );
+  });
+
+  it("starts the episode chosen from its actions instead of the next one", () => {
+    const chosen = episode(progress(120_000), 7);
+
+    expect(
+      roomStart({ kind: "show", progress: null, nextEpisode: episode(progress(60_000)) }, chosen),
+    ).toEqual({ episodeId: chosen.id, positionMs: 120_000, episode: chosen });
   });
 
   it("lets the server choose a show's episode when none is next", () => {
