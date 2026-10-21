@@ -5,6 +5,7 @@
  * expo-video, so neither is sent; the timeline says so.
  */
 import { PlayerObservation, type RecoveryAction } from "@movies/contracts/diagnostics";
+import { PlayerDiagnostics } from "@movies/sdk/effect";
 import { Option } from "effect";
 
 import { PlaybackStep } from "./policy";
@@ -39,6 +40,4 @@ export const recoveryObservation = (
   step: PlaybackStep,
   reason: string,
 ): Option.Option<PlayerObservation> =>
-  Option.map(actionOf(step), (action) =>
-    PlayerObservation.cases.Recovery.make({ action, reason: reason.slice(0, 120) }),
-  );
+  Option.map(actionOf(step), (action) => PlayerDiagnostics.recovery(action, reason));

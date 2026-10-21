@@ -15,6 +15,7 @@ import {
   DIAGNOSTICS_ROUTES,
   MAX_CLIENT_EVENTS,
   PlayerObservation,
+  type RecoveryAction,
 } from "@movies/contracts/diagnostics";
 import {
   Array as Arr,
@@ -34,6 +35,13 @@ import type { Scope } from "effect";
 import { encodeJson, mediaUrl, requestPlayback } from "./media-http";
 import type { Playback } from "./playback";
 import type { PlayerEvent, PlayerPort } from "./room-sync/player-port";
+
+/** The longest recovery reason the service takes. */
+const MAX_REASON_LENGTH = 120;
+
+/** A recovery the player took after a failure `reason` describes, cut to what the service takes. */
+export const recovery = (action: RecoveryAction, reason: string): PlayerObservation =>
+  PlayerObservation.cases.Recovery.make({ action, reason: reason.slice(0, MAX_REASON_LENGTH) });
 
 /** Records what a player saw. */
 export interface Recorder {
@@ -55,7 +63,8 @@ export interface Options {
   readonly platform: ClientPlatform;
   /**
    * The playback playing now, if one does. An event goes out with the token of the playback that
-   * played when it happened, which stays good for its session's last events once it ended.
+   * played when it happened, or else the last one that played: a token stays good for its
+   * session's last events once the session ended.
    */
   readonly playback: () => Option.Option<Playback>;
   /** Seconds the player holds ahead of its position. */
@@ -149,20 +158,32 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   const queue = yield* Queue.sliding<Pending>(MAX_PENDING);
   const counted = yield* Ref.make<FrameCounts>({ dropped: 0, decoded: 0 });
   const oneBatchAtATime = yield* Semaphore.make(1);
-  /** When the current stall began; none while playing. Player events change it as they fire. */
-  const stall = { since: Option.none<number>() };
+  /**
+   * When the current stall began, none while playing; and the playback that played last. Player
+   * events and records change them as they happen.
+   */
+  const state = { stalledSince: Option.none<number>(), lastPlayback: Option.none<Playback>() };
 
-  /** Keeps `observation` for the next batch; with no playback playing there is no one to tell. */
+  /** Keeps `observation` for the next batch; before any playback there is no one to tell. */
   const note = (observation: PlayerObservation): void => {
-    const playback = options.playback();
+    const playback = Option.orElse(options.playback(), () => state.lastPlayback);
 
-    if (Option.isSome(playback)) {
-      Queue.offerUnsafe(queue, {
-        observation,
-        at: clock.currentTimeMillisUnsafe(),
-        playback: playback.value,
-      });
-    }
+    if (Option.isNone(playback)) return;
+    state.lastPlayback = playback;
+    Queue.offerUnsafe(queue, {
+      observation,
+      at: clock.currentTimeMillisUnsafe(),
+      playback: playback.value,
+    });
+  };
+
+  /** Ends the current stall, if there is one, as `endedBy` says. */
+  const endStall = (endedBy: "playing" | "paused" | "closed"): void => {
+    if (Option.isNone(state.stalledSince)) return;
+    const durationMs = Math.round(clock.currentTimeMillisUnsafe() - state.stalledSince.value);
+
+    state.stalledSince = Option.none();
+    note(PlayerObservation.cases.BufferingEnded.make({ ...where(), durationMs, endedBy }));
   };
 
   const where = () => ({
@@ -171,20 +192,13 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   });
 
   const onPlayerEvent = (event: PlayerEvent): void => {
-    const now = clock.currentTimeMillisUnsafe();
+    const viewerWaits = !player.isPaused();
 
-    if (event === "waiting" && Option.isNone(stall.since)) {
-      stall.since = Option.some(now);
+    if (event === "waiting" && Option.isNone(state.stalledSince) && viewerWaits) {
+      state.stalledSince = Option.some(clock.currentTimeMillisUnsafe());
       note(PlayerObservation.cases.BufferingStarted.make(where()));
-
-      return;
-    }
-
-    if ((event === "playing" || event === "paused") && Option.isSome(stall.since)) {
-      const durationMs = Math.round(now - stall.since.value);
-
-      stall.since = Option.none();
-      note(PlayerObservation.cases.BufferingEnded.make({ ...where(), durationMs, endedBy: event }));
+    } else if (event === "playing" || event === "paused") {
+      endStall(event);
     }
   };
 
@@ -221,7 +235,13 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
     (unsubscribe) => Effect.sync(unsubscribe),
   );
   yield* Effect.forkScoped(Effect.repeat(Effect.delay(flush, FLUSH_INTERVAL), Schedule.forever));
-  yield* Effect.addFinalizer(() => flush.pipe(Effect.timeout(FINAL_FLUSH_TIMEOUT), Effect.ignore));
+  yield* Effect.addFinalizer(() =>
+    Effect.sync(() => endStall("closed")).pipe(
+      Effect.andThen(flush),
+      Effect.timeout(FINAL_FLUSH_TIMEOUT),
+      Effect.ignore,
+    ),
+  );
 
   return { record: note } satisfies Recorder;
 });

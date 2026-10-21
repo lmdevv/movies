@@ -9,6 +9,7 @@ import { TestClock } from "effect/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { Playback } from "./playback";
+import type { PlayerEvent, PlayerPort } from "./room-sync/player-port";
 import type { FrameCounts } from "./player-diagnostics";
 import { reportDiagnostics } from "./player-diagnostics";
 import { makeFakePlayer } from "./testing/fake-player";
@@ -227,7 +228,7 @@ describe("playback diagnostics", () => {
       }),
     ));
 
-  it("sends each event with the token of the playback it happened in, and none without one", () =>
+  it("sends each event with the token of the playback it happened in, or the one before", () =>
     onTestClock(
       Effect.gen(function* () {
         const player = yield* makeFakePlayer(0);
@@ -256,8 +257,81 @@ describe("playback diagnostics", () => {
             batch.events.map((event) => event.observation),
           ]),
         ).toMatchObject([
-          ["v1.first.session", [{ reason: "first" }]],
+          ["v1.first.session", [{ reason: "first" }, { reason: "between" }]],
           ["v1.second.session", [{ reason: "second" }]],
+        ]);
+      }),
+    ));
+
+  it("counts no stall while the viewer is paused, however long", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const scope = yield* Scope.make();
+        const playback = playbackAt(base);
+        const listeners = new Set<(event: PlayerEvent) => void>();
+        let paused = true;
+
+        // A paused element that runs out of data, as a scrub outside the buffer leaves it.
+        const player: PlayerPort = {
+          positionMs: () => 0,
+          isPaused: () => paused,
+          isBuffering: () => false,
+          playbackRate: () => 1,
+          setPlaybackRate: () => undefined,
+          seek: () => undefined,
+          play: () => Promise.resolve(),
+          pause: () => undefined,
+          subscribe: (listener) => {
+            listeners.add(listener);
+
+            return () => listeners.delete(listener);
+          },
+        };
+
+        const emit = (event: PlayerEvent) => {
+          for (const listener of listeners) listener(event);
+        };
+
+        yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => Option.some(playback),
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        emit("waiting");
+        emit("seeked");
+        yield* TestClock.adjust(600_000);
+        paused = false;
+        emit("playing");
+        yield* Scope.close(scope, Exit.void);
+
+        expect(received()).toStrictEqual([]);
+      }),
+    ));
+
+  it("ends a stall the viewer gave up on when the player closes", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const player = yield* makeFakePlayer(0);
+        const scope = yield* Scope.make();
+        const playback = playbackAt(base);
+
+        yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => Option.some(playback),
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        player.userPlay();
+        player.stall();
+        yield* TestClock.adjust(7_000);
+        yield* Scope.close(scope, Exit.void);
+
+        expect(received().map((event) => event.observation)).toMatchObject([
+          { _tag: "BufferingStarted" },
+          { _tag: "BufferingEnded", durationMs: 7_000, endedBy: "closed" },
         ]);
       }),
     ));

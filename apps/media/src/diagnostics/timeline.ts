@@ -57,6 +57,12 @@ const position = (value: Schema.Json | undefined): string => {
   return `${String(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
 };
 
+const STALL_ENDINGS = new Map([
+  ["playing", "playing again"],
+  ["paused", "paused by the viewer"],
+  ["closed", "the player closed"],
+]);
+
 const STREAM_END_REASONS = new Map([
   ["idle", "no requests for STREAM_IDLE_SECONDS, so the service closed it"],
   ["replaced", "a newer negotiation on the same device replaced it"],
@@ -161,7 +167,7 @@ const RULES = new Map<string, Rule>([
       kind: "buffering-ended",
       source: "player",
       summary: (fields) =>
-        `Stalled ${duration(fields["stalledMs"])}, then ${fields["endedBy"] === "paused" ? "paused by the viewer" : "playing again"}`,
+        `Stalled ${duration(fields["stalledMs"])}, then ${STALL_ENDINGS.get(text(fields["endedBy"])) ?? "playing again"}`,
     },
   ],
   [

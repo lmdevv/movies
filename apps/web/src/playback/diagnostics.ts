@@ -4,8 +4,8 @@
  * the controller chose. Stream failures, hls.js segment loads, and hls.js errors are recorded where
  * the stream plays (`stream-attachment.ts`).
  */
-import { PlayerObservation, type RecoveryAction } from "@movies/contracts/diagnostics";
-import type { PlayerDiagnostics } from "@movies/sdk/effect";
+import type { PlayerObservation, RecoveryAction } from "@movies/contracts/diagnostics";
+import { PlayerDiagnostics } from "@movies/sdk/effect";
 import { Option } from "effect";
 
 import type { TimeRangesLike } from "./media-element-player";
@@ -60,6 +60,4 @@ export const recoveryObservation = (
   step: PlaybackStep,
   reason: string,
 ): Option.Option<PlayerObservation> =>
-  Option.map(actionOf(step), (action) =>
-    PlayerObservation.cases.Recovery.make({ action, reason: reason.slice(0, 120) }),
-  );
+  Option.map(actionOf(step), (action) => PlayerDiagnostics.recovery(action, reason));

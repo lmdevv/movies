@@ -259,8 +259,14 @@ export class PlaybackController {
   #recoveries = 0;
   #renewTimer: ReturnType<typeof setTimeout> | undefined;
   #reporting: Scope.Closeable | null = null;
-  /** Records what the player sees while the session reports. */
-  #diagnostics: PlayerDiagnostics.Recorder | null = null;
+  /**
+   * Records what the player sees from the first stream until the controller is disposed, across
+   * restarts, and the scope that sends it.
+   */
+  #diagnostics: {
+    readonly recorder: PlayerDiagnostics.Recorder;
+    readonly scope: Scope.Closeable;
+  } | null = null;
   /** The playback the reporter was started with; it stops that stream when it closes. */
   #reported: Playback.Playback | null = null;
   #disposed = false;
@@ -700,7 +706,7 @@ export class PlaybackController {
   }
 
   readonly #observe: Observe = (observation) => {
-    this.#diagnostics?.record(observation);
+    this.#diagnostics?.recorder.record(observation);
   };
 
   /** Carries out a recovery step at `positionMs`, after a failure `reason` describes. */
@@ -1192,7 +1198,15 @@ export class PlaybackController {
     void this.#runtime.runPromiseExit(
       Scope.provide(scope)(Playback.reportProgress(playback, this.output)),
     );
-    this.#diagnostics = Effect.runSync(
+    this.#startDiagnostics();
+  }
+
+  #startDiagnostics(): void {
+    if (this.#diagnostics !== null) return;
+
+    const scope = Scope.makeUnsafe();
+
+    const started = this.#runtime.runSyncExit(
       Scope.provide(scope)(
         PlayerDiagnostics.reportDiagnostics(this.player, {
           platform: "web",
@@ -1202,13 +1216,25 @@ export class PlaybackController {
         }),
       ),
     );
+
+    if (Exit.isSuccess(started)) this.#diagnostics = { recorder: started.value, scope };
+  }
+
+  /** Stops recording and sends what was recorded since the last batch. */
+  #closeDiagnostics(): void {
+    const diagnostics = this.#diagnostics;
+
+    this.#diagnostics = null;
+
+    if (diagnostics !== null) {
+      void this.#runtime.runPromiseExit(Scope.close(diagnostics.scope, Exit.void));
+    }
   }
 
   async #closeReporting(): Promise<void> {
     const scope = this.#reporting;
 
     this.#reporting = null;
-    this.#diagnostics = null;
 
     if (scope !== null) await this.#runtime.runPromiseExit(Scope.close(scope, Exit.void));
   }
@@ -1222,6 +1248,7 @@ export class PlaybackController {
 
     clearTimeout(this.#renewTimer);
     void this.#closeReporting();
+    this.#closeDiagnostics();
 
     // The reporter stops the stream it started with; a renegotiated one replaced it.
     const current = this.#playback;

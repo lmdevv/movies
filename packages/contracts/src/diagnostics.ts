@@ -123,12 +123,12 @@ export const PlayerObservation = Schema.TaggedUnion({
   Attached: { mode: PlaybackMode, engine: PlayerEngine },
   /** Playback stopped to wait for data while the viewer wanted it to play. */
   BufferingStarted: { positionSeconds: Seconds, bufferedAheadSeconds: Seconds },
-  /** Playback went on after a stall, or the viewer paused instead. */
+  /** Playback went on after a stall, the viewer paused instead, or the player closed during it. */
   BufferingEnded: {
     positionSeconds: Seconds,
     bufferedAheadSeconds: Seconds,
     durationMs: Count,
-    endedBy: Schema.Literals(["playing", "paused"]),
+    endedBy: Schema.Literals(["playing", "paused", "closed"]),
   },
   /** A media, decoder, or network error the player reported. */
   PlayerError: {

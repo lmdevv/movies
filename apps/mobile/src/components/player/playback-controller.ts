@@ -247,7 +247,7 @@ export class PlayerController {
   #diagnose(): void {
     const scope = Scope.makeUnsafe();
 
-    const recorder = Effect.runSync(
+    const started = this.#runtime.runSyncExit(
       Scope.provide(scope)(
         PlayerDiagnostics.reportDiagnostics(this.port, {
           platform: "ios",
@@ -259,7 +259,7 @@ export class PlayerController {
       ),
     );
 
-    this.#diagnostics = { recorder, scope };
+    if (Exit.isSuccess(started)) this.#diagnostics = { recorder: started.value, scope };
   }
 
   #observe(observation: PlayerObservation): void {
@@ -272,7 +272,9 @@ export class PlayerController {
 
     this.#diagnostics = null;
 
-    if (diagnostics !== null) void Effect.runPromise(Scope.close(diagnostics.scope, Exit.void));
+    if (diagnostics !== null) {
+      void this.#runtime.runPromiseExit(Scope.close(diagnostics.scope, Exit.void));
+    }
   }
 
   /** Names what plays on the lock screen and in Control Center, from the next stream on. */
