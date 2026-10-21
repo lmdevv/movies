@@ -15,6 +15,7 @@ export const LogEvent = {
   segmentServed: "MediaRoutes.segment",
   slowSegment: "MediaRoutes.slow_segment",
   requestFailed: "MediaRoutes.request_failed",
+  requestFailuresSuppressed: "MediaRoutes.request_failures_suppressed",
   playerAttached: "Player.attached",
   bufferingStarted: "Player.buffering_started",
   bufferingEnded: "Player.buffering_ended",

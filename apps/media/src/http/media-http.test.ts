@@ -1,5 +1,5 @@
 import { assert, describe, layer } from "@effect/vitest";
-import { Effect, FileSystem, Path, Schedule, Schema } from "effect";
+import { Effect, FileSystem, Path, Predicate, Schedule, Schema } from "effect";
 import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/http";
 
 import { artworkUrl } from "@movies/contracts/artwork";
@@ -85,6 +85,7 @@ interface WireBatch {
   readonly platform: string;
   readonly events: ReadonlyArray<{
     readonly ageMs: number;
+    readonly streamId?: string;
     readonly observation: Readonly<Record<string, string | number>>;
   }>;
 }
@@ -102,7 +103,7 @@ const local = (baseUrl: string, url: string): string => {
 const get = (url: string, headers: Readonly<Record<string, string>> = {}) =>
   HttpClient.get(url, { headers }).pipe(Effect.orDie);
 
-const post = (url: string, body: RequestBody) =>
+const post = (url: string, body: RequestBody | WireBatch) =>
   HttpClient.execute(HttpClientRequest.post(url).pipe(HttpClientRequest.bodyJsonUnsafe(body))).pipe(
     Effect.orDie,
   );
@@ -848,6 +849,84 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         assert.deepStrictEqual(
           logged.map((entry) => entry.level),
           ["DEBUG"],
+        );
+      }),
+    );
+
+    it.effect("logs a member's failing requests within a budget, with path parameters cut", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const token = signTestToken({ fid: "file_1", sid: "flood" });
+        const junk = "x".repeat(100);
+
+        for (let index = 0; index < 100; index += 1) {
+          const response = yield* get(
+            `${server.baseUrl}/media/hls/AAAAAAAAAAAAAAAAAAAAAA/1/${junk}?token=${token}`,
+          );
+
+          assert.strictEqual(response.status, 404);
+        }
+
+        const failures = server
+          .logged()
+          .filter(
+            (entry) =>
+              entry.message === "MediaRoutes.request_failed" &&
+              entry.annotations["sessionId"] === "flood",
+          );
+
+        assert.strictEqual(failures.length, 100);
+        assert.isAtMost(failures.filter((entry) => entry.level === "WARN").length, 32);
+        assert.isAtLeast(failures.filter((entry) => entry.level === "WARN").length, 30);
+        assert.isTrue(
+          failures.every((entry) => {
+            const file = entry.annotations["file"];
+
+            return Predicate.isString(file) && file.length <= 65;
+          }),
+          "file cut short",
+        );
+      }),
+    );
+
+    it.effect("files a player's event under a stream only for the stream's own session", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const { library } = yield* FixtureWorkspace.Service;
+        const fileId = server.fileId("movies", library.remuxMovie);
+        const owner = signTestToken({ fid: fileId, sid: "owner" });
+
+        const stream = yield* negotiated({ token: owner, capabilities: browser });
+
+        const event = {
+          ageMs: 0,
+          streamId: stream.streamId ?? "",
+          observation: { _tag: "BufferingStarted", positionSeconds: 1, bufferedAheadSeconds: 0 },
+        };
+
+        for (const token of [owner, signTestToken({ fid: fileId, sid: "intruder" })]) {
+          const sent = yield* post(`${server.baseUrl}/api/playback/diagnostics`, {
+            token,
+            platform: "web",
+            events: [event],
+          });
+
+          assert.strictEqual(sent.status, 204);
+        }
+
+        assert.deepStrictEqual(
+          server
+            .logged()
+            .filter((entry) => entry.message === "Player.buffering_started")
+            .map((entry) => [
+              entry.annotations["sessionId"],
+              entry.annotations["streamId"],
+              entry.annotations["claimedStreamId"],
+            ]),
+          [
+            ["owner", stream.streamId, null],
+            ["intruder", null, stream.streamId],
+          ],
         );
       }),
     );

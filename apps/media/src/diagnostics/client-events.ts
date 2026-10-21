@@ -1,9 +1,11 @@
 /**
  * Players' diagnostic events (`POST /api/playback/diagnostics`). Each batch is authenticated by
- * its playback token, limited per playback session, and written into the retained log as
- * `Player.*` records carrying the session, the account, and the platform from the verified token
- * and request. An event says how long before its batch it happened, so its time (`occurredAt`)
- * comes from the service's clock, never the device's.
+ * its playback token, limited per playback session and per account, and written into the retained
+ * log as `Player.*` records carrying the session, the account, and the platform from the verified
+ * token and request. An event's stream is the player's claim: it is filed under `streamId` only
+ * when the stream belongs to the token's session (`StreamOwners`), and kept as `claimedStreamId`
+ * otherwise, where no stream filter finds it. An event says how long before its batch it
+ * happened, so its time (`occurredAt`) comes from the service's clock, never the device's.
  */
 import {
   type ClientDiagnosticEvent,
@@ -17,13 +19,15 @@ import { Clock, Context, Effect, Layer, Option } from "effect";
 import { makeLimiter } from "../http/rate-limit.ts";
 import type { PlaybackGrant } from "../playback/playback-token.ts";
 import * as PlaybackToken from "../playback/playback-token.ts";
+import * as StreamOwners from "../playback/stream-owners.ts";
 import { grantAnnotations, LogEvent, SLOW_MS } from "./log-events.ts";
 
 /** Records players' events. */
 export interface Interface {
   /**
    * Writes the batch to the log. Fails with `PlaybackTokenInvalid` for a bad token and
-   * `DiagnosticsRateLimited` once the session has sent more than its budget; nothing is written then.
+   * `DiagnosticsRateLimited` once the session or its account has sent more than its budget;
+   * nothing is written then.
    */
   readonly record: (
     request: ClientDiagnosticsRequest,
@@ -39,19 +43,27 @@ export class Service extends Context.Service<Service, Interface>()(
  * Events one playback session may send at once, and how many more each second after that. A
  * player sends a few per minute; a burst of errors fits, a flood does not.
  */
-const BUDGET = { burst: 300, perSecond: 2 };
+const SESSION_BUDGET = { burst: 300, perSecond: 2 };
+
+/**
+ * The same for all of one account's sessions together: a second session has some room of its own,
+ * but opening more sessions does not multiply what an account may write.
+ */
+const USER_BUDGET = { burst: 400, perSecond: 2 };
 
 const commonFields = (
   event: ClientDiagnosticEvent,
   grant: PlaybackGrant,
   platform: ClientDiagnosticsRequest["platform"],
   receivedAt: number,
+  ownStream: boolean,
 ) => ({
   source: "player",
   platform,
   occurredAt: new Date(receivedAt - event.ageMs).toISOString(),
   ...grantAnnotations(grant),
-  streamId: event.streamId ?? null,
+  streamId: ownStream ? (event.streamId ?? null) : null,
+  claimedStreamId: ownStream ? null : (event.streamId ?? null),
 });
 
 /** Logs one observation under its `Player.*` name with `fields` and its own. */
@@ -109,6 +121,7 @@ const logObservation = (observation: PlayerObservation, fields: ReturnType<typeo
 
 const make = Effect.gen(function* () {
   const verifier = yield* PlaybackToken.Service;
+  const owners = yield* StreamOwners.Service;
   const take = makeLimiter();
 
   const record = Effect.fn("ClientDiagnostics.record")(function* (
@@ -116,7 +129,12 @@ const make = Effect.gen(function* () {
   ) {
     const grant = yield* verifier.verifyReport(request.token);
     const receivedAt = yield* Clock.currentTimeMillis;
-    const wait = take(grant.sessionId, BUDGET, receivedAt, request.events.length);
+    const cost = request.events.length;
+
+    const wait = Option.orElse(
+      take(`session\u0000${grant.sessionId}`, SESSION_BUDGET, receivedAt, cost),
+      () => take(`user\u0000${grant.userId}`, USER_BUDGET, receivedAt, cost),
+    );
 
     if (Option.isSome(wait)) {
       return yield* new DiagnosticsRateLimited({ retryAfterSeconds: wait.value });
@@ -125,7 +143,16 @@ const make = Effect.gen(function* () {
     return yield* Effect.forEach(
       request.events,
       (event) =>
-        logObservation(event.observation, commonFields(event, grant, request.platform, receivedAt)),
+        Effect.flatMap(
+          event.streamId === undefined
+            ? Effect.succeed(true)
+            : owners.belongsTo(event.streamId, grant.sessionId),
+          (ownStream) =>
+            logObservation(
+              event.observation,
+              commonFields(event, grant, request.platform, receivedAt, ownStream),
+            ),
+        ),
       { discard: true },
     );
   });
@@ -134,7 +161,5 @@ const make = Effect.gen(function* () {
 });
 
 /** The recorder over the configured verifier. */
-export const layer: Layer.Layer<Service, never, PlaybackToken.Service> = Layer.effect(
-  Service,
-  make,
-);
+export const layer: Layer.Layer<Service, never, PlaybackToken.Service | StreamOwners.Service> =
+  Layer.effect(Service, make);

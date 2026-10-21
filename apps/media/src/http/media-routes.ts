@@ -7,9 +7,10 @@
  * status.
  *
  * Every answer with a 4xx or 5xx status logs `MediaRoutes.request_failed`: at `WARN` with the
- * session once the token is verified, at `DEBUG` for a token that is not. Every HLS segment logs how long it took, split into waiting
- * for the encoder, reading the disk, and writing to the network: at `WARN` from one second
- * (`MediaRoutes.slow_segment`), at `DEBUG` below.
+ * session once the token is verified, within a per-session and per-account budget
+ * (`failure-budget.ts`), and at `DEBUG` otherwise. Every HLS segment logs how long it took, split
+ * into waiting for the encoder, reading the disk, and writing to the network: at `WARN` from one
+ * second (`MediaRoutes.slow_segment`), at `DEBUG` below.
  */
 import type { MediaFileId } from "@movies/contracts/ids";
 import {
@@ -39,6 +40,7 @@ import {
   Path,
   Redacted,
   Ref,
+  Schedule,
   Schema,
   Stream,
 } from "effect";
@@ -66,6 +68,7 @@ import {
   SubtitleUnsupported,
 } from "../subtitles/subtitle-tracks.ts";
 import { ByteRange, parseByteRange } from "./byte-range.ts";
+import { type FailureBudget, makeFailureBudget } from "./failure-budget.ts";
 import { playbackTokenOf as tokenOf } from "./playback-token-param.ts";
 
 /** The token is valid but for another file. */
@@ -186,12 +189,28 @@ interface Answer {
 /** Records the grant of a request's token once it is verified, for its log records. */
 type Remember = (grant: PlaybackToken.PlaybackGrant) => Effect.Effect<void>;
 
+/** The longest path parameter a failure record keeps: a stream ID or file name is far shorter. */
+const MAX_LOGGED_PARAM = 64;
+
+/** How often the failures past a session's budget are logged as counts. */
+const SUPPRESSED_REPORT_INTERVAL = Duration.seconds(30);
+
+/** A path parameter as a failure record keeps it: cut to `MAX_LOGGED_PARAM` characters. */
+const loggedParam = (value: string | undefined): string | null =>
+  value === undefined
+    ? null
+    : value.length > MAX_LOGGED_PARAM
+      ? `${value.slice(0, MAX_LOGGED_PARAM)}…`
+      : value;
+
 /**
  * Runs a media route: failures become their error responses, and any answer with a 4xx or 5xx
  * status logs `MediaRoutes.request_failed` with the route, the stream in the path, and the
- * session of the verified token; at `DEBUG` when no token was verified.
+ * session of the verified token. It logs at `WARN` while the session's `budget` allows, and at
+ * `DEBUG` when no token was verified or the budget is spent; the budget counts those instead.
  */
 const observed = <R>(
+  budget: FailureBudget,
   route: string,
   handler: (
     remember: Remember,
@@ -213,10 +232,12 @@ const observed = <R>(
 
     if (answer.response.status >= 400) {
       const grant = yield* Ref.get(verified);
+      const now = yield* Clock.currentTimeMillis;
 
-      // Anyone can send a bad token; only a player's own failures may fill the retained log.
+      // Anyone can send a bad token, and a member any number of bad requests: only a player's own
+      // failures, within its budget, may fill the retained log.
       yield* (
-        Option.isSome(grant)
+        Option.exists(grant, (verifiedGrant) => budget.allow(verifiedGrant, now))
           ? Effect.logWarning(LogEvent.requestFailed)
           : Effect.logDebug(LogEvent.requestFailed)
       ).pipe(
@@ -224,9 +245,9 @@ const observed = <R>(
           route,
           status: answer.response.status,
           error: Option.getOrNull(answer.error),
-          elapsedMs: (yield* Clock.currentTimeMillis) - started,
-          streamId: params["streamId"] ?? null,
-          file: params["file"] ?? null,
+          elapsedMs: now - started,
+          streamId: loggedParam(params["streamId"]),
+          file: loggedParam(params["file"]),
           ...Option.match(grant, { onNone: () => ({}), onSome: grantAnnotations }),
         }),
       );
@@ -265,6 +286,22 @@ export const layer: Layer.Layer<
     const resolver = yield* FileResolver.Service;
     const platform = yield* HttpPlatform.HttpPlatform;
     const downloads = yield* Downloads.Service;
+    const budget = makeFailureBudget();
+
+    const reportSuppressed = Effect.suspend(() =>
+      Effect.forEach(
+        budget.drain(),
+        ({ sessionId, userId, count }) =>
+          Effect.logWarning(LogEvent.requestFailuresSuppressed).pipe(
+            Effect.annotateLogs({ sessionId, userId, failures: count }),
+          ),
+        { discard: true },
+      ),
+    );
+
+    yield* Effect.forkScoped(
+      Effect.repeat(Effect.delay(reportSuppressed, SUPPRESSED_REPORT_INTERVAL), Schedule.forever),
+    );
 
     const resolve = (fileId: MediaFileId, options: { readonly sidecars: boolean }) =>
       resolveInsideRoots(fileId, options).pipe(
@@ -333,7 +370,7 @@ export const layer: Layer.Layer<
       Effect.mapError(() => new MediaFileUnreadable()),
     );
 
-    const direct = observed("direct", (remember) =>
+    const direct = observed(budget, "direct", (remember) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
 
@@ -353,7 +390,7 @@ export const layer: Layer.Layer<
       }),
     ).pipe(Effect.withSpan("MediaRoutes.direct"));
 
-    const download = observed("download", (remember) =>
+    const download = observed(budget, "download", (remember) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
 
@@ -392,7 +429,7 @@ export const layer: Layer.Layer<
       };
     });
 
-    const playlist = observed("playlist", (remember) =>
+    const playlist = observed(budget, "playlist", (remember) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const { streamId, generation } = yield* streamParams;
@@ -415,7 +452,7 @@ export const layer: Layer.Layer<
       }),
     ).pipe(Effect.withSpan("MediaRoutes.playlist"));
 
-    const hlsFile = observed("hls", (remember) =>
+    const hlsFile = observed(budget, "hls", (remember) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const { streamId, generation, file } = yield* streamParams;
@@ -497,7 +534,7 @@ export const layer: Layer.Layer<
       }),
     ).pipe(Effect.withSpan("MediaRoutes.hls"));
 
-    const subtitle = observed("subtitle", (remember) =>
+    const subtitle = observed(budget, "subtitle", (remember) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const { fileId = "", track = "" } = yield* HttpRouter.params;

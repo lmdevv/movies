@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 import { assert, describe, layer } from "@effect/vitest";
-import { Duration, Effect, FileSystem, Result, Schedule, Schema } from "effect";
+import { Duration, Effect, FileSystem, Option, Result, Schedule, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import {
@@ -10,7 +10,9 @@ import {
   SeekResponse,
 } from "@movies/contracts/media-playback";
 
-import { LibraryId } from "@movies/contracts/ids";
+import { LibraryId, PlaybackSessionId } from "@movies/contracts/ids";
+
+import { timelineOf } from "../diagnostics/timeline.ts";
 
 import * as LibraryScanner from "../library/library-scanner.ts";
 import * as MemoryLibrary from "../library/memory-library.ts";
@@ -554,6 +556,17 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
 
           assert.strictEqual(first.status, 500);
           yield* awaitNoStreams("5 seconds");
+
+          const timeline = timelineOf(PlaybackSessionId.make("broken"), server.logged(), false);
+
+          assert.deepStrictEqual(
+            Option.map(timeline, (found) =>
+              found.entries
+                .filter((entry) => entry.kind === "encoder-failed")
+                .map((entry) => entry.summary),
+            ),
+            Option.some(["Encoder failed in transcode-software"]),
+          );
 
           // The only transcode slot is free again for another viewer.
           assert.strictEqual((yield* negotiate("next")).mode, "transcode-software");

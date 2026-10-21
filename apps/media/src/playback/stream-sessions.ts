@@ -58,6 +58,7 @@ import * as KeyframeIndex from "./keyframe-index.ts";
 import { AudioPlan, decidePlayback, PlaybackPlan, VideoPlan } from "./playback-decision.ts";
 import * as PlaybackReporter from "./playback-reporter.ts";
 import type { PlaybackGrant } from "./playback-token.ts";
+import * as StreamOwners from "./stream-owners.ts";
 import * as TranscodeSpace from "./transcode-space.ts";
 import { hlsCommandArgs } from "./transcode-command.ts";
 
@@ -248,6 +249,7 @@ const make = Effect.gen(function* () {
   const hardware = yield* HardwareAcceleration.Service;
   const reporter = yield* PlaybackReporter.Service;
   const space = yield* TranscodeSpace.Service;
+  const owners = yield* StreamOwners.Service;
   const sessions = yield* Ref.make<ReadonlyMap<StreamId, Session>>(new Map());
   const transcodes = yield* Ref.make(0);
   const copies = yield* Ref.make(0);
@@ -285,6 +287,7 @@ const make = Effect.gen(function* () {
     yield* Scope.close(session.scope, Exit.void);
 
     if (removed) {
+      yield* owners.closed(session.streamId);
       yield* reporter.report(
         PlaybackReporter.PlaybackEvent.cases.StreamEnded.make({
           sessionId: session.sessionId,
@@ -529,13 +532,14 @@ const make = Effect.gen(function* () {
           mode,
           segmentIndex: index,
         });
-        yield* Effect.logWarning(LogEvent.encoderFailed, detail).pipe(
+        yield* Effect.logWarning(LogEvent.encoderFailed).pipe(
           Effect.annotateLogs({
             sessionId: session.sessionId,
             userId: session.userId,
             streamId: session.streamId,
             mode,
             generation: generation.number,
+            detail,
           }),
         );
 
@@ -895,8 +899,11 @@ const make = Effect.gen(function* () {
       }).pipe(Effect.tap(() => Ref.set(registered, Option.some(session)))),
     );
 
+    yield* owners.opened(streamId, grant.sessionId);
+
     for (const previous of replaced) {
       yield* Scope.close(previous.scope, Exit.void);
+      yield* owners.closed(previous.streamId);
 
       yield* reporter.report(
         PlaybackReporter.PlaybackEvent.cases.StreamEnded.make({
@@ -1074,4 +1081,5 @@ export const layer: Layer.Layer<
   | HardwareAcceleration.Service
   | PlaybackReporter.Service
   | TranscodeSpace.Service
+  | StreamOwners.Service
 > = Layer.effect(Service, make);

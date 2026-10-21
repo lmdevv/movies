@@ -21,6 +21,7 @@ import * as KeyframeIndex from "./playback/keyframe-index.ts";
 import * as EndedSessions from "./playback/ended-sessions.ts";
 import * as PlaybackNegotiator from "./playback/playback-negotiator.ts";
 import * as PlaybackToken from "./playback/playback-token.ts";
+import * as StreamOwners from "./playback/stream-owners.ts";
 import * as StreamSessions from "./playback/stream-sessions.ts";
 import * as TranscodeSpace from "./playback/transcode-space.ts";
 import * as SubtitleConverter from "./subtitles/subtitle-tracks.ts";
@@ -38,6 +39,7 @@ export const servicesLayer = Layer.mergeAll(
   ClientDiagnostics.layer,
 ).pipe(
   Layer.provideMerge(StreamSessions.layer),
+  Layer.provideMerge(StreamOwners.layer),
   Layer.provideMerge(TranscodeSpace.layer),
   Layer.provideMerge(KeyframeIndex.layer),
   Layer.provideMerge(HardwareAcceleration.layer),

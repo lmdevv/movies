@@ -6,11 +6,13 @@ import {
   PlayerObservation,
 } from "@movies/contracts/diagnostics";
 import { PlaybackSessionId } from "@movies/contracts/ids";
+import { StreamId } from "@movies/contracts/media-playback";
 import { Effect, Layer, Logger, Option, Predicate, Redacted } from "effect";
 
 import { decodeRecord } from "../logging/log-query.ts";
 import * as EndedSessions from "../playback/ended-sessions.ts";
 import * as PlaybackToken from "../playback/playback-token.ts";
+import * as StreamOwners from "../playback/stream-owners.ts";
 import { signTestToken, testConfigLayer } from "../testing/test-config.ts";
 import * as ClientDiagnostics from "./client-events.ts";
 import { LogEvent } from "./log-events.ts";
@@ -18,13 +20,18 @@ import { LogEvent } from "./log-events.ts";
 const recorderLayer = ClientDiagnostics.layer.pipe(
   Layer.provideMerge(PlaybackToken.layer),
   Layer.provideMerge(EndedSessions.layer),
+  Layer.provideMerge(StreamOwners.layer),
   Layer.provide(testConfigLayer({})),
   Layer.orDie,
 );
 
 /** Runs `effect` with a fresh recorder, returning what it logged at `INFO` and above. */
 const recording = <A, E>(
-  effect: Effect.Effect<A, E, ClientDiagnostics.Service | EndedSessions.Service>,
+  effect: Effect.Effect<
+    A,
+    E,
+    ClientDiagnostics.Service | EndedSessions.Service | StreamOwners.Service
+  >,
 ) =>
   Effect.gen(function* () {
     const logged: Array<LogRecord> = [];
@@ -158,6 +165,68 @@ describe("client diagnostics", () => {
       );
 
       assert.isTrue(Predicate.isTagged(result, "PlaybackTokenInvalid"));
+    }),
+  );
+
+  it.live("files an event under its stream only when the stream is the session's", () =>
+    Effect.gen(function* () {
+      const own = StreamId.make("AAAAAAAAAAAAAAAAAAAAAA");
+      const ended = StreamId.make("BBBBBBBBBBBBBBBBBBBBBB");
+      const others = StreamId.make("CCCCCCCCCCCCCCCCCCCCCC");
+
+      const { logged } = yield* recording(
+        Effect.gen(function* () {
+          const owners = yield* StreamOwners.Service;
+
+          yield* owners.opened(own, PlaybackSessionId.make("session_test"));
+          yield* owners.opened(ended, PlaybackSessionId.make("session_test"));
+          yield* owners.closed(ended);
+          yield* owners.opened(others, PlaybackSessionId.make("session_other"));
+
+          yield* (yield* ClientDiagnostics.Service).record(
+            batch(
+              [own, ended, others].map((streamId) => ({
+                ageMs: stall.ageMs,
+                streamId,
+                observation: stall.observation,
+              })),
+            ),
+          );
+        }),
+      );
+
+      assert.deepStrictEqual(
+        logged.map((entry) => [
+          entry.annotations["streamId"],
+          entry.annotations["claimedStreamId"],
+        ]),
+        [
+          [own, null],
+          [ended, null],
+          [null, others],
+        ],
+      );
+    }),
+  );
+
+  it.live("limits an account across its sessions", () =>
+    Effect.gen(function* () {
+      const hundred = Array.from({ length: 100 }, () => stall);
+
+      const { result, logged } = yield* recording(
+        Effect.gen(function* () {
+          const recorder = yield* ClientDiagnostics.Service;
+
+          for (const session of ["one", "one", "two", "two"]) {
+            yield* recorder.record(batch(hundred, session));
+          }
+
+          return yield* recorder.record(batch(hundred, "three")).pipe(Effect.flip);
+        }),
+      );
+
+      assert.isTrue(Predicate.isTagged(result, "DiagnosticsRateLimited"));
+      assert.strictEqual(logged.length, 400);
     }),
   );
 
