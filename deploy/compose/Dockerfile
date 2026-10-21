@@ -36,7 +36,7 @@ RUN pnpm --filter @movies/backend deploy --prod --legacy /out/backend \
  && cp -r apps/media/dist /out/media/dist \
  && cp apps/media/scripts/configure-web.ts /out/media/scripts/ \
  && cp -r apps/web/dist /out/web \
- && install -D -m 755 apps/cli/dist/movies.js /out/cli/movies.js
+ && install -D -m 644 apps/cli/dist/movies.js /out/cli/movies.js
 
 FROM ${NODE_IMAGE}
 ARG TARGETARCH
@@ -69,18 +69,13 @@ COPY --from=build /out/backend /app/backend
 COPY --from=build /out/media /app/media
 COPY --from=build /out/web /app/web
 COPY --from=build /out/cli /app/cli
-RUN ln -s /app/cli/movies.js /usr/local/bin/movies
+COPY deploy/compose/movies.sh /usr/local/bin/movies
 COPY deploy/compose/entrypoint.sh /app/bin/entrypoint
 
-# `docker compose exec movies movies login` reaches this stack's own Convex and media service, and
-# the login lasts across upgrades in the data volume. The service itself never sees these.
 ENV NODE_ENV=production \
     MOVIES_PUBLIC_URL=http://localhost:8080 \
     CONVEX_PUBLIC_URL=http://localhost:3210 \
     CONVEX_URL=http://convex:3210 \
-    MOVIES_CONVEX_URL=http://convex:3210 \
-    MOVIES_MEDIA_URL=http://127.0.0.1:8080 \
-    XDG_CONFIG_HOME=/data/config \
     PUID=1000 \
     PGID=1000
 

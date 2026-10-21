@@ -101,7 +101,6 @@ MOVIES_PACKAGED_STACK=1 \
   MOVIES_PACKAGED_RESTART="docker compose ${compose_args[*]} restart movies" \
   pnpm --dir "$root" exec vitest run --root "$root" apps/media/src/stack/packaged-stack.test.ts
 
-# The image's own CLI reaches this stack without --server and keeps its login in the data volume.
 release="$("$root/scripts/check-version.sh")"
 check "the image's CLI reports the release version" '[[ "$(in_movies movies --version)" == "$release" ]]'
 check "the image's CLI signs in to its own stack" \
