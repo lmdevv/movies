@@ -6,27 +6,7 @@ import type { ApiKey, SessionInfo } from "@movies/contracts/models/account";
 import type { ApiKeyScope } from "@movies/contracts/scopes";
 
 import { dayLabel } from "./dates";
-
-/**
- * `items` in `compare` order, ties in their original order, without changing `items`. Hermes has
- * no `toSorted`, and the repository's lint forbids `sort` even on a copy, so this inserts in order;
- * the lists here are a handful of rows.
- */
-const sortedBy = <A>(
-  items: ReadonlyArray<A>,
-  compare: (left: A, right: A) => number,
-): ReadonlyArray<A> => {
-  const sorted: Array<A> = [];
-
-  for (const item of items) {
-    const at = sorted.findIndex((other) => compare(item, other) < 0);
-
-    if (at === -1) sorted.push(item);
-    else sorted.splice(at, 0, item);
-  }
-
-  return sorted;
-};
+import { sortedBy } from "./sorted-by";
 
 /**
  * The signed-in devices to list: password and device sign-ins, this iPhone first. API key sessions

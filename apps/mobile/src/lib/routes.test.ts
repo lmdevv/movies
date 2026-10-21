@@ -3,7 +3,13 @@ import { Option, Schema } from "effect";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { parseWatchParams, togetherHref, watchHref } from "./routes";
+import {
+  downloadHref,
+  parseWatchParams,
+  playDownloadHref,
+  togetherHref,
+  watchHref,
+} from "./routes";
 
 const titleId = Schema.decodeSync(TitleId);
 
@@ -97,6 +103,22 @@ describe("watchHref", () => {
         },
       ),
     );
+  });
+});
+
+describe("download links", () => {
+  it("plays a kept download through the player, and opens its page", () => {
+    const href = playDownloadHref({
+      id: "p1-t1-e2",
+      titleId: titleId("t1"),
+      episodeId: episodeId("e2"),
+    });
+
+    expect(href).toBe("/watch/t1?episodeId=e2&download=p1-t1-e2");
+    expect(parseWatchParams(routeParams(href))).toStrictEqual(
+      Option.some({ titleId: "t1", episodeId: "e2", download: "p1-t1-e2" }),
+    );
+    expect(downloadHref("p1-t1-movie")).toBe("/download/p1-t1-movie");
   });
 });
 

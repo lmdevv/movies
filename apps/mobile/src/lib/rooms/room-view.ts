@@ -7,6 +7,7 @@ import { DRIFT_THRESHOLDS } from "@movies/contracts/clock";
 import type { DeviceId, ProfileId, RoomId } from "@movies/contracts/ids";
 import type { Room, RoomMember } from "@movies/contracts/models/rooms";
 import { Predicate } from "effect";
+import { sortedBy } from "../sorted-by";
 
 /** This device's part in a room. */
 export type RoomRole = "host" | "guest";
@@ -36,26 +37,6 @@ export interface MemberRow {
   /** `You · Host`, `You`, `Host`, `Away`, `Host · Left`, or nothing. */
   readonly detail: string | null;
 }
-
-/**
- * `items` in `compare`'s order, keeping equal items in their order. Hermes has no `toSorted`, and
- * the lint rules keep `sort` from mutating in place, so rooms' short member lists insert in order.
- */
-const sortedBy = <A>(
-  items: ReadonlyArray<A>,
-  compare: (left: A, right: A) => number,
-): ReadonlyArray<A> => {
-  const sorted: Array<A> = [];
-
-  for (const item of items) {
-    const at = sorted.findIndex((other) => compare(item, other) < 0);
-
-    if (at === -1) sorted.push(item);
-    else sorted.splice(at, 0, item);
-  }
-
-  return sorted;
-};
 
 const memberDetail = (member: RoomMember, self: boolean): string | null => {
   const host = member.role === "host";

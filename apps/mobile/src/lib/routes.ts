@@ -1,10 +1,11 @@
 /**
  * Links into the player and what they carry: the title, an episode for shows, a chosen version
  * (file), `start` (`beginning` to start over; `resume`, like leaving it out, picks up the saved
- * progress), `at` to start at a position (a watch room's, when a guest goes on alone), and the watch
- * room to play in. Screens link with `watchHref`, which writes them in one order; the player reads
- * them back with `parseWatchParams`, which never throws. `togetherHref` links to starting a watch
- * room (G01).
+ * progress), `at` to start at a position (a watch room's, when a guest goes on alone), the watch
+ * room to play in, and a download kept on this iPhone to play instead of the server's stream.
+ * Screens link with `watchHref`, which writes them in one order; the player reads them back with
+ * `parseWatchParams`, which never throws. `togetherHref` links to starting a watch room (G01), and
+ * the download links to the Downloads screens.
  */
 import { EpisodeId, MediaFileId, RoomId, TitleId } from "@movies/contracts/ids";
 import { Schema } from "effect";
@@ -23,13 +24,23 @@ export interface WatchTarget {
   readonly at?: number | undefined;
   /** The watch room this device joined, whose timeline the player follows; omit to play alone. */
   readonly room?: RoomId | undefined;
+  /** A download kept on this iPhone, played from its file instead of the server. */
+  readonly download?: string | undefined;
 }
 
 /**
  * The player's href for `target`. Present parameters appear in the order `episodeId`, `fileId`,
- * `start`, `at` (whole milliseconds), `room`, each URI-encoded, so `new URLSearchParams(query)` reads back the same values.
+ * `start`, `at` (whole milliseconds), `room`, `download`, each URI-encoded, so `new URLSearchParams(query)` reads back the same values.
  */
-export const watchHref = ({ titleId, episodeId, fileId, start, at, room }: WatchTarget): string => {
+export const watchHref = ({
+  titleId,
+  episodeId,
+  fileId,
+  start,
+  at,
+  room,
+  download,
+}: WatchTarget): string => {
   const query = (
     [
       ["episodeId", episodeId],
@@ -37,6 +48,7 @@ export const watchHref = ({ titleId, episodeId, fileId, start, at, room }: Watch
       ["start", start],
       ["at", at === undefined ? undefined : String(Math.max(0, Math.round(at)))],
       ["room", room],
+      ["download", download],
     ] as const
   )
     .flatMap(([key, value]) => (value === undefined ? [] : [`${key}=${encodeURIComponent(value)}`]))
@@ -55,6 +67,7 @@ const WatchParams = Schema.Struct({
   start: Schema.optionalKey(Schema.Literals(["beginning", "resume"])),
   at: Schema.optionalKey(Schema.FiniteFromString.check(Schema.isGreaterThanOrEqualTo(0))),
   room: Schema.optionalKey(RoomId),
+  download: Schema.optionalKey(Schema.String),
 });
 
 /** What the player plays, read from its route. */
@@ -65,7 +78,7 @@ const decodeWatchParams = Schema.decodeUnknownOption(WatchParams);
 /** A route's params as Expo Router reads them: a repeated key gives an array. */
 type RouteParams = Readonly<Record<string, string | string[] | undefined>>;
 
-const KEYS = ["titleId", "episodeId", "fileId", "start", "at", "room"] as const;
+const KEYS = ["titleId", "episodeId", "fileId", "start", "at", "room", "download"] as const;
 
 /**
  * The player's params from Expo Router's `useLocalSearchParams()`, or none when the title is
@@ -98,3 +111,22 @@ export const togetherHref = ({ titleId, episode }: TogetherTarget): string => {
     ? path
     : `${path}?episodeId=${encodeURIComponent(episode.id)}&season=${String(episode.seasonNumber)}`;
 };
+
+/** The Downloads list (C19). */
+export const DOWNLOADS_HREF = "/downloads";
+
+/** A download's page (H17, H19), by its ID. */
+export const downloadHref = (downloadId: string): string =>
+  `/download/${encodeURIComponent(downloadId)}`;
+
+/** The player on a kept download: its title and episode, and the download to play. */
+export const playDownloadHref = (download: {
+  readonly id: string;
+  readonly titleId: TitleId;
+  readonly episodeId: EpisodeId | null;
+}): string =>
+  watchHref({
+    titleId: download.titleId,
+    episodeId: download.episodeId ?? undefined,
+    download: download.id,
+  });

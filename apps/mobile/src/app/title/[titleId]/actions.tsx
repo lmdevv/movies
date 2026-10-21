@@ -1,6 +1,7 @@
 /**
- * D10 · A title's More sheet: add to or remove from My List, play from the beginning when resuming,
- * mark the movie or the whole show watched or unwatched, and share its page.
+ * D10 · A title's More sheet: download a movie, add to or remove from My List, play from the
+ * beginning when resuming, mark the movie or the whole show watched or unwatched, and share its
+ * page.
  */
 import type { TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
@@ -11,6 +12,7 @@ import { Share } from "react-native";
 import { titleIdParam } from "@/components/title/route-params";
 import { Sheet, useSheetExit } from "@/components/title/sheet";
 import { playAction, watchedMarks } from "@/components/title/title-model";
+import { useDownloadAction } from "@/components/downloads/use-download-action";
 import { useMyListToggle, useRunner } from "@/components/title/use-title-actions";
 import { ListRow } from "@/components/ui/list-row";
 import { describeFailure } from "@/lib/failure";
@@ -29,6 +31,19 @@ function TitleActions({ title }: { readonly title: TitleDetail }) {
   const exit = useSheetExit();
   const marks = watchedMarks(title);
   const play = playAction(title);
+
+  const download = useDownloadAction({
+    profileId: profile.id,
+    titleId: title.id,
+    episodeId: null,
+    fileId: null,
+    titleName: title.name,
+    episodeName: null,
+    seasonNumber: null,
+    episodeNumber: null,
+    runtimeMs: title.runtimeMs,
+    artwork: title.artwork.backdrop ?? title.artwork.poster,
+  });
 
   const setWatched = async (watched: boolean) => {
     const args = { profileId: profile.id, titleId: title.id };
@@ -51,6 +66,20 @@ function TitleActions({ title }: { readonly title: TitleDetail }) {
 
   return (
     <Sheet title={title.name} error={myList.error ?? mark.error} exit={exit}>
+      {/* Shows download episode by episode, from each episode's sheet. */}
+      {title.kind === "movie" && play.available && download !== null ? (
+        <ListRow
+          icon={download.icon}
+          title={download.title}
+          detail={download.detail}
+          onPress={() => {
+            const page = download.press();
+
+            if (page === null) exit.close();
+            else exit.leaveFor(page);
+          }}
+        />
+      ) : null}
       <ListRow
         icon={myList.inList ? Minus : Plus}
         title={myList.inList ? "Remove from My List" : "Add to My List"}
