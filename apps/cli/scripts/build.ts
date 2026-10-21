@@ -1,12 +1,15 @@
 /**
  * Bundles the CLI into one executable file, `dist/movies.js`, so it installs and runs without the
- * workspace. `--watch` rebuilds on change.
+ * workspace, with the licenses of the packages it inlines in `dist/THIRD_PARTY_LICENSES.md`.
+ * `--watch` rebuilds on change.
  */
 import { chmod } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { BuildOptions } from "esbuild";
 import { build, context } from "esbuild";
+
+import { writeThirdPartyLicenses } from "./licenses.ts";
 
 const root = join(import.meta.dirname, "..");
 
@@ -29,6 +32,9 @@ if (process.argv.includes("--watch")) {
 
   await watcher.watch();
 } else {
-  await build(options);
+  const { metafile } = await build({ ...options, metafile: true });
+
   await chmod(outfile, 0o755);
+
+  await writeThirdPartyLicenses(metafile, join(root, "dist", "THIRD_PARTY_LICENSES.md"));
 }

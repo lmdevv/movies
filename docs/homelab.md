@@ -183,13 +183,14 @@ docker compose exec -u movies movies vainfo --display drm --device /dev/dri/rend
 
 ## Where data lives
 
-| What                                   | Compose                               | NixOS                         |
-| -------------------------------------- | ------------------------------------- | ----------------------------- |
-| Database, file storage, Convex secrets | `convex-data` volume                  | `/var/lib/movies/convex`      |
-| Service state and caches               | `movies-data` volume, `/data/media`   | `/var/lib/movies/media`       |
-| Nightly backups                        | `movies-data` volume, `/data/backups` | `/var/lib/movies/backups`     |
-| Transcode segments (disposable)        | `movies-transcode` volume             | `/var/cache/movies/transcode` |
-| Your library                           | read-only bind mounts under `/media`  | `libraryDirs`, read-only      |
+| What                                   | Compose                               | NixOS                          |
+| -------------------------------------- | ------------------------------------- | ------------------------------ |
+| Database, file storage, Convex secrets | `convex-data` volume                  | `/var/lib/movies/convex`       |
+| Service state and caches               | `movies-data` volume, `/data/media`   | `/var/lib/movies/media`        |
+| Nightly backups                        | `movies-data` volume, `/data/backups` | `/var/lib/movies/backups`      |
+| `movies` CLI logins                    | `movies-data` volume, `/data/config`  | each user's `~/.config/movies` |
+| Transcode segments (disposable)        | `movies-transcode` volume             | `/var/cache/movies/transcode`  |
+| Your library                           | read-only bind mounts under `/media`  | `libraryDirs`, read-only       |
 
 Volumes are named `movies_<name>` (`docker volume inspect movies_convex-data`). To keep backups on
 another disk, bind a host folder over them: `- /srv/backups/movies:/data/backups` under the
