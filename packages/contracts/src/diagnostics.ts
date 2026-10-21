@@ -117,22 +117,14 @@ export const RecoveryAction = Schema.Literals([
 /** What a player did to get playing again. */
 export type RecoveryAction = typeof RecoveryAction.Type;
 
-/** Fields every client event has: when it happened and which stream played. */
-const EventBase = {
-  ageMs: AgeMs,
-  /** The HLS stream playing, absent for direct play. */
-  streamId: Schema.optional(StreamId),
-};
-
 /** Something a player saw. */
-export const ClientDiagnosticEvent = Schema.TaggedUnion({
+export const PlayerObservation = Schema.TaggedUnion({
   /** A stream was attached to the player. */
-  Attached: { ...EventBase, mode: PlaybackMode, engine: PlayerEngine },
+  Attached: { mode: PlaybackMode, engine: PlayerEngine },
   /** Playback stopped to wait for data while the viewer wanted it to play. */
-  BufferingStarted: { ...EventBase, positionSeconds: Seconds, bufferedAheadSeconds: Seconds },
+  BufferingStarted: { positionSeconds: Seconds, bufferedAheadSeconds: Seconds },
   /** Playback went on after a stall, or the viewer paused instead. */
   BufferingEnded: {
-    ...EventBase,
     positionSeconds: Seconds,
     bufferedAheadSeconds: Seconds,
     durationMs: Count,
@@ -140,7 +132,6 @@ export const ClientDiagnosticEvent = Schema.TaggedUnion({
   },
   /** A media, decoder, or network error the player reported. */
   PlayerError: {
-    ...EventBase,
     source: Schema.Literals(["html-video", "hls.js", "avplayer"]),
     kind: Schema.String.check(Schema.isBetweenLength(1, 64)),
     detail: Schema.String.check(Schema.isMaxLength(300)),
@@ -148,25 +139,26 @@ export const ClientDiagnosticEvent = Schema.TaggedUnion({
     status: Schema.optional(Schema.Int),
   },
   /** Frames the decoder dropped since the previous report, out of those it decoded. */
-  DroppedFrames: { ...EventBase, dropped: Count, decoded: Count },
+  DroppedFrames: { dropped: Count, decoded: Count },
   /** hls.js finished loading one segment. */
-  FragmentLoaded: {
-    ...EventBase,
-    segment: Count,
-    durationMs: Count,
-    firstByteMs: Count,
-    bytes: Count,
-  },
+  FragmentLoaded: { segment: Count, durationMs: Count, firstByteMs: Count, bytes: Count },
   /** The player recovered, or tried to, from a failure. */
-  Recovery: {
-    ...EventBase,
-    action: RecoveryAction,
-    reason: Schema.String.check(Schema.isMaxLength(120)),
-  },
+  Recovery: { action: RecoveryAction, reason: Schema.String.check(Schema.isMaxLength(120)) },
 });
 
 /** Something a player saw. */
-export type ClientDiagnosticEvent = typeof ClientDiagnosticEvent.Type;
+export type PlayerObservation = typeof PlayerObservation.Type;
+
+/** An observation as a batch carries it: how long before the batch, and in which stream. */
+export const ClientDiagnosticEvent = Schema.Struct({
+  ageMs: AgeMs,
+  /** The HLS stream playing, absent for direct play. */
+  streamId: Schema.optional(StreamId),
+  observation: PlayerObservation,
+});
+
+/** An observation as a batch carries it. */
+export interface ClientDiagnosticEvent extends Schema.Schema.Type<typeof ClientDiagnosticEvent> {}
 
 /** The most events one batch may carry. */
 export const MAX_CLIENT_EVENTS = 100;

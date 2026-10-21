@@ -83,7 +83,10 @@ interface RequestBody {
 interface WireBatch {
   readonly token: string;
   readonly platform: string;
-  readonly events: ReadonlyArray<Readonly<Record<string, string | number>>>;
+  readonly events: ReadonlyArray<{
+    readonly ageMs: number;
+    readonly observation: Readonly<Record<string, string | number>>;
+  }>;
 }
 
 /** Decodes a negotiation body the way an HttpApi client does. */
@@ -828,12 +831,13 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const server = yield* MediaTestServer.Service;
         const token = signTestToken({ fid: "file_1", sid: "reported" });
 
-        const stall = {
+        const observation = {
           _tag: "BufferingStarted",
-          ageMs: 0,
           positionSeconds: 1,
           bufferedAheadSeconds: 0,
         };
+
+        const stall = { ageMs: 0, observation };
 
         const send = (body: WireBatch) =>
           HttpClient.execute(
@@ -857,7 +861,11 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
 
         assert.strictEqual((yield* send({ token, platform: "web", events: tooMany })).status, 400);
         assert.strictEqual(
-          (yield* send({ token, platform: "web", events: [{ ...stall, _tag: "Unknown" }] })).status,
+          (yield* send({
+            token,
+            platform: "web",
+            events: [{ ageMs: 0, observation: { ...observation, _tag: "Unknown" } }],
+          })).status,
           400,
         );
         assert.strictEqual(

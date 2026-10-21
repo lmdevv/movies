@@ -2,7 +2,7 @@
  * Every registry command by name, typed by the registry: arguments are encoded and results decoded
  * with the command's schemas, so each call also checks the wire contract. Convex commands go over
  * the Convex connection; `media` commands go to the media service with the session's Convex token
- * as a bearer token.
+ * as a bearer token, and so does reading the media service's retained log (`logs`).
  */
 import type {
   AnyCommand,
@@ -18,13 +18,14 @@ import type {
   CommandNameOfKind,
   CommandResult,
 } from "@movies/contracts/commands";
+import { DIAGNOSTICS_ROUTES, LOG_TRUNCATED_HEADER, LogQuery } from "@movies/contracts/diagnostics";
 import { InvalidArgs } from "@movies/contracts/errors";
 import { Context, Effect, Layer, Option, Schema, SchemaIssue, Stream } from "effect";
 
 import * as Auth from "./auth";
 import * as ConvexTransport from "./convex-transport";
 import type { FunctionKind, WireArgs } from "./convex-transport";
-import { requestJson } from "./media-http";
+import { encodeJson, requestJson, requestLines } from "./media-http";
 import type { CallError } from "./sdk-errors";
 import { ProtocolError, TransportError } from "./sdk-errors";
 import type { TokenStorageError } from "./token-storage";
@@ -43,6 +44,14 @@ export type MediaName = CommandNameOfKind<"media">;
 
 /** Any failure of a command call, including an unreadable stored session for media commands. */
 export type ClientError = CallError | TokenStorageError;
+
+/** Retained log records as the media service sends them. */
+export interface LogLines {
+  /** Older records may match too: the query's limit was reached first. */
+  readonly truncated: boolean;
+  /** One JSON record per line, oldest first; with `follow`, new records until interrupted. */
+  readonly lines: Stream.Stream<string, TransportError>;
+}
 
 /** Runs registry commands as the signed-in session. */
 export interface Interface {
@@ -77,6 +86,11 @@ export interface Interface {
     name: Name,
     args: CommandArgs<Name>,
   ) => Effect.Effect<CommandResult<Name>, ClientError>;
+  /**
+   * The media service's retained log, for a session holding the `admin` scope: the records `query`
+   * matches. Fails with `TransportError` when no media service URL is configured.
+   */
+  readonly logs: (query: LogQuery) => Effect.Effect<LogLines, ClientError>;
   /** The query's result now and after every change. Ends only by failing or being interrupted. */
   readonly subscribe: <Name extends QueryName>(
     name: Name,
@@ -180,6 +194,31 @@ export const make = Effect.fn("MoviesClient.make")(function* (options: Options) 
       );
     }).pipe(Effect.withSpan("MoviesClient.media", { attributes: { command: name } }));
 
+  const logs = Effect.fn("MoviesClient.logs")(function* (query: LogQuery) {
+    if (Option.isNone(options.mediaUrl)) {
+      return yield* new TransportError({
+        operation: "logs",
+        message: "Transport failed during logs: no media service URL is configured",
+        cause: null,
+      });
+    }
+
+    const answer = yield* requestLines({
+      operation: "logs",
+      url: `${baseUrl(options.mediaUrl.value)}${DIAGNOSTICS_ROUTES.logs}`,
+      method: "POST",
+      body: Option.some(yield* encodeJson(LogQuery, query)),
+      bearer: yield* auth.accessToken(false),
+    });
+
+    const lines: LogLines = {
+      truncated: answer.headers.get(LOG_TRUNCATED_HEADER) === "true",
+      lines: answer.lines,
+    };
+
+    return lines;
+  });
+
   const invoke = <Command extends AnyCommand>(
     name: string,
     command: Command,
@@ -206,6 +245,7 @@ export const make = Effect.fn("MoviesClient.make")(function* (options: Options) 
     action: (name, args) => callConvex(name, commands[name], args),
     media: (name, args) => callMedia(name, commands[name], args),
     run: (name, args) => invoke(name, commands[name], args),
+    logs,
     subscribe: (name, args) => subscribeTo(name, commands[name], args),
   });
 });

@@ -6,9 +6,10 @@
  * comes from the service's clock, never the device's.
  */
 import {
-  ClientDiagnosticEvent,
+  type ClientDiagnosticEvent,
   type ClientDiagnosticsRequest,
   DiagnosticsRateLimited,
+  PlayerObservation,
 } from "@movies/contracts/diagnostics";
 import type { PlaybackTokenInvalid } from "@movies/contracts/playback-token";
 import { Clock, Context, Effect, Layer, Option } from "effect";
@@ -54,9 +55,9 @@ const commonFields = (
   streamId: event.streamId ?? null,
 });
 
-/** Logs one event under its `Player.*` name with `fields` and its own. */
-const logEvent = (event: ClientDiagnosticEvent, fields: ReturnType<typeof commonFields>) =>
-  ClientDiagnosticEvent.match(event, {
+/** Logs one observation under its `Player.*` name with `fields` and its own. */
+const logObservation = (observation: PlayerObservation, fields: ReturnType<typeof commonFields>) =>
+  PlayerObservation.match(observation, {
     Attached: ({ mode, engine }) =>
       Effect.logInfo(LogEvent.playerAttached).pipe(
         Effect.annotateLogs({ ...fields, mode, engine }),
@@ -125,7 +126,8 @@ const make = Effect.gen(function* () {
 
     return yield* Effect.forEach(
       request.events,
-      (event) => logEvent(event, commonFields(event, grant, request.platform, receivedAt)),
+      (event) =>
+        logObservation(event.observation, commonFields(event, grant, request.platform, receivedAt)),
       { discard: true },
     );
   });

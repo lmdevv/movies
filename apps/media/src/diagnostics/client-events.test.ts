@@ -1,8 +1,9 @@
 import { assert, describe, it } from "@effect/vitest";
-import type {
-  ClientDiagnosticEvent,
-  ClientDiagnosticsRequest,
-  LogRecord,
+import {
+  type ClientDiagnosticEvent,
+  type ClientDiagnosticsRequest,
+  type LogRecord,
+  PlayerObservation,
 } from "@movies/contracts/diagnostics";
 import { PlaybackSessionId } from "@movies/contracts/ids";
 import { Effect, Layer, Logger, Option, Predicate, Redacted } from "effect";
@@ -48,12 +49,13 @@ const batch = (
 });
 
 const stall: ClientDiagnosticEvent = {
-  _tag: "BufferingEnded",
   ageMs: 2000,
-  positionSeconds: 70,
-  bufferedAheadSeconds: 0,
-  durationMs: 31_000,
-  endedBy: "playing",
+  observation: PlayerObservation.cases.BufferingEnded.make({
+    positionSeconds: 70,
+    bufferedAheadSeconds: 0,
+    durationMs: 31_000,
+    endedBy: "playing",
+  }),
 };
 
 describe("client diagnostics", () => {
@@ -65,24 +67,32 @@ describe("client diagnostics", () => {
         Effect.flatMap(ClientDiagnostics.Service, (recorder) =>
           recorder.record(
             batch([
-              { _tag: "Attached", ageMs: 5000, mode: "remux", engine: "hls.js" },
+              {
+                ageMs: 5000,
+                observation: PlayerObservation.cases.Attached.make({
+                  mode: "remux",
+                  engine: "hls.js",
+                }),
+              },
               stall,
               {
-                _tag: "FragmentLoaded",
                 ageMs: 0,
-                segment: 13,
-                durationMs: 90,
-                firstByteMs: 20,
-                bytes: 1000,
+                observation: PlayerObservation.cases.FragmentLoaded.make({
+                  segment: 13,
+                  durationMs: 90,
+                  firstByteMs: 20,
+                  bytes: 1000,
+                }),
               },
               {
-                _tag: "PlayerError",
                 ageMs: 0,
-                source: "hls.js",
-                kind: "fragLoadError",
-                detail: "HTTP 404 for https://media/x.m4s?token=v1.abc.def",
-                fatal: true,
-                status: 404,
+                observation: PlayerObservation.cases.PlayerError.make({
+                  source: "hls.js",
+                  kind: "fragLoadError",
+                  detail: "HTTP 404 for https://media/x.m4s?token=v1.abc.def",
+                  fatal: true,
+                  status: 404,
+                }),
               },
             ]),
           ),
