@@ -9,7 +9,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-node - "${1:-}" apps/*/package.json packages/*/package.json <<'EOF'
+mapfile -t manifests < <(git ls-files -- ':(glob)apps/*/package.json' ':(glob)packages/*/package.json')
+
+node - "${1:-}" "${manifests[@]}" <<'EOF'
 const { readFileSync } = require("node:fs");
 
 const [tag, ...manifests] = process.argv.slice(2);
