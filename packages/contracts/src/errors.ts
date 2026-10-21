@@ -65,9 +65,10 @@ export class StaleRevision extends Schema.TaggedError<StaleRevision>()("StaleRev
   message: Schema.String,
 }) {}
 
-/** Too many attempts. Wait and retry. */
+/** Too many attempts. Wait and retry, after `retryAfterSeconds` when it is known. */
 export class RateLimited extends Schema.TaggedError<RateLimited>()("RateLimited", {
   message: Schema.String,
+  retryAfterSeconds: Schema.optional(Schema.Int),
 }) {}
 
 /** The server failed in a way the caller cannot fix, such as a missing deployment secret. */

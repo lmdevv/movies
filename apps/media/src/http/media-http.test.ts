@@ -999,6 +999,15 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           (yield* send({ token: "v1.forged.token", platform: "web", events: [stall] })).status,
           401,
         );
+
+        const hundred = Array.from({ length: 100 }, () => stall);
+
+        const refused = yield* send({ token, platform: "web", events: hundred }).pipe(
+          Effect.repeat({ until: (response) => response.status === 429, times: 5 }),
+        );
+
+        assert.strictEqual(refused.status, 429);
+        assert.match(refused.headers["retry-after"] ?? "", /^[1-9]\d*$/u);
       }),
     );
   });

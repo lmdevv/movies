@@ -46,6 +46,9 @@ services:
     restart: unless-stopped
     # Reaps ffmpeg processes and forwards signals to the service.
     init: true
+    # The service ends open responses 3 s into a stop, then closes its streams and writes its last
+    # log lines; Docker's default of 10 s could cut that short on a busy server.
+    stop_grace_period: 30s
     # The health check is the image's (GET /api/health; see the Dockerfile).
     depends_on:
       convex:

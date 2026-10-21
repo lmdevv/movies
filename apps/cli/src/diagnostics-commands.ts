@@ -85,13 +85,20 @@ const clockTime = (time: number): string => {
 };
 
 /**
- * `text` safe to print on one terminal line: every control character, such as an escape sequence
- * a player put in an error message, a newline, or a C1 control a terminal also obeys, becomes a
+ * Characters a terminal acts on rather than shows: every control character (C0, DEL, and C1), the
+ * line and paragraph separators, and the bidirectional marks, embeddings, overrides, and isolates,
+ * which make text read in another order than it was written.
+ */
+const UNPRINTABLE = /[\p{Cc}\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/gu;
+
+/**
+ * `text` safe to print on one terminal line: every `UNPRINTABLE` character, such as an escape
+ * sequence a player put in an error message, a newline, or a right-to-left override, becomes a
  * `\u001b`-style escape. Every untrusted string printed for people goes through it.
  */
 const printable = (text: string): string =>
   text.replaceAll(
-    /\p{Cc}/gu,
+    UNPRINTABLE,
     (control) => String.raw`\u${control.charCodeAt(0).toString(16).padStart(4, "0")}`,
   );
 
@@ -259,6 +266,12 @@ const logs: ShortcutCommand = {
       const json = printsJson(invocation);
       const connection = yield* connect(invocation.env, invocation.target, "required");
       const found = yield* connection.withSession(connection.client.logs(query));
+
+      if (Option.isSome(found.unavailableSince)) {
+        yield* output.err(
+          `The media service has not been able to write or read its retained log since ${clockTime(found.unavailableSince.value)}: records logged since then are on its standard output only.`,
+        );
+      }
 
       if (found.truncated) {
         yield* output.err(

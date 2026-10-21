@@ -1,15 +1,19 @@
 /**
- * The retained log writer. The console logger hands it every line it prints, already redacted;
- * a background fiber appends them to the current file a few times a second and publishes them to
- * readers that follow the log. A new process always starts a new file, so a line cut short by a
- * crash is never continued; readers skip it, and a write that failed partway is followed by a line
- * break for the same reason. Rotation and retention (`log-files.ts`) run under the same lock as
- * writes, so a reader's snapshot never sees a file half deleted or half written, and the oldest
- * files go before a write would take the folder past its size cap.
+ * The retained log writer. The console logger hands it every line it prints, already redacted,
+ * with the time it was logged; a background fiber appends them to the current file a few times a
+ * second and publishes them to readers that follow the log. A new process always starts a new
+ * file, so a line cut short by a crash is never continued; readers skip it, and a write that
+ * failed partway is followed by a line break for the same reason. Rotation and retention
+ * (`log-files.ts`) run under the same lock as writes, so a reader's snapshot never sees a file half
+ * deleted or half written, and the oldest files go before a write would take the folder past its
+ * size cap. Each new file takes the next sequence number, so files keep the order they were
+ * written in whatever the clock does, and starts at its first record's time, so no record in it is
+ * earlier than its name says.
  *
- * The folder is private to the service (0700, files 0600). When it cannot be created or written,
- * the service keeps running with its standard output only, says so once, and tries the folder
- * again with every batch, creating it again if it was deleted.
+ * The folder is private to the service (0700, files 0600). When it cannot be created, written, or
+ * listed, the service keeps running with its standard output only, says so once, and tries the
+ * folder again with every batch, creating it again if it was deleted. It lists the folder again
+ * once it can, so files that appear later, as on a late mount, count against the cap at once.
  */
 import {
   Clock,
@@ -24,8 +28,8 @@ import {
   Option,
   Path,
   PubSub,
-  Queue,
   Ref,
+  Result,
   Schedule,
   Scope,
   Semaphore,
@@ -38,7 +42,9 @@ import {
   fileCapBytes,
   fileName,
   type LogFile,
+  nextSequence,
   orderOf,
+  planMigration,
   planPrune,
   type Retention,
   shouldRotate,
@@ -51,12 +57,20 @@ interface Snapshot {
   readonly files: ReadonlyArray<LogFile>;
   /** Lines written after the snapshot, until the scope closes. A reader that lags loses the oldest. */
   readonly live: PubSub.Subscription<string>;
+  /**
+   * Since when the folder could not be written or listed; none while it works. Records logged
+   * since then went to standard output only.
+   */
+  readonly unavailableSince: Option.Option<number>;
 }
 
 /** The retained log. */
 export interface Interface {
-  /** Queues one line; it is written within a moment. Never blocks, so a logger may call it. */
-  readonly append: (line: string) => void;
+  /**
+   * Queues one line, logged at `loggedAt`; it is written within a moment. Never blocks, so a
+   * logger may call it.
+   */
+  readonly append: (line: string, loggedAt: number) => void;
   /** Writes every queued line now. */
   readonly flush: Effect.Effect<void>;
   /** The files as they stand now and the lines written from now on, for the rest of the scope. */
@@ -79,8 +93,12 @@ export interface Settings {
   readonly retention: Retention;
 }
 
-/** Lines waiting for the writer; beyond this, new lines are dropped and counted. */
-const MAX_PENDING = 10_000;
+/**
+ * Characters of lines waiting for the writer; beyond this, new lines are dropped and counted. The
+ * writer takes the queue four times a second, so this is far more than the service logs, and it
+ * bounds the memory a flood of log lines can hold.
+ */
+const MAX_PENDING_CHARS = 8 * 1024 * 1024;
 
 /** Lines a following reader may lag behind before it loses the oldest. */
 const LIVE_CAPACITY = 4096;
@@ -99,6 +117,12 @@ interface OpenFile {
   readonly sizeBytes: number;
   readonly handle: FileSystem.File;
   readonly scope: Scope.Closeable;
+}
+
+/** One line waiting for the writer, and when it was logged. */
+interface Entry {
+  readonly line: string;
+  readonly loggedAt: number;
 }
 
 const encoder = new TextEncoder();
@@ -128,10 +152,11 @@ const afterLineBreak = (chunk: Uint8Array): Uint8Array => {
   return bytes;
 };
 
-/** Lines ready to write, as UTF-8 groups of `lines` lines each. */
+/** Lines ready to write, as UTF-8 groups of `lines` lines each, none logged before `firstAt`. */
 interface Chunk {
   readonly bytes: Uint8Array;
   readonly lines: number;
+  readonly firstAt: number;
 }
 
 /** Lines ready to write in groups, and how many lines were too large for any file. */
@@ -140,24 +165,26 @@ interface Chunks {
   readonly oversized: number;
 }
 
-/** `lines` as UTF-8, each with its line break, grouped so no group is larger than `capBytes`. */
-const chunksOf = (lines: ReadonlyArray<string>, capBytes: number): Chunks => {
+/** `entries` as UTF-8, each with its line break, grouped so no group is larger than `capBytes`. */
+const chunksOf = (entries: ReadonlyArray<Entry>, capBytes: number): Chunks => {
   const chunks: Array<Chunk> = [];
   let group: Array<string> = [];
   let groupBytes = 0;
+  let firstAt = Number.POSITIVE_INFINITY;
   let oversized = 0;
 
   const close = (): void => {
     if (group.length > 0) {
-      chunks.push({ bytes: encoder.encode(`${group.join("\n")}\n`), lines: group.length });
+      chunks.push({ bytes: encoder.encode(`${group.join("\n")}\n`), lines: group.length, firstAt });
     }
 
     group = [];
     groupBytes = 0;
+    firstAt = Number.POSITIVE_INFINITY;
   };
 
-  for (const line of lines) {
-    const bytes = encoder.encode(line).length + 1;
+  for (const entry of entries) {
+    const bytes = encoder.encode(entry.line).length + 1;
 
     if (bytes > capBytes) {
       oversized += 1;
@@ -165,8 +192,9 @@ const chunksOf = (lines: ReadonlyArray<string>, capBytes: number): Chunks => {
     }
 
     if (groupBytes + bytes > capBytes) close();
-    group.push(line);
+    group.push(entry.line);
     groupBytes += bytes;
+    firstAt = Math.min(firstAt, entry.loggedAt);
   }
 
   close();
@@ -179,21 +207,31 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const lock = yield* Semaphore.make(1);
-  const pending = yield* Queue.dropping<string>(MAX_PENDING);
   const published = yield* PubSub.sliding<string>(LIVE_CAPACITY);
   const closing = yield* Deferred.make<void>();
   const current = yield* Ref.make(Option.none<OpenFile>());
   const lastPrune = yield* Ref.make(0);
   /** All log files together, as of the last listing plus what was written since. */
   const totalBytes = yield* Ref.make(0);
+  /** The sequence number the next file takes. */
+  const sequence = yield* Ref.make(0);
   const capBytes = fileCapBytes(settings.retention.maxBytes);
 
+  /** Lines logged since the writer last took them, and their length in characters. */
+  const queue = { entries: Array.of<Entry>(), chars: 0 };
+
   /**
-   * Lines dropped since the last write; whether writing is failing, so the failure is said once;
-   * and whether the last write may have stopped partway through a line. Only `append` and the
-   * writer touch them.
+   * Lines dropped since the last write; since when writing has failed, so the failure is said
+   * once and readers hear of it; whether the last write may have stopped partway through a line;
+   * and whether the folder must be listed again before its total or the next sequence number is
+   * trusted. Only `append` and the writer touch them.
    */
-  const counters = { dropped: 0, failing: false, partial: false };
+  const counters = {
+    dropped: 0,
+    failingSince: Option.none<number>(),
+    partial: false,
+    stale: true,
+  };
 
   // The mode is tightened where it can be; a folder the service may write but not chmod, such
   // as one another user owns, is still written.
@@ -201,8 +239,9 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
     .makeDirectory(settings.directory, { recursive: true, mode: DIRECTORY_MODE })
     .pipe(Effect.andThen(fs.chmod(settings.directory, DIRECTORY_MODE).pipe(Effect.ignore)));
 
+  /** The log files, oldest first; fails when the folder cannot be read. */
   const listFiles = Effect.gen(function* () {
-    const names = yield* fs.readDirectory(settings.directory).pipe(Effect.orElseSucceed(() => []));
+    const names = yield* fs.readDirectory(settings.directory);
 
     const files = yield* Effect.forEach(names, (name) =>
       Option.match(orderOf(name), {
@@ -225,11 +264,22 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
     return files.flatMap((file) => (Option.isSome(file) ? [file.value] : [])).toSorted(byAge);
   });
 
-  /** Deletes what retention says, making room for `reserveBytes` more. */
+  /**
+   * Lists the folder and deletes what retention says, making room for `reserveBytes` more. A
+   * folder that cannot be listed is left alone and listed again with the next batch.
+   */
   const prune = Effect.fnUntraced(function* (reserveBytes: number) {
     const now = yield* Clock.currentTimeMillis;
+    const listed = yield* Effect.result(listFiles);
+
+    if (Result.isFailure(listed)) {
+      counters.stale = true;
+
+      return;
+    }
+
+    const files = listed.success;
     const active = Option.map(yield* Ref.get(current), (file) => file.name);
-    const files = yield* listFiles;
     const doomed = new Set(planPrune(files, settings.retention, now, active, reserveBytes));
 
     yield* Effect.forEach(
@@ -243,11 +293,13 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
         ),
       { discard: true },
     );
+    yield* Ref.update(sequence, (next) => Math.max(next, nextSequence(files)));
     yield* Ref.set(
       totalBytes,
       files.reduce((total, file) => (doomed.has(file.name) ? total : total + file.sizeBytes), 0),
     );
     yield* Ref.set(lastPrune, now);
+    counters.stale = false;
   });
 
   const closeCurrent = Effect.gen(function* () {
@@ -256,19 +308,16 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
     if (Option.isSome(previous)) yield* Scope.close(previous.value.scope, Exit.void);
   });
 
-  /** Starts a file for records from `startsAt` on. */
+  /** Starts the next file, for records from `startsAt` on. */
   const rotate = Effect.fnUntraced(function* (startsAt: number) {
     yield* closeCurrent;
     yield* ensureDirectory;
 
-    let sequence = 0;
-
-    while (yield* fs.exists(path.join(settings.directory, fileName(startsAt, sequence)))) {
-      sequence += 1;
-    }
+    // The next sequence number comes from a listing of the folder as it is now.
+    if (counters.stale) yield* prune(0);
 
     const fileScope = yield* Scope.make("sequential");
-    const name = fileName(startsAt, sequence);
+    const name = fileName(yield* Ref.getAndUpdate(sequence, (next) => next + 1), startsAt);
 
     const handle = yield* fs
       .open(path.join(settings.directory, name), { flag: "a", mode: FILE_MODE })
@@ -283,30 +332,28 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
   });
 
   /**
-   * The file the next `bytes`, none of them earlier than `floor`, go to: the current one, unless
-   * it is full, from an earlier day, or gone.
+   * The file `chunk`, `bytes` long, goes to: the current one, unless it is full, from an earlier
+   * day, begun after the chunk's first record, or gone.
    */
-  const fileFor = Effect.fnUntraced(function* (now: number, floor: number, bytes: number) {
+  const fileFor = Effect.fnUntraced(function* (chunk: Chunk, bytes: number) {
     const open = yield* Ref.get(current);
 
-    if (
-      Option.isSome(open) &&
-      !shouldRotate(open.value, now, capBytes, bytes) &&
-      (yield* fs.exists(path.join(settings.directory, open.value.name)))
-    ) {
-      return open.value;
+    if (Option.isSome(open) && !shouldRotate(open.value, chunk.firstAt, capBytes, bytes)) {
+      if (yield* fs.exists(path.join(settings.directory, open.value.name))) return open.value;
+      // Deleted, or another folder mounted over this one: what the folder holds is unknown.
+      counters.stale = true;
     }
 
-    return yield* rotate(floor);
+    return yield* rotate(chunk.firstAt);
   });
 
   /**
    * Appends `chunk`; after a write that stopped partway, a line break first ends the fragment, and
    * the file's size is read again, since the fragment's length is unknown.
    */
-  const writeChunk = Effect.fnUntraced(function* (now: number, floor: number, chunk: Uint8Array) {
-    const file = yield* fileFor(now, floor, chunk.length + (counters.partial ? 1 : 0));
-    const bytes = counters.partial ? afterLineBreak(chunk) : chunk;
+  const writeChunk = Effect.fnUntraced(function* (chunk: Chunk) {
+    const file = yield* fileFor(chunk, chunk.bytes.length + (counters.partial ? 1 : 0));
+    const bytes = counters.partial ? afterLineBreak(chunk.bytes) : chunk.bytes;
 
     if ((yield* Ref.get(totalBytes)) + bytes.length > settings.retention.maxBytes) {
       yield* prune(bytes.length);
@@ -319,7 +366,6 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
           Effect.flatMap((info) =>
             Ref.set(current, Option.some({ ...file, sizeBytes: Number(info.size) })),
           ),
-          Effect.andThen(Ref.set(lastPrune, 0)),
           Effect.ignore,
         ),
       ),
@@ -331,11 +377,11 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
 
   /** Tells standard output, once per failure, that the files are not being written. */
   const failed = (now: number, error: { readonly message: string }) =>
-    counters.failing
+    Option.isSome(counters.failingSince)
       ? Effect.void
       : Effect.andThen(
           Effect.sync(() => {
-            counters.failing = true;
+            counters.failingSince = Option.some(now);
           }),
           Console.log(
             ownLine(
@@ -347,25 +393,24 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
           ),
         );
 
-  /**
-   * Writes `queued`, taken at `now`. Every line of it was logged at `floor` or later, so a file
-   * it starts is named after `floor`.
-   */
-  const write = Effect.fnUntraced(function* (
-    now: number,
-    floor: number,
-    queued: ReadonlyArray<string>,
-  ) {
+  /** Writes `queued`, taken at `now`. */
+  const write = Effect.fnUntraced(function* (now: number, queued: ReadonlyArray<Entry>) {
     const dropped = counters.dropped;
 
     counters.dropped = 0;
 
-    const lines =
+    const entries: ReadonlyArray<Entry> =
       dropped > 0
-        ? [...queued, ownLine("WARN", "RetainedLogs.dropped", { lines: dropped }, now)]
+        ? [
+            ...queued,
+            {
+              line: ownLine("WARN", "RetainedLogs.dropped", { lines: dropped }, now),
+              loggedAt: now,
+            },
+          ]
         : queued;
 
-    const { chunks, oversized } = chunksOf(lines, capBytes);
+    const { chunks, oversized } = chunksOf(entries, capBytes);
 
     counters.dropped += oversized;
 
@@ -375,7 +420,7 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
       chunks,
       (chunk) =>
         Effect.andThen(
-          writeChunk(now, floor, chunk.bytes),
+          writeChunk(chunk),
           Effect.sync(() => {
             written += 1;
           }),
@@ -384,7 +429,7 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
     ).pipe(
       Effect.tap(() =>
         Effect.sync(() => {
-          counters.failing = false;
+          counters.failingSince = Option.none();
         }),
       ),
       Effect.catch((error) =>
@@ -395,40 +440,58 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
               dropped +
               chunks.slice(written).reduce((total, chunk) => total + chunk.lines, 0) -
               (dropped > 0 ? 1 : 0);
+            counters.stale = true;
           }),
           failed(now, error),
         ),
       ),
     );
-    yield* PubSub.publishAll(published, lines);
+    yield* PubSub.publishAll(
+      published,
+      entries.map((entry) => entry.line),
+    );
   });
-
-  /**
-   * The time read just before the queue was last emptied. Every line queued since was logged
-   * after it, so it names the files those lines start: no record is ever older than the name of
-   * its file.
-   */
-  const floor = yield* Ref.make(yield* Clock.currentTimeMillis);
 
   const flushLocked = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
-    const since = yield* Ref.getAndSet(floor, now);
-    const queued = yield* Queue.clear(pending);
+    const queued = queue.entries;
 
-    if (queued.length > 0 || counters.dropped > 0) yield* write(now, since, queued);
+    queue.entries = [];
+    queue.chars = 0;
 
-    if (now - (yield* Ref.get(lastPrune)) >= PRUNE_INTERVAL_MS) yield* prune(0);
+    if (queued.length > 0 || counters.dropped > 0) yield* write(now, queued);
+
+    // Either way, so a clock stepped back an hour still prunes on time.
+    if (counters.stale || Math.abs(now - (yield* Ref.get(lastPrune))) >= PRUNE_INTERVAL_MS) {
+      yield* prune(0);
+    }
   });
 
   const flush = lock.withPermits(1)(flushLocked);
 
   const close = Deferred.succeed(closing, undefined).pipe(Effect.asVoid);
 
+  /** Gives files under the earlier naming their place after the current ones. */
+  const migrate = fs.readDirectory(settings.directory).pipe(
+    Effect.flatMap((names) =>
+      Effect.forEach(
+        planMigration(names),
+        ([from, to]) =>
+          fs
+            .rename(path.join(settings.directory, from), path.join(settings.directory, to))
+            .pipe(Effect.ignore),
+        { discard: true },
+      ),
+    ),
+    Effect.ignore,
+  );
+
   const startedAt = yield* Clock.currentTimeMillis;
 
   yield* ensureDirectory.pipe(Effect.catch((error) => failed(startedAt, error)));
+  yield* migrate;
   yield* Effect.forEach(
-    yield* listFiles,
+    yield* listFiles.pipe(Effect.orElseSucceed(() => [])),
     (file) => fs.chmod(path.join(settings.directory, file.name), FILE_MODE).pipe(Effect.ignore),
     { discard: true },
   );
@@ -444,17 +507,32 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
   );
 
   return Service.of({
-    append: (line) => {
-      if (!Queue.offerUnsafe(pending, line)) counters.dropped += 1;
+    append: (line, loggedAt) => {
+      if (queue.chars + line.length > MAX_PENDING_CHARS) {
+        counters.dropped += 1;
+
+        return;
+      }
+
+      queue.entries.push({ line, loggedAt });
+      queue.chars += line.length;
     },
     flush,
     snapshot: lock.withPermits(1)(
       Effect.gen(function* () {
         yield* flushLocked;
-        const files = yield* listFiles;
+        const now = yield* Clock.currentTimeMillis;
+        const listed = yield* Effect.result(listFiles);
         const live = yield* PubSub.subscribe(published);
 
-        return { directory: settings.directory, files, live } satisfies Snapshot;
+        return {
+          directory: settings.directory,
+          files: Result.getOrElse(listed, () => []),
+          live,
+          unavailableSince: Option.orElse(counters.failingSince, () =>
+            Result.isFailure(listed) ? Option.some(now) : Option.none(),
+          ),
+        } satisfies Snapshot;
       }),
     ),
     closing: Deferred.await(closing),

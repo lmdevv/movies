@@ -47,9 +47,12 @@ const SESSION_BUDGET = { burst: 300, perSecond: 2 };
 
 /**
  * The same for all of one account's sessions together: a second session has some room of its own,
- * but opening more sessions does not multiply what an account may write.
+ * but opening more sessions does not multiply what an account may write past this. A family
+ * shares one account, and hls.js reports every segment it loads, so the refill lets four screens
+ * each send at a session's full rate; a fifth, or a script with the account's tokens, is held
+ * to that.
  */
-const USER_BUDGET = { burst: 400, perSecond: 2 };
+const USER_BUDGET = { burst: 400, perSecond: 4 * SESSION_BUDGET.perSecond };
 
 const commonFields = (
   event: ClientDiagnosticEvent,

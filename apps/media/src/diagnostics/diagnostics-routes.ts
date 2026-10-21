@@ -60,6 +60,7 @@ export const layer: Layer.Layer<
               Effect.fail(
                 new RateLimited({
                   message: `Too many diagnostics reads: try again in ${String(seconds)} s`,
+                  retryAfterSeconds: seconds,
                 }),
               ),
           }),

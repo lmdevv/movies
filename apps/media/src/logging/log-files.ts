@@ -3,19 +3,21 @@
  * retention deletes. Every decision here is a pure function of the listing, so running it again
  * after a crash, or twice in a row, reaches the same folder.
  *
- * A file is named after a time no record in it is earlier than, `media-20261021T140503123Z.ndjson`
- * (with `-1`, `-2`, … before `.ndjson` when several share it), so names sort by age and a file
- * holds records from its name's time to its modification time. A reader may skip a file by its
- * name alone. Files that do not match the pattern are never touched.
+ * A file is named after its place in the log and a time none of its records is earlier than,
+ * `media-000000000042-20261021T140503123Z.ndjson`. The place is a sequence number the writer never
+ * reuses, so names list in the order the files were written, and reading and retention follow it
+ * whatever the clock did. The time lets a reader skip a file by its name alone: the file holds
+ * records from that time up to its modification time. Files that match neither this pattern nor
+ * the earlier one (`legacyOrderOf`) are never touched.
  */
 import { Option } from "effect";
 
 /** Where a file stands among the others, from its name. */
 interface FileOrder {
+  /** Its place in the log: a later file has a larger one. */
+  readonly sequence: number;
   /** No record in the file is earlier than this. */
   readonly startsAt: number;
-  /** Which of the files sharing `startsAt` it is, from 0. */
-  readonly sequence: number;
 }
 
 /** One retained log file. */
@@ -42,28 +44,83 @@ const MEBIBYTE = 1024 * 1024;
 /** The smallest size cap: eight files of 1 MiB. */
 export const MIN_LOG_BYTES = 8 * MEBIBYTE;
 
-const NAME = /^media-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\d{3})Z(?:-([1-9]\d*))?\.ndjson$/u;
+const SEQUENCE_DIGITS = 12;
 
-/** The name of the `sequence`th file whose records start at `startsAt`. */
-export const fileName = (startsAt: number, sequence = 0): string =>
-  `media-${new Date(startsAt).toISOString().replaceAll(/[-:.]/gu, "")}${sequence === 0 ? "" : `-${String(sequence)}`}.ndjson`;
+const NAME = /^media-(\d{12,})-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\d{3})Z\.ndjson$/u;
+
+/** Names written before files carried a sequence: a start time, then `-1`, `-2`, … on a tie. */
+const LEGACY_NAME =
+  /^media-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\d{3})Z(?:-([1-9]\d*))?\.ndjson$/u;
+
+const compactTime = (time: number): string =>
+  new Date(time).toISOString().replaceAll(/[-:.]/gu, "");
+
+/** The time `parts` (year, month, day, hours, minutes, seconds, milliseconds) name; none if invalid. */
+const timeOf = (parts: ReadonlyArray<string | undefined>): Option.Option<number> => {
+  const [year, month, day, hours, minutes, seconds, millis] = parts.map(Number);
+  const time = Date.UTC(year ?? 0, (month ?? 1) - 1, day, hours, minutes, seconds, millis);
+
+  return Number.isNaN(time) ? Option.none() : Option.some(time);
+};
+
+/** The name of the file at `sequence` whose records start at `startsAt`. */
+export const fileName = (sequence: number, startsAt: number): string =>
+  `media-${String(sequence).padStart(SEQUENCE_DIGITS, "0")}-${compactTime(startsAt)}.ndjson`;
 
 /** Where the file named `name` stands; none for a name the writer never makes. */
 export const orderOf = (name: string): Option.Option<FileOrder> => {
   const match = NAME.exec(name);
 
   if (match === null) return Option.none();
-  const [, year, month, day, hours, minutes, seconds, millis] = match.slice(0, 8).map(Number);
-  const time = Date.UTC(year ?? 0, (month ?? 1) - 1, day, hours, minutes, seconds, millis);
 
-  return Number.isNaN(time)
-    ? Option.none()
-    : Option.some({ startsAt: time, sequence: Number(match[8] ?? 0) });
+  return Option.map(timeOf(match.slice(2, 9)), (startsAt) => ({
+    sequence: Number(match[1]),
+    startsAt,
+  }));
 };
 
+/** A file under the earlier naming, in the order that naming gave it. */
+interface LegacyFile {
+  readonly name: string;
+  readonly startsAt: number;
+  readonly tie: number;
+}
+
+/**
+ * The renames that give files under the earlier naming a place after every current file, in the
+ * order the earlier naming listed them: by start time, then by suffix.
+ */
+export const planMigration = (
+  names: ReadonlyArray<string>,
+): ReadonlyArray<readonly [from: string, to: string]> => {
+  const next = Math.max(
+    0,
+    ...names.flatMap((name) => Option.toArray(orderOf(name)).map((order) => order.sequence + 1)),
+  );
+
+  const legacy = names
+    .flatMap((name): ReadonlyArray<LegacyFile> => {
+      const match = LEGACY_NAME.exec(name);
+
+      if (match === null) return [];
+
+      return Option.toArray(timeOf(match.slice(1, 8))).map((startsAt) => ({
+        name,
+        startsAt,
+        tie: Number(match[8] ?? 0),
+      }));
+    })
+    .toSorted((left, right) => left.startsAt - right.startsAt || left.tie - right.tie);
+
+  return legacy.map((file, index) => [file.name, fileName(next + index, file.startsAt)] as const);
+};
+
+/** The sequence a new file takes after `files`: one past the largest. */
+export const nextSequence = (files: ReadonlyArray<FileOrder>): number =>
+  Math.max(0, ...files.map((file) => file.sequence + 1));
+
 /** Oldest first. */
-export const byAge = (left: FileOrder, right: FileOrder): number =>
-  left.startsAt - right.startsAt || left.sequence - right.sequence;
+export const byAge = (left: FileOrder, right: FileOrder): number => left.sequence - right.sequence;
 
 /**
  * The most one file holds: an eighth of the total, at most 64 MiB, so the size cap always fits
@@ -75,16 +132,19 @@ export const fileCapBytes = (maxBytes: number): number =>
 const utcDay = (time: number): number => Math.floor(time / 86_400_000);
 
 /**
- * Whether the next `incomingBytes` go to a new file: they would grow the current one past
- * `capBytes`, or it is from an earlier day.
+ * Whether records from `firstAt` on, `incomingBytes` of them, go to a new file: they would grow
+ * the current one past `capBytes`, they are from a later day, or the clock stepped back to before
+ * the current file began, which its name promises no record is.
  */
 export const shouldRotate = (
   current: { readonly startsAt: number; readonly sizeBytes: number },
-  now: number,
+  firstAt: number,
   capBytes: number,
   incomingBytes: number,
 ): boolean =>
-  current.sizeBytes + incomingBytes > capBytes || utcDay(current.startsAt) !== utcDay(now);
+  current.sizeBytes + incomingBytes > capBytes ||
+  firstAt < current.startsAt ||
+  utcDay(current.startsAt) !== utcDay(firstAt);
 
 /**
  * The files retention deletes, oldest first: those older than `maxAgeMs`, then the oldest of the

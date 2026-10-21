@@ -259,8 +259,11 @@ const withSignedInMedia = (
     }
   });
 
-/** Text a player could have put in a log record: C0 escape, DEL, and the C1 NEL and CSI. */
-const hostile = "a\u001b[2Jb\u007fc\u0085d\u009be";
+/**
+ * Text a player could have put in a log record: C0 escape, DEL, the C1 NEL and CSI, a
+ * right-to-left override, a line separator, a left-to-right isolate, and a right-to-left mark.
+ */
+const hostile = "a\u001b[2Jb\u007fc\u0085d\u009be\u202ef\u2028g\u2066h\u200fi";
 
 const hostileRecord = `${JSON.stringify({
   message: `Player.error ${hostile}`,
@@ -332,7 +335,8 @@ const diagnosticsService = (request: IncomingMessage, response: ServerResponse) 
 };
 
 /** Whether `text` holds a control character other than the newlines between lines. */
-const hasControl = (text: string): boolean => /\p{Cc}/u.test(text.replaceAll("\n", ""));
+const hasControl = (text: string): boolean =>
+  /[\p{Cc}\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/u.test(text.replaceAll("\n", ""));
 
 describe("troubleshooting commands", () => {
   it("refuses flags they cannot read before connecting", async () => {
@@ -367,10 +371,14 @@ describe("troubleshooting commands", () => {
       for (const [name, run] of Object.entries({ logs, playback, sessions })) {
         expect(run.code, `${name}: ${run.stderr}`).toBe(ExitCode.ok);
         expect(hasControl(run.stdout), name).toBe(false);
-        expect(run.stdout, name).toContain(String.raw`a\u001b[2Jb\u007fc\u0085d\u009be`);
+        expect(run.stdout, name).toContain(
+          String.raw`a\u001b[2Jb\u007fc\u0085d\u009be\u202ef\u2028g\u2066h\u200fi`,
+        );
       }
 
-      expect(logs.stdout).toContain(String.raw`detail="a\u001b[2Jb\u007fc\u0085d\u009be"`);
+      expect(logs.stdout).toContain(
+        String.raw`detail="a\u001b[2Jb\u007fc\u0085d\u009be\u202ef\u2028g\u2066h\u200fi"`,
+      );
     });
   });
 
@@ -392,6 +400,29 @@ describe("troubleshooting commands", () => {
 
       for (const run of both) expect(run.code, run.stderr).toBe(ExitCode.usage);
     });
+  });
+
+  it("says when the service cannot keep its log, instead of printing nothing", async () => {
+    await withSignedInMedia(
+      (_request, response) => {
+        response.writeHead(200, {
+          "content-type": "application/x-ndjson",
+          "x-movies-log-unavailable-since": "2026-10-21T20:00:00.000Z",
+        });
+        response.end();
+      },
+      async (signedIn) => {
+        const runs = await Promise.all([signedIn("logs"), signedIn("logs", "--json")]);
+
+        for (const run of runs) {
+          expect(run.code, run.stderr).toBe(ExitCode.ok);
+          expect(run.stdout).toBe("");
+          expect(run.stderr).toContain(
+            "The media service has not been able to write or read its retained log since",
+          );
+        }
+      },
+    );
   });
 
   it("fails as unavailable when the service ends a followed log", async () => {

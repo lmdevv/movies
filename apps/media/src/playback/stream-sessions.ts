@@ -272,6 +272,8 @@ const make = Effect.gen(function* () {
   const touch = (session: Session) =>
     Clock.currentTimeMillis.pipe(Effect.flatMap((now) => Ref.set(session.lastActivity, now)));
 
+  // Uninterruptible, so a caller that goes away while the stream closes, such as a stop request
+  // whose connection drops, never leaves it removed but unreported and open in `owners`.
   const closeSession = Effect.fn("StreamSessions.close")(function* (
     session: Session,
     reason: PlaybackReporter.StreamEndReason,
@@ -298,7 +300,7 @@ const make = Effect.gen(function* () {
         }),
       );
     }
-  });
+  }, Effect.uninterruptible);
 
   /** Indexes fragment files ffmpeg finished since the last look. */
   const refreshFragments = Effect.fnUntraced(function* (generation: Generation) {
@@ -883,40 +885,51 @@ const make = Effect.gen(function* () {
       Effect.forkIn(scope),
     );
 
-    // One stream per device session: a newer negotiation replaces the older stream.
-    const replaced = yield* registry.withPermits(1)(
-      Ref.modify(sessions, (current) => {
-        const previous = [...current.values()].filter(
-          (existing) => existing.sessionId === grant.sessionId,
+    // One stream per device session: a newer negotiation replaces the older stream. The swap and
+    // the end of what it replaced run uninterruptibly: a caller that went away between them would
+    // leave the replaced stream running, unreported, and open in `owners`.
+    yield* Effect.uninterruptible(
+      Effect.gen(function* () {
+        const replaced = yield* registry.withPermits(1)(
+          Ref.modify(sessions, (current) => {
+            const previous = [...current.values()].filter(
+              (existing) => existing.sessionId === grant.sessionId,
+            );
+
+            const next = new Map(current);
+
+            for (const existing of previous) next.delete(existing.streamId);
+            next.set(streamId, session);
+
+            return [previous, next] as const;
+          }).pipe(
+            Effect.tap(() => Ref.set(registered, Option.some(session))),
+            // Under the registry permit, so a negotiation that replaces this stream closes it
+            // after, and the streams it replaced are closed before any other negotiation looks.
+            Effect.tap((previous) =>
+              Effect.forEach(previous, (existing) => owners.closed(existing.streamId), {
+                discard: true,
+              }),
+            ),
+            Effect.tap(() => owners.opened(streamId, grant.sessionId)),
+          ),
         );
 
-        const next = new Map(current);
+        for (const previous of replaced) {
+          yield* Scope.close(previous.scope, Exit.void);
 
-        for (const existing of previous) next.delete(existing.streamId);
-        next.set(streamId, session);
-
-        return [previous, next] as const;
-      }).pipe(
-        Effect.tap(() => Ref.set(registered, Option.some(session))),
-        // Under the registry permit, so a negotiation that replaces this stream closes it after.
-        Effect.tap(() => owners.opened(streamId, grant.sessionId)),
-      ),
+          yield* reporter.report(
+            PlaybackReporter.PlaybackEvent.cases.StreamEnded.make({
+              sessionId: previous.sessionId,
+              userId: previous.userId,
+              fileId: previous.fileId,
+              streamId: previous.streamId,
+              reason: "replaced",
+            }),
+          );
+        }
+      }),
     );
-
-    for (const previous of replaced) {
-      yield* Scope.close(previous.scope, Exit.void);
-      yield* owners.closed(previous.streamId);
-
-      yield* reporter.report(
-        PlaybackReporter.PlaybackEvent.cases.StreamEnded.make({
-          sessionId: previous.sessionId,
-          userId: previous.userId,
-          fileId: previous.fileId,
-          streamId: previous.streamId,
-          reason: "replaced",
-        }),
-      );
-    }
 
     const segmentIndex = segmentAt(segmentPlan, quickStart);
 

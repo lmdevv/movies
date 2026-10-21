@@ -32,9 +32,10 @@ if ! [[ "$puid" =~ ^[0-9]+$ && "$pgid" =~ ^[0-9]+$ ]] || [ "$puid" = 0 ] || [ "$
   exit 1
 fi
 
-# The media service refuses these too, but only after the Convex deploy; say so before it.
+# The media service refuses these too, but only after the Convex deploy; say so before it. At most
+# seven significant digits, so the arithmetic below never wraps a huge number into range.
 if [ -n "${LOG_MAX_MB:-}" ] &&
-  ! [[ "$LOG_MAX_MB" =~ ^[0-9]+$ && "$((10#$LOG_MAX_MB))" -ge 8 && "$((10#$LOG_MAX_MB))" -le 1048576 ]]; then
+  ! [[ "$LOG_MAX_MB" =~ ^0*[0-9]{1,7}$ && "$((10#$LOG_MAX_MB))" -ge 8 && "$((10#$LOG_MAX_MB))" -le 1048576 ]]; then
   log "LOG_MAX_MB must be a whole number of MiB from 8 to 1048576; got LOG_MAX_MB=$LOG_MAX_MB"
   exit 1
 fi

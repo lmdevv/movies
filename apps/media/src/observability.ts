@@ -99,8 +99,10 @@ const redactedLine = Logger.map(Logger.formatStructured, (structured) =>
 /** The redacted line on standard output and, the same line, in the retained log. */
 const teeLogger = (retained: RetainedLogs.Interface) =>
   Logger.withConsoleLog(
-    Logger.map(redactedLine, (line) => {
-      retained.append(line);
+    Logger.make((options) => {
+      const line = redactedLine.log(options);
+
+      retained.append(line, options.date.getTime());
 
       return line;
     }),

@@ -274,8 +274,50 @@ const sumOf = (entries: ReadonlyArray<TimelineEntry>, kind: TimelineKind, field:
     .filter((entry) => entry.kind === kind)
     .reduce((total, entry) => total + number(entry.details[field]), 0);
 
+/** Server entries that name the stream they are about. */
+const STREAM_KINDS: ReadonlySet<TimelineKind> = new Set([
+  "stream-started",
+  "stream-ended",
+  "encoder-failed",
+]);
+
+/**
+ * The streams the entries show: every direct play, and every HLS stream that started, ended, or
+ * failed, including one whose encoder failed before it started.
+ */
+const streamsOf = (entries: ReadonlyArray<TimelineEntry>): number =>
+  entries.filter((entry) => entry.kind === "stream-started" && entry.streamId === null).length +
+  new Set(
+    entries.flatMap((entry) =>
+      STREAM_KINDS.has(entry.kind) && entry.streamId !== null ? [entry.streamId] : [],
+    ),
+  ).size;
+
+/** HLS streams that ended or failed without a start, each with why it ended, if the log says. */
+const neverStarted = (
+  entries: ReadonlyArray<TimelineEntry>,
+): ReadonlyMap<string, string | undefined> => {
+  const started = new Set(
+    entries.flatMap((entry) => (entry.kind === "stream-started" ? [entry.streamId] : [])),
+  );
+
+  const ended = new Map<string, string | undefined>();
+
+  for (const entry of entries) {
+    if (entry.streamId === null || started.has(entry.streamId)) continue;
+
+    if (entry.kind === "stream-ended") {
+      ended.set(entry.streamId, STREAM_END_REASONS.get(text(entry.details["reason"])));
+    } else if (entry.kind === "encoder-failed" && !ended.has(entry.streamId)) {
+      ended.set(entry.streamId, STREAM_END_REASONS.get("failed"));
+    }
+  }
+
+  return ended;
+};
+
 const countsOf = (entries: ReadonlyArray<TimelineEntry>): DiagnosticsCounts => ({
-  streams: countOf(entries, "stream-started"),
+  streams: streamsOf(entries),
   stalls: countOf(entries, "buffering-started"),
   stalledMs: sumOf(entries, "buffering-ended", "stalledMs"),
   slowSegments: countOf(entries, "slow-segment"),
@@ -337,11 +379,18 @@ const missingEvidence = (
           `${String(suppressedFailures)} more failed requests were counted, not logged one by one: the session went past its budget of failure records.`,
         ]
       : []),
-    ...(dropsInfo || entries.some((entry) => entry.kind === "stream-started")
+    ...(dropsInfo || streamsOf(entries) > 0
       ? []
       : [
           "No stream started in the retained logs: the session began before the oldest log file (LOG_RETENTION_DAYS) or never reached this media service.",
         ]),
+    // At WARN and above no start is ever logged, and a cut-off read may have lost it.
+    ...(dropsInfo || truncated
+      ? []
+      : [...neverStarted(entries)].map(
+          ([streamId, why]) =>
+            `Stream ${streamId} never started${why === undefined ? "" : `: ${why}`}. Its entries below are all the log holds of it.`,
+        )),
     ...(fromPlayer || dropsInfo
       ? []
       : [

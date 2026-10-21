@@ -248,8 +248,12 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies logs` needs an admin session (`forbidden` otherwise) and the media service URL
   (`MOVIES_MEDIA_URL`). It prints for people by default; `--json` prints the NDJSON records for
   parsing. Records older than `LOG_RETENTION_DAYS` (14) are gone. When stderr says older records
-  may match too, narrow it with `--since` or raise `--limit`. `--follow` exits `unavailable`
-  when the service goes away, as it does when it restarts.
+  may match too, narrow it with `--since` or raise `--limit`. When stderr says the service has
+  not been able to write or read its retained log since a time, records since then are only on
+  its standard output (`docker compose logs movies`, `journalctl -u movies`): report that rather
+  than treating the empty answer as a quiet log. `--follow` exits `unavailable` when the
+  service goes away, as it does when it restarts. HTTP request lines are `DEBUG`: they are
+  there only while the service runs with `LOG_LEVEL=debug`.
 - `movies play` failures from the media service print `playback_<recovery>` codes:
   `playback_unsupported` (this player cannot play the file in any mode), `playback_retry_later`
   (exit 9: transcoders busy or the media service cannot reach its files right now),

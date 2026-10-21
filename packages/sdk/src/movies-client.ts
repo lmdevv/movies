@@ -18,8 +18,14 @@ import type {
   CommandNameOfKind,
   CommandResult,
 } from "@movies/contracts/commands";
-import { DIAGNOSTICS_ROUTES, LOG_TRUNCATED_HEADER, LogQuery } from "@movies/contracts/diagnostics";
+import {
+  DIAGNOSTICS_ROUTES,
+  LOG_TRUNCATED_HEADER,
+  LOG_UNAVAILABLE_SINCE_HEADER,
+  LogQuery,
+} from "@movies/contracts/diagnostics";
 import { InvalidArgs } from "@movies/contracts/errors";
+import { EpochMillis } from "@movies/contracts/units";
 import { Context, Effect, Layer, Option, Schema, SchemaIssue, Stream } from "effect";
 
 import * as Auth from "./auth";
@@ -49,6 +55,11 @@ export type ClientError = CallError | TokenStorageError;
 export interface LogLines {
   /** Older records may match too: the query's limit was reached first. */
   readonly truncated: boolean;
+  /**
+   * Since when the media service has not been able to write or read its retained log; none while
+   * it can. Records logged since then are missing here.
+   */
+  readonly unavailableSince: Option.Option<EpochMillis>;
   /**
    * One JSON record per line, oldest first; with `follow`, new records until interrupted. The
    * blank lines that keep a followed connection open are left out.
@@ -213,6 +224,9 @@ export const make = Effect.fn("MoviesClient.make")(function* (options: Options) 
 
     const lines: LogLines = {
       truncated: answer.headers.get(LOG_TRUNCATED_HEADER) === "true",
+      unavailableSince: Option.fromNullishOr(answer.headers.get(LOG_UNAVAILABLE_SINCE_HEADER)).pipe(
+        Option.flatMap((text) => EpochMillis.makeOption(Date.parse(text))),
+      ),
       lines: answer.lines.pipe(Stream.filter((line) => line.trim().length > 0)),
     };
 

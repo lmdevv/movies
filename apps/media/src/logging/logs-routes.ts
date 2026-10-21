@@ -3,15 +3,21 @@
  * caller's Convex auth token must hold the `admin` scope. Without `follow` the answer ends after
  * the last matching record; with it, new matching records stream until the caller disconnects,
  * and a blank line every 15 seconds keeps idle proxies from closing the connection. A follow ends
- * as the service begins to shut down, so an open one never holds the shutdown up.
+ * as the service begins to shut down, so an open one never holds the shutdown up. While the log
+ * folder cannot be written or read, the answer says since when (`LOG_UNAVAILABLE_SINCE_HEADER`).
  *
  * NDJSON over a plain chunked response rather than server-sent events: it is the files' own
  * format, so the CLI passes lines through untouched, and `fetch` sends the bearer token, which a
  * browser's `EventSource` cannot.
  */
-import { DIAGNOSTICS_ROUTES, LOG_TRUNCATED_HEADER, LogQuery } from "@movies/contracts/diagnostics";
+import {
+  DIAGNOSTICS_ROUTES,
+  LOG_TRUNCATED_HEADER,
+  LOG_UNAVAILABLE_SINCE_HEADER,
+  LogQuery,
+} from "@movies/contracts/diagnostics";
 import { InvalidArgs } from "@movies/contracts/errors";
-import { Duration, Effect, FileSystem, Layer, Path, Schema, Stream } from "effect";
+import { Duration, Effect, FileSystem, Layer, Option, Path, Schema, Stream } from "effect";
 import { HttpEffect, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import * as ViewerAuth from "../convex/viewer-auth.ts";
@@ -91,6 +97,12 @@ export const layer: Layer.Layer<
           headers: {
             "cache-control": "no-store",
             [LOG_TRUNCATED_HEADER]: String(found.truncated),
+            ...Option.match(found.unavailableSince, {
+              onNone: () => ({}),
+              onSome: (since) => ({
+                [LOG_UNAVAILABLE_SINCE_HEADER]: new Date(since).toISOString(),
+              }),
+            }),
           },
         }),
       );

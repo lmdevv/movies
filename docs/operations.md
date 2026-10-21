@@ -242,13 +242,25 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
   `journalctl -u movies`). The media service keeps the same lines, already redacted, in rotating
   NDJSON files under its data folder (`/data/media/logs` in the Compose volume,
   `/var/lib/movies/media/logs` on NixOS, private to the service): a new file each day and at each
-  start. The files together never grow past `LOG_MAX_MB` (512, at least 8): each holds at most an
-  eighth of it (64 MiB at most), and the oldest is deleted before a write would pass the cap. Files
-  last written more than `LOG_RETENTION_DAYS` (14) ago go too. `LOG_LEVEL` (`info`) sets the least
+  start. Each name carries a sequence number and the time of the file's first record
+  (`media-000000000042-20261021T140503123Z.ndjson`), so `ls` lists the files in the order they
+  were written, and reading and retention follow that order even when the clock steps back. The
+  files together never grow past `LOG_MAX_MB` (512, at least 8): each holds at most an eighth of
+  it (64 MiB at most), and the oldest is deleted before a write would pass the cap. Files last
+  written more than `LOG_RETENTION_DAYS` (14) ago go too. `LOG_LEVEL` (`info`) sets the least
   severe level for both; at `warn` or `error` the retained log loses the `INFO` records playback
   diagnostics read (stream starts, player attaches, startups and stalls), and the timeline says
-  so. When the folder cannot be written, the service logs to standard output only, says so once
-  (`RetainedLogs.unwritable`), and retries with every batch.
+  so. Lines waiting to be written are capped at 8 MiB of text; past that they are dropped and
+  counted (`RetainedLogs.dropped`). When the folder cannot be written or read, the service logs
+  to standard output only, says so once (`RetainedLogs.unwritable`), retries with every batch,
+  and `movies logs` says since when. A folder that comes back, such as a late mount, is listed
+  again at once, so the files already in it count against the cap.
+- Each HTTP response logs `HttpServer.response` at `DEBUG` with its method, status, time taken,
+  and path (no query string, cut to 128 characters), so at the default `info` nothing a caller
+  sends without a token reaches the retained log. A handler that died logs
+  `HttpServer.handler_died` at `ERROR` with its cause. A stop ends open responses after 3 s, such
+  as a direct-play file, which the player resumes with a range request; Compose gives the
+  container 30 s to stop.
 - `movies logs` reads the retained log without SSH or `sudo`: `--follow`, `--since 15m` or a time,
   `--until`, `--level warn`, `--session-id`, `--stream-id`, `--slow 1s`, `--grep`, and `--json` for
   NDJSON. It needs an admin session. The service streams it as NDJSON from `POST /api/logs` and
@@ -266,7 +278,9 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
 - The web and iOS players report how long each session took to start, their stalls, errors,
   dropped frames (web only), hls.js segment load times, and recoveries to
   `POST /api/playback/diagnostics` with their playback token, in batches the service validates and
-  limits per session and per account. They land in the same log as `Player.*` records. An event's
+  limits: each session 300 events at once, then 2 a second; each account 400 at once, then 8 a
+  second, so four screens of one family account can each report every hls.js segment load. A
+  refused batch, and a refused diagnostics read, answers `429` with `Retry-After`. They land in the same log as `Player.*` records. An event's
   stream counts as its `streamId` only when the stream is the token's session's own (or ended in
   the last ten minutes); otherwise it is kept as `claimedStreamId`, which `--stream-id` does not
   match. `movies diagnostics playback <session-id>` builds a session's timeline from both sides;

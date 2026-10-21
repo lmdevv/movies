@@ -2,7 +2,8 @@
  * Reads the retained log for a query: the last `limit` matching records, newest file first so a
  * recent question never reads the whole history, then, when following, each new matching line as
  * it is written. Files outside the query's time window are skipped by their names and modification
- * times. Each line is redacted again before it is decoded or matched, so a file written by anything
+ * times; a modification time counts as up to two seconds early, since network shares and FAT keep
+ * it that coarsely. Each line is redacted again before it is decoded or matched, so a file written by anything
  * else never shows, and a `grep` never finds, what the console would hide.
  */
 import type { LogQuery, LogRecord } from "@movies/contracts/diagnostics";
@@ -30,10 +31,15 @@ interface Found {
   readonly truncated: boolean;
   /** Matching lines written after the query started; empty unless it follows. */
   readonly live: Stream.Stream<string>;
+  /** Since when the log could not be written or read; none while it works. */
+  readonly unavailableSince: Option.Option<number>;
 }
 
+/** How much earlier than its last record a file's modification time may read. */
+const MODIFIED_AT_SLACK_MS = 2000;
+
 const overlaps = (file: LogFile, query: LogQuery): boolean =>
-  (query.since === undefined || file.modifiedAt >= query.since) &&
+  (query.since === undefined || file.modifiedAt + MODIFIED_AT_SLACK_MS >= query.since) &&
   (query.until === undefined || file.startsAt < query.until);
 
 /**
@@ -125,6 +131,7 @@ export const read = Effect.fn("LogReader.read")(function* (query: LogQuery) {
             Stream.map((match) => match.value.line),
           )
         : Stream.empty,
+    unavailableSince: snapshot.unavailableSince,
   };
 
   return found;

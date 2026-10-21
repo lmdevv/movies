@@ -17,6 +17,7 @@ import { Effect, Match, Redacted, Schema, SchemaIssue } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import * as ViewerAuth from "../convex/viewer-auth.ts";
+import { retryAfter } from "./rate-limit.ts";
 
 /** Commands the media service serves. */
 export type MediaCommandName = CommandNameOfKind<"media">;
@@ -37,7 +38,12 @@ const failureOf = Match.type<CallError>().pipe(
     Conflict: (error) => ({ code: "conflict", status: 409, message: error.message }),
     Expired: (error) => ({ code: "expired", status: 410, message: error.message }),
     StaleRevision: (error) => ({ code: "stale_revision", status: 409, message: error.message }),
-    RateLimited: (error) => ({ code: "rate_limited", status: 429, message: error.message }),
+    RateLimited: (error) => ({
+      code: "rate_limited",
+      status: 429,
+      message: error.message,
+      retryAfterSeconds: error.retryAfterSeconds,
+    }),
     Internal: (error) => ({ code: "internal", status: 500, message: error.message }),
     TransportError: () => ({
       code: "internal",
@@ -54,12 +60,16 @@ const failureOf = Match.type<CallError>().pipe(
 
 /** The `{ code, message }` answer of a failed command or authenticated route. */
 export const failureResponse = (error: CallError): HttpServerResponse.HttpServerResponse => {
-  const { code, status, message } = failureOf(error);
+  const failure = failureOf(error);
 
-  return HttpServerResponse.jsonUnsafe(
-    { code, message },
-    { status, headers: { "cache-control": "no-store" } },
+  const response = HttpServerResponse.jsonUnsafe(
+    { code: failure.code, message: failure.message },
+    { status: failure.status, headers: { "cache-control": "no-store" } },
   );
+
+  return "retryAfterSeconds" in failure && failure.retryAfterSeconds !== undefined
+    ? retryAfter(response, failure.retryAfterSeconds)
+    : response;
 };
 
 const BEARER = /^Bearer\s+(\S+)$/iu;

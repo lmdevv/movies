@@ -7,7 +7,8 @@ import {
 } from "@movies/contracts/diagnostics";
 import { PlaybackSessionId } from "@movies/contracts/ids";
 import { StreamId } from "@movies/contracts/media-playback";
-import { Effect, Layer, Logger, Option, Predicate, Redacted } from "effect";
+import { Duration, Effect, Layer, Logger, Option, Predicate, Redacted, Result } from "effect";
+import { TestClock } from "effect/testing";
 
 import { decodeRecord } from "../logging/log-query.ts";
 import * as EndedSessions from "../playback/ended-sessions.ts";
@@ -260,6 +261,35 @@ describe("client diagnostics", () => {
 
       assert.isTrue(Predicate.isTagged(result, "DiagnosticsRateLimited"));
       assert.strictEqual(logged.length, 400);
+    }),
+  );
+
+  it.effect("lets four players of one account each report at a session's full rate", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.now());
+
+      const { result } = yield* recording(
+        Effect.gen(function* () {
+          const recorder = yield* ClientDiagnostics.Service;
+          let refused = 0;
+
+          for (let second = 0; second < 600; second += 1) {
+            for (const session of ["tv", "phone", "tablet", "laptop"]) {
+              const sent = yield* recorder
+                .record(batch([stall, stall], session))
+                .pipe(Effect.result);
+
+              if (Result.isFailure(sent)) refused += 1;
+            }
+
+            yield* TestClock.adjust(Duration.seconds(1));
+          }
+
+          return refused;
+        }),
+      );
+
+      assert.strictEqual(result, 0);
     }),
   );
 

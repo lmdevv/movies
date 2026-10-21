@@ -90,6 +90,12 @@ export interface LogQuery extends Schema.Schema.Type<typeof LogQuery> {}
  */
 export const LOG_TRUNCATED_HEADER = "x-movies-log-truncated";
 
+/**
+ * Response header present when the media service cannot write or read its retained log: the ISO
+ * 8601 time it began failing. Records logged since then went to its standard output only.
+ */
+export const LOG_UNAVAILABLE_SINCE_HEADER = "x-movies-log-unavailable-since";
+
 /** How long before sending the batch an event happened, in milliseconds; at most ten minutes. */
 const AgeMs = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 600_000 }));
 

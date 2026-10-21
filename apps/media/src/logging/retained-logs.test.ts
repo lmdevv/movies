@@ -1,6 +1,16 @@
 import { NodeServices } from "@effect/platform-node";
 import { assert, layer } from "@effect/vitest";
-import { Duration, Effect, Fiber, FileSystem, Option, Path, PlatformError, PubSub } from "effect";
+import {
+  Clock,
+  Duration,
+  Effect,
+  Fiber,
+  FileSystem,
+  Option,
+  Path,
+  PlatformError,
+  PubSub,
+} from "effect";
 import { TestClock } from "effect/testing";
 
 import { byAge, fileCapBytes, fileName, MIN_LOG_BYTES, orderOf } from "./log-files.ts";
@@ -9,6 +19,10 @@ import * as RetainedLogs from "./retained-logs.ts";
 const DAY = 86_400_000;
 
 const MEBIBYTE = 1024 * 1024;
+
+/** Queues `line` as logged now, as the console logger does. */
+const appendNow = (logs: RetainedLogs.Interface, line: string) =>
+  Effect.map(Clock.currentTimeMillis, (now) => logs.append(line, now));
 
 /** A writer over a fresh folder, with the clock at a real date. */
 const writerIn = (maxBytes = 512 * MEBIBYTE) =>
@@ -95,9 +109,9 @@ layer(NodeServices.layer)("retained log writer", (it) => {
         retention: { maxAgeMs: 14 * DAY, maxBytes: MIN_LOG_BYTES },
       }).pipe(Effect.provideService(FileSystem.FileSystem, yield* diskFullOnce));
 
-      logs.append('{"n":1,"padding":"cut here"}');
+      yield* appendNow(logs, '{"n":1,"padding":"cut here"}');
       yield* logs.flush;
-      logs.append('{"n":2}');
+      yield* appendNow(logs, '{"n":2}');
       yield* logs.flush;
 
       const [only] = yield* linesIn(directory);
@@ -110,11 +124,11 @@ layer(NodeServices.layer)("retained log writer", (it) => {
     Effect.gen(function* () {
       const { logs, directory } = yield* writerIn();
 
-      logs.append('{"n":1}');
-      logs.append('{"n":2}');
+      yield* appendNow(logs, '{"n":1}');
+      yield* appendNow(logs, '{"n":2}');
       yield* logs.flush;
       yield* TestClock.adjust(Duration.days(1));
-      logs.append('{"n":3}');
+      yield* appendNow(logs, '{"n":3}');
       yield* logs.flush;
 
       const files = yield* linesIn(directory);
@@ -135,7 +149,7 @@ layer(NodeServices.layer)("retained log writer", (it) => {
       const written = linesPerFile + 4;
 
       for (let index = 0; index < written; index += 1) {
-        logs.append(line);
+        yield* appendNow(logs, line);
         yield* logs.flush;
       }
 
@@ -157,7 +171,7 @@ layer(NodeServices.layer)("retained log writer", (it) => {
       const folderBytes = Array.of<number>();
 
       for (let index = 0; index < 400; index += 1) {
-        logs.append(line);
+        yield* appendNow(logs, line);
         yield* logs.flush;
 
         const sizes = yield* Effect.forEach(yield* fs.readDirectory(directory), (name) =>
@@ -178,7 +192,7 @@ layer(NodeServices.layer)("retained log writer", (it) => {
       const path = yield* Path.Path;
       const parent = yield* fs.makeTempDirectoryScoped({ prefix: "movies-logs-" });
       const directory = path.join(parent, "logs");
-      const earlier = path.join(directory, fileName(Date.UTC(2026, 9, 20)));
+      const earlier = path.join(directory, fileName(0, Date.UTC(2026, 9, 20)));
 
       yield* fs.makeDirectory(directory, { mode: 0o755 });
       yield* fs.writeFileString(earlier, "{}\n", { mode: 0o644 });
@@ -189,7 +203,7 @@ layer(NodeServices.layer)("retained log writer", (it) => {
         retention: { maxAgeMs: 14 * DAY, maxBytes: MIN_LOG_BYTES },
       });
 
-      logs.append('{"n":1}');
+      yield* appendNow(logs, '{"n":1}');
       yield* logs.flush;
 
       const modes = yield* Effect.forEach(
@@ -220,10 +234,10 @@ layer(NodeServices.layer)("retained log writer", (it) => {
         retention: { maxAgeMs: 14 * DAY, maxBytes: MIN_LOG_BYTES },
       });
 
-      logs.append('{"n":1}');
+      yield* appendNow(logs, '{"n":1}');
       yield* logs.flush;
       yield* fs.remove(directory);
-      logs.append('{"n":2}');
+      yield* appendNow(logs, '{"n":2}');
       yield* logs.flush;
 
       const recovered = (yield* linesIn(directory)).flatMap((entry) => entry.lines);
@@ -233,7 +247,7 @@ layer(NodeServices.layer)("retained log writer", (it) => {
 
       // Deleted while it runs: made again with the next batch.
       yield* fs.remove(directory, { recursive: true });
-      logs.append('{"n":3}');
+      yield* appendNow(logs, '{"n":3}');
       yield* logs.flush;
 
       assert.deepStrictEqual(
@@ -249,7 +263,7 @@ layer(NodeServices.layer)("retained log writer", (it) => {
       const loggedAt = Date.UTC(2026, 9, 21, 12) + 100;
 
       yield* TestClock.adjust(Duration.millis(100));
-      logs.append(`{"timestamp":"${new Date(loggedAt).toISOString()}"}`);
+      yield* appendNow(logs, `{"timestamp":"${new Date(loggedAt).toISOString()}"}`);
       yield* TestClock.adjust(Duration.millis(400));
       yield* logs.flush;
 
@@ -279,7 +293,7 @@ layer(NodeServices.layer)("retained log writer", (it) => {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const directory = yield* fs.makeTempDirectoryScoped({ prefix: "movies-logs-" });
-      const crashed = fileName(Date.UTC(2026, 9, 21, 11));
+      const crashed = fileName(0, Date.UTC(2026, 9, 21, 11));
 
       yield* fs.writeFileString(path.join(directory, crashed), '{"n":1}\n{"n":2,"cut');
       yield* TestClock.setTime(Date.UTC(2026, 9, 21, 12));
@@ -289,7 +303,7 @@ layer(NodeServices.layer)("retained log writer", (it) => {
         retention: { maxAgeMs: 14 * DAY, maxBytes: 512 * MEBIBYTE },
       });
 
-      logs.append('{"n":3}');
+      yield* appendNow(logs, '{"n":3}');
       yield* logs.flush;
 
       const files = yield* linesIn(directory);
@@ -306,8 +320,8 @@ layer(NodeServices.layer)("retained log writer", (it) => {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const directory = yield* fs.makeTempDirectoryScoped({ prefix: "movies-logs-" });
-      const expired = fileName(Date.UTC(2026, 8, 1));
-      const kept = fileName(Date.UTC(2026, 9, 20));
+      const expired = fileName(0, Date.UTC(2026, 8, 1));
+      const kept = fileName(1, Date.UTC(2026, 9, 20));
 
       for (const name of [expired, kept, "README.txt"]) {
         yield* fs.writeFileString(path.join(directory, name), "{}\n");
@@ -330,11 +344,11 @@ layer(NodeServices.layer)("retained log writer", (it) => {
     Effect.gen(function* () {
       const { logs } = yield* writerIn();
 
-      logs.append('{"n":1}');
+      yield* appendNow(logs, '{"n":1}');
 
       const snapshot = yield* logs.snapshot;
 
-      logs.append('{"n":2}');
+      yield* appendNow(logs, '{"n":2}');
       yield* logs.flush;
 
       assert.deepStrictEqual(
@@ -342,6 +356,166 @@ layer(NodeServices.layer)("retained log writer", (it) => {
         ['{"n":1}\n'.length],
       );
       assert.deepStrictEqual(yield* PubSub.takeAll(snapshot.live), ['{"n":2}']);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("bounds the lines waiting to be written by their size, and counts what it drops", () =>
+    Effect.gen(function* () {
+      const { logs, directory } = yield* writerIn();
+      const line = "x".repeat(64 * 1024);
+
+      for (let index = 0; index < 200; index += 1) yield* appendNow(logs, line);
+      yield* logs.flush;
+
+      const lines = (yield* linesIn(directory)).flatMap((entry) => entry.lines);
+      const kept = lines.filter((entry) => entry === line).length;
+
+      assert.isBelow(kept, 200);
+      assert.isAtMost(kept * line.length, 8 * MEBIBYTE);
+      assert.match(
+        lines.at(-1) ?? "",
+        new RegExp(String.raw`"RetainedLogs\.dropped".*"lines":${String(200 - kept)}\b`, "u"),
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("tells readers since when it could not write, until it writes again", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const parent = yield* fs.makeTempDirectoryScoped({ prefix: "movies-logs-" });
+      const directory = path.join(parent, "logs");
+      const failedAt = Date.UTC(2026, 9, 21, 12);
+
+      yield* fs.writeFileString(directory, "");
+      yield* TestClock.setTime(failedAt);
+
+      const logs = yield* RetainedLogs.make({
+        directory,
+        retention: { maxAgeMs: 14 * DAY, maxBytes: MIN_LOG_BYTES },
+      });
+
+      yield* TestClock.adjust(Duration.minutes(5));
+      yield* appendNow(logs, '{"n":1}');
+
+      assert.deepStrictEqual((yield* logs.snapshot).unavailableSince, Option.some(failedAt));
+
+      yield* fs.remove(directory);
+      yield* appendNow(logs, '{"n":2}');
+
+      assert.deepStrictEqual((yield* logs.snapshot).unavailableSince, Option.none());
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("counts files in a folder that appears later against the cap at once", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const parent = yield* fs.makeTempDirectoryScoped({ prefix: "movies-logs-" });
+      const directory = path.join(parent, "logs");
+      const earlier = Date.UTC(2026, 9, 20);
+
+      yield* fs.writeFileString(directory, "");
+      yield* TestClock.setTime(Date.UTC(2026, 9, 21, 12));
+
+      const logs = yield* RetainedLogs.make({
+        directory,
+        retention: { maxAgeMs: 14 * DAY, maxBytes: MIN_LOG_BYTES },
+      });
+
+      // A mount arrives holding a full folder.
+      yield* fs.remove(directory);
+      yield* fs.makeDirectory(directory);
+
+      for (let index = 0; index < 8; index += 1) {
+        yield* fs.writeFileString(
+          path.join(directory, fileName(index, earlier + index)),
+          `${"x".repeat(MEBIBYTE - 1)}\n`,
+        );
+      }
+
+      yield* appendNow(logs, '{"n":1}');
+      yield* logs.flush;
+
+      const files = yield* linesIn(directory);
+
+      assert.isAtMost(
+        files.reduce(
+          (total, entry) => total + entry.lines.reduce((sum, text) => sum + text.length + 1, 0),
+          0,
+        ),
+        MIN_LOG_BYTES,
+      );
+      assert.deepStrictEqual(files.at(-1)?.lines, ['{"n":1}']);
+      assert.strictEqual(
+        Option.getOrThrow(orderOf(files.at(-1)?.name ?? "")).sequence,
+        8,
+        "the new file comes after the files it found",
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("gives files named before sequence numbers their old order, ahead of new ones", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "movies-logs-" });
+
+      for (const [name, text] of [
+        ["media-20261021T110000000Z-1.ndjson", '{"n":3}'],
+        ["media-20261021T110000000Z.ndjson", '{"n":2}'],
+        ["media-20261021T100000000Z.ndjson", '{"n":1}'],
+      ] as const) {
+        yield* fs.writeFileString(path.join(directory, name), `${text}\n`);
+      }
+
+      yield* TestClock.setTime(Date.UTC(2026, 9, 21, 12));
+
+      const logs = yield* RetainedLogs.make({
+        directory,
+        retention: { maxAgeMs: 14 * DAY, maxBytes: MIN_LOG_BYTES },
+      });
+
+      yield* appendNow(logs, '{"n":4}');
+      yield* logs.flush;
+
+      const files = yield* linesIn(directory);
+
+      assert.deepStrictEqual(
+        files.map((entry) => entry.lines),
+        [['{"n":1}'], ['{"n":2}'], ['{"n":3}'], ['{"n":4}']],
+      );
+      assert.deepStrictEqual(
+        files.map((entry) => entry.name),
+        files.map((entry) => entry.name).toSorted(),
+      );
+      assert.strictEqual(files[1]?.name, fileName(1, Date.UTC(2026, 9, 21, 11)));
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("starts one file for a new day, named after its first record", () =>
+    Effect.gen(function* () {
+      const { logs, directory } = yield* writerIn();
+      const midnight = Date.UTC(2026, 9, 22);
+
+      yield* TestClock.setTime(midnight - 100);
+      yield* appendNow(logs, '{"n":1}');
+      yield* logs.flush;
+      yield* TestClock.adjust(Duration.millis(150));
+      yield* appendNow(logs, '{"n":2}');
+      yield* TestClock.adjust(Duration.millis(100));
+      yield* logs.flush;
+      yield* TestClock.adjust(Duration.millis(250));
+      yield* appendNow(logs, '{"n":3}');
+      yield* logs.flush;
+
+      const files = yield* linesIn(directory);
+
+      assert.deepStrictEqual(
+        files.map((entry) => entry.lines),
+        [['{"n":1}'], ['{"n":2}', '{"n":3}']],
+      );
+      assert.strictEqual(Option.getOrThrow(orderOf(files[1]?.name ?? "")).startsAt, midnight + 50);
     }).pipe(Effect.scoped),
   );
 });

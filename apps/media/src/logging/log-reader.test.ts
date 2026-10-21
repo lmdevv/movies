@@ -3,10 +3,12 @@ import { assert, describe, layer } from "@effect/vitest";
 import type { LogLevel, LogQuery } from "@movies/contracts/diagnostics";
 import { PlaybackSessionId } from "@movies/contracts/ids";
 import { EpochMillis } from "@movies/contracts/units";
-import { Duration, Effect, FileSystem, Stream } from "effect";
+import { Duration, Effect, FileSystem, Predicate, Stream } from "effect";
 import { TestClock } from "effect/testing";
 
+import { MIN_LOG_BYTES } from "./log-files.ts";
 import * as LogReader from "./log-reader.ts";
+import { appendRecord } from "../testing/log-lines.ts";
 import * as RetainedLogs from "./retained-logs.ts";
 
 const BASE = Date.UTC(2026, 9, 21, 12);
@@ -56,7 +58,7 @@ const messages = (query: LogQuery) =>
       retention: { maxAgeMs: Duration.toMillis(Duration.days(14)), maxBytes: 1 << 29 },
     });
 
-    for (const entry of LINES) logs.append(entry);
+    for (const entry of LINES) appendRecord(logs, entry);
     yield* logs.flush;
 
     const found = yield* LogReader.read(query).pipe(
@@ -151,11 +153,42 @@ layer(NodeServices.layer)("log queries", (it) => {
       });
 
       yield* TestClock.adjust(Duration.millis(100));
-      logs.append(line("Stream.started", 100));
+      appendRecord(logs, line("Stream.started", 100));
       yield* TestClock.adjust(Duration.millis(400));
       yield* logs.flush;
 
       const found = yield* LogReader.read({ until: EpochMillis.make(BASE + 200) }).pipe(
+        Effect.provideService(RetainedLogs.Service, logs),
+      );
+
+      assert.deepStrictEqual(
+        found.matches.map((match) => match.record.message),
+        ["Stream.started"],
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("reads a file whose modification time a share kept coarser than its records", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "movies-logs-" });
+
+      yield* TestClock.setTime(BASE);
+
+      const logs = yield* RetainedLogs.make({
+        directory,
+        retention: { maxAgeMs: Duration.toMillis(Duration.days(14)), maxBytes: 1 << 29 },
+      });
+
+      appendRecord(logs, line("Stream.started", 900));
+      yield* logs.flush;
+
+      // An SMB or FAT share keeps the time to the second or two below.
+      for (const name of yield* fs.readDirectory(directory)) {
+        yield* fs.utimes(`${directory}/${name}`, new Date(BASE), new Date(BASE - 1000));
+      }
+
+      const found = yield* LogReader.read({ since: EpochMillis.make(BASE + 900) }).pipe(
         Effect.provideService(RetainedLogs.Service, logs),
       );
 
@@ -178,14 +211,14 @@ layer(NodeServices.layer)("log queries", (it) => {
         retention: { maxAgeMs: Duration.toMillis(Duration.days(14)), maxBytes: 1 << 29 },
       });
 
-      logs.append(line("Stream.started", 0, "INFO", { sessionId: SESSION }));
+      appendRecord(logs, line("Stream.started", 0, "INFO", { sessionId: SESSION }));
 
       const found = yield* LogReader.read({ sessionId: SESSION, follow: true }).pipe(
         Effect.provideService(RetainedLogs.Service, logs),
       );
 
-      logs.append(line("Other.session", 10, "INFO", { sessionId: "session_b" }));
-      logs.append(line("Stream.ended", 20, "INFO", { sessionId: SESSION }));
+      appendRecord(logs, line("Other.session", 10, "INFO", { sessionId: "session_b" }));
+      appendRecord(logs, line("Stream.ended", 20, "INFO", { sessionId: SESSION }));
       yield* logs.flush;
 
       const live = yield* found.live.pipe(Stream.take(1), Stream.runCollect);
@@ -195,6 +228,117 @@ layer(NodeServices.layer)("log queries", (it) => {
         ["Stream.started"],
       );
       assert.include(live[0], "Stream.ended");
+    }).pipe(Effect.scoped),
+  );
+});
+
+/** Record `n` of a burst, logged `offsetMs` after `BASE`, padded to about 60 KB. */
+const burstLine = (n: number, offsetMs = 0): string =>
+  line("Burst.record", offsetMs, "INFO", { n, padding: "x".repeat(60_000) });
+
+/** The `n` of each record `query` reads. */
+const numbersRead = (logs: RetainedLogs.Interface, query: LogQuery) =>
+  LogReader.read(query).pipe(
+    Effect.provideService(RetainedLogs.Service, logs),
+    Effect.map((found) => found.matches.map((match) => match.record.annotations["n"])),
+  );
+
+/** The `n` of every record in `directory`, file by file in the order `ls` lists them. */
+const numbersOnDisk = (directory: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const names = (yield* fs.readDirectory(directory)).toSorted();
+
+    const texts = yield* Effect.forEach(names, (name) => fs.readFileString(`${directory}/${name}`));
+
+    return texts.flatMap((text) =>
+      text
+        .split("\n")
+        .filter(Boolean)
+        .map((entry) => {
+          const parsed: unknown = JSON.parse(entry);
+
+          return Predicate.hasProperty(parsed, "annotations") &&
+            Predicate.hasProperty(parsed.annotations, "n")
+            ? parsed.annotations.n
+            : undefined;
+        }),
+    );
+  });
+
+layer(NodeServices.layer)("log order across rotations", (it) => {
+  it.effect("reads the newest record last after a burst rotated and pruned many files", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "movies-logs-" });
+
+      yield* TestClock.setTime(BASE);
+
+      const logs = yield* RetainedLogs.make({
+        directory,
+        retention: { maxAgeMs: Duration.toMillis(Duration.days(14)), maxBytes: MIN_LOG_BYTES },
+      });
+
+      // Every record at one instant: each batch fills two files that start at the same time.
+      for (let batch = 0; batch < 10; batch += 1) {
+        for (let index = 0; index < 30; index += 1)
+          appendRecord(logs, burstLine(batch * 30 + index));
+        yield* logs.flush;
+      }
+
+      const onDisk = yield* numbersOnDisk(directory);
+
+      assert.deepStrictEqual(
+        onDisk,
+        onDisk.toSorted((left, right) => Number(left) - Number(right)),
+        "the files list in the order their records were written",
+      );
+      assert.strictEqual(onDisk.at(-1), 299, "pruning removed the oldest records, not the newest");
+      assert.deepStrictEqual(yield* numbersRead(logs, { limit: 1 }), [299]);
+      assert.deepStrictEqual(yield* numbersRead(logs, { limit: 3 }), [297, 298, 299]);
+      assert.deepStrictEqual(
+        yield* numbersRead(logs, {
+          limit: 1,
+          since: EpochMillis.make(BASE),
+          until: EpochMillis.make(BASE + 1),
+        }),
+        [299],
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("keeps write order and every record in its window when the clock steps back", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "movies-logs-" });
+      const hour = 3_600_000;
+
+      yield* TestClock.setTime(BASE);
+
+      const logs = yield* RetainedLogs.make({
+        directory,
+        retention: { maxAgeMs: Duration.toMillis(Duration.days(14)), maxBytes: 1 << 29 },
+      });
+
+      appendRecord(logs, burstLine(1));
+      yield* logs.flush;
+
+      // NTP steps the clock back an hour: later records carry earlier times.
+      yield* TestClock.setTime(BASE - hour);
+      appendRecord(logs, burstLine(2, -hour));
+      yield* logs.flush;
+
+      assert.deepStrictEqual(yield* numbersOnDisk(directory), [1, 2]);
+      assert.deepStrictEqual(yield* numbersRead(logs, { limit: 1 }), [2]);
+      assert.deepStrictEqual(
+        yield* numbersRead(logs, { until: EpochMillis.make(BASE - hour / 2) }),
+        [2],
+        "a record logged after the step is found before its time",
+      );
+      assert.deepStrictEqual(
+        yield* numbersRead(logs, { since: EpochMillis.make(BASE - hour - 1) }),
+        [1, 2],
+      );
     }).pipe(Effect.scoped),
   );
 });

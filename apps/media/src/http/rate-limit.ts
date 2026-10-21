@@ -72,6 +72,13 @@ export const makeLimiter = (maxBuckets = MAX_BUCKETS) => {
   };
 };
 
+/** `response` telling its client to wait `seconds` before it tries again. */
+export const retryAfter = (
+  response: HttpServerResponse.HttpServerResponse,
+  seconds: number,
+): HttpServerResponse.HttpServerResponse =>
+  HttpServerResponse.setHeader(response, "retry-after", String(seconds));
+
 /** Limits the unauthenticated routes by client address. */
 export const layer: Layer.Layer<never, never, HttpRouter.HttpRouter> = Layer.unwrap(
   Effect.sync(() => {
@@ -90,10 +97,13 @@ export const layer: Layer.Layer<never, never, HttpRouter.HttpRouter> = Layer.unw
           const wait = take(`${prefix}\u0000${address}`, budget, yield* Clock.currentTimeMillis);
 
           return Option.isSome(wait)
-            ? HttpServerResponse.text("Too many requests", {
-                status: 429,
-                headers: { "retry-after": String(wait.value), "cache-control": "no-store" },
-              })
+            ? retryAfter(
+                HttpServerResponse.text("Too many requests", {
+                  status: 429,
+                  headers: { "cache-control": "no-store" },
+                }),
+                wait.value,
+              )
             : yield* httpEffect;
         }),
       { global: true },

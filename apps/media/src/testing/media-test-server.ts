@@ -1,17 +1,17 @@
 /**
  * The real media service on an ephemeral port for end-to-end tests: fixture library, in-memory
- * store (scanned at startup), recording playback reporter, and the production routes and
+ * store (scanned at startup), recording playback reporter, and the production routes, request log, and
  * services. Configuration goes through the real environment decoding, `LOG_LEVEL` included, and
  * every log entry at that level and above is kept for the test to read.
  */
 import { createServer } from "node:http";
 
 import { NodeHttpServer, NodeServices } from "@effect/platform-node";
-import { Context, Effect, Layer, Logger, Option, Path, References } from "effect";
-import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
+import { Context, Effect, FileSystem, Layer, Logger, Option, Path, References } from "effect";
+import { FetchHttpClient, HttpServer } from "effect/http";
 
 import * as BackendHealth from "../backend-health.ts";
-import { routesLayer, tokenSafeTracing } from "../http/http-server.ts";
+import { routesLayer, serve } from "../http/http-server.ts";
 import type { LogRecord } from "@movies/contracts/diagnostics";
 import { type MediaFileId, LibraryId } from "@movies/contracts/ids";
 import * as LibraryScanner from "../library/library-scanner.ts";
@@ -42,11 +42,20 @@ const MOVIES = LibraryId.make("movies");
 
 const SHOWS = LibraryId.make("shows");
 
+/** How a test changes the server beyond its environment. */
+interface Options {
+  /**
+   * The file system the service's own services use, from the real one: for a disk that is slow
+   * or fails at a chosen moment. The fixture workspace and the test itself keep the real one.
+   */
+  readonly fileSystem?: (real: FileSystem.FileSystem) => FileSystem.FileSystem;
+}
+
 /**
  * Builds the server with extra environment `overrides` (for example `STREAM_IDLE_SECONDS`).
  * The fixture workspace is approved as the only library root.
  */
-export const layer = (overrides: Readonly<Record<string, string>> = {}) =>
+export const layer = (overrides: Readonly<Record<string, string>> = {}, options: Options = {}) =>
   Layer.unwrap(
     Effect.gen(function* () {
       const workspace = yield* FixtureWorkspace.Service;
@@ -88,13 +97,15 @@ export const layer = (overrides: Readonly<Record<string, string>> = {}) =>
           ),
         ),
         Layer.provideMerge(config),
+        Layer.provide(
+          Layer.effect(
+            FileSystem.FileSystem,
+            Effect.map(FileSystem.FileSystem, options.fileSystem ?? ((real) => real)),
+          ),
+        ),
       );
 
-      const server = HttpRouter.serve(routesLayer, {
-        disableLogger: true,
-        disableListenLog: true,
-      }).pipe(
-        Layer.provide(tokenSafeTracing),
+      const server = serve(routesLayer).pipe(
         Layer.provideMerge(NodeHttpServer.layer(createServer, { port: 0, host: "127.0.0.1" })),
       );
 

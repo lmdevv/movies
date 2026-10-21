@@ -220,6 +220,26 @@ describe("playback timeline", () => {
     assert.isFalse(warnings.missing.some((gap) => gap.includes("player sent no diagnostics")));
   });
 
+  it("counts a stream whose encoder failed before it started, and says so", () => {
+    const failed = Option.getOrThrow(
+      timelineOf(
+        SESSION,
+        [
+          record(LogEvent.encoderFailed, 3000, { streamId: "s9", mode: "transcode-qsv" }, "WARN"),
+          record(LogEvent.streamEnded, 3010, { streamId: "s9", reason: "failed" }),
+        ],
+        false,
+      ),
+    );
+
+    assert.strictEqual(failed.counts.streams, 1);
+    assert.isFalse(failed.missing.some((gap) => gap.includes("No stream started")));
+    assert.isTrue(
+      failed.missing.some((gap) => gap.startsWith("Stream s9 never started: the encoder failed")),
+      failed.missing.join("\n"),
+    );
+  });
+
   it("counts the failed requests past the session's budget", () => {
     const flooded = Option.getOrThrow(
       timelineOf(

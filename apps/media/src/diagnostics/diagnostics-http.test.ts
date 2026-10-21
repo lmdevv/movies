@@ -23,11 +23,13 @@ import {
   Redacted,
   Schema,
 } from "effect";
-import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
+import { FetchHttpClient, HttpServer } from "effect/http";
 
 import * as ViewerAuth from "../convex/viewer-auth.ts";
+import { serve } from "../http/http-server.ts";
 import * as LogsRoutes from "../logging/logs-routes.ts";
 import * as RetainedLogs from "../logging/retained-logs.ts";
+import { appendRecord } from "../testing/log-lines.ts";
 import * as DiagnosticsRoutes from "./diagnostics-routes.ts";
 import { LogEvent } from "./log-events.ts";
 
@@ -90,7 +92,7 @@ const appendMany = (count: number, make: (index: number) => string) =>
   Effect.gen(function* () {
     const { logs } = yield* Server;
 
-    for (let index = 0; index < count; index += 1) logs.append(make(index));
+    for (let index = 0; index < count; index += 1) appendRecord(logs, make(index));
     yield* logs.flush;
   });
 
@@ -127,13 +129,10 @@ const serverLayer = Layer.unwrap(
       retention: { maxAgeMs: Duration.toMillis(Duration.days(14)), maxBytes: 1 << 29 },
     });
 
-    for (const entry of SEED) logs.append(entry);
+    for (const entry of SEED) appendRecord(logs, entry);
     yield* logs.flush;
 
-    const routes = HttpRouter.serve(Layer.mergeAll(LogsRoutes.layer, DiagnosticsRoutes.layer), {
-      disableLogger: true,
-      disableListenLog: true,
-    }).pipe(
+    const routes = serve(Layer.mergeAll(LogsRoutes.layer, DiagnosticsRoutes.layer)).pipe(
       Layer.provide(Layer.mergeAll(authLayer, Layer.succeed(RetainedLogs.Service, logs))),
       Layer.provideMerge(NodeHttpServer.layer(createServer, { port: 0, host: "127.0.0.1" })),
     );
@@ -249,8 +248,14 @@ layer(serverLayer, { timeout: 30_000 })("log and diagnostics routes", (it) => {
       const decoder = new TextDecoder();
       let received = "";
 
-      logs.append(line(LogEvent.streamStarted, 5000, { sessionId: "session_b", userId: "user_b" }));
-      logs.append(line(LogEvent.streamMoved, 6000, { sessionId: "session_a", userId: "user_a" }));
+      appendRecord(
+        logs,
+        line(LogEvent.streamStarted, 5000, { sessionId: "session_b", userId: "user_b" }),
+      );
+      appendRecord(
+        logs,
+        line(LogEvent.streamMoved, 6000, { sessionId: "session_a", userId: "user_a" }),
+      );
       yield* logs.flush;
 
       while (!received.includes(LogEvent.streamMoved)) {
@@ -321,7 +326,10 @@ layer(serverLayer, { timeout: 30_000 })("log and diagnostics routes", (it) => {
     Effect.gen(function* () {
       const { logs } = yield* Server;
 
-      logs.append(line(LogEvent.streamStarted, 4000, { sessionId: "session_c", userId: "user_a" }));
+      appendRecord(
+        logs,
+        line(LogEvent.streamStarted, 4000, { sessionId: "session_c", userId: "user_a" }),
+      );
       yield* appendMany(5001, (index) =>
         line(
           LogEvent.segmentServed,
@@ -346,7 +354,10 @@ layer(serverLayer, { timeout: 30_000 })("log and diagnostics routes", (it) => {
     Effect.gen(function* () {
       const { logs } = yield* Server;
 
-      logs.append(line(LogEvent.streamStarted, 5000, { sessionId: "session_f", userId: "user_a" }));
+      appendRecord(
+        logs,
+        line(LogEvent.streamStarted, 5000, { sessionId: "session_f", userId: "user_a" }),
+      );
       yield* appendMany(5001, (index) =>
         line(LogEvent.streamStarted, 5001 + index, {
           sessionId: `busy_${String(index)}`,
@@ -371,6 +382,7 @@ layer(serverLayer, { timeout: 30_000 })("log and diagnostics routes", (it) => {
       ).pipe(Effect.orDie);
 
       assert.strictEqual((yield* failureOf(limited)).code, "rate_limited");
+      assert.match(limited.headers.get("retry-after") ?? "", /^[1-9]\d*$/u);
     }),
   );
 });
