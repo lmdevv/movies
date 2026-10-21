@@ -2,7 +2,8 @@
 # Packaged-stack smoke test: builds the image, starts deploy/compose/compose.yaml on a fresh
 # project with a generated fixture library mounted read-only, checks the install's privilege and
 # secret boundaries, then runs apps/media/src/stack/packaged-stack.test.ts against it (sign-up,
-# library, scan, direct and HLS playback, a media restart, CLI backup and restore).
+# library, scan, direct and HLS playback, a media restart, CLI backup and restore) and the image's
+# own `movies` CLI.
 #
 #   scripts/stack-e2e.sh
 #   IMAGE=ghcr.io/lmdevv/movies:main scripts/stack-e2e.sh   # skip the build
@@ -99,6 +100,15 @@ MOVIES_PACKAGED_STACK=1 \
   MOVIES_PACKAGED_LIBRARY=/media/library \
   MOVIES_PACKAGED_RESTART="docker compose ${compose_args[*]} restart movies" \
   pnpm --dir "$root" exec vitest run --root "$root" apps/media/src/stack/packaged-stack.test.ts
+
+# The image's own CLI reaches this stack without --server and keeps its login in the data volume.
+release="$("$root/scripts/check-version.sh")"
+check "the image's CLI reports the release version" '[[ "$(in_movies movies --version)" == "$release" ]]'
+check "the image's CLI signs in to its own stack" \
+  'printf %s stack-test-password | in_movies movies login --email owner@movies.test --password >/dev/null'
+check "the image's CLI calls its own stack" 'in_movies movies whoami | grep -qF "owner@movies.test"'
+check "the CLI login is private, in the data volume" \
+  '[[ "$(in_movies stat -c "%a" /data/config/movies/config.json)" == 600 ]]'
 
 # An upgrade (another image version in /data/version) backs up before deploying the new functions.
 archives() { in_movies sh -c 'ls /data/backups | grep -c "^movies-.*\.zip$"' || true; }

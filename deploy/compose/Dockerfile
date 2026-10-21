@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # [movies] media service image: the Effect media service, the built web app it serves, the
-# deployed Convex functions with the pinned Convex CLI (deploy, configure, backups), and ffmpeg
-# with Intel Quick Sync. The Convex backend runs as its own service (compose.yaml).
+# deployed Convex functions with the pinned Convex CLI (deploy, configure, backups), the `movies`
+# CLI, and ffmpeg with Intel Quick Sync. The Convex backend runs as its own service (compose.yaml).
 # Build from the repo root:
 #   docker build -f deploy/compose/Dockerfile -t movies .
 
@@ -23,7 +23,8 @@ RUN pnpm install --frozen-lockfile --ignore-scripts --os=linux --cpu=x64 --cpu=a
 # The web app is built once with a placeholder Convex URL; startup writes the real one into a copy
 # (apps/media/scripts/configure-web.ts).
 RUN VITE_CONVEX_URL=__MOVIES_CONVEX_URL__ pnpm --config.verify-deps-before-run=false --filter web build \
- && pnpm --config.verify-deps-before-run=false --filter @movies/media build
+ && pnpm --config.verify-deps-before-run=false --filter @movies/media build \
+ && pnpm --config.verify-deps-before-run=false --filter @movies/cli build
 # The backend with production dependencies only: the Convex functions, the Convex CLI, and
 # scripts/configure.ts. Its tsconfig extends the shared config, which `convex deploy` reads.
 RUN pnpm --filter @movies/backend deploy --prod --legacy /out/backend \
@@ -34,7 +35,8 @@ RUN pnpm --filter @movies/backend deploy --prod --legacy /out/backend \
  && mkdir -p /out/media/scripts \
  && cp -r apps/media/dist /out/media/dist \
  && cp apps/media/scripts/configure-web.ts /out/media/scripts/ \
- && cp -r apps/web/dist /out/web
+ && cp -r apps/web/dist /out/web \
+ && install -D -m 755 apps/cli/dist/movies.js /out/cli/movies.js
 
 FROM ${NODE_IMAGE}
 ARG TARGETARCH
@@ -66,12 +68,19 @@ RUN printf '%s\n' "$CONVEX_IMAGE" >/app/convex/image
 COPY --from=build /out/backend /app/backend
 COPY --from=build /out/media /app/media
 COPY --from=build /out/web /app/web
+COPY --from=build /out/cli /app/cli
+RUN ln -s /app/cli/movies.js /usr/local/bin/movies
 COPY deploy/compose/entrypoint.sh /app/bin/entrypoint
 
+# `docker compose exec movies movies login` reaches this stack's own Convex and media service, and
+# the login lasts across upgrades in the data volume. The service itself never sees these.
 ENV NODE_ENV=production \
     MOVIES_PUBLIC_URL=http://localhost:8080 \
     CONVEX_PUBLIC_URL=http://localhost:3210 \
     CONVEX_URL=http://convex:3210 \
+    MOVIES_CONVEX_URL=http://convex:3210 \
+    MOVIES_MEDIA_URL=http://127.0.0.1:8080 \
+    XDG_CONFIG_HOME=/data/config \
     PUID=1000 \
     PGID=1000
 
