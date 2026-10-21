@@ -116,7 +116,7 @@ const SEED = [
 /** The running routes, and the retained log behind them. */
 class Server extends Context.Service<
   Server,
-  { readonly baseUrl: string; readonly logs: RetainedLogs.Interface }
+  { readonly baseUrl: string; readonly logs: RetainedLogs.Interface; readonly directory: string }
 >()("test/DiagnosticsServer") {}
 
 const serverLayer = Layer.unwrap(
@@ -139,7 +139,9 @@ const serverLayer = Layer.unwrap(
 
     const ready = Layer.effect(
       Server,
-      HttpServer.addressFormattedWith((baseUrl) => Effect.succeed(Server.of({ baseUrl, logs }))),
+      HttpServer.addressFormattedWith((baseUrl) =>
+        Effect.succeed(Server.of({ baseUrl, logs, directory })),
+      ),
     );
 
     return ready.pipe(Layer.provideMerge(routes));
@@ -399,6 +401,26 @@ layer(serverLayer, { timeout: 30_000 })("log routes as the service shuts down", 
       const received = yield* Fiber.join(body).pipe(Effect.timeout("2 seconds"));
 
       assert.deepStrictEqual(received.trim().split("\n"), SEED);
+    }),
+  );
+});
+
+layer(serverLayer, { timeout: 30_000 })("log routes without a log folder", (it) => {
+  it.effect("say since when the retained log could not be read", () =>
+    Effect.gen(function* () {
+      const { directory } = yield* Server;
+      const fs = yield* FileSystem.FileSystem;
+
+      // Unmounted, or replaced by something the service cannot list.
+      yield* fs.remove(directory, { recursive: true });
+      yield* fs.writeFileString(directory, "");
+
+      const response = yield* post("/api/logs", ADMIN, {});
+
+      assert.strictEqual(response.status, 200);
+      assert.isFalse(
+        Number.isNaN(Date.parse(response.headers.get("x-movies-log-unavailable-since") ?? "")),
+      );
     }),
   );
 });
