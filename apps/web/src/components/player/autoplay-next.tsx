@@ -1,108 +1,240 @@
 /**
- * Paper 07 · 05 Autoplay next: near the end of an episode the video shrinks into a card on the
- * left while the next episode waits on the right with a countdown. Next episode plays it now;
- * Watch credits cancels the countdown and returns to the full frame.
+ * The next-episode card: near the end of an episode, the credits keep playing in the full frame
+ * while a compact card in the corner names the next episode and counts down to it. Play next plays
+ * it now; Watch credits cancels the countdown and closes the card. In a watch room the host's card
+ * acts for everyone, and a guest's only follows. Paper 07 · 05 still draws the earlier layout (the
+ * video shrunk beside a large still); this one awaits its Paper check.
  */
 import type { Episode } from "@movies/contracts/models/catalog";
 import { Button } from "@movies/ui/components/button";
-import { ProgressRing } from "@movies/ui/components/progress-ring";
-import { formatTimecode } from "@movies/ui/lib/timecode";
+import { cn } from "@movies/ui/lib/utils";
+import { PlayIcon, TvIcon } from "lucide-react";
+import { useId } from "react";
 
-import { artworkUrl } from "@/lib/artwork";
-import { episodeCode, formatRuntime } from "@/lib/format";
+import { episodeCode, facts, formatRuntime } from "@/lib/format";
 
 import { AUTOPLAY_COUNTDOWN } from "./autoplay";
 
 /**
- * The overlay around the shrunken video.
+ * What this viewer can do about the countdown, `countdownMs` before the next episode starts.
+ * `advance`: playing on their own, or hosting a room (for everyone in it), they play the next
+ * episode now or watch the credits instead. `follow`: a room's guest sees the host's countdown and
+ * can only close the card on this screen. `unavailable`: the next episode cannot play (`reason`),
+ * so nothing counts down and the card only closes.
+ */
+export type NextEpisodeActions =
+  | {
+      readonly kind: "advance";
+      readonly countdownMs: number;
+      readonly onPlayNext: () => void;
+      readonly onWatchCredits: () => void;
+    }
+  | { readonly kind: "follow"; readonly countdownMs: number; readonly onClose: () => void }
+  | { readonly kind: "unavailable"; readonly reason: string; readonly onClose: () => void };
+
+/** The parts of the next episode the card shows. */
+export type NextEpisode = Pick<
+  Episode,
+  "seasonNumber" | "episodeNumber" | "name" | "overview" | "runtimeMs"
+>;
+
+/**
+ * The card over the playing credits, in the bottom corner (across the bottom on phones held
+ * upright).
  *
- * @param current - `Severance · S2:E4 Woe's Hollow`, under the video.
- * @param remainingSeconds - Time left in the episode playing.
- * @param countdownMs - Time left before the next episode starts.
+ * @param still - The next episode's still, sized for a card; without one, or while it fails to
+ *   load, the tile shows a glyph.
  */
 export function AutoplayNext({
-  current,
-  remainingSeconds,
   next,
-  countdownMs,
-  onPlayNext,
-  onWatchCredits,
+  still,
+  actions,
 }: {
-  readonly current: string;
-  readonly remainingSeconds: number;
-  readonly next: Episode;
-  readonly countdownMs: number;
-  readonly onPlayNext: () => void;
-  readonly onWatchCredits: () => void;
+  readonly next: NextEpisode;
+  readonly still: string | undefined;
+  readonly actions: NextEpisodeActions;
 }) {
-  const still = artworkUrl(next.still, "card");
-  const seconds = Math.max(0, Math.ceil(countdownMs / 1000));
-
   return (
-    <div className="on-media pointer-events-none absolute inset-0 font-sans">
-      <div className="absolute top-49 left-16 hidden w-1/2 flex-col gap-5 md:flex">
-        <div aria-hidden className="aspect-video" />
-        <p className="flex items-center gap-3">
-          <span className="text-body/body font-semibold text-text">{current}</span>
-          <span className="font-mono text-label/body text-text-muted">
-            {formatTimecode(-remainingSeconds)}
-          </span>
-        </p>
-      </div>
-      <section
-        aria-label="Next episode"
-        className="pointer-events-auto absolute inset-x-6 bottom-8 flex flex-col gap-6 md:inset-x-auto md:top-49 md:right-16 md:bottom-auto md:left-[calc(50%+var(--spacing-32))]"
-      >
-        <div
-          className="relative hidden aspect-video items-end overflow-hidden rounded-card bg-dark-surface-raised bg-cover bg-center p-4 md:flex"
-          style={still === undefined ? undefined : { backgroundImage: `url("${still}")` }}
+    <div className="on-media pointer-events-none absolute inset-0 p-4 font-sans md:p-12 short:p-4">
+      {/* The safe areas pad this box rather than the card, so the card's full width stays inside. */}
+      <div className="flex size-full items-end justify-end pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)]">
+        <section
+          aria-label="Next episode"
+          data-slot="next-episode"
+          className="pointer-events-auto flex w-full max-w-full flex-col gap-4 rounded-card bg-dark-surface-raised p-4 shadow-overlay md:w-(--spacing-next-card) md:p-5 short:w-(--spacing-next-card)"
         >
-          {next.runtimeMs === null ? null : (
-            <span className="rounded-bar bg-dark-bg/55 px-1.5 py-0.5 font-mono text-caption/caption text-text">
-              {formatRuntime(next.runtimeMs)}
-            </span>
-          )}
-        </div>
-        <div className="flex flex-col gap-2">
-          <p className="text-label/label font-semibold tracking-caps text-text-muted uppercase">
+          <p className="text-caption/caption font-semibold tracking-caps text-text-muted uppercase">
             Next episode
           </p>
-          <h2 className="text-heading/heading font-heavy tracking-tight text-text md:text-title/title">
-            {episodeCode(next)} {next.name}
-          </h2>
-          {next.overview === null ? null : (
-            <p className="hidden text-body/body text-text-muted md:block">{next.overview}</p>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant="inverse"
-            size="lg"
-            className="h-13 gap-3 pr-6 pl-3.5 text-button/5"
-            autoFocus
-            onClick={onPlayNext}
-          >
-            <ProgressRing
-              value={1 - countdownMs / AUTOPLAY_COUNTDOWN.totalMs}
-              thickness={7}
-              className="size-8 text-dark-bg"
+          <div className="flex items-start gap-4">
+            <div
+              data-slot="next-episode-still"
+              className="relative flex aspect-video w-28 max-w-1/3 shrink-0 short:w-20 items-center justify-center overflow-hidden rounded-poster bg-text/5 text-text-muted"
             >
-              <span className="font-mono text-caption/caption font-semibold text-dark-bg">
-                {seconds}
-              </span>
-            </ProgressRing>
-            Next episode
-          </Button>
-          <Button
-            variant="secondary"
-            size="lg"
-            className="h-13 text-button/5"
-            onClick={onWatchCredits}
-          >
-            Watch credits
-          </Button>
-        </div>
-      </section>
+              <TvIcon aria-hidden className="size-6" />
+              {still === undefined ? null : (
+                <div
+                  aria-hidden
+                  data-slot="next-episode-image"
+                  className="absolute inset-0 bg-cover bg-center"
+                  style={{ backgroundImage: `url("${still}")` }}
+                />
+              )}
+            </div>
+            <div className="flex min-w-0 flex-col gap-1">
+              <p className="text-label/label text-text-muted tabular-nums">
+                {facts(
+                  episodeCode(next),
+                  next.runtimeMs === null ? null : formatRuntime(next.runtimeMs),
+                )}
+              </p>
+              <h2 className="line-clamp-2 short:line-clamp-1 text-heading/heading font-bold tracking-tight wrap-break-word text-text">
+                {next.name}
+              </h2>
+            </div>
+          </div>
+          {next.overview === null ? null : (
+            <p className="line-clamp-2 text-label/label text-text-muted short:hidden">
+              {next.overview}
+            </p>
+          )}
+          <CardActions actions={actions} />
+        </section>
+      </div>
     </div>
+  );
+}
+
+/** "Starts in 7 seconds", for `countdownMs` left. */
+const startsIn = (countdownMs: number): string => {
+  const seconds = secondsLeft(countdownMs);
+
+  return `Starts in ${String(seconds)} ${seconds === 1 ? "second" : "seconds"}`;
+};
+
+/** The whole seconds left, as the card shows them. */
+const secondsLeft = (countdownMs: number): number => Math.max(0, Math.ceil(countdownMs / 1000));
+
+/** The card's buttons, or a guest's countdown, or why the next episode cannot play. */
+function CardActions({ actions }: { readonly actions: NextEpisodeActions }) {
+  const describedBy = useId();
+
+  if (actions.kind === "unavailable") {
+    return (
+      <div className="flex flex-wrap items-center gap-3">
+        <p
+          data-slot="next-episode-reason"
+          className="min-w-0 grow text-body/4.5 font-semibold text-text"
+        >
+          {actions.reason}
+        </p>
+        <Button variant="secondary" size="md" onClick={actions.onClose}>
+          Close
+        </Button>
+      </div>
+    );
+  }
+
+  if (actions.kind === "follow") {
+    return (
+      <div className="flex flex-wrap gap-3">
+        <p
+          role="timer"
+          aria-label={startsIn(actions.countdownMs)}
+          className="relative isolate flex h-11 grow items-center justify-center gap-2 overflow-hidden rounded-control bg-text/10 px-5 text-body/4.5 font-semibold text-text"
+        >
+          <CountdownFill countdownMs={actions.countdownMs} className="bg-text/15" />
+          Starts in
+          <Seconds value={secondsLeft(actions.countdownMs)} />
+        </p>
+        <Button variant="secondary" size="md" className="grow" onClick={actions.onClose}>
+          Close
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap gap-3">
+      <Button
+        variant="inverse"
+        size="md"
+        className="relative isolate grow overflow-hidden bg-text/70 hover:bg-text/80"
+        autoFocus
+        aria-describedby={describedBy}
+        onClick={actions.onPlayNext}
+      >
+        <CountdownFill countdownMs={actions.countdownMs} className="bg-text" />
+        <PlayIcon aria-hidden className="fill-current" />
+        <span>Play next</span>
+        <Seconds value={secondsLeft(actions.countdownMs)} />
+      </Button>
+      {/* Outside the button, so it describes Play next without joining its name; hidden, so it is
+          read only as that description. */}
+      <span id={describedBy} hidden>
+        {startsIn(actions.countdownMs)}
+      </span>
+      <Button variant="secondary" size="md" className="grow" onClick={actions.onWatchCredits}>
+        Watch credits
+      </Button>
+    </div>
+  );
+}
+
+/** The share of the countdown gone once `countdownMs` is left, from 0 to 1. */
+const gone = (countdownMs: number): string =>
+  String(Math.min(1, Math.max(0, 1 - countdownMs / AUTOPLAY_COUNTDOWN.totalMs)));
+
+/**
+ * The countdown's progress across its control, from the left. It opens empty and glides over each
+ * step toward where the countdown will be at the next one, so it is full as the next episode
+ * starts. For viewers who asked for less motion it shows where the countdown is, a step at a time.
+ */
+function CountdownFill({
+  countdownMs,
+  className,
+}: {
+  readonly countdownMs: number;
+  readonly className: string;
+}) {
+  const fill = cn("absolute inset-0 -z-10 origin-left", className);
+
+  return (
+    <>
+      <span
+        aria-hidden
+        data-slot="countdown-fill"
+        className={cn(
+          fill,
+          "transition-[scale] ease-linear starting:scale-x-0! motion-reduce:hidden",
+        )}
+        // The starting style outranks this, so the fill opens empty and glides from there.
+        style={{
+          scale: `${gone(countdownMs - AUTOPLAY_COUNTDOWN.stepMs)} 1`,
+          transitionDuration: `${String(AUTOPLAY_COUNTDOWN.stepMs)}ms`,
+        }}
+      />
+      <span
+        aria-hidden
+        className={cn(fill, "motion-safe:hidden")}
+        style={{ scale: `${gone(countdownMs)} 1` }}
+      />
+    </>
+  );
+}
+
+/**
+ * The seconds left, in a box two digits wide with digits of one width, so nothing beside it moves
+ * as they count down. Hidden from screen readers, which would read every tick.
+ */
+function Seconds({ value }: { readonly value: number }) {
+  return (
+    <span
+      aria-hidden
+      data-slot="countdown-seconds"
+      className="w-7 shrink-0 text-center tabular-nums"
+    >
+      {value}
+    </span>
   );
 }

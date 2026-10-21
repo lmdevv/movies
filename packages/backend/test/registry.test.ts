@@ -5,11 +5,14 @@
  * the registry; and constants duplicated across the seam are equal. Runs without a backend.
  */
 import {
+  AWAY_PRESENCE_TIMEOUT_MS,
   HEARTBEAT_INTERVAL_MS,
   HOST_ABANDON_TIMEOUT_MS,
   HOST_PRESENCE_TIMEOUT_MS,
   HOST_REANCHOR_THRESHOLD_MS,
   MEMBER_PRESENCE_TIMEOUT_MS,
+  NEXT_EPISODE_COUNTDOWN_MS,
+  PLAYER_SILENCE_MS,
   UNTIMED_HOST_REANCHOR_THRESHOLD_MS,
 } from "@movies/contracts/clock";
 import type { AnyCommand } from "@movies/contracts/command";
@@ -18,6 +21,7 @@ import { KIDS_DEFAULT_MAX_AGE } from "@movies/contracts/content-rating";
 import { DeviceId } from "@movies/contracts/ids";
 import { mediaServiceFunctions } from "@movies/contracts/media-service";
 import { LibraryRoot } from "@movies/contracts/models/catalog";
+import { NewPassword } from "@movies/contracts/models/account";
 import { DisplayName } from "@movies/contracts/models/common";
 import { BACKUP_SYNC_LIMIT } from "@movies/contracts/models/jobs";
 import {
@@ -42,6 +46,7 @@ import * as authParams from "../convex/authParams";
 import * as backups from "../convex/backups";
 import * as collections from "../convex/collections";
 import * as deviceAuth from "../convex/deviceAuth";
+import * as downloads from "../convex/downloads";
 import * as history from "../convex/history";
 import * as invites from "../convex/invites";
 import * as jobs from "../convex/jobs";
@@ -79,6 +84,7 @@ const modules = {
   backups,
   collections,
   deviceAuth,
+  downloads,
   history,
   invites,
   jobs,
@@ -209,6 +215,9 @@ describe("constants shared across the seam", () => {
     expect(convexClock.HOST_REANCHOR_THRESHOLD_MS).toBe(HOST_REANCHOR_THRESHOLD_MS);
     expect(convexClock.UNTIMED_HOST_REANCHOR_THRESHOLD_MS).toBe(UNTIMED_HOST_REANCHOR_THRESHOLD_MS);
     expect(convexClock.HEARTBEAT_INTERVAL_MS).toBe(HEARTBEAT_INTERVAL_MS);
+    expect(convexClock.PLAYER_SILENCE_MS).toBe(PLAYER_SILENCE_MS);
+    expect(convexClock.AWAY_PRESENCE_TIMEOUT_MS).toBe(AWAY_PRESENCE_TIMEOUT_MS);
+    expect(convexClock.NEXT_EPISODE_COUNTDOWN_MS).toBe(NEXT_EPISODE_COUNTDOWN_MS);
   });
 
   it("uses the same kids default and batch limits", () => {
@@ -217,6 +226,13 @@ describe("constants shared across the seam", () => {
     expect(bounds.BACKUP_SYNC_LIMIT).toBe(BACKUP_SYNC_LIMIT);
     expect(bounds.COLLECTION_BATCH_LIMIT).toBe(COLLECTION_BATCH_LIMIT);
     expect(bounds.COLLECTION_MEMBER_BATCH_LIMIT).toBe(COLLECTION_MEMBER_BATCH_LIMIT);
+  });
+
+  it("asks for new passwords as long as the contract does", () => {
+    const accepts = Schema.is(NewPassword);
+
+    expect(accepts(text(bounds.PASSWORD_MIN, ""))).toBe(true);
+    expect(accepts(text(bounds.PASSWORD_MIN - 1, ""))).toBe(false);
   });
 
   // Validators check shapes only; these are the lengths and ranges the backend enforces itself.
@@ -262,6 +278,22 @@ describe("constants shared across the seam", () => {
         sid: payload.sid,
         iat: payload.iat,
         exp: payload.exp,
+      }),
+    ).resolves.toBe(token);
+  });
+
+  it("signs the shared download token vector exactly", async () => {
+    const { payload, token } = PLAYBACK_TOKEN_TEST_VECTORS.download;
+
+    await expect(
+      signPlaybackToken(PLAYBACK_TOKEN_TEST_VECTORS.secret, {
+        sub: payload.sub,
+        pid: payload.pid,
+        fid: payload.fid,
+        sid: payload.sid,
+        iat: payload.iat,
+        exp: payload.exp,
+        pur: payload.pur,
       }),
     ).resolves.toBe(token);
   });

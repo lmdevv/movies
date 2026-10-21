@@ -9,10 +9,12 @@ import {
   LibraryFileFilter,
   LibraryFileSummary,
   LibraryKind,
+  LibraryRoot,
   LibraryRoots,
   MetadataCandidate,
   MetadataField,
   MetadataOverrides,
+  ServerFolders,
 } from "../models/catalog";
 import { DisplayName, NoArgs, Ok, Page, PageArgs } from "../models/common";
 import { Backup, Job, JobKind, JobStatus, QueuedJob, ScanMode } from "../models/jobs";
@@ -110,6 +112,17 @@ export const libraryCommands = {
     result: QueuedJob,
     function: "libraries:scan",
   }),
+  "libraries.folders": media({
+    summary: "List the media host's folders inside its approved library roots",
+    group: "libraries",
+    scope: "manage",
+    args: Schema.Struct({
+      /** The folder to list; omit for the approved roots themselves. */
+      path: Schema.optionalKey(LibraryRoot),
+    }),
+    result: ServerFolders,
+    route: { method: "POST", path: "/api/libraries/folders" },
+  }),
   "libraries.generateTrickplay": mutation({
     summary: "Generate scrub thumbnails for every file in a library that has none",
     group: "libraries",
@@ -125,6 +138,8 @@ export const libraryCommands = {
     args: Schema.Struct({
       kind: Schema.optionalKey(JobKind),
       status: Schema.optionalKey(JobStatus),
+      /** Only this library's jobs, its scans. */
+      libraryId: Schema.optionalKey(LibraryId),
       limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
     }),
     result: Schema.Array(Job),

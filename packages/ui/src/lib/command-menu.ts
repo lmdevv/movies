@@ -2,11 +2,10 @@ import type { ComponentType } from "react";
 
 import { fuzzyFilter } from "./fuzzy";
 
-/** What fills the fixed 20px slot in front of a command's title. */
+/** What fills the fixed 20px slot in front of a command's title; a checked row draws a check. */
 export type CommandLeading =
   | { readonly kind: "icon"; readonly icon: ComponentType<{ readonly className?: string }> }
-  | { readonly kind: "poster"; readonly src: string }
-  | { readonly kind: "check" };
+  | { readonly kind: "poster"; readonly src: string };
 
 type CommandItemFields = {
   /** Stable within its page; used for React keys and the active option's id. */
@@ -17,6 +16,12 @@ type CommandItemFields = {
   /** Extra search words that are not shown. */
   readonly keywords?: ReadonlyArray<string> | undefined;
   readonly leading?: CommandLeading | undefined;
+  /**
+   * Whether the row is the current choice of a list of choices. Set it on every row of such a list
+   * (true or false) and leave it out elsewhere. A checked row draws a check in place of `leading`
+   * and tells assistive technology it is checked.
+   */
+  readonly checked?: boolean | undefined;
   /** Keycaps drawn at the right edge, such as `["G", "H"]`. Omit when the command has no shortcut. */
   readonly keycaps?: ReadonlyArray<string> | undefined;
   /** Fraction done, from 0 to 1, of a running job this row reports, such as a library scan. */

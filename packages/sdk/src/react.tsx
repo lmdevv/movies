@@ -5,7 +5,7 @@
  * reject with the SDK's tagged errors.
  */
 import type { CommandArgs, CommandName, CommandResult } from "@movies/contracts/commands";
-import type { DeviceId, RoomId } from "@movies/contracts/ids";
+import type { DeviceId, MediaFileId, RoomId } from "@movies/contracts/ids";
 import type { ConvexReactClient } from "convex/react";
 import { ConvexProvider } from "convex/react";
 import {
@@ -45,6 +45,7 @@ import * as Playback from "./playback";
 import * as QueryWatch from "./query-watch";
 import type { QueryState } from "./query-watch";
 import type { PlayerPort } from "./room-sync/player-port";
+import * as RoomPresence from "./room-sync/room-presence";
 import * as RoomSync from "./room-sync/room-sync";
 import type { RoomSyncState } from "./room-sync/room-sync";
 import type { RoomSyncTunables } from "./room-sync/sync-policy";
@@ -297,10 +298,23 @@ const useScoped = <A, E>(
   return outcome;
 };
 
+/**
+ * Keeps this device's place in a room while mounted, outside the room's player: heartbeats that
+ * say the device is away, browsing, so the server neither drops it nor counts it as watching.
+ * Null sends nothing. It stops on unmount; pass null once the device is no longer in the room.
+ */
+export const useRoomPresence = (input: RoomPresence.RoomPresenceOptions | null): void => {
+  const key = input === null ? null : `${input.roomId}:${input.deviceId}`;
+
+  useScoped(key, () => (input === null ? Effect.void : RoomPresence.keepAway(input)));
+};
+
 /** What `useRoomSync` needs. */
 export interface RoomSyncInput {
   readonly roomId: RoomId;
   readonly deviceId: DeviceId;
+  /** The file the player plays, so the engine knows when the room moved on from it. */
+  readonly fileId?: MediaFileId | undefined;
   readonly tunables?: RoomSyncTunables;
 }
 
@@ -314,7 +328,11 @@ export const useRoomSync = (
 ): Result.Result<RoomSyncState, CallError> | null => {
   const runtime = useMoviesRuntime();
   const [state, setState] = useState<RoomSyncState | null>(null);
-  const key = player === null || input === null ? null : `${input.roomId}:${input.deviceId}`;
+
+  const key =
+    player === null || input === null
+      ? null
+      : `${input.roomId}:${input.deviceId}:${input.fileId ?? ""}`;
 
   const started = useScoped(key, () =>
     Effect.gen(function* () {
@@ -325,6 +343,7 @@ export const useRoomSync = (
         deviceId: input.deviceId,
         player,
         tunables: input.tunables ?? DEFAULT_TUNABLES,
+        fileId: input.fileId,
       });
 
       yield* Effect.forkScoped(

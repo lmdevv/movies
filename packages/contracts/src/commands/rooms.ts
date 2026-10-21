@@ -1,16 +1,31 @@
 /**
  * Watch rooms. Only the host's device controls the timeline; every control carries the revision
- * the host last saw and fails with `stale_revision` when the room moved on.
+ * the host last saw and fails with `stale_revision` when the room moved on. The next-episode
+ * commands are keyed on what the room plays instead, so a repeat or a race moves it on once.
  */
 import { Schema } from "effect";
 
 import { DeviceId, EpisodeId, MediaFileId, ProfileId, RoomId, TitleId } from "../ids";
 import { NoArgs, Ok } from "../models/common";
-import { CreateRoomArgs, HostControlArgs, Room, RoomClock, ServerTime } from "../models/rooms";
+import {
+  CreateRoomArgs,
+  HostControlArgs,
+  Room,
+  RoomClock,
+  RoomPresence,
+  ServerTime,
+} from "../models/rooms";
 import { EpochMillis, Milliseconds } from "../units";
 import { mutation, query } from "./command";
 
 const OnDevice = Schema.Struct({ roomId: RoomId, deviceId: DeviceId });
+
+/**
+ * A next-episode command: the room, the host's device, and the episode the host is moving on from.
+ * When the room already plays another, it moved on before the command, which then changes nothing:
+ * repeats, races with the countdown, and stale tabs act once, on the episode they meant.
+ */
+const FromEpisode = Schema.Struct({ ...OnDevice.fields, fromEpisodeId: EpisodeId });
 
 /** Watch room commands. */
 export const roomCommands = {
@@ -106,8 +121,20 @@ export const roomCommands = {
        */
       atServerTime: Schema.optionalKey(EpochMillis),
       revision: Schema.optionalKey(Schema.Int),
+      /**
+       * The file the host's player plays; a position read on a file the room moved on from never
+       * re-anchors the new one's clock.
+       */
+      fileId: Schema.optionalKey(MediaFileId),
       /** A guest's distance from the shared position, shown to the room; omit while buffering. */
       driftMs: Schema.optionalKey(Schema.Finite),
+      /**
+       * `away` from a device browsing elsewhere in the app, which keeps its place without playing;
+       * omit from the room's player. It counts once the device's player has been silent for
+       * `PLAYER_SILENCE_MS`; until then it only keeps the place. An away host's position is not
+       * read.
+       */
+      presence: Schema.optionalKey(RoomPresence),
     }),
     result: RoomClock,
     function: "rooms:heartbeat",
@@ -125,6 +152,31 @@ export const roomCommands = {
     }),
     result: RoomClock,
     function: "rooms:setMedia",
+  }),
+  "rooms.startNextCountdown": mutation({
+    summary:
+      "Host: start the room's countdown to the next episode; the server moves everyone on when it ends",
+    group: "rooms",
+    scope: "play",
+    args: FromEpisode,
+    result: Room,
+    function: "rooms:startNextCountdown",
+  }),
+  "rooms.cancelNextCountdown": mutation({
+    summary: "Host: cancel the next-episode countdown for everyone, to watch the credits",
+    group: "rooms",
+    scope: "play",
+    args: FromEpisode,
+    result: Room,
+    function: "rooms:cancelNextCountdown",
+  }),
+  "rooms.playNext": mutation({
+    summary: "Host: move the room on to the next episode now; once per episode",
+    group: "rooms",
+    scope: "play",
+    args: FromEpisode,
+    result: Room,
+    function: "rooms:playNext",
   }),
   "rooms.end": mutation({
     summary: "End the room for everyone",

@@ -13,7 +13,7 @@
  */
 import {
   type ClientCapabilities,
-  InsufficientTranscodeSpace,
+  type InsufficientTranscodeSpace,
   type PlaybackQuality,
   type KeyframeIndexFailed,
   SegmentNotFound,
@@ -49,7 +49,6 @@ import type { MediaFileId, PlaybackSessionId } from "@movies/contracts/ids";
 import { StreamId } from "@movies/contracts/media-playback";
 import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
-import { errorCode, freeBytes } from "../platform/node-directories.ts";
 import type { ResolvedMediaFile } from "./file-resolver.ts";
 import { FRAGMENT_HEAD_BYTES, fragmentStartSeconds } from "./fmp4-fragments.ts";
 import * as HardwareAcceleration from "./hardware-acceleration.ts";
@@ -58,6 +57,7 @@ import * as KeyframeIndex from "./keyframe-index.ts";
 import { AudioPlan, decidePlayback, PlaybackPlan, VideoPlan } from "./playback-decision.ts";
 import * as PlaybackReporter from "./playback-reporter.ts";
 import type { PlaybackGrant } from "./playback-token.ts";
+import * as TranscodeSpace from "./transcode-space.ts";
 import { hlsCommandArgs } from "./transcode-command.ts";
 
 /** What negotiation hands to a new session. */
@@ -244,6 +244,7 @@ const make = Effect.gen(function* () {
   const keyframes = yield* KeyframeIndex.Service;
   const hardware = yield* HardwareAcceleration.Service;
   const reporter = yield* PlaybackReporter.Service;
+  const space = yield* TranscodeSpace.Service;
   const sessions = yield* Ref.make<ReadonlyMap<StreamId, Session>>(new Map());
   const transcodes = yield* Ref.make(0);
   const copies = yield* Ref.make(0);
@@ -795,21 +796,8 @@ const make = Effect.gen(function* () {
 
     yield* acquireSlot(scope, transcoding, replacing.length);
 
-    const available = yield* Effect.tryPromise(() => freeBytes(config.transcodeDir)).pipe(
-      Effect.tapError((error) =>
-        Effect.logWarning("StreamSessions.free_space_unknown").pipe(
-          Effect.annotateLogs({ code: errorCode(error.cause) }),
-        ),
-      ),
-      Effect.orElseSucceed(() => Number.POSITIVE_INFINITY),
-    );
-
-    if (available < config.minFreeTranscodeBytes) {
-      return yield* new InsufficientTranscodeSpace({
-        freeBytes: available,
-        requiredBytes: config.minFreeTranscodeBytes,
-      });
-    }
+    // Space the download MP4 being written has reserved counts as used.
+    yield* space.check(0);
 
     const quickStart = file.probe.startSeconds + request.startSeconds;
 
@@ -1058,4 +1046,5 @@ export const layer: Layer.Layer<
   | KeyframeIndex.Service
   | HardwareAcceleration.Service
   | PlaybackReporter.Service
+  | TranscodeSpace.Service
 > = Layer.effect(Service, make);

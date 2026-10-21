@@ -11,7 +11,8 @@
  * quality cap and picture subtitles (PGS, VobSub), which the media service burns into the video;
  * text subtitles are `<track>` elements and switch without a new stream. Another version (file) of
  * the movie or episode plays in a new session from the same position, keeping the audio and text
- * subtitle languages where the new file has them.
+ * subtitle languages where the new file has them. A subtitle delay (`subtitle-timing`) moves the
+ * text subtitles' cues for this playback only: another track or version starts at zero again.
  *
  * Every SDK call runs on the app's SDK runtime and comes back as a value; nothing here throws.
  */
@@ -48,6 +49,7 @@ import type { AttachedStream, StreamFailure } from "./stream-attachment";
 import { attachStream, preloadHlsJs } from "./stream-attachment";
 import { RENEW_BEFORE_MS, inGeneration, runSdk } from "./sdk-calls";
 import type { Runtime } from "./sdk-calls";
+import { SubtitleRetimer, clampSubtitleDelay } from "./subtitle-timing";
 import { SwitchablePlayer } from "./switchable-player";
 
 /** Where playback starts. */
@@ -109,6 +111,13 @@ export interface PlaybackSnapshot {
    * it in has loaded; the stream's `burnedInSubtitle` says which one is in the video.
    */
   readonly subtitleId: string | null;
+  /**
+   * How much later than their file says the text subtitles show, in milliseconds; negative is
+   * earlier. It belongs to the text track and file it was set for, and reads 0 while anything else
+   * shows: Off or a picture track and back to that track has it again, while choosing another text
+   * track, or a version that then plays, drops it.
+   */
+  readonly subtitleDelayMs: number;
   readonly quality: QualityChoice;
   /**
    * The quality the loaded stream was negotiated with, once one has loaded; it trails `quality`
@@ -173,6 +182,24 @@ interface VersionSwitch {
   readonly from: MediaFileId;
 }
 
+/** A subtitle delay and the file and text track it was set for. */
+interface SubtitleDelay {
+  readonly fileId: MediaFileId;
+  readonly trackId: string;
+  readonly ms: number;
+}
+
+/** The delay `snapshot` shows: `delay`'s while its file and track show, 0 otherwise. */
+const delayShown = (
+  delay: SubtitleDelay | null,
+  snapshot: Pick<PlaybackSnapshot, "started" | "subtitleId">,
+): number =>
+  delay !== null &&
+  delay.trackId === snapshot.subtitleId &&
+  delay.fileId === snapshot.started?.file.id
+    ? delay.ms
+    : 0;
+
 /** Whether a session was refused because the file asked for is gone or not this title's. */
 const refusesFile = (failure: CallError): boolean =>
   Predicate.isTagged(failure, "Conflict") || Predicate.isTagged(failure, "NotFound");
@@ -215,6 +242,7 @@ export class PlaybackController {
     stream: null,
     audioStreamIndex: null,
     subtitleId: null,
+    subtitleDelayMs: 0,
     quality: "auto",
     loadedQuality: null,
     needsGesture: false,
@@ -232,6 +260,10 @@ export class PlaybackController {
   #disposed = false;
   /** Another device plays the session (`park`); the element holds no stream meanwhile. */
   #parked = false;
+  /** Keeps the element's text subtitles `subtitleDelayMs` away from their files' timing. */
+  readonly #retimer: SubtitleRetimer;
+  /** The subtitle delay the viewer set, with the file and text track it was set for; or none. */
+  #delay: SubtitleDelay | null = null;
 
   /**
    * @param hlsJs - Play HLS through hls.js rather than the element (`usesHlsJs`).
@@ -252,6 +284,7 @@ export class PlaybackController {
     this.#snapshot = { ...this.#snapshot, quality: request.quality };
     this.player = new MediaElementPlayer(element);
     this.output = new SwitchablePlayer(this.player);
+    this.#retimer = new SubtitleRetimer(element);
     element.addEventListener("playing", this.#onPlaying);
     element.addEventListener("loadeddata", this.#onFirstFrame);
     element.addEventListener("pause", this.#onSettled);
@@ -272,7 +305,14 @@ export class PlaybackController {
 
   #update(change: Partial<PlaybackSnapshot>): void {
     if (this.#disposed) return;
-    this.#snapshot = { ...this.#snapshot, ...change };
+
+    const next = { ...this.#snapshot, ...change };
+    const delayMs = delayShown(this.#delay, next);
+
+    // Whatever path changes the track or file (a choice, a refused one undone, a carried language),
+    // the delay follows from what shows.
+    if (delayMs !== this.#snapshot.subtitleDelayMs) this.#retimer.set(delayMs);
+    this.#snapshot = { ...next, subtitleDelayMs: delayMs };
 
     for (const listener of this.#listeners) listener();
   }
@@ -771,6 +811,8 @@ export class PlaybackController {
         candidate.language === carried.subtitle,
     );
 
+    // The delay was set for the file before; the new one starts from its files' timing.
+    if (this.#delay !== null && this.#delay.fileId !== this.#fileId) this.#delay = null;
     this.#update({ subtitleId: track?.id ?? null });
   }
 
@@ -984,6 +1026,9 @@ export class PlaybackController {
     const burnIn = this.#bitmapTrack(id);
     const previous = this.#snapshot.subtitleId;
 
+    // Another text track starts from its file's timing. Off and picture tracks show no cues to
+    // delay, so the delay waits for its track.
+    if (id !== null && burnIn === null && id !== this.#delay?.trackId) this.#delay = null;
     this.#update({ subtitleId: id });
 
     if (burnIn === this.#burnIn) return;
@@ -991,6 +1036,26 @@ export class PlaybackController {
     this.#changeChoices(() => {
       this.#burnIn = burnIn;
     }, previous);
+  }
+
+  /**
+   * Shows the text subtitles `delayMs` later than their file says (earlier when negative), held
+   * to `SUBTITLE_DELAY`'s range, until another track or version is chosen. Only the cues in this
+   * element move: nothing reaches the media service or a room.
+   *
+   * @returns Whether the delay was set; false without a session or a text subtitle chosen.
+   */
+  setSubtitleDelay(delayMs: number): boolean {
+    const { started, subtitleId } = this.#snapshot;
+
+    if (started === null || subtitleId === null || this.#bitmapTrack(subtitleId) !== null) {
+      return false;
+    }
+
+    this.#delay = { fileId: started.file.id, trackId: subtitleId, ms: clampSubtitleDelay(delayMs) };
+    this.#update({});
+
+    return true;
   }
 
   /** Plays at `quality` from here on, renegotiating when it changes. */
@@ -1129,6 +1194,7 @@ export class PlaybackController {
     this.#element.removeEventListener("seeking", this.#onSettled);
     // Before detaching, which rewinds the element: the exit report reads the player afterwards.
     this.player.dispose();
+    this.#retimer.dispose();
     this.#detach();
     this.#listeners.clear();
   }

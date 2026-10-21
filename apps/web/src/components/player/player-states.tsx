@@ -1,6 +1,7 @@
 /**
  * The player's full-frame states from Paper's 07 Playback page: the resume prompt, preparing a
- * stream, buffering, trying another way to play, and the calm stops (file missing, cannot play).
+ * stream, buffering, trying another way to play, the calm stops (file missing, cannot play), and
+ * the subtitle delay's notice.
  * Presentational: the player screen decides which one shows.
  */
 import { Button } from "@movies/ui/components/button";
@@ -9,7 +10,7 @@ import { ProgressRing } from "@movies/ui/components/progress-ring";
 import { Spinner } from "@movies/ui/components/spinner";
 import { formatTimecode } from "@movies/ui/lib/timecode";
 import { cn } from "@movies/ui/lib/utils";
-import { FileXIcon, FlagIcon, RotateCcwIcon } from "lucide-react";
+import { CaptionsIcon, FileXIcon, FlagIcon, RotateCcwIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 const timecode = (ms: number): string => formatTimecode(ms / 1000);
@@ -246,5 +247,27 @@ export function PressPlay({ onPlay }: { readonly onPlay: () => void }) {
         <PlayGlyph />
       </button>
     </Layer>
+  );
+}
+
+/**
+ * A moment's notice at the top of the frame after G or H, or a command, moved the subtitle delay:
+ * the delay now, such as `+0.5 s`, or why it cannot apply. The live region stays mounted and only
+ * its content comes and goes, so screen readers announce each change.
+ */
+export function SubtitleDelayNotice({ text }: { readonly text: string | null }) {
+  return (
+    <div
+      role="status"
+      className="on-media pointer-events-none absolute top-8 left-1/2 -translate-x-1/2"
+    >
+      {text === null ? null : (
+        <div className="flex h-10 items-center gap-2 rounded-pill border border-text/10 bg-glass px-4 font-sans text-label/label text-text shadow-glass backdrop-blur-xl [&_svg]:size-4">
+          <CaptionsIcon strokeWidth={1.75} aria-hidden />
+          <span className="text-text-muted">Subtitle delay</span>
+          <span className="font-semibold tabular-nums">{text}</span>
+        </div>
+      )}
+    </div>
   );
 }

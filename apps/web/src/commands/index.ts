@@ -22,13 +22,13 @@ import { usePreferenceCommands } from "./preferences";
 import { useProfileCommands } from "./profiles";
 import { useRoomCommands } from "./rooms";
 
-export type { CommandContext } from "./contribution";
+export type { CommandContext, PlayerCommands } from "./contribution";
 
 export { SWITCH_PROFILE_COMMAND } from "./profiles";
 
 /** Every contribution merged into the menu's root page, in menu order. */
 export const useCommandRoot = (context: CommandContext): CommandPage => {
-  const playback = usePlaybackCommands();
+  const playback = usePlaybackCommands(context);
   const rooms = useRoomCommands(context);
   const browse = useBrowseCommands(context);
   const navigation = useNavigationCommands(context);

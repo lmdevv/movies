@@ -7,6 +7,9 @@
 @source "../**/*.{ts,tsx}";
 
 @custom-variant dark (&:is(.dark *));
+/* Windows too short for the player's full overlays, such as a phone held sideways or a squat
+   browser window, whatever the pointer: the next-episode card trims itself to fit them. */
+@custom-variant short (@media (height < 30rem));
 
 /* Tokens from the [movies] Paper file (01M4PMRM5T60Q4P0YYZ8DY580D), names unchanged.
    Re-export with the Paper MCP `get_tokens` (tailwind format) when the design changes. */
@@ -124,9 +127,15 @@
   --font-weight-hero: 900;
   /* The spaced uppercase line under a hero title. */
   --font-weight-tagline: 300;
-  /* Popover lists: the chapter list and the command menu's results. */
+  /* Popover lists: the chapter list, the player's track and episode panels, and the command menu's
+     results. The track and episode panels are also held to the room above their triggers. */
   --spacing-chapter-list: 28rem;
+  --spacing-track-panel: 28rem;
+  --spacing-episode-panel: 28rem;
   --spacing-command-list: 30rem;
+  /* The player's next-episode card in the corner of the credits, wherever the window is wider than
+     a phone held upright or shorter than the `short` variant. */
+  --spacing-next-card: 26rem;
   /* Paddings, gaps, margins, and offsets between the Paper spacing steps. The key is the step on
      Tailwind's 4px grid (`gap-1.5` reads `--spacing-1_5`), so classes keep their usual names, and
      the value is in rem, as Tailwind's multiplier drew it, so it follows the text size setting;

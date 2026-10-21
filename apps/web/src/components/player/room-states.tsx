@@ -11,7 +11,7 @@ import { ProgressRing } from "@movies/ui/components/progress-ring";
 import { Wordmark } from "@movies/ui/components/wordmark";
 import { formatTimecode } from "@movies/ui/lib/timecode";
 import { cn } from "@movies/ui/lib/utils";
-import { CopyIcon, HouseIcon, Link2Icon, Link2OffIcon } from "lucide-react";
+import { CopyIcon, EyeOffIcon, HouseIcon, Link2Icon, Link2OffIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 const timecode = (ms: number): string => formatTimecode(ms / 1000);
@@ -242,13 +242,21 @@ export function HostLeft({
   );
 }
 
-/** Why a room link cannot be joined. */
+/** Why a room link cannot be joined, or the room cannot be watched on this profile now. */
 export type RoomDenial =
   | { readonly kind: "ended"; readonly hostName: string }
   /** The active profile cannot see the room's title; `hostName` when the room could be read. */
-  | { readonly kind: "household"; readonly hostName: string | null };
+  | { readonly kind: "household"; readonly hostName: string | null }
+  /**
+   * The room moved on to something the profile it joined with may not watch. The device keeps its
+   * place, and the player comes back once the room plays something the profile may watch.
+   */
+  | { readonly kind: "unavailable"; readonly hostName: null };
 
-/** Paper 08 · 07a and 07b: a room link that cannot be joined, on its own page. */
+/**
+ * Paper 08 · 07a and 07b: a room link that cannot be joined, on its own page. The unavailable
+ * state, a room that moved on out of this profile's reach, is not in Paper yet.
+ */
 export function RoomDenied({
   denial,
   home,
@@ -260,6 +268,7 @@ export function RoomDenied({
   readonly switchProfile: () => void;
 }) {
   const ended = denial.kind === "ended";
+  const unavailable = denial.kind === "unavailable";
   const owner = denial.hostName === null ? null : `${denial.hostName}'s`;
 
   return (
@@ -272,18 +281,26 @@ export function RoomDenied({
           <span className="flex size-16 items-center justify-center rounded-pill bg-dark-surface-raised">
             {ended ? (
               <Link2OffIcon className="size-7 text-text" strokeWidth={1.75} aria-hidden />
+            ) : unavailable ? (
+              <EyeOffIcon className="size-7 text-text" strokeWidth={1.75} aria-hidden />
             ) : (
               <HouseIcon className="size-7 text-text" strokeWidth={1.75} aria-hidden />
             )}
           </span>
           <div className="flex flex-col items-center gap-2.5 text-center">
             <h1 className="font-sans text-title/title font-heavy tracking-tight text-text">
-              {ended ? "This room has ended" : `This room is for ${owner ?? "another"} household`}
+              {ended
+                ? "This room has ended"
+                : unavailable
+                  ? "Not available on this profile"
+                  : `This room is for ${owner ?? "another"} household`}
             </h1>
             <p className="font-sans text-body/body text-text-muted">
               {denial.kind === "ended"
                 ? `${denial.hostName} closed this room. Ask ${denial.hostName} for a new invite.`
-                : `Switch to a profile on ${owner ?? "this"} server to join.`}
+                : unavailable
+                  ? "The room moved on to something this profile can't watch. You keep your place, and the player comes back when the room plays something you can."
+                  : `Switch to a profile on ${owner ?? "this"} server to join.`}
             </p>
           </div>
           <div className="flex gap-3">

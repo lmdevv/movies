@@ -10,17 +10,24 @@ import { sortKeyOf } from "./lib/catalog";
 import { removeTitleGenres, syncTitleGenres } from "./lib/genres";
 import { removeTitleCredits } from "./lib/people";
 import { overlappingLibraries as findOverlaps } from "./lib/roots";
+import { PLAYBACK_TOKEN_LIFETIME_MS } from "./lib/playbackToken";
 import { forgetTrickplay } from "./lib/trickplay";
 import { endAuthSession } from "./lib/viewer";
 import {
-  HOST_ABANDON_TIMEOUT_MS,
   HOST_PRESENCE_TIMEOUT_MS,
+  isAbandoned,
   livePosition,
-  MEMBER_PRESENCE_TIMEOUT_MS,
+  presenceTimeout,
 } from "./lib/roomClock";
 
 /** Playback sessions without a report for this long end. */
 const IDLE_PLAYBACK_MS = 30 * 60 * 1000;
+
+/**
+ * Download sessions report nothing while they transfer, and renewing the token is what keeps them
+ * going; one not renewed for a token's lifetime and an hour more can fetch nothing, so it ends.
+ */
+const IDLE_DOWNLOAD_MS = PLAYBACK_TOKEN_LIFETIME_MS + 60 * 60 * 1000;
 
 /** Expired device codes are deleted after this long. */
 const DEVICE_CODE_RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -29,7 +36,9 @@ const PURGE_BATCH = 200;
 
 /**
  * Pauses rooms whose host stopped sending heartbeats, at the live position, and marks the host
- * away; ends rooms abandoned for half an hour; drops guests who went silent.
+ * away; ends rooms abandoned for half an hour (`isAbandoned`); drops guests who went silent.
+ * Members whose last heartbeat said away get the longer `AWAY_PRESENCE_TIMEOUT_MS`
+ * (`presenceTimeout`).
  */
 export const sweepRooms = internalMutation({
   args: {},
@@ -53,9 +62,17 @@ export const sweepRooms = internalMutation({
       rooms.map(async (room) => {
         const silentFor = now - room.hostLastSeenAt;
 
-        if (silentFor > HOST_ABANDON_TIMEOUT_MS) {
+        const members = await ctx.db
+          .query("roomMembers")
+          .withIndex("by_room_device", (q) => q.eq("roomId", room._id))
+          .collect();
+
+        const host = members.find((member) => member.role === "host");
+        const hostTimeout = host === undefined ? HOST_PRESENCE_TIMEOUT_MS : presenceTimeout(host);
+
+        if (isAbandoned(room, members, now)) {
           await endRoom(ctx, room, now);
-        } else if (silentFor > HOST_PRESENCE_TIMEOUT_MS && room.status !== "paused") {
+        } else if (silentFor > hostTimeout && room.status !== "paused") {
           await ctx.db.patch(room._id, {
             status: "paused",
             positionAtAnchorMs: livePosition(room, now),
@@ -63,18 +80,13 @@ export const sweepRooms = internalMutation({
             revision: room.revision + 1,
             hostAway: true,
           });
-        } else if (silentFor > HOST_PRESENCE_TIMEOUT_MS && !room.hostAway) {
+        } else if (silentFor > hostTimeout && !room.hostAway) {
           await ctx.db.patch(room._id, { hostAway: true });
         }
 
-        const members = await ctx.db
-          .query("roomMembers")
-          .withIndex("by_room_device", (q) => q.eq("roomId", room._id))
-          .collect();
-
         await Promise.all(
           members.flatMap((member) =>
-            member.role === "guest" && now - member.lastSeenAt > MEMBER_PRESENCE_TIMEOUT_MS
+            member.role === "guest" && now - member.lastSeenAt > presenceTimeout(member)
               ? [ctx.db.delete(member._id)]
               : [],
           ),
@@ -134,7 +146,10 @@ export const releaseExpiredLeases = internalMutation({
   },
 });
 
-/** Ends playback sessions that stopped reporting or whose sign-in ended. */
+/**
+ * Ends playback sessions that stopped reporting, download sessions whose token was not renewed,
+ * and sessions whose sign-in ended.
+ */
 export const endIdlePlayback = internalMutation({
   args: {},
   returns: v.null(),
@@ -148,7 +163,10 @@ export const endIdlePlayback = internalMutation({
 
     await Promise.all(
       active.map(async (session) => {
-        const idle = now - session.lastReportAt > IDLE_PLAYBACK_MS;
+        const idle =
+          now - session.lastReportAt >
+          (session.purpose === "download" ? IDLE_DOWNLOAD_MS : IDLE_PLAYBACK_MS);
+
         const signedOut = (await ctx.db.get(session.authSessionId)) === null;
 
         if (idle || signedOut) {

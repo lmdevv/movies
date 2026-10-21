@@ -3,7 +3,7 @@ import { Radio } from "@base-ui/react/radio";
 import { RadioGroup } from "@base-ui/react/radio-group";
 import { cn } from "@movies/ui/lib/utils";
 import { CheckIcon } from "lucide-react";
-import { Fragment, useId } from "react";
+import { Fragment, useCallback, useId, useLayoutEffect, useRef } from "react";
 import type { ReactElement } from "react";
 
 /** One choice in a column, such as an audio track or a version of the film. */
@@ -14,41 +14,136 @@ export type TrackOption = {
   readonly detail?: string | undefined;
 };
 
+/** Where an option sits in its list's scrolled content, from top to bottom edge. */
+type OptionSpan = { readonly top: number; readonly bottom: number };
+
+/**
+ * Where `list`'s checked option sits in its scrolled content, with the list's scroll padding around
+ * it (room for the focus ring, as the keyboard leaves when it moves the focus).
+ */
+function checkedSpan(list: HTMLElement): OptionSpan | null {
+  const checked = list.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]');
+
+  if (checked === null) return null;
+
+  // Offsets, unlike client rects, ignore the popup's opening scale.
+  const { scrollPaddingTop, scrollPaddingBottom } = getComputedStyle(list);
+  const above = Number.parseFloat(scrollPaddingTop) || 0;
+  const below = Number.parseFloat(scrollPaddingBottom) || 0;
+
+  return {
+    top: checked.offsetTop - above,
+    bottom: checked.offsetTop + checked.offsetHeight + below,
+  };
+}
+
+/** Whether `list`, `height` tall, shows `span` whole. */
+function shows(list: HTMLElement, span: OptionSpan, height: number): boolean {
+  return span.top >= list.scrollTop && span.bottom <= list.scrollTop + height;
+}
+
+/** Scrolls `list` the least that shows `span` whole. */
+function reveal(list: HTMLElement, span: OptionSpan): void {
+  if (span.top < list.scrollTop) list.scrollTop = span.top;
+  else if (span.bottom > list.scrollTop + list.clientHeight) {
+    list.scrollTop = span.bottom - list.clientHeight;
+  }
+}
+
+/** Scrolls `list` the least that shows its checked option whole. */
+function revealChecked(list: HTMLElement): void {
+  const span = checkedSpan(list);
+
+  if (span !== null) reveal(list, span);
+}
+
+/**
+ * Shows the checked option of a scrolling list once the list has its size, then keeps it in view
+ * while the list changes size (a smaller window, a rotated phone), unless the viewer had scrolled
+ * it out of view to browse.
+ */
+function keepCheckedInView(list: HTMLElement | null): (() => void) | undefined {
+  if (list === null) return undefined;
+
+  // The height the list had at its last resize; none before its first, which always reveals.
+  let height: number | undefined;
+
+  const observer = new ResizeObserver(() => {
+    const span = checkedSpan(list);
+
+    if (span !== null && (height === undefined || shows(list, span, height))) reveal(list, span);
+
+    height = list.clientHeight;
+  });
+
+  observer.observe(list);
+
+  return () => observer.disconnect();
+}
+
 function TrackColumn({
   label,
   options,
   value,
   onValueChange,
+  footer,
 }: {
   readonly label: string;
   readonly options: ReadonlyArray<TrackOption>;
   readonly value: string;
   readonly onValueChange: (id: string) => void;
+  readonly footer: ReactElement | undefined;
 }) {
   const labelId = useId();
 
+  const list = useRef<HTMLElement | null>(null);
+
+  // One observer for the list's life, which keeps the chosen option in view as the list resizes.
+  const attachList = useCallback((element: HTMLElement | null) => {
+    list.current = element;
+
+    const release = keepCheckedInView(element);
+
+    return () => {
+      release?.();
+      list.current = null;
+    };
+  }, []);
+
+  // A new choice, or a different list of options, shows the chosen one, as when the menu opened.
+  // The ids, not the array, say whether the options changed: the player rebuilds the array with
+  // each new stream.
+  const optionIds = options.map((option) => option.id).join("\n");
+
+  useLayoutEffect(() => {
+    if (list.current !== null) revealChecked(list.current);
+  }, [value, optionIds]);
+
+  // The heading, and the footer when there is one, stay put while the options between them
+  // scroll, each column on its own.
   return (
-    <div className="flex flex-1 flex-col gap-0.5 p-5">
+    <div className="flex min-w-50 flex-1 flex-col gap-0.5 pt-5">
       <span
         id={labelId}
-        className="pb-2.5 font-sans text-caption/caption font-medium tracking-caps text-text-muted uppercase"
+        className="shrink-0 px-5 pb-1.5 font-sans text-caption/caption font-medium tracking-caps text-text-muted uppercase"
       >
         {label}
       </span>
       <RadioGroup
+        ref={attachList}
         aria-labelledby={labelId}
         value={value}
         onValueChange={(next) => onValueChange(next)}
-        className="flex flex-col gap-0.5"
+        className={cn(
+          "relative flex min-h-0 scroll-py-1 flex-col gap-0.5 overflow-y-auto overscroll-y-contain px-5 pt-1",
+          footer === undefined ? "pb-5" : "pb-3",
+        )}
       >
         {options.map((option) => (
           <Radio.Root
             key={option.id}
             value={option.id}
-            className={cn(
-              "group/track flex cursor-pointer items-center gap-2.5 rounded-bar text-left font-sans text-body/label text-text-muted transition-colors hover:text-text data-checked:font-semibold data-checked:text-text",
-              option.detail === undefined ? "h-10" : "min-h-10 py-1.5",
-            )}
+            className="group/track flex min-h-10 shrink-0 cursor-pointer items-center gap-2.5 rounded-bar py-1.5 text-left font-sans text-body/label text-text-muted transition-colors hover:text-text data-checked:font-semibold data-checked:text-text"
           >
             <span
               className={cn(
@@ -61,9 +156,9 @@ function TrackColumn({
               </Radio.Indicator>
             </span>
             {option.detail === undefined ? (
-              option.label
+              <span className="min-w-0 wrap-break-word">{option.label}</span>
             ) : (
-              <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="flex min-w-0 flex-col gap-0.5 wrap-break-word">
                 {option.label}
                 <span className="text-caption/caption font-regular text-text-muted">
                   {option.detail}
@@ -73,6 +168,7 @@ function TrackColumn({
           </Radio.Root>
         ))}
       </RadioGroup>
+      {footer}
     </div>
   );
 }
@@ -85,6 +181,8 @@ export type TrackChoice = {
   readonly options: ReadonlyArray<TrackOption>;
   readonly value: string;
   readonly onValueChange: (id: string) => void;
+  /** What sits under the options, outside their scrolling, such as the subtitle delay. */
+  readonly footer?: ReactElement | undefined;
 };
 
 /** The columns of choices, left to right. */
@@ -98,7 +196,9 @@ const PANEL_WIDTHS = ["w-60", "w-60", "w-115", "w-170", "w-225"] as const;
 /**
  * The player's chooser: one column per choice (the version when a title has several, audio,
  * subtitles, and quality in the player).
- * Each column is a radio group: arrow keys move the choice, Tab moves between columns.
+ * Each column is a radio group: arrow keys move the choice, Tab moves between columns. Given a
+ * `max-h-*`, each column's options scroll under its heading; given a `max-w-*`, the columns scroll
+ * sideways.
  */
 export function TrackPanel({
   className,
@@ -121,6 +221,7 @@ export function TrackPanel({
             options={choice.options}
             value={choice.value}
             onValueChange={choice.onValueChange}
+            footer={choice.footer}
           />
         </Fragment>
       ))}
@@ -157,14 +258,21 @@ export function TrackPopover({
           sideOffset={76}
           alignOffset={-32}
           collisionPadding={16}
+          // Always above the controls: flipping below or beside the trigger would cover them, or
+          // leave the screen. A short window shortens the panel instead.
+          collisionAvoidance={{ side: "none", align: "shift" }}
           className="z-50"
         >
           <Popover.Popup
             aria-label={label}
             className="origin-(--transform-origin) shadow-overlay transition-[opacity,scale] data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
           >
-            {/* On a phone the panel can be wider than the screen: cap it there, and its columns scroll. */}
-            <TrackPanel choices={choices} className="max-w-(--available-width) overflow-x-auto" />
+            {/* Held to the room above the trigger: each column's options scroll under its heading,
+                and columns wider than the screen scroll sideways. */}
+            <TrackPanel
+              choices={choices}
+              className="max-h-[min(var(--available-height),var(--spacing-track-panel))] max-w-(--available-width) overflow-x-auto overscroll-x-contain"
+            />
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>

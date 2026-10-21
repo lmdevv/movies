@@ -11,6 +11,9 @@ import type { metadataOverrides } from "./validators";
 /** Longest display name (profiles, libraries, API keys, device clients); `DisplayName`. */
 export const DISPLAY_NAME_MAX = 80;
 
+/** Shortest password a sign-up or a password change accepts; `NewPassword`. */
+export const PASSWORD_MIN = 8;
+
 /** Longest avatar key; `AvatarKey`. */
 export const AVATAR_KEY_MAX = 40;
 

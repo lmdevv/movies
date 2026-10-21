@@ -17,6 +17,7 @@ import { cn } from "@movies/ui/lib/utils";
 import {
   CaptionsIcon,
   CastIcon,
+  GalleryVerticalEndIcon,
   ListVideoIcon,
   LockIcon,
   LogOutIcon,
@@ -27,6 +28,7 @@ import {
   Volume2Icon,
   XIcon,
 } from "lucide-react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { ComponentProps, ReactElement, ReactNode } from "react";
 
 /** A 36px frosted circle button. */
@@ -81,15 +83,46 @@ function SideSlider({
   label,
   value,
   onChange,
+  onCommit,
   icon,
   className,
 }: {
   readonly label: string;
   readonly value: number;
   readonly onChange: (value: number) => void;
+  /** Where the slider settled, at the end of a drag. */
+  readonly onCommit?: ((value: number) => void) | undefined;
   readonly icon: ReactNode;
   readonly className?: string;
 }) {
+  // Where a drag has put the slider, until it settles; the level it reports can lag (a TV).
+  const [moving, setMoving] = useState<number | null>(null);
+  const movingNow = useRef<number | null>(null);
+
+  const move = (next: number | null): void => {
+    movingNow.current = next;
+    setMoving(next);
+  };
+
+  // A drag cut off before it was let go (a call, an edge swipe) settles where it got to.
+  const settle = (): void => {
+    const last = movingNow.current;
+
+    if (last === null) return;
+    move(null);
+    onCommit?.(last);
+  };
+
+  const settleCut = useEffectEvent(settle);
+
+  useEffect(() => {
+    const cut = (): void => settleCut();
+
+    window.addEventListener("blur", cut);
+
+    return () => window.removeEventListener("blur", cut);
+  }, []);
+
   return (
     <div className={cn("absolute top-25 flex w-9 flex-col items-center gap-3", className)}>
       <Slider.Root
@@ -97,11 +130,21 @@ function SideSlider({
         min={0}
         max={1}
         step={0.05}
-        value={value}
-        onValueChange={(next) => onChange(next)}
+        value={moving ?? value}
+        onValueChange={(next) => {
+          move(next);
+          onChange(next);
+        }}
+        onValueCommitted={(next) => {
+          move(null);
+          onCommit?.(next);
+        }}
         className="h-33"
       >
-        <Slider.Control className="flex h-full w-9 cursor-pointer touch-none justify-center">
+        <Slider.Control
+          onPointerCancel={settle}
+          className="flex h-full w-9 cursor-pointer touch-none justify-center"
+        >
           <Slider.Track className="relative h-full w-1 rounded-bar bg-text/30">
             <Slider.Indicator className="w-1 rounded-bar bg-text" />
             <Slider.Thumb aria-label={label} className="size-4 rounded-pill opacity-0" />
@@ -113,14 +156,14 @@ function SideSlider({
   );
 }
 
-/** A frosted pill under the scrubber: the subtitle or audio track playing, or the chapter. */
+/** A frosted pill under the scrubber: the subtitle or audio track playing, the chapter, or Episodes. */
 export function TrackPill({
   icon,
   label,
   className,
   ...props
 }: ComponentProps<"button"> & {
-  readonly icon: "subtitles" | "audio" | "chapters";
+  readonly icon: "subtitles" | "audio" | "chapters" | "episodes";
   readonly label: string;
 }) {
   return (
@@ -135,6 +178,7 @@ export function TrackPill({
       {icon === "subtitles" ? <CaptionsIcon strokeWidth={1.75} aria-hidden /> : null}
       {icon === "audio" ? <Volume1Icon strokeWidth={1.75} aria-hidden /> : null}
       {icon === "chapters" ? <ListVideoIcon strokeWidth={1.75} aria-hidden /> : null}
+      {icon === "episodes" ? <GalleryVerticalEndIcon strokeWidth={1.75} aria-hidden /> : null}
       {label}
     </button>
   );
@@ -166,6 +210,7 @@ export function PhoneControls({
   scrub,
   onBrightness,
   onVolume,
+  onVolumeCommit,
   onRoom,
   castMenu,
 }: {
@@ -188,6 +233,8 @@ export function PhoneControls({
   >;
   readonly onBrightness: (value: number) => void;
   readonly onVolume: (value: number) => void;
+  /** Where the volume slider settled, which unmuting from silence returns to. */
+  readonly onVolumeCommit: (value: number) => void;
   readonly onRoom?: (() => void) | undefined;
   /** Wraps the cast button in the cast menu, where this browser can play elsewhere. */
   readonly castMenu?: ((trigger: ReactElement) => ReactNode) | undefined;
@@ -200,7 +247,8 @@ export function PhoneControls({
         <GlassButton aria-label="Close player" onClick={onClose} className="[&_svg]:size-4">
           <XIcon strokeWidth={2.25} aria-hidden />
         </GlassButton>
-        <p className="absolute inset-x-0 top-7 text-center text-body/5 font-semibold text-text">
+        {/* Centered across the bar; taps pass through to the buttons beside it. */}
+        <p className="pointer-events-none absolute inset-x-0 top-7 text-center text-body/5 font-semibold text-text">
           {title}
         </p>
         <div className="relative flex gap-2.5">
@@ -263,6 +311,7 @@ export function PhoneControls({
           label="Volume"
           value={volume}
           onChange={onVolume}
+          onCommit={onVolumeCommit}
           icon={<Volume2Icon className="size-5 text-text" strokeWidth={1.75} aria-hidden />}
           className="right-14"
         />
@@ -360,7 +409,12 @@ export function PhoneRoomDetails({
                 )}
               </span>
               {member.status === undefined ? null : (
-                <span className="w-16 shrink-0 text-right font-mono text-caption/caption text-warning">
+                <span
+                  className={cn(
+                    "w-16 shrink-0 text-right font-mono text-caption/caption",
+                    member.status.kind === "away" ? "text-text-muted" : "text-warning",
+                  )}
+                >
                   {member.status.kind === "drift" ? member.status.label : member.status.kind}
                 </span>
               )}

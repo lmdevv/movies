@@ -44,7 +44,9 @@ const PLAYER_SHORTCUTS = [
   { id: "player.fullscreen", keys: "f", title: "Full screen" },
   { id: "player.mute", keys: "m", title: "Mute" },
   { id: "player.subtitles", keys: "c", title: "Subtitles" },
-  { id: "player.exit", keys: "escape", title: "Back to details" },
+  { id: "player.subtitles-earlier", keys: "g", title: "Subtitles earlier" },
+  { id: "player.subtitles-later", keys: "h", title: "Subtitles later" },
+  { id: "player.exit", keys: "escape", title: "Leave playback" },
 ] as const satisfies ReadonlyArray<KeymapEntry<string> & { readonly title: string }>;
 
 /** The id of a player shortcut. */

@@ -14,8 +14,8 @@ const MIN_SECRET_BYTES = 32;
 const encoder = new TextEncoder();
 
 /**
- * The claims a token carries: user, profile, file, and playback session IDs and the issue and
- * expiry instants. Key order is part of the signed bytes.
+ * The claims a token carries: user, profile, file, and playback session IDs, the issue and expiry
+ * instants, and `pur: "download"` for a download session. Key order is part of the signed bytes.
  */
 export interface PlaybackClaims {
   readonly sub: string;
@@ -24,6 +24,7 @@ export interface PlaybackClaims {
   readonly sid: string;
   readonly iat: number;
   readonly exp: number;
+  readonly pur?: "download";
 }
 
 /** Signs claims with a base64url secret of at least 32 bytes. */
@@ -37,7 +38,7 @@ export const signPlaybackToken = async (
     return fail("internal", "PLAYBACK_TOKEN_SECRET must be base64url of at least 32 bytes");
   }
 
-  const payload = JSON.stringify({
+  const signed = {
     aud: "media",
     sub: claims.sub,
     pid: claims.pid,
@@ -45,9 +46,13 @@ export const signPlaybackToken = async (
     sid: claims.sid,
     iat: claims.iat,
     exp: claims.exp,
-  });
+  };
 
-  const signed = `v1.${base64UrlEncode(encoder.encode(payload))}`;
+  const payload = JSON.stringify(
+    claims.pur === undefined ? signed : { ...signed, pur: claims.pur },
+  );
+
+  const body = `v1.${base64UrlEncode(encoder.encode(payload))}`;
 
   const key = await crypto.subtle.importKey(
     "raw",
@@ -57,9 +62,9 @@ export const signPlaybackToken = async (
     ["sign"],
   );
 
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(signed));
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(body));
 
-  return `${signed}.${base64UrlEncode(new Uint8Array(signature))}`;
+  return `${body}.${base64UrlEncode(new Uint8Array(signature))}`;
 };
 
 /** Reads `PLAYBACK_TOKEN_SECRET`, failing with `internal` when the deployment lacks it. */

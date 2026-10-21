@@ -14,21 +14,26 @@ import type { EpisodeId, TitleId } from "@movies/contracts/ids";
 import { MEDIA_ROUTES } from "@movies/contracts/media-playback";
 import type { PlaybackMode } from "@movies/contracts/models/playback";
 import { devices, expect, test } from "@playwright/test";
-import type { BrowserContext, Page } from "@playwright/test";
+import type { BrowserContext, Page, Request } from "@playwright/test";
 
 import { NO_STACK, ownedStack, signInOwner, useSession } from "../admin/session";
 import type { Client } from "../admin/session";
+import { drawStill } from "../stack/fixture-library";
 import { buildMediaService, startMediaService } from "../stack/media-service";
 import type { MediaService } from "../stack/media-service";
 import {
   adultProfile,
   capture,
   clickScrubber,
+  commandMenu,
   encodeClip,
   episodeNfo,
   expectPlayingPast,
   expectPositionNear,
   firstFrameMs,
+  holdKey,
+  leaveDialog,
+  leaveWithEscape,
   movieNfo,
   offline,
   revealControls,
@@ -91,6 +96,18 @@ const SHOW = "Tide Tables";
 
 const EPISODES = ["Low Water", "Slack Tide", "Spring Tide"] as const;
 
+/**
+ * The second episode carries what the next-episode card shows: a still, a runtime, and a synopsis
+ * as long as a real one. The third has none of them, for the card's fallbacks.
+ */
+const SLACK_TIDE = {
+  plot: "The harbor master's daughter comes home to the lighthouse; the ferry crew argues over the night timetable; the keeper's log goes missing.",
+  runtimeMinutes: 48,
+} as const;
+
+/** The show's second season, for browsing seasons in the player's episode picker. */
+const SEASON_TWO = ["Neap Tide"] as const;
+
 /** How long each episode runs; autoplay offers the next one in its last tenth. */
 const EPISODE_SECONDS = 30;
 
@@ -109,6 +126,8 @@ let streams: ReadonlyArray<NegotiatedStream> = [];
 const titles = new Map<string, TitleId>();
 
 const episodes: Array<EpisodeId> = [];
+
+const seasonTwo: Array<EpisodeId> = [];
 
 /** First-frame times by mode, reported once the suite ends. */
 const firstFrames: Array<{ readonly mode: string; readonly ms: number }> = [];
@@ -171,13 +190,33 @@ test.beforeAll(async ({ browser }) => {
     ...EPISODES.flatMap((name, index) => {
       const stem = join(showFolder, `${SHOW} - S01E0${String(index + 1)}`);
 
+      const second = name === EPISODES[1];
+
       return [
         encodeClip(`${stem}.mp4`, {
           seconds: EPISODE_SECONDS,
           video: "h264",
           audio: [{ codec: "aac", language: "eng" }],
         }),
-        writeText(`${stem}.nfo`, episodeNfo(1, index + 1, name)),
+        writeText(`${stem}.nfo`, episodeNfo(1, index + 1, name, second ? SLACK_TIDE : {})),
+        ...(second ? [drawStill(browser, name, `${stem}-thumb.jpg`)] : []),
+      ];
+    }),
+    ...SEASON_TWO.flatMap((name, index) => {
+      const stem = join(
+        shows,
+        `${SHOW} (2020)`,
+        "Season 02",
+        `${SHOW} - S02E0${String(index + 1)}`,
+      );
+
+      return [
+        encodeClip(`${stem}.mp4`, {
+          seconds: EPISODE_SECONDS,
+          video: "h264",
+          audio: [{ codec: "aac", language: "eng" }],
+        }),
+        writeText(`${stem}.nfo`, episodeNfo(2, index + 1, name)),
       ];
     }),
   ]);
@@ -213,6 +252,14 @@ test.beforeAll(async ({ browser }) => {
   });
 
   episodes.push(...season.map((episode) => episode.id));
+
+  const second = await owner.sdk.query("titles.episodes", {
+    profileId: profile.id,
+    titleId: titleId(SHOW),
+    seasonNumber: 2,
+  });
+
+  seasonTwo.push(...second.map((episode) => episode.id));
   context = await browser.newContext();
   page = await context.newPage();
   streams = recordStreams(page);
@@ -252,6 +299,16 @@ const playFromStart = async (name: string, mode: PlaybackMode): Promise<void> =>
   await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe(mode);
   firstFrames.push({ mode, ms: await firstFrameMs(page) });
 };
+
+/** The subtitle track the player shows, with its cue count, or null when none shows. */
+const showingSubtitle = () =>
+  page.getByTestId("player-video").evaluate((element) => {
+    if (!(element instanceof HTMLVideoElement)) return null;
+
+    const track = Array.from(element.textTracks).find((each) => each.mode === "showing");
+
+    return track === undefined ? null : { label: track.label, cues: track.cues?.length ?? 0 };
+  });
 
 const activeRung = (target: Page) =>
   target.getByRole("list", { name: "Playback mode" }).locator('[aria-current="true"]');
@@ -318,7 +375,7 @@ test("a direct file plays, answers the keyboard, and lands in Continue watching"
   await player.press("l");
   await player.press("l");
   await expectPlayingPast(page, 21);
-  await player.press("Escape");
+  await leaveWithEscape(page);
   await expect(page).toHaveURL(new RegExp(`/title/${titleId(MOVIES.direct)}$`, "u"));
 
   // In the app, as a viewer would: a reload would cut off the report of where playback stopped.
@@ -354,23 +411,13 @@ test("subtitles show from the track popover and toggle with c; another audio tra
   const panel = page.getByRole("dialog", { name: TRACKS });
 
   await panel.getByRole("radio", { name: "English" }).last().click();
-
-  const showing = () =>
-    page.getByTestId("player-video").evaluate((element) => {
-      if (!(element instanceof HTMLVideoElement)) return null;
-
-      const track = Array.from(element.textTracks).find((each) => each.mode === "showing");
-
-      return track === undefined ? null : { label: track.label, cues: track.cues?.length ?? 0 };
-    });
-
-  await expect.poll(showing).toEqual({ label: "English", cues: 2 });
+  await expect.poll(showingSubtitle).toEqual({ label: "English", cues: 2 });
   await capture(page, "07-02b-subtitles");
   await page.keyboard.press("Escape");
   await page.getByTestId("player").press("c");
-  await expect.poll(showing).toBeNull();
+  await expect.poll(showingSubtitle).toBeNull();
   await page.getByTestId("player").press("c");
-  await expect.poll(showing).toEqual({ label: "English", cues: 2 });
+  await expect.poll(showingSubtitle).toEqual({ label: "English", cues: 2 });
 
   // A track the browser cannot pick from the file needs the media service to remux it.
   const before = streams.length;
@@ -395,8 +442,247 @@ test("subtitles show from the track popover and toggle with c; another audio tra
   );
 
   await page.keyboard.press("Escape");
-  await page.getByTestId("player").press("Escape");
+  await leaveWithEscape(page);
   await stopped;
+});
+
+test("⌘K lists the player's audio, subtitles, and quality, and switches them as the track menu does", async () => {
+  await playFromStart(MOVIES.direct, "direct");
+
+  const { menu, playback } = commandMenu(page);
+  const onPlayer = new RegExp(`/watch/${titleId(MOVIES.direct)}`, "u");
+
+  await page.keyboard.press("ControlOrMeta+k");
+
+  await Promise.all(
+    [
+      /^Pause/u,
+      /^Back 10 seconds/u,
+      /^Forward 10 seconds/u,
+      /^Subtitles/u,
+      /^Audio/u,
+      /^Quality/u,
+      /^Stream info/u,
+      /^Full screen/u,
+    ].map((name) => expect(playback.getByRole("option", { name })).toBeVisible()),
+  );
+
+  await capture(page, "07-11-command-menu-playback");
+
+  // Audio lists both tracks with the playing one checked; French remuxes, as from the track menu.
+  await playback.getByRole("option", { name: /^Audio/u }).click();
+
+  const audio = menu.getByRole("listbox", { name: "Audio" });
+
+  await expect(audio.getByRole("option")).toHaveText([/^English/u, /^French/u]);
+  await expect(audio.getByRole("option", { name: /^English/u })).toBeChecked();
+
+  const before = streams.length;
+
+  await audio.getByRole("option", { name: /^French/u }).click();
+  await expect(menu).toBeHidden();
+  await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe("remux");
+  await revealControls(page);
+  await page.getByRole("button", { name: TRACKS }).click();
+  await expect(
+    page.getByRole("dialog", { name: TRACKS }).getByRole("radio", { name: "French" }),
+  ).toBeChecked();
+  await page.keyboard.press("Escape");
+
+  // Subtitles: Off is checked until the English track is chosen, which then shows.
+  await page.keyboard.press("ControlOrMeta+k");
+  await playback.getByRole("option", { name: /^Subtitles/u }).click();
+
+  const subtitles = menu.getByRole("listbox", { name: "Subtitles" });
+
+  await expect(subtitles.getByRole("option")).toHaveText(["Off", "English"]);
+  await expect(subtitles.getByRole("option", { name: "Off" })).toBeChecked();
+  await subtitles.getByRole("option", { name: "English" }).click();
+  await expect.poll(showingSubtitle).toEqual({ label: "English", cues: 2 });
+
+  // Quality shows the current choice. Escape goes back a level, then closes; neither leaves.
+  await page.keyboard.press("ControlOrMeta+k");
+  await playback.getByRole("option", { name: /^Quality/u }).click();
+  await expect(
+    menu.getByRole("listbox", { name: "Quality" }).getByRole("option", { name: "Auto" }),
+  ).toBeChecked();
+  await page.keyboard.press("Escape");
+  await expect(playback).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(leaveDialog(page)).toBeHidden();
+  await expect(page).toHaveURL(onPlayer);
+
+  // Full screen: the menu opens inside the player, and its commands work there.
+  await page.getByTestId("player").press("f");
+  await expect
+    .poll(() => page.evaluate(() => document.fullscreenElement?.getAttribute("data-testid")))
+    .toBe("player");
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          document.fullscreenElement?.contains(
+            document.querySelector('[data-slot="command-menu"]'),
+          ) ?? false,
+      ),
+    )
+    .toBe(true);
+
+  // Full screen ending under the open menu (as the browser's own Escape does) leaves it open, with
+  // the keyboard still in its input.
+  const search = menu.getByRole("combobox");
+
+  await expect(search).toBeFocused();
+  await page.evaluate(() => document.exitFullscreen());
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await expect(playback).toBeVisible();
+  await expect(search).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(leaveDialog(page)).toBeHidden();
+
+  // Back to full screen: the menu's commands work there.
+  await page.getByTestId("player").press("f");
+  await expect
+    .poll(() => page.evaluate(() => document.fullscreenElement?.getAttribute("data-testid")))
+    .toBe("player");
+  await page.keyboard.press("ControlOrMeta+k");
+  await playback.getByRole("option", { name: /^Pause/u }).click();
+  await expect.poll(async () => (await videoState(page)).paused).toBe(true);
+
+  // Escape leaves full screen and nothing more: the player stays, and nothing asks.
+  await page.getByTestId("player").press("Escape");
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await expect(leaveDialog(page)).toBeHidden();
+  await expect(page).toHaveURL(onPlayer);
+
+  // Away from the player the menu has no player commands.
+  await leaveWithEscape(page);
+  await expect(page.getByRole("heading", { name: MOVIES.direct, level: 1 })).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(menu).toBeVisible();
+  await expect(playback).toHaveCount(0);
+  await expect(menu.getByRole("option", { name: /^Audio/u })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+});
+
+test("Escape asks before leaving: open layers close first, Stay plays on, Leave goes back", async () => {
+  await playFromStart(MOVIES.remux, "remux");
+
+  const player = page.getByTestId("player");
+  const leave = leaveDialog(page);
+  const stay = leave.getByRole("button", { name: "Stay" });
+  const onPlayer = new RegExp(`/watch/${titleId(MOVIES.remux)}`, "u");
+  const paused = async () => (await videoState(page)).paused;
+
+  // With nothing open, Escape asks and pauses, with focus on Stay. Escape again plays on.
+  await player.press("Escape");
+  await expect(leave).toBeVisible();
+  await expect(stay).toBeFocused();
+  await expect.poll(paused).toBe(true);
+  await expect(leave).toHaveCSS("opacity", "1");
+  await capture(page, "07-12-leave-playback");
+  await page.keyboard.press("Escape");
+  await expect(leave).toBeHidden();
+  await expect(player).toBeFocused();
+  await expect.poll(paused).toBe(false);
+
+  // From a focused control, focus goes back to that control.
+  const streamInfo = page.getByRole("button", { name: "Stream info" });
+
+  await revealControls(page);
+  await streamInfo.focus();
+  await page.keyboard.press("Escape");
+  await expect(stay).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(leave).toBeHidden();
+  await expect(streamInfo).toBeFocused();
+
+  // Stay and a click outside the dialog play on too.
+  await player.press("Escape");
+  await stay.click();
+  await expect(leave).toBeHidden();
+  await expect.poll(paused).toBe(false);
+  await player.press("Escape");
+  await expect(leave).toBeVisible();
+  await page.mouse.click(8, 8);
+  await expect(leave).toBeHidden();
+  await expect.poll(paused).toBe(false);
+
+  // Paused before asking, Stay keeps it paused.
+  await player.press("k");
+  await expect.poll(paused).toBe(true);
+  await player.press("Escape");
+  await stay.click();
+  await expect(leave).toBeHidden();
+  await page.waitForTimeout(500);
+  expect(await paused()).toBe(true);
+  await player.press("k");
+  await expect.poll(paused).toBe(false);
+
+  // An open layer takes Escape first, even held down.
+  const panel = page.getByRole("dialog", { name: TRACKS });
+
+  await revealControls(page);
+  await page.getByRole("button", { name: TRACKS }).click();
+  await expect(panel).toBeVisible();
+
+  await holdKey(page, "Escape", 4);
+  await expect(panel).toBeHidden();
+  await expect(leave).toBeHidden();
+
+  const { menu } = commandMenu(page);
+
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(menu).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(leave).toBeHidden();
+
+  const info = page.getByRole("region", { name: "Stream info" });
+
+  await revealControls(page);
+  await page.getByRole("button", { name: "Stream info" }).click();
+  await expect(info).toBeVisible();
+  await player.press("Escape");
+  await expect(info).toBeHidden();
+  await expect(leave).toBeHidden();
+  await expect(page).toHaveURL(onPlayer);
+  await expect.poll(paused).toBe(false);
+
+  // Held with nothing open, Escape asks once, and the dialog stays.
+  await player.focus();
+
+  await holdKey(page, "Escape", 4);
+  await expect(leave).toBeVisible();
+  await page.waitForTimeout(500);
+  await expect(leave).toBeVisible();
+
+  // From the keyboard: Tab moves from Stay to Leave, Enter leaves, and the stream stops once.
+  const stops: Array<string> = [];
+
+  const onRequest = (request: Request) => {
+    if (request.url().endsWith(MEDIA_ROUTES.stop)) stops.push(request.url());
+  };
+
+  page.on("request", onRequest);
+  await page.keyboard.press("Tab");
+  await expect(leave.getByRole("button", { name: "Leave", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(new RegExp(`/title/${titleId(MOVIES.remux)}$`, "u"));
+  await page.waitForTimeout(1_000);
+  page.off("request", onRequest);
+  expect(stops).toHaveLength(1);
+
+  // The visible Back button leaves without asking.
+  await playFromStart(MOVIES.remux, "remux");
+  await revealControls(page);
+  await page.getByRole("button", { name: "Back to details" }).click();
+  await expect(page).toHaveURL(new RegExp(`/title/${titleId(MOVIES.remux)}$`, "u"));
+  await expect(leave).toHaveCount(0);
 });
 
 test("a picture subtitle burns into a transcode and back out; a lower quality transcodes down", async () => {
@@ -545,7 +831,25 @@ test("the next episode plays itself after the countdown; Watch credits cancels i
   await expect(page.getByRole("button", { name: "Watch credits" })).toBeVisible({
     timeout: 10_000,
   });
-  await expect(page.getByText(EPISODES[1])).toBeVisible();
+
+  // A compact card names the next episode, with its still, runtime, and synopsis, and Play next
+  // has focus, while the credits keep the whole frame.
+  const card = page.getByRole("region", { name: "Next episode" });
+  const still = card.locator('[data-slot="next-episode-still"]');
+  const image = still.locator('[data-slot="next-episode-image"]');
+
+  await expect(card.getByRole("heading", { name: EPISODES[1] })).toBeVisible();
+  await expect(card).toContainText("S1:E2 · 48m");
+  await expect(card).toContainText(SLACK_TIDE.plot);
+  await expect(image).toHaveCSS("background-image", /^url\(/u);
+  await expect(card.getByRole("button", { name: "Play next" })).toBeFocused();
+  await expect(card.getByRole("button", { name: "Play next" })).toHaveAccessibleName("Play next");
+  await expect(card.getByRole("button", { name: "Play next" })).toHaveAccessibleDescription(
+    /^Starts in \d+ seconds?$/u,
+  );
+  const frame = await player.boundingBox();
+
+  await expect.poll(() => page.getByTestId("player-video").boundingBox()).toEqual(frame);
   await capture(page, "07-05-autoplay-next");
   await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"), { timeout: 20_000 });
   await expectPlayingPast(page, 0.5);
@@ -557,12 +861,337 @@ test("the next episode plays itself after the countdown; Watch credits cancels i
 
   const credits = page.getByRole("button", { name: "Watch credits" });
 
+  await expect(credits).toBeVisible({ timeout: 10_000 });
+
+  // The last episode has no still: its tile keeps its place with a glyph.
+  await expect(card.getByRole("heading", { name: EPISODES[2] })).toBeVisible();
+  await expect(image).toHaveCount(0);
+  await expect(still.locator("svg")).toBeVisible();
+
+  // A click on the credits pauses them, and the countdown with them: the card gives way to the
+  // controls until they play again, and then counts down from the start.
+  const video = page.getByTestId("player-video");
+  const onCredits = { position: { x: 200, y: 450 } } as const;
+
+  await video.click(onCredits);
+  await expect(card).toBeHidden();
+  await expect.poll(() => controlsShown(page)).toBe(true);
+  await page.waitForTimeout(11_000);
+  await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"));
+  await video.click(onCredits);
+  await expect(credits).toBeVisible();
+
+  // While "Leave playback?" asks, the ten-second countdown waits instead of moving on behind it.
+  await player.press("Escape");
+  await expect(leaveDialog(page)).toBeVisible();
+  await page.waitForTimeout(11_000);
+  await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"));
+  await page.keyboard.press("Escape");
+  await expect(leaveDialog(page)).toBeHidden();
   await credits.click();
   await expect(credits).toBeHidden();
   await expect
     .poll(async () => (await videoState(page)).currentTime, { timeout: 15_000 })
     .toBeGreaterThan(29);
   await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"));
+});
+
+/** The bottom controls, which fade out while the viewer is idle unless something holds them. */
+const controlsShown = (target: Page) =>
+  target.locator('[data-slot="player-controls"]').evaluate((element) => {
+    const { opacity } = getComputedStyle(element);
+
+    return opacity === "1";
+  });
+
+/** Idle for longer than the controls wait before hiding. */
+const IDLE_MS = 4_000;
+
+test("hovering the volume button opens a slider that sets the level live and stays in step with mute", async () => {
+  await playFromStart(MOVIES.direct, "direct");
+  await revealControls(page);
+
+  const before = streams.length;
+  const mute = page.getByRole("button", { name: "Mute", exact: true });
+  const unmute = page.getByRole("button", { name: "Unmute", exact: true });
+  const slider = page.getByRole("slider", { name: "Volume" });
+  const control = page.locator('[data-slot="volume-slider"]');
+
+  await expect(slider).toHaveCount(0);
+  await mute.hover();
+  await expect(slider).toBeVisible();
+  await expect(slider).toHaveAttribute("aria-valuetext", "100%");
+
+  // From the button onto the slider, it stays open, and holds the controls while the pointer rests.
+  const box = await control.boundingBox();
+
+  if (box === null) throw new Error("The volume slider is not on screen");
+
+  const at = (fraction: number) => ({
+    x: box.x + box.width / 2,
+    y: box.y + box.height * (1 - fraction),
+  });
+
+  const start = at(1);
+
+  await page.mouse.move(start.x, start.y, { steps: 8 });
+  await page.waitForTimeout(IDLE_MS);
+  await expect(slider).toBeVisible();
+  expect(await controlsShown(page)).toBe(true);
+  await capture(page, "07-13-volume-slider");
+
+  // Dragging sets the level as it moves, without pausing or renegotiating the stream.
+  await page.mouse.down();
+  await page.mouse.move(at(0.6).x, at(0.6).y, { steps: 4 });
+  await expect.poll(async () => (await videoState(page)).volume).toBeLessThan(0.75);
+  await page.mouse.move(at(0.3).x, at(0.3).y, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => (await videoState(page)).volume).toBeLessThan(0.4);
+
+  const level = (await videoState(page)).volume;
+
+  expect(level).toBeGreaterThan(0.2);
+  await expect(slider).toHaveAttribute("aria-valuetext", `${String(Math.round(level * 100))}%`);
+
+  // Mute and the slider agree: muted reads 0, and unmuting returns to the level.
+  await mute.click();
+  await expect.poll(async () => (await videoState(page)).muted).toBe(true);
+  await expect(slider).toHaveAttribute("aria-valuetext", "Muted");
+  await unmute.click();
+  await expect.poll(async () => (await videoState(page)).muted).toBe(false);
+  expect((await videoState(page)).volume).toBeCloseTo(level, 2);
+
+  // Down to nothing mutes; unmuting returns to the level it was dragged from.
+  await page.mouse.move(at(0.3).x, at(0.3).y);
+  await page.mouse.down();
+  await page.mouse.move(at(0).x, box.y + box.height + 8, { steps: 6 });
+  await page.mouse.up();
+  await expect(unmute).toBeVisible();
+  await expect.poll(async () => (await videoState(page)).muted).toBe(true);
+  await unmute.click();
+  await expect.poll(async () => (await videoState(page)).volume).toBeCloseTo(level, 2);
+  expect((await videoState(page)).muted).toBe(false);
+
+  // Away from the button and the slider, it closes and stops holding the controls.
+  const frame = await page.getByTestId("player").boundingBox();
+
+  if (frame === null) throw new Error("The player is not on screen");
+
+  await page.mouse.move(frame.x + frame.width / 2, frame.y + frame.height / 3, { steps: 4 });
+  await expect(slider).toHaveCount(0);
+  await expect.poll(() => controlsShown(page), { timeout: IDLE_MS + 2_000 }).toBe(false);
+
+  // From the keyboard: tabbing to the button opens it, Tab reaches it, arrows step it.
+  await revealControls(page);
+  await page.getByRole("button", { name: "Forward 10 seconds" }).focus();
+  await page.keyboard.press("Tab");
+  await expect(mute).toBeFocused();
+  await expect(slider).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(slider).toBeFocused();
+
+  const keyed = Math.round((await videoState(page)).volume * 100);
+
+  await page.keyboard.press("ArrowUp");
+  await expect
+    .poll(async () => Math.round((await videoState(page)).volume * 100))
+    .toBe(Math.min(100, keyed + 1));
+  await expect(slider).toHaveAttribute("aria-valuetext", `${String(Math.min(100, keyed + 1))}%`);
+  await page.keyboard.press("PageDown");
+  await expect
+    .poll(async () => Math.round((await videoState(page)).volume * 100))
+    .toBe(Math.min(100, keyed + 1) - 10);
+
+  // The player's other keys still work from the slider: k pauses and plays.
+  await page.keyboard.press("k");
+  await expect.poll(async () => (await videoState(page)).paused).toBe(true);
+  await page.keyboard.press("k");
+  await expect.poll(async () => (await videoState(page)).paused).toBe(false);
+
+  // Escape closes the slider and nothing more; focus returns to the button.
+  await page.keyboard.press("Escape");
+  await expect(slider).toHaveCount(0);
+  await expect(mute).toBeFocused();
+  await expect(leaveDialog(page)).toBeHidden();
+
+  expect((await videoState(page)).paused).toBe(false);
+  expect(streams.length).toBe(before);
+});
+
+test("the episode picker browses seasons and plays earlier and later episodes in the player", async () => {
+  const [first, second] = episodes;
+  const [later] = seasonTwo;
+
+  if (first === undefined || second === undefined || later === undefined) {
+    throw new Error("The show has no episodes");
+  }
+
+  await page.goto(`/watch/${titleId(SHOW)}?episodeId=${second}&start=0`);
+  await expectPlayingPast(page, 0.5);
+
+  const player = page.getByTestId("player");
+  const button = page.getByRole("button", { name: "Episodes", exact: true });
+  const picker = page.getByRole("dialog", { name: "Episodes" });
+  const current = picker.locator('[aria-current="true"]');
+
+  // Next episode stays beside it.
+  await revealControls(page);
+  await expect(page.getByRole("button", { name: "Next episode" })).toBeVisible();
+  await button.click();
+  await expect(picker).toBeVisible();
+
+  // It opens on the season playing, the current episode marked and focused.
+  await expect(picker.getByRole("button", { name: "Season 1", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(picker.locator('[data-slot="episode-row"]')).toHaveText([
+    new RegExp(`^1\\s*${EPISODES[0]}`, "u"),
+    new RegExp(`^2\\s*${EPISODES[1]}`, "u"),
+    new RegExp(`^3\\s*${EPISODES[2]}`, "u"),
+  ]);
+  await expect(current).toContainText(EPISODES[1]);
+  await expect(current).toBeFocused();
+
+  // It holds the controls while open.
+  await page.waitForTimeout(IDLE_MS);
+  expect(await controlsShown(page)).toBe(true);
+  await capture(page, "07-14-episode-picker");
+
+  // Arrows move between episodes without seeking or changing the volume.
+  const volume = (await videoState(page)).volume;
+
+  await page.keyboard.press("ArrowDown");
+  await expect(picker.getByRole("button", { name: new RegExp(EPISODES[2], "u") })).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowUp");
+  await expect(picker.getByRole("button", { name: new RegExp(EPISODES[0], "u") })).toBeFocused();
+  expect((await videoState(page)).volume).toBe(volume);
+
+  // Escape closes the picker and nothing more: playback goes on, nothing asks.
+  await page.keyboard.press("Escape");
+  await expect(picker).toBeHidden();
+  await expect(leaveDialog(page)).toBeHidden();
+  await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"));
+  expect((await videoState(page)).paused).toBe(false);
+
+  // A later season's episode plays from the picker.
+  await revealControls(page);
+  await button.click();
+  await picker.getByRole("button", { name: "Season 2", exact: true }).click();
+  await expect(picker.locator('[data-slot="episode-row"]')).toHaveText([
+    new RegExp(`^1\\s*${SEASON_TWO[0]}`, "u"),
+  ]);
+  await capture(page, "07-15-episode-picker-season");
+  await picker.getByRole("button", { name: new RegExp(SEASON_TWO[0], "u") }).click();
+  await expect(page).toHaveURL(new RegExp(`episodeId=${later}`, "u"));
+  await expectPlayingPast(page, 0.5);
+
+  // It opens on that season now; an earlier episode plays from Season 1, in full screen too.
+  await player.press("f");
+  await expect
+    .poll(() => page.evaluate(() => document.fullscreenElement?.getAttribute("data-testid")))
+    .toBe("player");
+  await revealControls(page);
+  await button.click();
+  await expect(current).toContainText(SEASON_TWO[0]);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          document.fullscreenElement?.contains(
+            document.querySelector('[data-slot="episode-list"]'),
+          ) ?? false,
+      ),
+    )
+    .toBe(true);
+
+  // Escape closes the picker first; full screen stays until the next press.
+  await page.keyboard.press("Escape");
+  await expect(picker).toBeHidden();
+  expect(await page.evaluate(() => document.fullscreenElement !== null)).toBe(true);
+  await revealControls(page);
+  await button.click();
+  await picker.getByRole("button", { name: "Season 1", exact: true }).click();
+  await picker.getByRole("button", { name: new RegExp(EPISODES[0], "u") }).click();
+  await expect(page).toHaveURL(new RegExp(`episodeId=${first}`, "u"));
+  await expectPlayingPast(page, 0.5);
+  await page.evaluate(() => document.exitFullscreen().catch(() => undefined));
+
+  // A movie has no picker.
+  await playFromStart(MOVIES.direct, "direct");
+  await revealControls(page);
+  await expect(page.getByRole("button", { name: "Mute", exact: true })).toBeVisible();
+  await expect(button).toHaveCount(0);
+});
+
+test("touch: a tap opens the volume slider before muting, and the picker plays an episode", async ({
+  browser,
+}) => {
+  if (stack === null) return;
+
+  const [first, second] = episodes;
+
+  if (first === undefined || second === undefined) throw new Error("The show has no episodes");
+
+  // A tablet keeps the desktop controls, with touch.
+  const tablet = await browser.newContext({ ...devices["Galaxy Tab S9 landscape"] });
+  const touch = await tablet.newPage();
+
+  await useSession(touch, owner);
+  await touch.goto(`/watch/${titleId(SHOW)}?episodeId=${first}&start=0`);
+  await expectPlayingPast(touch, 0.5);
+  await revealControls(touch);
+
+  const slider = touch.getByRole("slider", { name: "Volume" });
+
+  await touch.getByRole("button", { name: "Mute", exact: true }).tap();
+  await expect(slider).toBeVisible();
+  expect((await videoState(touch)).muted).toBe(false);
+  await touch.getByRole("button", { name: "Mute", exact: true }).tap();
+  await expect.poll(async () => (await videoState(touch)).muted).toBe(true);
+  await touch.getByRole("button", { name: "Unmute", exact: true }).tap();
+  await expect.poll(async () => (await videoState(touch)).muted).toBe(false);
+
+  // Left alone, the slider a tap opened closes, and lets the controls hide again.
+  await expect(slider).toHaveCount(0, { timeout: 6_000 });
+
+  await touch.getByRole("button", { name: "Episodes", exact: true }).tap();
+  await expect(slider).toHaveCount(0);
+
+  const picker = touch.getByRole("dialog", { name: "Episodes" });
+
+  await picker.getByRole("button", { name: new RegExp(EPISODES[1], "u") }).tap();
+  await expect(touch).toHaveURL(new RegExp(`episodeId=${second}`, "u"));
+  await expectPlayingPast(touch, 0.5);
+  await tablet.close();
+
+  // A phone has an Episodes pill under the scrubber.
+  const phone = await browser.newContext({ ...devices["iPhone 13 landscape"] });
+  const handset = await phone.newPage();
+
+  await useSession(handset, owner);
+  await handset.goto(`/watch/${titleId(SHOW)}?episodeId=${second}&start=0`);
+  await expectPlayingPast(handset, 0.5);
+  await handset.getByTestId("player-video").tap();
+  await handset.getByRole("button", { name: "Episodes", exact: true }).tap();
+
+  const phonePicker = handset.getByRole("dialog", { name: "Episodes" });
+
+  await expect(phonePicker.locator('[aria-current="true"]')).toContainText(EPISODES[1]);
+  await expect(phonePicker).toHaveCSS("opacity", "1");
+
+  // On a screen this short it stays above the pill, within the screen, and its list scrolls.
+  const pill = await handset.getByRole("button", { name: "Episodes", exact: true }).boundingBox();
+  const panel = await phonePicker.boundingBox();
+
+  if (pill === null || panel === null) throw new Error("The picker is not on screen");
+  expect(panel.y).toBeGreaterThanOrEqual(0);
+  expect(panel.y + panel.height).toBeLessThanOrEqual(pill.y);
+  await capture(handset, "07-16-ios-episode-picker");
+  await phonePicker.getByRole("button", { name: new RegExp(EPISODES[0], "u") }).tap();
+  await expect(handset).toHaveURL(new RegExp(`episodeId=${first}`, "u"));
+  await phone.close();
 });
 
 test("a file gone from disk says so instead of playing", async () => {
@@ -588,5 +1217,10 @@ test("a phone plays in its own layout, with brightness and volume sliders", asyn
   await expect(handset.getByRole("slider", { name: "Volume" })).toBeVisible();
   await expect(handset.getByRole("button", { name: "Close player" })).toBeVisible();
   await capture(handset, "07-10-ios-player");
+
+  // Close is already deliberate, so it leaves without asking.
+  await handset.getByRole("button", { name: "Close player" }).tap();
+  await expect(handset).toHaveURL(new RegExp(`/title/${titleId(MOVIES.direct)}$`, "u"));
+  await expect(leaveDialog(handset)).toHaveCount(0);
   await phone.close();
 });

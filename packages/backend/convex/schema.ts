@@ -34,10 +34,12 @@ import {
   probe,
   ratings,
   role,
+  roomPresence,
   roomRole,
   roomStatus,
   scope,
   showStatus,
+  storedRoomNext,
   titleKind,
   trailer,
   trickplayState,
@@ -383,6 +385,11 @@ export default defineSchema({
     startedAt: v.number(),
     lastReportAt: v.number(),
     endedAt: nullable(v.number()),
+    /**
+     * `download` for a file the device keeps: it reports no progress, and neither ends nor is ended
+     * by the device's playback. Absent for playback.
+     */
+    purpose: v.optional(v.literal("download")),
   })
     .index("by_status_ended", ["status", "endedAt"])
     .index("by_status_report", ["status", "lastReportAt"])
@@ -405,6 +412,14 @@ export default defineSchema({
     revision: v.number(),
     hostLastSeenAt: v.number(),
     hostAway: v.boolean(),
+    /** The length of `fileId`, for an away host's end-of-file pause; absent on older rooms. */
+    fileDurationMs: v.optional(v.number()),
+    /**
+     * The next-episode countdown for what the room plays now: pending until `nextAt`, when a
+     * scheduled `rooms.nextEpisodeDue` moves the room on, or cancelled by the host. Absent when
+     * there is none; every change of media clears it.
+     */
+    next: v.optional(storedRoomNext),
     endedAt: v.optional(v.number()),
   })
     .index("by_status", ["status"])
@@ -419,6 +434,10 @@ export default defineSchema({
     role: roomRole,
     joinedAt: v.number(),
     lastSeenAt: v.number(),
+    /** What the device's last heartbeat said it is doing; absent on rows from before it was kept. */
+    presence: v.optional(roomPresence),
+    /** When the device's player last reported: joining, or a watching heartbeat. */
+    watchedAt: v.optional(v.number()),
     /** A guest's last reported distance from the shared position; absent until it reports one. */
     driftMs: v.optional(v.number()),
   })
@@ -444,7 +463,8 @@ export default defineSchema({
   })
     .index("by_status", ["status"])
     .index("by_kind_status", ["kind", "status"])
-    .index("by_library_status", ["libraryId", "status"]),
+    .index("by_library_status", ["libraryId", "status"])
+    .index("by_library", ["libraryId"]),
 
   /** A migration job's plan, checkpoint, and counts; one row per migration job. */
   migrations: defineTable({

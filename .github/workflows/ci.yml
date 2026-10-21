@@ -28,6 +28,8 @@ jobs:
       - run: pnpm fmt:check
       - run: pnpm test
       - run: pnpm knip
+      # The iOS app bundles with Metro, so a module it cannot resolve fails here, not on a phone.
+      - run: pnpm --filter mobile bundle
       # The installs pin one Convex backend and expose every media service setting.
       - run: scripts/check-deploy.sh
 

@@ -19,15 +19,16 @@ const launchOptions: LaunchOptions = {};
 if (chromium !== undefined && chromium !== "") launchOptions.executablePath = chromium;
 
 /**
- * Browser tests against the Vite dev server. `kit` checks the UI kit gallery and the not-found and
- * error screens, and needs no backend.
+ * Browser tests against the Vite dev server. `kit` checks the UI kit gallery, the player's track
+ * menu and next-episode benches, and the not-found and error screens, and needs no backend.
  * `stack` runs the core flows against the worktree's dev stack (`scripts/dev-stack.sh up`) and the
  * real media service, which the suite starts itself; it skips without a fresh stack. `admin` then
  * runs the account and admin screens on the same stack as the owner `stack` created; it skips
  * without a stack. `metadata` scans an NFO library for the title, person, genre, and collection
  * pages. `player` and then `rooms` play generated clips through the real media service as that
- * owner, `scrubbing` checks scrub thumbnails and chapters, `casting` casts to a scripted
- * Chromecast, `versions` chooses among a title's files, `migration` imports from a Jellyfin through it, and `backups` runs a real backup job
+ * owner, `party` moves a room with a host and two guests on to its next episode, `scrubbing`
+ * checks scrub thumbnails and chapters, `casting` casts to a scripted
+ * Chromecast, `versions` chooses among a title's files, `subtitles` delays subtitles, `migration` imports from a Jellyfin through it, and `backups` runs a real backup job
  * on it last. The suites that run a media service take turns, as it owns the stack's port.
  */
 export default defineConfig({
@@ -43,7 +44,7 @@ export default defineConfig({
   projects: [
     {
       name: "kit",
-      testMatch: /e2e\/(kit|route-states)\.spec\.ts$/u,
+      testMatch: /e2e\/(kit|route-states|track-menu|autoplay-next)\.spec\.ts$/u,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {
@@ -79,9 +80,16 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {
+      // A host and two guests move a room on to its next episode.
+      name: "party",
+      testMatch: /e2e\/playback\/party\.spec\.ts$/u,
+      dependencies: ["rooms"],
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+    },
+    {
       name: "scrubbing",
       testMatch: /e2e\/playback\/scrubbing\.spec\.ts$/u,
-      dependencies: ["rooms"],
+      dependencies: ["party"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {
@@ -97,9 +105,15 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {
+      name: "subtitles",
+      testMatch: /e2e\/playback\/subtitle-timing\.spec\.ts$/u,
+      dependencies: ["versions"],
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+    },
+    {
       name: "migration",
       testMatch: /e2e\/admin\/migration\.spec\.ts$/u,
-      dependencies: ["versions"],
+      dependencies: ["subtitles"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {

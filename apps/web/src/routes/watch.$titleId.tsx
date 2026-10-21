@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Schema } from "effect";
 
 import { PlayerScreen } from "@/components/player/player-screen";
+import { CurrentRoomProvider } from "@/lib/current-room";
 import { RequireProfile, RequireSignedIn } from "@/session/guards";
 
 const decodeTitleId = Schema.decodeSync(TitleId);
@@ -46,15 +47,18 @@ function WatchPage() {
   const search = Route.useSearch();
 
   return (
-    <PlayerScreen
-      // A new title or episode is a new session; a room joined or left keeps the stream.
-      key={`${titleId}:${search.episodeId ?? ""}`}
-      titleId={titleId}
-      episodeId={search.episodeId}
-      version={search.version}
-      start={search.start}
-      roomId={search.room}
-      together={search.together === "1"}
-    />
+    // Playing something else alone, this device still keeps its place in its room, away.
+    <CurrentRoomProvider keepPlace={search.room === undefined}>
+      <PlayerScreen
+        // A new title or episode is a new session; a room joined or left keeps the stream.
+        key={`${titleId}:${search.episodeId ?? ""}`}
+        titleId={titleId}
+        episodeId={search.episodeId}
+        version={search.version}
+        start={search.start}
+        roomId={search.room}
+        together={search.together === "1"}
+      />
+    </CurrentRoomProvider>
   );
 }

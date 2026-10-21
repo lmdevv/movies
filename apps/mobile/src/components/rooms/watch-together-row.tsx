@@ -1,0 +1,18 @@
+/** D01's Watch Together row on a title's page: it opens G01 to start a room for the title. */
+import type { TitleId } from "@movies/contracts/ids";
+import { router } from "expo-router";
+import { UsersRound } from "lucide-react-native";
+
+import { ListRow } from "@/components/ui/list-row";
+import { togetherHref } from "@/lib/routes";
+
+/** The row that starts a watch room for `titleId`. */
+export function WatchTogetherRow({ titleId }: { readonly titleId: TitleId }) {
+  return (
+    <ListRow
+      icon={UsersRound}
+      title="Watch Together"
+      onPress={() => router.push(togetherHref({ titleId }))}
+    />
+  );
+}

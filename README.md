@@ -183,6 +183,12 @@ and sets only `programs.movies.enable = true` plus `programs.movies.convexUrl` a
 Output is JSON by default. Agents get an API key from Settings → API keys and follow
 [apps/cli/skills/movies/SKILL.md](apps/cli/skills/movies/SKILL.md).
 
+## iOS app
+
+`apps/mobile` is the iPhone app: Expo, Expo Router, and Uniwind over the same SDK. People type the
+server's address; the app asks the media service where accounts live and signs in from there.
+Building and running it is in [apps/mobile/README.md](apps/mobile/README.md).
+
 ## Telemetry
 
 No analytics and no phoning home. Logs are JSON lines with tokens, keys, and passwords redacted;
@@ -205,7 +211,7 @@ See `AGENTS.md` for the layout, rules, and checks, and `docs/` for decisions and
 
 ## License
 
-[movies] is MIT-licensed. The self-hosted Convex backend it runs (`ghcr.io/get-convex/convex-backend`)
+[movies] is MIT-licensed. The self-hosted Convex backend it runs (`ghcr.io/convex/convex-backend`)
 is FSL-1.1-Apache-2.0: each release converts to Apache-2.0 two years after it ships. The image
 includes Debian's ffmpeg (LGPL/GPL) and the non-free build of Intel's media driver, whose
 encoding kernels are proprietary; the NixOS module uses nixpkgs `ffmpeg-full`.

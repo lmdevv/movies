@@ -21,8 +21,10 @@ import { Route as AppMyListRouteImport } from './routes/_app/my-list'
 import { Route as AppSearchRouteImport } from './routes/_app/search'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppShowsRouteImport } from './routes/_app/shows'
+import { Route as DevAutoplayRouteImport } from './routes/dev/autoplay'
 import { Route as DevCrashRouteImport } from './routes/dev/crash'
 import { Route as DevKitRouteImport } from './routes/dev/kit'
+import { Route as DevTracksRouteImport } from './routes/dev/tracks'
 import { Route as InviteCodeRouteImport } from './routes/invite.$code'
 import { Route as ProfilesIndexRouteImport } from './routes/profiles.index'
 import { Route as ProfilesNewRouteImport } from './routes/profiles.new'
@@ -108,6 +110,11 @@ const AppShowsRoute = AppShowsRouteImport.update({
   path: '/shows',
   getParentRoute: () => AppRoute,
 } as any)
+const DevAutoplayRoute = DevAutoplayRouteImport.update({
+  id: '/dev/autoplay',
+  path: '/dev/autoplay',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DevCrashRoute = DevCrashRouteImport.update({
   id: '/dev/crash',
   path: '/dev/crash',
@@ -116,6 +123,11 @@ const DevCrashRoute = DevCrashRouteImport.update({
 const DevKitRoute = DevKitRouteImport.update({
   id: '/dev/kit',
   path: '/dev/kit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DevTracksRoute = DevTracksRouteImport.update({
+  id: '/dev/tracks',
+  path: '/dev/tracks',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InviteCodeRoute = InviteCodeRouteImport.update({
@@ -259,8 +271,10 @@ export interface FileRoutesByFullPath {
   '/search': typeof AppSearchRoute
   '/settings': typeof AppSettingsRouteWithChildren
   '/shows': typeof AppShowsRoute
+  '/dev/autoplay': typeof DevAutoplayRoute
   '/dev/crash': typeof DevCrashRoute
   '/dev/kit': typeof DevKitRoute
+  '/dev/tracks': typeof DevTracksRoute
   '/invite/$code': typeof InviteCodeRoute
   '/profiles/new': typeof ProfilesNewRoute
   '/r/$roomId': typeof RRoomIdRoute
@@ -296,8 +310,10 @@ export interface FileRoutesByTo {
   '/my-list': typeof AppMyListRoute
   '/search': typeof AppSearchRoute
   '/shows': typeof AppShowsRoute
+  '/dev/autoplay': typeof DevAutoplayRoute
   '/dev/crash': typeof DevCrashRoute
   '/dev/kit': typeof DevKitRoute
+  '/dev/tracks': typeof DevTracksRoute
   '/invite/$code': typeof InviteCodeRoute
   '/profiles/new': typeof ProfilesNewRoute
   '/r/$roomId': typeof RRoomIdRoute
@@ -338,8 +354,10 @@ export interface FileRoutesById {
   '/_app/search': typeof AppSearchRoute
   '/_app/settings': typeof AppSettingsRouteWithChildren
   '/_app/shows': typeof AppShowsRoute
+  '/dev/autoplay': typeof DevAutoplayRoute
   '/dev/crash': typeof DevCrashRoute
   '/dev/kit': typeof DevKitRoute
+  '/dev/tracks': typeof DevTracksRoute
   '/invite/$code': typeof InviteCodeRoute
   '/profiles/new': typeof ProfilesNewRoute
   '/r/$roomId': typeof RRoomIdRoute
@@ -381,8 +399,10 @@ export interface FileRouteTypes {
     | '/search'
     | '/settings'
     | '/shows'
+    | '/dev/autoplay'
     | '/dev/crash'
     | '/dev/kit'
+    | '/dev/tracks'
     | '/invite/$code'
     | '/profiles/new'
     | '/r/$roomId'
@@ -418,8 +438,10 @@ export interface FileRouteTypes {
     | '/my-list'
     | '/search'
     | '/shows'
+    | '/dev/autoplay'
     | '/dev/crash'
     | '/dev/kit'
+    | '/dev/tracks'
     | '/invite/$code'
     | '/profiles/new'
     | '/r/$roomId'
@@ -459,8 +481,10 @@ export interface FileRouteTypes {
     | '/_app/search'
     | '/_app/settings'
     | '/_app/shows'
+    | '/dev/autoplay'
     | '/dev/crash'
     | '/dev/kit'
+    | '/dev/tracks'
     | '/invite/$code'
     | '/profiles/new'
     | '/r/$roomId'
@@ -494,8 +518,10 @@ export interface RootRouteChildren {
   DeviceRoute: typeof DeviceRoute
   SignInRoute: typeof SignInRoute
   WelcomeRoute: typeof WelcomeRoute
+  DevAutoplayRoute: typeof DevAutoplayRoute
   DevCrashRoute: typeof DevCrashRoute
   DevKitRoute: typeof DevKitRoute
+  DevTracksRoute: typeof DevTracksRoute
   InviteCodeRoute: typeof InviteCodeRoute
   ProfilesNewRoute: typeof ProfilesNewRoute
   RRoomIdRoute: typeof RRoomIdRoute
@@ -593,6 +619,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppShowsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/dev/autoplay': {
+      id: '/dev/autoplay'
+      path: '/dev/autoplay'
+      fullPath: '/dev/autoplay'
+      preLoaderRoute: typeof DevAutoplayRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dev/crash': {
       id: '/dev/crash'
       path: '/dev/crash'
@@ -605,6 +638,13 @@ declare module '@tanstack/react-router' {
       path: '/dev/kit'
       fullPath: '/dev/kit'
       preLoaderRoute: typeof DevKitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dev/tracks': {
+      id: '/dev/tracks'
+      path: '/dev/tracks'
+      fullPath: '/dev/tracks'
+      preLoaderRoute: typeof DevTracksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/invite/$code': {
@@ -867,8 +907,10 @@ const rootRouteChildren: RootRouteChildren = {
   DeviceRoute: DeviceRoute,
   SignInRoute: SignInRoute,
   WelcomeRoute: WelcomeRoute,
+  DevAutoplayRoute: DevAutoplayRoute,
   DevCrashRoute: DevCrashRoute,
   DevKitRoute: DevKitRoute,
+  DevTracksRoute: DevTracksRoute,
   InviteCodeRoute: InviteCodeRoute,
   ProfilesNewRoute: ProfilesNewRoute,
   RRoomIdRoute: RRoomIdRoute,

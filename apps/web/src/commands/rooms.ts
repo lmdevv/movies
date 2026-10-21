@@ -5,16 +5,16 @@
  */
 import { RoomId } from "@movies/contracts/ids";
 import type { CommandItem } from "@movies/ui/lib/command-menu";
-import { useCommand, useCommandQuery } from "@movies/sdk/react";
+import { useCommand } from "@movies/sdk/react";
 import { LinkIcon, LogOutIcon, SquareXIcon, UsersIcon } from "lucide-react";
 import { Option, Schema } from "effect";
 import { useMemo } from "react";
 
+import { returnTarget, useCurrentRoom } from "@/lib/current-room";
 import { loadDeviceId } from "@/lib/device-storage";
 import { toastFailure } from "@/lib/failure";
 
 import type { CommandContext, CommandContribution } from "./contribution";
-import { usePlayerCommands } from "./playback";
 
 const decodeRoomId = Schema.decodeUnknownOption(RoomId);
 
@@ -27,12 +27,13 @@ const typedRoomId = (query: string): Option.Option<RoomId> => {
 
 /** Room actions for the menu. */
 export const useRoomCommands = (context: CommandContext): CommandContribution => {
-  const { navigate, query } = context;
-  const player = usePlayerCommands();
+  const { navigate, query, player } = context;
   const deviceId = useMemo(() => loadDeviceId(), []);
   const leave = useCommand("rooms.leave");
-  const current = useCommandQuery("rooms.current", player === null ? { deviceId } : "skip");
-  const room = current.status === "success" ? current.data : null;
+
+  // Outside the player's menu only; the player follows its own room.
+  const shellRoom = useCurrentRoom();
+  const current = player === null ? shellRoom : null;
 
   return useMemo((): CommandContribution => {
     const typed = typedRoomId(query);
@@ -74,61 +75,60 @@ export const useRoomCommands = (context: CommandContext): CommandContribution =>
                 leading: { kind: "icon", icon: LinkIcon },
                 perform: player.room.copyLink,
               },
-              ...(player.room.end === null
-                ? []
-                : [
-                    {
-                      kind: "action" as const,
-                      id: "room:end",
-                      title: "End room",
-                      keywords: ["close", "stop"],
-                      leading: { kind: "icon" as const, icon: SquareXIcon },
-                      perform: player.room.end,
-                    },
-                  ]),
-              {
-                kind: "action",
-                id: "room:leave",
-                title: "Leave room",
-                leading: { kind: "icon", icon: LogOutIcon },
-                perform: player.room.leave,
-              },
+              player.room.role === "host"
+                ? {
+                    kind: "action",
+                    id: "room:end",
+                    title: "End room",
+                    keywords: ["close", "stop"],
+                    leading: { kind: "icon", icon: SquareXIcon },
+                    perform: player.room.end,
+                  }
+                : {
+                    kind: "action",
+                    id: "room:leave",
+                    title: "Leave room",
+                    leading: { kind: "icon", icon: LogOutIcon },
+                    perform: player.room.leave,
+                  },
             ];
 
       return { groups: [{ id: "room", label: "Room", items: inPlayer }], fallback: join };
     }
 
-    const elsewhere: ReadonlyArray<CommandItem> =
-      room === null
+    const back: ReadonlyArray<CommandItem> =
+      current?.mine !== true || !current.returnable
         ? []
         : [
             {
               kind: "action",
               id: "room:return",
               title: "Return to room",
-              detail: room.title.name,
+              detail: current.titleName,
               leading: { kind: "icon", icon: UsersIcon },
-              perform: () =>
-                navigate({
-                  to: "/watch/$titleId",
-                  params: { titleId: room.title.id },
-                  search:
-                    room.episode === null
-                      ? { room: room.id }
-                      : { room: room.id, episodeId: room.episode.id },
-                }),
+              perform: () => navigate(returnTarget(current)),
             },
+          ];
+
+    // A device in a room with another profile can still leave it, without naming what it plays.
+    // A host leaving ends the room for everyone, so the host's item says so.
+    const elsewhere: ReadonlyArray<CommandItem> =
+      current === null
+        ? []
+        : [
+            ...back,
             {
               kind: "action",
-              id: "room:leave",
-              title: "Leave room",
-              detail: room.title.name,
-              leading: { kind: "icon", icon: LogOutIcon },
+              id: current.hosting ? "room:end" : "room:leave",
+              title: current.hosting ? "End room" : "Leave room",
+              keywords: ["leave", "close", "stop"],
+              detail: current.mine ? current.titleName : undefined,
+              leading: { kind: "icon", icon: current.hosting ? SquareXIcon : LogOutIcon },
               perform: () =>
-                leave({ roomId: room.id, deviceId }).then(() => undefined, toastFailure),
+                leave({ roomId: current.id, deviceId }).then(() => undefined, toastFailure),
             },
           ];
 
     return { groups: [{ id: "room", label: "Room", items: elsewhere }], fallback: join };
-  }, [navigate, query, player, room, leave, deviceId]);
+  }, [navigate, query, player, current, leave, deviceId]);
 };

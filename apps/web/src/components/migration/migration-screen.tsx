@@ -5,6 +5,7 @@ import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
 import { Spinner } from "@movies/ui/components/spinner";
 import { useNavigate } from "@tanstack/react-router";
+import { SOURCE_NAMES } from "@movies/contracts/migration-plan";
 import { Match } from "effect";
 import { useEffect, useState } from "react";
 
@@ -15,7 +16,7 @@ import { Connect } from "./connect";
 import type { Preview } from "./connect";
 import type { SourceForm } from "./migration-model";
 import { Done, Importing } from "./import-progress";
-import { EMPTY_FORM, SOURCE_NAMES } from "./migration-model";
+import { EMPTY_FORM } from "./migration-model";
 import { Review } from "./review";
 
 /** Where the admin is before an import starts. */

@@ -2,7 +2,7 @@
  * The player frame's own behavior: controls that hide while the video plays untouched, full screen
  * on the whole frame (or the system player on iPhones), and which phone layout applies.
  */
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 /** How long the controls stay after the last pointer move, tap, or key. */
 const CONTROLS_IDLE_MS = 3_000;
@@ -41,32 +41,40 @@ export const useControlsVisible = (frame: HTMLElement | null, hold: boolean): bo
   return hold || awake;
 };
 
-const subscribeFullscreen = (onChange: () => void): (() => void) => {
-  document.addEventListener("fullscreenchange", onChange);
-
-  return () => document.removeEventListener("fullscreenchange", onChange);
-};
-
-const readFullscreen = (): boolean => document.fullscreenElement !== null;
-
 /** Full screen as the player uses it. */
 export interface Fullscreen {
-  /** Whether the page is full screen. */
-  readonly fullscreen: boolean;
   /** Enters or leaves full screen. */
   readonly toggle: () => void;
+  /**
+   * Takes an Escape press that belongs to full screen: one pressed while full screen, which leaves
+   * it if the browser has not already, or one pressed before full screen ended but delivered after
+   * (event times, not a window, tell them apart). Returns whether the press was taken, so nothing
+   * else acts on it.
+   */
+  readonly takeEscape: (event: KeyboardEvent) => boolean;
 }
 
-/** Whether the page is full screen, and the toggle for `frame` (or the video on iPhones). */
+/** The toggle for full screen on `frame` (or the video on iPhones), and Escape's part in it. */
 export const useFullscreen = (
   frame: HTMLElement | null,
   video: HTMLVideoElement | null,
 ): Fullscreen => {
-  const fullscreen = useSyncExternalStore(subscribeFullscreen, readFullscreen, readFullscreen);
+  // When full screen last ended, on the same clock as event times.
+  const endedAt = useRef(Number.NEGATIVE_INFINITY);
+
+  useEffect(() => {
+    const onChange = (event: Event): void => {
+      if (document.fullscreenElement === null) endedAt.current = event.timeStamp;
+    };
+
+    document.addEventListener("fullscreenchange", onChange);
+
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
 
   const toggle = useCallback(() => {
     if (document.fullscreenElement !== null) {
-      void document.exitFullscreen();
+      void document.exitFullscreen().catch(() => undefined);
 
       return;
     }
@@ -81,7 +89,18 @@ export const useFullscreen = (
     video?.webkitEnterFullscreen?.();
   }, [frame, video]);
 
-  return { fullscreen, toggle };
+  const takeEscape = useCallback((event: KeyboardEvent): boolean => {
+    if (document.fullscreenElement !== null) {
+      // The browser may be leaving already for this same press; then this call is refused.
+      void document.exitFullscreen().catch(() => undefined);
+
+      return true;
+    }
+
+    return event.timeStamp <= endedAt.current;
+  }, []);
+
+  return { toggle, takeEscape };
 };
 
 /** A touch screen too small for the desktop player: a phone in either orientation. */

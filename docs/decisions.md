@@ -10,11 +10,15 @@ choices made while implementing them. Update it in the same PR that changes a de
   signature is base64url HMAC-SHA256 over the ASCII string `v1.<payload>` with the raw bytes of
   `PLAYBACK_TOKEN_SECRET` (a base64url string of at least 32 random bytes, decoded before use).
 - Payload fields: `aud` (`"media"`), `sub` (user ID), `pid` (profile ID), `fid` (file ID), `sid`
-  (playback session ID), `iat` and `exp` (milliseconds since the epoch). Lifetime six hours.
+  (playback session ID), `iat` and `exp` (milliseconds since the epoch), and `pur: "download"`
+  last for a download session's token only. Lifetime six hours.
 - Convex signs with WebCrypto in plain TypeScript. The media service verifies with the shared
   verifier in `@movies/contracts/playback-token` (constant time; a wrong audience, a bad or
   non-canonically encoded signature, or `exp <= now` is refused). Shared test vectors in
   `packages/contracts` keep both sides honest.
+- Each media route takes tokens of one purpose: negotiation, seeking, HLS, and trickplay only
+  playback tokens; `prepare` and the download MP4s only download tokens; the original file and its
+  subtitles either. Any other is `PlaybackTokenInvalid` with reason `wrong_purpose` (401).
 - A token whose playback session has ended is refused with `PlaybackSessionEnded` (410) even
   before it expires: the media service follows `mediaService:endedSessions`, stops the session's
   HLS streams, and remembers ended sessions for a token's lifetime (catching up on the last six
@@ -389,6 +393,115 @@ choices made while implementing them. Update it in the same PR that changes a de
   the duration, or reporting `ended`, marks the item watched; watched stays set until someone marks
   it unwatched. Sessions silent for 30 minutes end.
 
+## Downloads
+
+- A download is a playback session with `purpose: "download"`, started with `downloads.start`.
+  It gets playback's checks (the profile, its unlock, its age limit, the library grant) and file
+  choice, and every path that ends playback (sign-out, an ended sign-in, a removed library or
+  profile, the media service's ended-session list) ends it too, without new plumbing. It neither
+  ends nor is ended by the device's playback, is not listed in `playback.active`, and records no
+  progress. One device holds at most four download sessions and the account eight, beside the
+  eight devices it plays on; past either cap the quietest ends, and the same file again replaces
+  its earlier download on that device. Its token names its purpose, so it cannot stream. `playback.renewToken` renews its token and keeps
+  it alive; the app renews before the token expires, and the idle sweep ends a download not renewed
+  for a token's lifetime and an hour more.
+  `downloads.end` ends it once the file is on the device.
+- `POST /api/downloads/prepare` takes the token, the device's capabilities, a quality
+  (`standard`: 720p and 4 Mb/s; `high`: 1080p and 10 Mb/s, the players' presets), and an optional
+  audio track. It answers `Ready` at once when the device opens the original file within the
+  quality (MP4 or QuickTime, decodable streams, the default audio), with the existing
+  `/media/direct` URL. Anything else becomes an MP4 by the playback ladder: the video copied when
+  the device decodes it within the quality, else encoded to H.264 in software; the audio copied
+  when the device decodes it, else stereo AAC; `+faststart` so AVPlayer opens it at once. Until it
+  is written, prepare answers `Preparing` with progress (the tail of ffmpeg's `-progress` output)
+  and an upper bound on the size (the encode's rates, with copied audio counted at 1.6 Mb/s), and
+  the app asks again. Unlike playback, the quality is a limit: a source this host cannot bring
+  within it (HDR without tone mapping) is `UnsupportedPlayback`, never the full-size original.
+  Text subtitles come as the existing WebVTT URLs; picture subtitles are not downloaded.
+- The MP4s are written one at a time at the lowest CPU priority (`ffmpegInBackground`) and take no
+  transcode slot, so playback always wins; no new setting. They live in
+  `TRANSCODE_DIR/downloads/<fileId>/<name>.mp4`. One job per hash of the file's identity (ID,
+  size, modification time) and the plan, so devices asking for the same thing share one file;
+  each run gets a random name, so a plan written again is served at a new URL and a resumed
+  transfer never mixes bytes of two runs. A download session holds one MP4 at a time: asking for
+  another (or for the original) stops the one it asked for before if nobody else wants it and it
+  is not written yet, so the queue holds at most one job per download session. The MP4 being
+  written reserves its estimate in a ledger streams share (`TranscodeSpace`), so streams keep
+  `MIN_FREE_TRANSCODE_MB` beyond it; queued MP4s reserve nothing and never refuse a stream. A new
+  MP4 is queued only when the disk holds the minimum, the reservation, and the estimates of every
+  queued MP4 and its own (`InsufficientTranscodeSpace` otherwise). A queued or running MP4 is kept
+  while one of its download sessions is live, however long the queue; it is stopped once none has
+  asked for it for two minutes (a cancelled download, a sign-out; the grace lets a download started
+  again ask first) or nobody asked about it for a token's lifetime (an app gone away). A run whose
+  ffmpeg writes nothing further for ten minutes (a NAS gone quiet) fails, so it cannot hold the
+  queue. A finished or failed MP4 nobody asked for in six hours is deleted, and a restart empties
+  `TRANSCODE_DIR` as before; the app then prepares again. A failed job answers `TranscodeFailed` for ten minutes
+  before a prepare tries again, so a broken file is not encoded in full by every retry.
+- `/media/downloads/<fileId>/<hash>.mp4` serves a finished MP4 with the direct route's validators
+  and single byte ranges, so a transfer resumes; the token must be a download token for that file.
+  A failed job's `TranscodeFailed.detail` is ffmpeg's path-scrubbed output, or a fixed sentence
+  for any other failure, so it never names a path in `TRANSCODE_DIR`.
+- `downloads.recordProgress` saves progress the device made playing a download, sent when it is
+  back online with the time it played and its clock at sending, so a fast or slow device clock is
+  corrected by its offset. It applies unless the item's progress was played since
+  (`lastPlayedAt`), so an old offline viewing never drags a newer one back, and it marks the item
+  watched at 90 percent. It needs the profile to still see the title, and the file to still be the
+  item's (it may have left the disk); `playedAt` is checked like the positions.
+
+- The iOS app keeps one store per server and account in `downloads/<server>/<account>/index.json`
+  under its documents folder, with one folder per download: the video, its text subtitles as
+  WebVTT, and its picture. The pure model (`apps/mobile/src/lib/downloads`) reduces every change;
+  the engine (`session/download-engine.ts`) works through the store two downloads at a time, oldest first:
+  - a session, prepare every three seconds until ready, a space check (keeping 500 MB free, H21),
+    then the video in an iOS background-capable download task;
+  - Wi-Fi Only pauses the task off Wi-Fi and keeps its resume data, so it continues where it
+    stopped; an app that quits starts what was under way again;
+  - failures follow `afterDownloadFailure`: an expired token renews, an ended session starts a
+    new one, anything else stops with H19's short line and Retry.
+- A download belongs to the profile that made it. The Downloads list, its screens, and the player
+  find a download only among the active profile's (`downloadFor`), so another profile, a Kids one
+  too, can neither see nor play it, even by a link. Each account keeps its own store folder.
+  Signing out keeps the files (H15) but shows none: they come back only when the same account
+  signs in on this server.
+- A kept download plays in the normal player from its local file and subtitles, as a direct
+  stream, with no server call. Progress is recorded every ten seconds and on pause, seek, and end,
+  queued in the store, and sent with `downloads.recordProgress` whenever the server answers.
+- When the server cannot be reached at launch, A08 offers Go to Downloads for the profile last
+  used on this iPhone, while it is still signed in and chosen; the root stack then has only the
+  Downloads screens and the player, and Try Again goes back to the server.
+
+## Subtitle delay
+
+- The web player shifts text subtitles for the viewer: a positive delay shows each cue later than
+  its file says, a negative one earlier. Range ±30 s; Earlier and Later (and the player's G and H
+  keys, and ⌘K's "Subtitles earlier/later") step 0.1 s; a typed entry keeps 0.01 s. A cue moved
+  before 0 s is cut at 0 s.
+- Lifetime: the current playback only. The playback controller keeps the delay with the file and
+  text track it was set for and shows 0 while anything else shows. It survives pause, seeks,
+  quality and audio changes, HLS playlist reloads, token renewals, and a version switch that falls
+  back to the file that played; turning subtitles Off, or to a picture track, and back to the same
+  text track brings it back. Choosing another text track, a version that then plays, another title
+  or episode, or reloading the page starts again at 0. Nothing is stored: not on the device, in
+  Convex, or in the profile.
+- It is a client presentation setting and nothing else. The media service, Convex, the room
+  engine, and the SDK never see it, and each member of a watch room has their own; the room's clock
+  is untouched. So it is not in contracts, the SDK, or the CLI, which has no player.
+- How: `SubtitleRetimer` (`apps/web/src/playback/subtitle-timing.ts`) moves the `startTime` and
+  `endTime` of the `<video>` element's text track cues, keeping each cue's file timing beside it
+  so changes never drift, and times cues that load later (a track shown the first time, or a new
+  stream's `<track>` elements). Text subtitles are WebVTT `<track>` elements beside the stream on
+  every path, so one mechanism covers direct play and native HLS (`<video src>`) and hls.js over
+  Media Source (its light build has no subtitle handling of its own); a new stream for another
+  quality never reloads them. Re-timing the WebVTT on the server was rejected: it would need a
+  new URL and a reload for every step and would leak a per-viewer setting into the media service.
+- Where it cannot apply, the control is disabled, reads 0.0 (nothing is shifted for the viewer),
+  and says why: subtitles Off ("Subtitles are off"); a track the playing stream does not list yet
+  ("Subtitles are loading"); picture subtitles (PGS, VobSub, DVB), which the media service burns into a transcode
+  ("Burned into the video"; ASS/SSA convert to WebVTT text and do get the delay); Chromecast, whose
+  Default Media Receiver loads the WebVTT itself and offers no cue offset ("Not while casting");
+  and AirPlay or the Remote Playback API while they play the element on another screen ("Not on
+  another screen"), whose receivers fetch the media themselves.
+
 ## Watch rooms
 
 - A room stores `positionAtAnchorMs`, `anchorServerTime`, `status`, `playbackRate`, and
@@ -407,6 +520,39 @@ choices made while implementing them. Update it in the same PR that changes a de
   can switch to a title a guest's kids profile may not see). A room link (`/r/<roomId>`) reads the
   room before joining by naming the profile that would join: when it may see the title, the room
   comes back without its members. Everyone else gets `not_found`.
+- Shows move on together, and only the host moves them (no delegated control exists yet). When
+  the host's player reaches the credits (the episode's last tenth, at most 30 s, as solo), it calls
+  `rooms.startNextCountdown`; the server stores `next: { status: "pending", episodeId, nextAt }`
+  and schedules `rooms.nextEpisodeDue` for `nextAt`, ten seconds on. Every member renders the
+  same seconds from `nextAt` and its own server clock offset, so a guest who reloads mid-countdown
+  picks it up where the others are. The scheduled function is the countdown's only writer: it
+  runs whether or not the host is still there (a heartbeat-driven advance would wait for a host
+  who left), and it changes the room only while it still plays the episode it counted down from
+  with that countdown pending, so it moves a room on at most once. The host's Play next, Next
+  button, ⌘K, and media-session next call `rooms.playNext` with the episode they move on from;
+  one that finds the room already moved changes nothing, so a double click, a race with the
+  countdown, or a stale tab advances once. Watch credits is `rooms.cancelNextCountdown`: the card
+  goes away for everyone and the countdown cannot start again for that episode. A guest's Close
+  hides only their own card; they still move on with the room.
+- Moving on (and the host's Episodes picker, which uses `rooms.setMedia`) switches the room's
+  media paused at the start with the next revision and clears its countdown. Each member's player
+  sees the new media in the room record and opens it in place (`/watch/...?room=`), keeping the
+  room, its link, and its membership; it never starts solo playback. Every member plays it with a
+  session of their own, so progress stays per profile, with their own quality and track choices.
+  The room plays when the host's player does; members slower to load join at the live position,
+  as late joiners do, and nobody waits for them. A countdown due while the host is away still
+  moves the room on, paused, until the host's player is back. The room engine of a player still on
+  the old file goes `moved` and stops following and commanding, and host controls and heartbeats
+  name their file (`fileId`), so a player the room moved on from never moves the new file's clock;
+  the server refuses such a control as `stale_revision`. The countdown, its cancel, and Play next
+  name the episode they act on (`fromEpisodeId`) for the same reason.
+- Episodes share their show's rating and library, so a member who may watch one episode may watch
+  the next. The next episode's file missing from disk stops the countdown (`conflict`): the host's
+  card says so and only closes. After the last episode there is no card. A member whose profile
+  cannot see what the host switched to (another title, through `setMedia`) gets "Not available on
+  this profile" instead of the player, keeps their place with away heartbeats, and is taken back
+  to the room once it plays something they may watch (`rooms.current` says when, as a failed
+  `rooms.get` stays failed until read again).
 
 ## Backups and restore
 
@@ -525,7 +671,18 @@ choices made while implementing them. Update it in the same PR that changes a de
   results. Rows come from the web app's feature contributions (see Web app), which run registry
   commands through the SDK; registry entries are not mapped onto the menu one to one.
 - The component gallery at `/dev/kit` is development-only; production builds replace it with an
-  empty route and do not bundle it.
+  empty route and do not bundle it. So is the track menu bench at `/dev/tracks?columns=1|3|4`:
+  the player's track menu over a still frame with thirty-two subtitles and long labels, which the
+  `kit` E2E project checks at desktop, short, phone, rotated, doubled-text, and full screen sizes.
+- The player's track menu always opens above its trigger (`collisionAvoidance` `side: "none"`):
+  Base UI would otherwise flip a tall panel below or beside the trigger, over the controls or off
+  the screen. Its height is held to Base UI's `--available-height` and `--spacing-track-panel`, its width to
+  `--available-width`. The app does not opt into `viewport-fit=cover`, so browsers keep the page
+  out of the safe areas; adopting `cover` would need a collision padding that reads the insets. Each column's heading stays fixed
+  while its options scroll on their own (`overscroll-contain`), columns wider than the screen
+  scroll sideways, and long labels wrap. Each column shows its chosen option when the menu opens
+  and when the choice or the option ids change, and keeps it in view as the list resizes unless
+  the viewer scrolled it away.
 
 ## Web app
 
@@ -544,6 +701,17 @@ choices made while implementing them. Update it in the same PR that changes a de
   `use<Feature>Commands(context): CommandContribution` hook (groups and "No results" fallbacks),
   and `src/commands/index.ts` calls them in menu order. Groups with the same id merge, so features
   add rows to "Actions" or "Go to". `mod+shift+p` opens the menu on its "Switch profile" submenu.
+  The player screen owns its commands and passes them as the context's `player` (null elsewhere)
+  rather than through React context, which a component cannot read from a provider it renders.
+  In a room, guests get the track lists but no transport; the host gets End room and no Leave room.
+- Escape on the player does one thing per press. An open menu, popover, or dialog takes it first;
+  in full screen it only leaves full screen (a press made before full screen ended, by event
+  time, but delivered after counts as that one); then it closes Stream info; otherwise it asks
+  "Leave playback?". Solo playback pauses while it asks and resumes on Stay (a room, named in the
+  URL, plays on). Stay, Escape, and a click outside keep playing, and repeats of a held Escape
+  never close it. The Back button and the phone's Close leave directly. The player's menus,
+  popovers, and dialogs always render inside the player, so they show in full screen and stay put
+  when it ends.
 - Title search lives in the menu (results while typing) and on `/search` (the full page Paper
   draws; the phone tab bar's search circle opens it). Kids filtering is server-side; the web app
   shows no notice. The menu keeps earlier results on screen only while the same query is typed

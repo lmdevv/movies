@@ -23,8 +23,22 @@ interface SeedVersion {
   readonly height: number;
 }
 
-/** A scanned movie as the media service reports it. */
-const scannedMovie = (path: string, name: string, version: SeedVersion | null) => ({
+/** An episode of a seeded show: its season and number. */
+interface SeedEpisode {
+  readonly season: number;
+  readonly episode: number;
+}
+
+/**
+ * A scanned movie as the media service reports it, or an episode of a show named `name` when
+ * `episode` is given.
+ */
+const scannedMovie = (
+  path: string,
+  name: string,
+  version: SeedVersion | null,
+  episode: SeedEpisode | null = null,
+) => ({
   file: {
     path,
     sizeBytes: 1_000_000,
@@ -54,7 +68,7 @@ const scannedMovie = (path: string, name: string, version: SeedVersion | null) =
     versionName: version?.name ?? null,
   },
   title: {
-    kind: "movie",
+    kind: episode === null ? "movie" : "show",
     matchKey: `local:${name.toLowerCase()}`,
     name,
     sortName: null,
@@ -69,8 +83,52 @@ const scannedMovie = (path: string, name: string, version: SeedVersion | null) =
     externalIds: { tmdb: null, imdb: null, tvdb: null },
     matchStatus: "unmatched",
   },
-  episode: null,
+  episode:
+    episode === null
+      ? null
+      : {
+          seasonNumber: episode.season,
+          episodeNumber: episode.episode,
+          name: `Episode ${String(episode.episode)}`,
+          overview: null,
+          airDate: null,
+          runtimeMs: 600_000,
+          still: null,
+          seasonName: null,
+          seasonPoster: null,
+        },
 });
+
+/** Scans `items` into `libraryId` as the media service would. */
+const upsert = (
+  convexUrl: string,
+  mediaServiceKey: string,
+  libraryId: string,
+  items: ReadonlyArray<ReturnType<typeof scannedMovie>>,
+): Promise<void> =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const media = yield* open(convexUrl);
+
+        yield* Context.get(media, Auth.Auth).signIn(
+          Auth.Credentials.ApiKey({ key: Redacted.make(mediaServiceKey) }),
+        );
+
+        const args = yield* Schema.decodeUnknownEffect(UpsertArgs)({ libraryId, items });
+
+        const wire = yield* Schema.encodeEffect(Schema.toCodecJson(UpsertArgs))(args).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(Schema.JsonObject)),
+        );
+
+        yield* Context.get(media, ConvexTransport.ConvexTransport).call(
+          "mutation",
+          "mediaService:upsertScanned",
+          wire,
+        );
+      }),
+    ),
+  );
 
 /**
  * Scans one file of the movie named `name` at `path` into `libraryId`, as the media service
@@ -84,30 +142,28 @@ export const scanMovie = (
   name: string,
   version: SeedVersion | null = null,
 ): Promise<void> =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const media = yield* open(convexUrl);
+  upsert(convexUrl, mediaServiceKey, libraryId, [scannedMovie(path, name, version)]);
 
-        yield* Context.get(media, Auth.Auth).signIn(
-          Auth.Credentials.ApiKey({ key: Redacted.make(mediaServiceKey) }),
-        );
-
-        const args = yield* Schema.decodeUnknownEffect(UpsertArgs)({
-          libraryId,
-          items: [scannedMovie(path, name, version)],
-        });
-
-        const wire = yield* Schema.encodeEffect(Schema.toCodecJson(UpsertArgs))(args).pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(Schema.JsonObject)),
-        );
-
-        yield* Context.get(media, ConvexTransport.ConvexTransport).call(
-          "mutation",
-          "mediaService:upsertScanned",
-          wire,
-        );
-      }),
+/** Scans one file per episode of the show named `name` into `libraryId`, under `folder`. */
+export const scanShow = (
+  convexUrl: string,
+  mediaServiceKey: string,
+  libraryId: string,
+  folder: string,
+  name: string,
+  episodes: ReadonlyArray<SeedEpisode>,
+): Promise<void> =>
+  upsert(
+    convexUrl,
+    mediaServiceKey,
+    libraryId,
+    episodes.map((episode) =>
+      scannedMovie(
+        `${folder}/s${String(episode.season)}e${String(episode.episode)}.mp4`,
+        name,
+        null,
+        episode,
+      ),
     ),
   );
 

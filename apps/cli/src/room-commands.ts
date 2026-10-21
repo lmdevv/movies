@@ -5,13 +5,18 @@
  * between is read again and retried once.
  */
 import type { ClockOffset } from "@movies/contracts/clock";
-import { estimateClockOffset, targetPosition, toServerTime } from "@movies/contracts/clock";
+import {
+  countdownRemaining,
+  estimateClockOffset,
+  targetPosition,
+  toServerTime,
+} from "@movies/contracts/clock";
 import { commands } from "@movies/contracts/commands";
 import { NotFound } from "@movies/contracts/errors";
 import type { ProfileId } from "@movies/contracts/ids";
 import { EpisodeId, RoomId } from "@movies/contracts/ids";
 import type { Room, RoomClock } from "@movies/contracts/models/rooms";
-import type { Milliseconds } from "@movies/contracts/units";
+import type { EpochMillis, Milliseconds } from "@movies/contracts/units";
 import { Milliseconds as MillisecondsSchema } from "@movies/contracts/units";
 import { Clock, Effect, Option, Ref, Stream } from "effect";
 
@@ -31,7 +36,7 @@ import {
   viewingProfileIfAny,
 } from "./invocation";
 import { Output } from "./output";
-import { formatDuration } from "./render";
+import { episodeLabel, formatDuration } from "./render";
 import type { Connection } from "./session";
 import { connect } from "./session";
 import { findTitle } from "./watch-commands";
@@ -239,12 +244,24 @@ const leave: ShortcutCommand = {
     }),
 };
 
-const describeRoom = (room: Room, liveMs: number): string =>
+/** The room's next-episode countdown in a line, or null while there is none. */
+const describeNext = (room: Room, serverNow: EpochMillis): string | null => {
+  if (room.next === null) return null;
+
+  if (room.next.status === "cancelled") return "  next episode: cancelled (watching the credits)";
+  const { episode, nextAt } = room.next;
+  const seconds = Math.ceil(countdownRemaining(nextAt, serverNow) / 1000);
+
+  return `  next episode: ${episodeLabel(episode)} in ${String(seconds)}s`;
+};
+
+const describeRoom = (room: Room, liveMs: number, serverNow: EpochMillis): string =>
   [
-    `${room.title.name} · ${room.clock.status} at ${formatDuration(liveMs)} · revision ${String(room.clock.revision)}${room.hostAway ? " · host away" : ""}`,
+    `${room.title.name}${room.episode === null ? "" : ` ${episodeLabel(room.episode)}`} · ${room.clock.status} at ${formatDuration(liveMs)} · revision ${String(room.clock.revision)}${room.hostAway ? " · host away" : ""}`,
+    ...[describeNext(room, serverNow)].filter((line) => line !== null),
     ...room.members.map(
       (member) =>
-        `  ${member.role === "host" ? "host " : "guest"} ${member.profileName} (${member.deviceId})`,
+        `  ${member.role === "host" ? "host " : "guest"} ${member.profileName} (${member.deviceId})${member.presence === "away" ? " · away" : ""}`,
     ),
   ].join("\n");
 
@@ -281,11 +298,13 @@ const status: ShortcutCommand = {
       });
 
       const snapshot = Effect.fn("Rooms.snapshot")(function* (current: Room) {
-        const live = yield* livePosition(yield* currentOffset, current.clock);
+        const offset = yield* currentOffset;
+        const live = yield* livePosition(offset, current.clock);
+        const serverNow = toServerTime(yield* Clock.currentTimeMillis, offset);
 
         return {
           json: { room: yield* encodeResult("rooms.get", command, current), livePositionMs: live },
-          human: describeRoom(current, live),
+          human: describeRoom(current, live, serverNow),
         };
       });
 
@@ -311,6 +330,37 @@ const status: ShortcutCommand = {
     }),
 };
 
+type NextCommand = "rooms.startNextCountdown" | "rooms.cancelNextCountdown" | "rooms.playNext";
+
+/**
+ * A host's next-episode command on the named room or the one this device is in, from the episode
+ * the room plays as it reads it, so racing the countdown acts once.
+ */
+const nextControl = (path: string, name: NextCommand): ShortcutCommand => ({
+  path,
+  options: {},
+  positionals: true,
+  run: (invocation) =>
+    Effect.gen(function* () {
+      const connection = yield* connect(invocation.env, invocation.target, "required");
+      const room = yield* resolveRoom(invocation, connection, connection.viewingProfileId);
+
+      if (room.episode === null) {
+        return yield* usage(invocation, `${path} needs a room playing an episode`);
+      }
+
+      const changed = yield* connection.withSession(
+        connection.client.mutate(name, {
+          roomId: room.id,
+          deviceId: connection.deviceId,
+          fromEpisodeId: room.episode.id,
+        }),
+      );
+
+      return resultOutcome(commands[name], yield* encodeResult(name, commands[name], changed));
+    }),
+});
+
 /** The room shortcuts. */
 export const roomCommands: ReadonlyArray<ShortcutCommand> = [
   create,
@@ -318,6 +368,9 @@ export const roomCommands: ReadonlyArray<ShortcutCommand> = [
   hostControl("rooms play", "rooms.play", false),
   hostControl("rooms pause", "rooms.pause", false),
   hostControl("rooms seek", "rooms.seek", true),
+  nextControl("rooms next", "rooms.playNext"),
+  nextControl("rooms countdown", "rooms.startNextCountdown"),
+  nextControl("rooms cancel-countdown", "rooms.cancelNextCountdown"),
   leave,
   status,
 ];

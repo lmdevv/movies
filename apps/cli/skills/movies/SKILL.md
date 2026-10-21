@@ -86,12 +86,32 @@ movies rooms join <room-id>                  # guest, on another install or acco
 movies rooms play                            # host; acts on the room this device is in
 movies rooms pause
 movies rooms seek --position 1:02:30
+movies rooms next                            # host; the whole room moves on to the next episode
+movies rooms countdown                       # host; everyone moves on in 10 s unless cancelled
+movies rooms cancel-countdown                # host; watch the credits instead, for everyone
 movies rooms status --watch                  # one JSON line per change; exits when the room ends
 movies rooms leave                           # a host leaving ends the room
 ```
 
 A guest's `rooms play|pause|seek` fails with `forbidden`. A control racing another change is
 retried once at the new revision.
+
+Shows move on together. The room's `next` holds its countdown: `pending` with the next `episode`
+and `nextAt`, a server time when the server moves every member on (also with the host gone), or
+`cancelled` after the host chose the credits; any change of media clears it. Only the host's
+device starts, cancels, or skips it (`next`, `countdown`, `cancel-countdown`; guests get
+`forbidden`). `rooms next` names the episode the room plays as it reads it, so racing the
+countdown moves the room on once; run it again to move on again. After the last episode they fail with `not_found`, and when the next
+episode's file is missing with `conflict`. A moved room is paused at the start of the new
+episode, on the same room and link; each member's player opens it with its own stream and
+progress.
+
+Members heartbeat every 5 seconds: a guest silent for a minute leaves, and a host silent for 20
+seconds pauses the room (`hostAway`); a member whose last heartbeat said away gets three minutes.
+Each member shows a `presence`: `watching` from a player, `away` from a device that keeps its place
+while browsing (`movies rooms heartbeat <room-id> --presence away`), once its player has been
+silent for 10 seconds. Away members report no drift, and an away host's room keeps playing for the
+guests.
 
 Libraries and scans (admin):
 
@@ -195,6 +215,9 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies rooms play [<room-id>] [--position <seconds>]`: Host: play the room from its current position or --position.
 - `movies rooms pause [<room-id>]`: Host: pause the room at its live position.
 - `movies rooms seek [<room-id>] --position <seconds>`: Host: move the room to a position.
+- `movies rooms next [<room-id>]`: Host: move the whole room on to the next episode now; racing the countdown moves it on once.
+- `movies rooms countdown [<room-id>]`: Host: start the room's 10-second next-episode countdown; the server moves everyone on when it ends.
+- `movies rooms cancel-countdown [<room-id>]`: Host: cancel the next-episode countdown for everyone, to watch the credits.
 - `movies rooms leave [<room-id>]`: Leave the room; a host leaving ends it.
 - `movies rooms status [<room-id>] [--watch] [--profile-id <id>]`: Show the room's clock, live position, and members; --watch prints every change until the room ends.
 - `movies scan [<library-id-or-name>] [--mode quick|full] [--wait [--timeout <seconds>]]`: Scan one library, or every library, for new, changed, and missing files.
@@ -211,6 +234,7 @@ and newer [movies] progress is kept unless the source played the item more recen
 ### account
 
 - `movies account viewer`: Show the signed-in account and what this session may do. (any session)
+- `movies account change-password --current-password <text> --new-password <text>`: Change the account's password after checking the current one. (scope account)
 
 ### invites
 
@@ -290,6 +314,9 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies playback report-progress --session-id <id> --position-ms <number> [--duration-ms <number>] --event <tick|pause|resume|seek|ended>`: Report this device's position. (scope play)
 - `movies playback end-session --session-id <id> --position-ms <number>`: Stop playback on this device. (scope play)
 - `movies playback next-episode [--profile-id <id>] <episode-id>`: Show the episode after this one. (scope read)
+- `movies downloads start [--profile-id <id>] [--device-id <id>] [--device-name <text>] <title-id> [--episode-id <id>] [--file-id <id>] [--capabilities <json>]`: Start downloading a movie or episode to keep on this device. (scope play)
+- `movies downloads end <session-id>`: End a finished or cancelled download's session. (scope play)
+- `movies downloads record-progress [--profile-id <id>] --title-id <id> [--episode-id <id>] --file-id <id> --position-ms <number> --duration-ms <number> --played-at <int> --sent-at <int>`: Save progress made while playing a download offline. (scope play)
 - `movies playback active`: List this account's active playback on every device. (scope read)
 
 ### rooms
@@ -302,9 +329,12 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies call rooms.play --json <object>`: Play the room from the host's position. (scope play)
 - `movies call rooms.pause --json <object>`: Pause the room at the host's position. (scope play)
 - `movies call rooms.seek --json <object>`: Move the room to a position. (scope play)
-- `movies rooms buffering --room-id <id> [--device-id <id>] --revision <int> --position-ms <number>`: Freeze the room while the host buffers. (scope play)
-- `movies rooms heartbeat <room-id> [--device-id <id>] [--position-ms <number>] [--at-server-time <int>] [--revision <int>] [--drift-ms <number>]`: Report this device is still in the room; the host also reports its position. (scope play)
+- `movies rooms buffering --room-id <id> [--device-id <id>] --revision <int> --position-ms <number> [--file-id <id>]`: Freeze the room while the host buffers. (scope play)
+- `movies rooms heartbeat <room-id> [--device-id <id>] [--position-ms <number>] [--at-server-time <int>] [--revision <int>] [--file-id <id>] [--drift-ms <number>] [--presence <watching|away>]`: Report this device is still in the room; the host also reports its position. (scope play)
 - `movies rooms set-media --room-id <id> [--device-id <id>] --revision <int> --title-id <id> [--episode-id <id>] [--file-id <id>]`: Switch the room to another title or episode, paused at the start. (scope play)
+- `movies rooms start-next-countdown --room-id <id> [--device-id <id>] --from-episode-id <id>`: Host: start the room's countdown to the next episode; the server moves everyone on when it ends. (scope play)
+- `movies rooms cancel-next-countdown --room-id <id> [--device-id <id>] --from-episode-id <id>`: Host: cancel the next-episode countdown for everyone, to watch the credits. (scope play)
+- `movies rooms play-next --room-id <id> [--device-id <id>] --from-episode-id <id>`: Host: move the room on to the next episode now; once per episode. (scope play)
 - `movies rooms end <room-id> [--device-id <id>]`: End the room for everyone. (scope play)
 - `movies rooms time`: Read the server clock to estimate this device's offset. (scope play)
 
@@ -318,11 +348,12 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies libraries files <library-id> [--cursor <text>] [--limit <int>] [--filter <all|missing|unmatched>] [--title-id <id>]`: List a library's files with their titles, or only missing or unmatched ones. (scope manage)
 - `movies libraries file-summary <library-id>`: Count a library's missing files and unmatched titles. (scope manage)
 - `movies libraries scan <library-id> [--mode <full|quick>] [--wait [--timeout <seconds>]]`: Scan a library for new, changed, and missing files. (scope manage; job: add `--wait`)
+- `movies libraries folders [--path <text>]`: List the media host's folders inside its approved library roots. (scope manage)
 - `movies libraries generate-trickplay <library-id>`: Generate scrub thumbnails for every file in a library that has none. (scope manage)
 
 ### jobs
 
-- `movies jobs list [--kind <scan|metadata|person|backup|migration|trickplay>] [--status <pending|running|succeeded|failed|cancelled>] [--limit <int>]`: List recent background jobs. (scope manage)
+- `movies jobs list [--kind <scan|metadata|person|backup|migration|trickplay>] [--status <pending|running|succeeded|failed|cancelled>] [--library-id <id>] [--limit <int>]`: List recent background jobs. (scope manage)
 - `movies jobs get <job-id>`: Show a background job's progress. (scope manage)
 - `movies jobs cancel <job-id>`: Cancel a pending or running job. (scope manage)
 

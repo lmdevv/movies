@@ -1,8 +1,10 @@
 /**
  * Byte routes for players: direct files with single byte ranges, HLS playlists, init segments
- * and media segments, and WebVTT subtitles. Every request carries a playback token in the
- * `token` query parameter; the file comes from the token, never from the URL path alone.
- * Expected failures become JSON bodies encoded with their error schema and status.
+ * and media segments, the MP4s written for downloads (byte ranges too), and WebVTT subtitles.
+ * Every request carries a playback token in the `token` query parameter; the file comes from the
+ * token, never from the URL path alone. HLS takes only playback tokens and download MP4s only
+ * download tokens. Expected failures become JSON bodies encoded with their error schema and
+ * status.
  */
 import type { MediaFileId } from "@movies/contracts/ids";
 import {
@@ -29,6 +31,7 @@ import {
   HttpServerResponse,
 } from "effect/http";
 
+import * as Downloads from "../downloads/downloads.ts";
 import * as MediaConfig from "../media-config.ts";
 import { modifiedAtMs } from "../platform/file-info.ts";
 import * as FileResolver from "../playback/file-resolver.ts";
@@ -166,6 +169,7 @@ export const layer: Layer.Layer<
   | FileResolver.Service
   | StreamSessions.Service
   | SubtitleConverter.Service
+  | Downloads.Service
   | FileSystem.FileSystem
   | Path.Path
   | HttpPlatform.HttpPlatform
@@ -180,6 +184,7 @@ export const layer: Layer.Layer<
     const config = yield* MediaConfig.Service;
     const resolver = yield* FileResolver.Service;
     const platform = yield* HttpPlatform.HttpPlatform;
+    const downloads = yield* Downloads.Service;
 
     const resolve = (fileId: MediaFileId, options: { readonly sidecars: boolean }) =>
       resolveInsideRoots(fileId, options).pipe(
@@ -189,8 +194,11 @@ export const layer: Layer.Layer<
         Effect.provideService(Path.Path, path),
       );
 
-    const grantFor = Effect.fnUntraced(function* (request: HttpServerRequest.HttpServerRequest) {
-      return yield* verifier.verify(yield* tokenOf(request));
+    const grantFor = Effect.fnUntraced(function* (
+      request: HttpServerRequest.HttpServerRequest,
+      purposes: ReadonlyArray<PlaybackToken.TokenPurpose>,
+    ) {
+      return yield* verifier.verify(yield* tokenOf(request), purposes);
     });
 
     /** Serves `file` with validators and a single byte range. */
@@ -253,13 +261,32 @@ export const layer: Layer.Layer<
       }
 
       const { fileId = "" } = yield* HttpRouter.params;
-      const grant = yield* grantFor(request);
+      const grant = yield* grantFor(request, PlaybackToken.PLAY_OR_DOWNLOAD);
 
       if (grant.fileId !== fileId) return yield* new MediaAccessDenied();
       const file = yield* resolve(grant.fileId, { sidecars: false });
 
       return yield* fileResponse(request, file.path, CONTENT_TYPES[file.probe.container]);
     }).pipe(Effect.catch(errorResponse), Effect.withSpan("MediaRoutes.direct"));
+
+    const download = Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return HttpServerResponse.empty({ status: 405, headers: { allow: "GET, HEAD" } });
+      }
+
+      const { fileId = "", name = "" } = yield* HttpRouter.params;
+      const grant = yield* grantFor(request, PlaybackToken.DOWNLOAD);
+
+      if (grant.fileId !== fileId) return yield* new MediaAccessDenied();
+      // Gone after a restart or six idle hours: preparing the download again writes it again.
+      const output = yield* downloads.output(grant.fileId, name);
+
+      if (Option.isNone(output)) return yield* new MediaFileNotFound({ fileId: grant.fileId });
+
+      return yield* fileResponse(request, output.value, CONTENT_TYPES.mp4);
+    }).pipe(Effect.catch(errorResponse), Effect.withSpan("MediaRoutes.download"));
 
     const streamParams = Effect.gen(function* () {
       const params = yield* HttpRouter.params;
@@ -281,7 +308,7 @@ export const layer: Layer.Layer<
       const request = yield* HttpServerRequest.HttpServerRequest;
       const { streamId, generation } = yield* streamParams;
       const token = yield* tokenOf(request);
-      const grant = yield* verifier.verify(token);
+      const grant = yield* verifier.verify(token, PlaybackToken.PLAY);
       const view = yield* sessions.playlist(streamId, generation, grant);
       const query = `?token=${encodeURIComponent(Redacted.value(token))}`;
 
@@ -299,7 +326,7 @@ export const layer: Layer.Layer<
     const hlsFile = Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       const { streamId, generation, file } = yield* streamParams;
-      const grant = yield* grantFor(request);
+      const grant = yield* grantFor(request, PlaybackToken.PLAY);
       const segmentMatch = /^(\d+)\.m4s$/.exec(file);
 
       if (file !== "init.mp4" && segmentMatch === null)
@@ -341,7 +368,7 @@ export const layer: Layer.Layer<
     const subtitle = Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       const { fileId = "", track = "" } = yield* HttpRouter.params;
-      const grant = yield* grantFor(request);
+      const grant = yield* grantFor(request, PlaybackToken.PLAY_OR_DOWNLOAD);
 
       if (grant.fileId !== fileId) return yield* new MediaAccessDenied();
       const file = yield* resolve(grant.fileId, { sidecars: true });
@@ -354,6 +381,7 @@ export const layer: Layer.Layer<
     }).pipe(Effect.catch(errorResponse), Effect.withSpan("MediaRoutes.subtitle"));
 
     yield* router.add("*", "/media/direct/:fileId", direct);
+    yield* router.add("*", "/media/downloads/:fileId/:name", download);
     yield* router.add("GET", "/media/hls/:streamId/:generation/index.m3u8", playlist);
     yield* router.add("GET", "/media/hls/:streamId/:generation/:file", hlsFile);
     yield* router.add("GET", "/media/subtitles/:fileId/:track", subtitle);

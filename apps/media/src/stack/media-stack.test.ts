@@ -624,6 +624,36 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
       expect(job.error).toContain("Metadata provider unavailable");
     });
 
+    it("lists the folders inside LIBRARY_ROOTS for manage sessions only", async () => {
+      const anonymous = await fetch(`${mediaUrl}/api/libraries/folders`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+
+      expect(anonymous.status).toBe(401);
+
+      const roots = await asOwner(
+        Effect.flatMap(client, (movies) => movies.media("libraries.folders", {})),
+      );
+
+      expect(roots.folders.map((folder) => folder.path)).toStrictEqual([workspace]);
+
+      const inside = await asOwner(
+        Effect.flatMap(client, (movies) => movies.media("libraries.folders", { path: workspace })),
+      );
+
+      expect(inside.folders.map((folder) => folder.path)).toContain(fixtures.moviesRoot);
+
+      const outside = await asOwner(
+        Effect.flatMap(client, (movies) =>
+          movies.media("libraries.folders", { path: "/etc" }).pipe(Effect.flip),
+        ),
+      );
+
+      expect(outside).toMatchObject({ _tag: "NotFound" });
+    });
+
     it("does the same through the movies CLI", async () => {
       const home = await makeTempDir("movies-media-cli-");
       const env = { XDG_CONFIG_HOME: home, HOME: home };

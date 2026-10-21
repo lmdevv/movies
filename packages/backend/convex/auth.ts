@@ -22,6 +22,7 @@ import { Scrypt } from "lucia";
 import { internal } from "./_generated/api";
 import { action } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { PASSWORD_MIN } from "./lib/bounds";
 import { fail } from "./lib/errors";
 
 /** Sign-in params as the client sent them. */
@@ -72,8 +73,6 @@ const createUserFromSignUp = makeFunctionReference<"mutation", CallbackProfile, 
   "users:createFromSignUp",
 );
 
-const MIN_PASSWORD_LENGTH = 8;
-
 const scrypt = new Scrypt();
 
 /**
@@ -117,8 +116,8 @@ const convexAuthFunctions = convexAuth({
           return { userId: retrieved.user._id };
         }
 
-        if (parsed.password.length < MIN_PASSWORD_LENGTH) {
-          return fail("invalid_args", "Use at least 8 characters for the password");
+        if (parsed.password.length < PASSWORD_MIN) {
+          return fail("invalid_args", `Use at least ${PASSWORD_MIN} characters for the password`);
         }
 
         const { user } = await createAccount(ctx, {

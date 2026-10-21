@@ -10,13 +10,29 @@ import { EpochMillis, Milliseconds } from "./units";
 /** How often the host and guests send room heartbeats. */
 export const HEARTBEAT_INTERVAL_MS = 5_000;
 
+/**
+ * A device's `away` heartbeats count only once its player has been silent this long. Until then it
+ * is still watching: another tab on the device may be playing the room, or the heartbeat was sent
+ * just before the player opened. Leaving the player shows as away after up to this long.
+ */
+export const PLAYER_SILENCE_MS = 2 * HEARTBEAT_INTERVAL_MS;
+
+/**
+ * The host and guest timeouts for a member whose last heartbeat said away: browsers wake the timers
+ * of a tab hidden for minutes only about once a minute.
+ */
+export const AWAY_PRESENCE_TIMEOUT_MS = 3 * 60_000;
+
 /** A host silent this long is away: the server pauses the room at the live position. */
 export const HOST_PRESENCE_TIMEOUT_MS = 20_000;
 
 /** A guest silent this long is dropped from the member list. */
 export const MEMBER_PRESENCE_TIMEOUT_MS = 60_000;
 
-/** A room whose host has been away this long ends. */
+/**
+ * A room whose host has been away this long ends, as does one no member's player has played this
+ * long: away heartbeats keep places, not rooms.
+ */
 export const HOST_ABANDON_TIMEOUT_MS = 30 * 60_000;
 
 /**
@@ -32,6 +48,16 @@ export const HOST_REANCHOR_THRESHOLD_MS = 50;
  * travel time counts as drift there, so a tight threshold would re-anchor on every slow request.
  */
 export const UNTIMED_HOST_REANCHOR_THRESHOLD_MS = 250;
+
+/**
+ * How long a room's next-episode countdown runs: from the host's player reaching the credits to the
+ * whole room moving on, unless the host cancels it first. Solo playback counts down as long.
+ */
+export const NEXT_EPISODE_COUNTDOWN_MS = 10_000;
+
+/** How long is left on a countdown due at `nextAt`, at `serverNow`; never below zero. */
+export const countdownRemaining = (nextAt: EpochMillis, serverNow: EpochMillis): Milliseconds =>
+  Milliseconds.make(Math.max(0, nextAt - serverNow));
 
 /** Drift correction thresholds for a following player. */
 export const DRIFT_THRESHOLDS = {

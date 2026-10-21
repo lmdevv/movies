@@ -1,9 +1,10 @@
 /** Handlers of the media HttpApi. */
 import { MediaApi } from "@movies/contracts/media-api";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 
 import * as BackendHealth from "../backend-health.ts";
+import * as Downloads from "../downloads/downloads.ts";
 import * as MediaConfig from "../media-config.ts";
 import * as HardwareAcceleration from "../playback/hardware-acceleration.ts";
 import * as PlaybackNegotiator from "../playback/playback-negotiator.ts";
@@ -24,7 +25,7 @@ const playbackHandlers = HttpApiBuilder.group(
     return handlers.handleAll({
       negotiate: ({ payload }) => negotiator.negotiate(payload),
       seek: Effect.fn("Api.seek")(function* ({ payload }) {
-        const grant = yield* verifier.verify(payload.token);
+        const grant = yield* verifier.verify(payload.token, PlaybackToken.PLAY);
         const view = yield* sessions.seek(payload.streamId, payload.positionSeconds, grant);
 
         return {
@@ -37,9 +38,22 @@ const playbackHandlers = HttpApiBuilder.group(
         };
       }),
       stop: Effect.fn("Api.stop")(function* ({ payload }) {
-        const grant = yield* verifier.verify(payload.token);
+        const grant = yield* verifier.verify(payload.token, PlaybackToken.PLAY);
         yield* sessions.stop(payload.streamId, grant);
       }),
+    });
+  }),
+);
+
+/** Download endpoints. */
+const downloadHandlers = HttpApiBuilder.group(
+  MediaApi,
+  "downloads",
+  Effect.fn(function* (handlers) {
+    const downloads = yield* Downloads.Service;
+
+    return handlers.handleAll({
+      prepare: ({ payload }) => downloads.prepare(payload),
     });
   }),
 );
@@ -52,6 +66,7 @@ const systemHandlers = HttpApiBuilder.group(
     const sessions = yield* StreamSessions.Service;
     const hardware = yield* HardwareAcceleration.Service;
     const backend = yield* BackendHealth.Service;
+    const config = yield* MediaConfig.Service;
 
     return handlers.handleAll({
       health: Effect.fn("Api.health")(function* () {
@@ -62,11 +77,20 @@ const systemHandlers = HttpApiBuilder.group(
           backend: yield* backend.status,
         };
       }),
+      clientConfig: () =>
+        Effect.succeed(
+          // Only the public address: the internal one (a container name, a loopback) is often
+          // unreachable from phones, and apps fall back to Connection Details without it.
+          Option.match(config.convexPublicUrl, {
+            onNone: () => ({}),
+            onSome: (url) => ({ convexUrl: url }),
+          }),
+        ),
     });
   }),
 );
 
 /** The API routes with their handlers. */
 export const apiLayer = HttpApiBuilder.layer(MediaApi).pipe(
-  Layer.provide([playbackHandlers, systemHandlers]),
+  Layer.provide([playbackHandlers, downloadHandlers, systemHandlers]),
 );

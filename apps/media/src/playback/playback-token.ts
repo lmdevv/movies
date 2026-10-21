@@ -8,7 +8,7 @@ import type { MediaFileId, PlaybackSessionId, ProfileId, UserId } from "@movies/
 import { PlaybackSessionEnded } from "@movies/contracts/media-playback";
 import {
   importPlaybackTokenSecret,
-  type PlaybackTokenInvalid,
+  PlaybackTokenInvalid,
   type PlaybackTokenSecretInvalid,
   verifyPlaybackToken,
 } from "@movies/contracts/playback-token";
@@ -17,12 +17,25 @@ import { Context, Effect, Layer, Redacted } from "effect";
 import * as MediaConfig from "../media-config.ts";
 import * as EndedSessions from "./ended-sessions.ts";
 
+/** What a token is for: streaming a file, or downloading it to keep on a device. */
+export type TokenPurpose = "play" | "download";
+
+/** Routes only streaming serves: negotiation, seeking, HLS, and trickplay. */
+export const PLAY: ReadonlyArray<TokenPurpose> = ["play"];
+
+/** Routes only downloads use: preparing a download and its prepared MP4. */
+export const DOWNLOAD: ReadonlyArray<TokenPurpose> = ["download"];
+
+/** Routes both use: the original file and its subtitles. */
+export const PLAY_OR_DOWNLOAD: ReadonlyArray<TokenPurpose> = ["play", "download"];
+
 /** What a verified token allows: one profile playing one file in one playback session. */
 export interface PlaybackGrant {
   readonly userId: UserId;
   readonly profileId: ProfileId;
   readonly fileId: MediaFileId;
   readonly sessionId: PlaybackSessionId;
+  readonly purpose: TokenPurpose;
   /** Expiry in milliseconds since the epoch. */
   readonly expiresAt: number;
 }
@@ -30,11 +43,13 @@ export interface PlaybackGrant {
 /** Checks playback tokens. */
 export interface Interface {
   /**
-   * The grant of a valid token. Fails with `PlaybackTokenInvalid` for a malformed, forged,
-   * expired, or misaddressed token, and `PlaybackSessionEnded` once its session ended.
+   * The grant of a valid token for one of `purposes`. Fails with `PlaybackTokenInvalid` for a
+   * malformed, forged, expired, or misaddressed token or one for another purpose, and
+   * `PlaybackSessionEnded` once its session ended.
    */
   readonly verify: (
     token: Redacted.Redacted,
+    purposes: ReadonlyArray<TokenPurpose>,
   ) => Effect.Effect<PlaybackGrant, PlaybackTokenInvalid | PlaybackSessionEnded>;
 }
 
@@ -50,8 +65,22 @@ export const make = Effect.fn("PlaybackTokenVerifier.make")(function* (
   const key = yield* importPlaybackTokenSecret(secret);
   const ended = yield* EndedSessions.Service;
 
-  const verify = Effect.fn("PlaybackTokenVerifier.verify")(function* (token: Redacted.Redacted) {
+  const verify = Effect.fn("PlaybackTokenVerifier.verify")(function* (
+    token: Redacted.Redacted,
+    purposes: ReadonlyArray<TokenPurpose>,
+  ) {
     const payload = yield* verifyPlaybackToken(key, Redacted.value(token));
+    const purpose = payload.pur ?? "play";
+
+    if (!purposes.includes(purpose)) {
+      return yield* new PlaybackTokenInvalid({
+        reason: "wrong_purpose",
+        message:
+          purpose === "download"
+            ? "A download token cannot stream"
+            : "A playback token cannot download",
+      });
+    }
 
     if (yield* ended.isEnded(payload.sid)) {
       return yield* new PlaybackSessionEnded({ sessionId: payload.sid });
@@ -62,6 +91,7 @@ export const make = Effect.fn("PlaybackTokenVerifier.make")(function* (
       profileId: payload.pid,
       fileId: payload.fid,
       sessionId: payload.sid,
+      purpose,
       expiresAt: payload.exp,
     } satisfies PlaybackGrant;
   });
