@@ -8,6 +8,24 @@ description: Control a [movies] server (the user's self-hosted movie and TV libr
 `movies` runs every action the [movies] app has. Each one is a command in a shared registry, so
 the CLI, the web app, and this skill always agree. Output is JSON by default.
 
+## Install
+
+Skip this when `movies --version` already works. Each server release ships the CLI at its own
+version.
+
+- **On the server:** a Compose install has it in the image (`docker compose exec movies movies ...`,
+  already pointed at that stack). A NixOS install puts it on every user's `PATH` with
+  `MOVIES_CONVEX_URL` and `MOVIES_MEDIA_URL` set.
+- **Node 22 or newer:** `npm install -g @movies/cli`, or once with `npx @movies/cli --help`.
+- **No Node:** the `movies-linux-x64`, `movies-linux-arm64`, or `movies-darwin-arm64` binary from
+  https://github.com/lmdevv/movies/releases/latest, checked against `SHA256SUMS` from the same
+  release, made executable, and put on the `PATH` as `movies`.
+- **Nix:** `nix run github:lmdevv/movies -- <command>`. NixOS (`nixosModules.cli`) and Home Manager
+  (`homeManagerModules.movies`) set `programs.movies = { enable = true; convexUrl = "..."; mediaUrl
+  = "..."; }`.
+
+No install holds a credential; sign in as below.
+
 ## Setup
 
 The server URL is the install's Convex URL (`CONVEX_PUBLIC_URL`; port 3210 on the Compose and

@@ -34,9 +34,9 @@ Open `MOVIES_PUBLIC_URL` (default `http://localhost:8080`), create the owner acc
 account is the owner), and add `/media/library` (or a folder in it) as a library.
 
 - The `movies` image (`ghcr.io/lmdevv/movies`, amd64 and arm64) holds the media service, the web
-  app, the Convex CLI with the bundled functions, and ffmpeg. Compose runs `:latest`, the newest
-  release; pin `:X.Y` or `:X.Y.Z`, or follow `:main` for the edge. `docker compose build` builds
-  it from source instead.
+  app, the Convex CLI with the bundled functions, the `movies` CLI, and ffmpeg. Compose runs
+  `:latest`, the newest release; pin `:X.Y` or `:X.Y.Z`, or follow `:main` for the edge.
+  `docker compose build` builds it from source instead.
 - Each start deploys the functions and configures the deployment; secrets are generated inside
   Convex, never written to `.env`.
 - The media service runs as `PUID:PGID`, which must be able to read the library. Libraries mount
@@ -165,23 +165,55 @@ service.
 
 ## CLI
 
-```sh
-pnpm install && pnpm --filter @movies/cli build    # puts apps/cli/dist/movies.js in place
-alias movies="node $PWD/apps/cli/dist/movies.js"
-# or with Nix: nix run github:lmdevv/movies -- --help
+`movies` runs everything the app can, for people and agents. Each release ships it with the same
+version as the server.
 
+| Where                       | Install                                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------------------------ |
+| The Compose server          | In the image: `docker compose exec movies movies login`                                          |
+| The NixOS server            | Installed by `services.movies`, pointed at the server                                            |
+| Anywhere with Node 22+      | `npm install -g @movies/cli`                                                                     |
+| Linux or macOS without Node | `movies-<os>-<arch>` from the [latest release](https://github.com/lmdevv/movies/releases/latest) |
+| Another NixOS machine       | `nixosModules.cli` with `programs.movies` (below)                                                |
+| Home Manager (Linux, macOS) | `homeManagerModules.movies` with `programs.movies` (below)                                       |
+| Nix, once                   | `nix run github:lmdevv/movies -- --help`                                                         |
+
+```sh
 movies login --server http://nas.tailnet.ts.net:3210 --media-url http://nas.tailnet.ts.net:8080
 movies search alien
 movies play "Alien" --open        # mpv; without --open, prints the stream URL
 movies libraries list --human
 ```
 
-On NixOS, `services.movies` installs the CLI too, with `MOVIES_CONVEX_URL` and `MOVIES_MEDIA_URL`
-set to the server, so `movies login` needs no `--server`. Another machine imports the same module
-and sets only `programs.movies.enable = true` plus `programs.movies.convexUrl` and `mediaUrl`.
+The release binaries cover Linux on x64 and arm64 and macOS on Apple silicon. Download one with
+`curl`, since macOS quarantines browser downloads, check it, and put it on your `PATH`:
 
+```sh
+curl -fLO https://github.com/lmdevv/movies/releases/latest/download/movies-linux-x64
+curl -fLO https://github.com/lmdevv/movies/releases/latest/download/SHA256SUMS
+grep movies-linux-x64 SHA256SUMS | sha256sum -c    # shasum -a 256 -c on macOS
+install -m 755 movies-linux-x64 ~/.local/bin/movies
+```
+
+In the Compose image, `MOVIES_CONVEX_URL` and `MOVIES_MEDIA_URL` point at that stack, and the
+login stays in the `movies-data` volume. On NixOS, `services.movies` sets both for every user, so
+`movies login` needs no `--server`; `programs.movies.enable = false` leaves the CLI out. Another
+NixOS machine, or Home Manager on Linux or macOS, sets the two URLs itself:
+
+```nix
+# NixOS: inputs.movies.nixosModules.cli in the system's modules.
+# Home Manager: inputs.movies.homeManagerModules.movies in home-manager's modules.
+programs.movies = {
+  enable = true;
+  convexUrl = "http://nas.tailnet.ts.net:3210";
+  mediaUrl = "http://nas.tailnet.ts.net:8080";
+};
+```
+
+No install stores a credential: each user runs `movies login` once, or sets `MOVIES_API_KEY`.
 Output is JSON by default. Agents get an API key from Settings → API keys and follow
-[apps/cli/skills/movies/SKILL.md](apps/cli/skills/movies/SKILL.md).
+[apps/cli/skills/movies/SKILL.md](apps/cli/skills/movies/SKILL.md). In a checkout,
+`pnpm --filter @movies/cli build` writes `apps/cli/dist/movies.js`.
 
 ## iOS app
 

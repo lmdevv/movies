@@ -100,7 +100,10 @@ admin key from `/run/movies/media.env`, then `systemctl restart movies`.
 Releases are git tags `vX.Y.Z`. Each one publishes the image as `X.Y.Z`, `X.Y`, and `latest`
 (pre-releases such as `v0.2.0-rc.1` only as `0.2.0-rc.1`); `main` publishes `:main`, the edge,
 and every build also gets `sha-<commit>`. The NixOS module follows whatever revision the flake
-input points at.
+input points at. A release also publishes the `movies` CLI at the same version: `@movies/cli` on
+npm and standalone binaries on the tag's GitHub Release. Upgrade a CLI installed that way with
+`npm install -g @movies/cli@X.Y.Z` or the release's binary; the image and the Nix modules carry
+their own.
 
 | Track     | Compose `MOVIES_IMAGE`                              | NixOS flake input             |
 | --------- | --------------------------------------------------- | ----------------------------- |
@@ -153,13 +156,48 @@ upgrades ride along with [movies] releases; never change its image on your own.
 
 ### Releasing
 
-For maintainers: set `version` in `packages/backend/package.json` to `X.Y.Z` on `main`, then tag
-and push the tag. The image workflow refuses a tag that does not match that version, runs the
-packaged-stack smoke test, and publishes the multi-arch image.
+For maintainers. One version covers the image, the Nix packages, `@movies/cli` on npm, and the
+CLI binaries. `scripts/check-version.sh`, run by CI and the pre-commit hook, fails while any
+workspace package carries another version.
+
+1. On `main`, set every package's version, then commit and merge it:
+
+   ```sh
+   pnpm -r exec npm pkg set version=0.2.0
+   scripts/check-version.sh     # 0.2.0
+   ```
+
+2. Tag the merged commit and push the tag:
+
+   ```sh
+   git tag -a v0.2.0 -m "[movies] 0.2.0" && git push origin v0.2.0
+   ```
+
+The tag runs two workflows, and each refuses a tag that does not name the package version:
+
+- `image.yml` runs the packaged-stack smoke test and publishes the multi-arch image.
+- `release.yml` publishes `@movies/cli` to npm through trusted publishing, with a provenance
+  attestation. It builds the standalone binaries on their own runners (`linux-x64`,
+  `linux-arm64`, and `darwin-arm64`, signed ad hoc) and checks each one's `--version`. Then it
+  creates the GitHub Release with the binaries, `SHA256SUMS`, and generated notes.
+
+Every job can run again: npm skips a version it already has, and the release replaces its assets.
+A pre-release tag such as `v0.2.0-rc.1` publishes to npm under the `next` dist-tag and makes a
+GitHub pre-release.
+
+npm only lets a trusted publisher be set on a package that exists, so the first version is
+published by hand, before its tag is pushed. Run it from an npm account in the `movies` org:
 
 ```sh
-git tag -a v0.2.0 -m "[movies] 0.2.0" && git push origin v0.2.0
+npm login
+mkdir -p /tmp/movies-cli && pnpm --filter @movies/cli pack --pack-destination /tmp/movies-cli
+npm publish /tmp/movies-cli/movies-cli-0.2.0.tgz --access public
 ```
+
+Then, on npmjs.com, open `@movies/cli` → Settings → Trusted publishing, choose GitHub Actions,
+and enter the owner `lmdevv`, the repository `movies`, and the workflow `release.yml`. Once a tag
+has published through it, set Publishing access to require two-factor authentication and
+disallow tokens.
 
 ## Remote access
 
@@ -206,7 +244,8 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
 - `scripts/stack-e2e.sh` builds the image and runs the packaged suite against a fresh Compose
   stack: privilege and secret checks, owner sign-up, library, scan, direct and HLS playback, a
   media restart (streams answer a typed `StreamNotFound`, then play again), CLI backup and
-  restore, and an upgrade backup. CI runs it on every image change.
+  restore, the image's own `movies` signing in to its stack, and an upgrade backup. CI runs it on
+  every image change.
 - `scripts/nixos-module-e2e.sh` does the same against the NixOS module's own unit on a NixOS host
   (needs sudo and Docker), and checks the sandbox.
-- `nix flake check` evaluates the module and builds the package.
+- `nix flake check` evaluates the server, CLI, and Home Manager modules and builds the packages.
