@@ -52,6 +52,7 @@ import { waitForJob } from "./jobs";
 import { Output } from "./output";
 import { renderResult } from "./render";
 import { roomCommands } from "./room-commands";
+import { diagnosticsCommands } from "./diagnostics-commands";
 import { connect, deviceIdFor } from "./session";
 import { watchCommands } from "./watch-commands";
 
@@ -59,10 +60,13 @@ const version = packageJson.version;
 
 /** Every shortcut implementation, by path. */
 const shortcutCommands: ReadonlyMap<string, ShortcutCommand> = new Map(
-  [...accountCommands, ...watchCommands, ...roomCommands, ...adminCommands].map((command) => [
-    command.path,
-    command,
-  ]),
+  [
+    ...accountCommands,
+    ...watchCommands,
+    ...roomCommands,
+    ...adminCommands,
+    ...diagnosticsCommands,
+  ].map((command) => [command.path, command]),
 );
 
 /** Where argv leads. */

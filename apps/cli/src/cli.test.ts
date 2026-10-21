@@ -8,6 +8,7 @@ import { accountCommands } from "./account-commands";
 import { adminCommands } from "./admin-commands";
 import { registryEntries, shortcuts, visibleRegistryEntries } from "./catalog";
 import { ExitCode } from "./cli-errors";
+import { diagnosticsCommands } from "./diagnostics-commands";
 import { roomCommands } from "./room-commands";
 import { runInProcess } from "./testing/run-cli";
 import { watchCommands } from "./watch-commands";
@@ -91,7 +92,14 @@ describe("the movies command", () => {
   });
 
   it("documents exactly the shortcuts it implements", () => {
-    const implemented = [...accountCommands, ...watchCommands, ...roomCommands, ...adminCommands];
+    const implemented = [
+      ...accountCommands,
+      ...watchCommands,
+      ...roomCommands,
+      ...adminCommands,
+      ...diagnosticsCommands,
+    ];
+
     // `call` and `commands` are routed before any shortcut.
     const routed = new Set(["call", "commands"]);
 
@@ -223,5 +231,25 @@ describe("the movies command", () => {
     const reference = (await movies("commands", "--markdown")).stdout;
 
     expect(skill, "run pnpm --filter @movies/cli skill:reference").toContain(reference);
+  });
+});
+
+describe("troubleshooting commands", () => {
+  it("refuses flags they cannot read before connecting", async () => {
+    const since = await movies("logs", "--since", "whenever");
+    const follow = await movies("logs", "--follow", "--until", "1h");
+    const level = await movies("logs", "--level", "loud");
+
+    expect(since.code).toBe(ExitCode.usage);
+    expect(since.stderr).toContain("--since expects a duration");
+    expect(follow.stderr).toContain("drop --until");
+    expect(level.stderr).toContain("--level must be");
+  });
+
+  it("asks for a session ID and says where to find one", async () => {
+    const run = await movies("diagnostics", "playback");
+
+    expect(run.code).toBe(ExitCode.usage);
+    expect(run.stderr).toContain("movies diagnostics sessions");
   });
 });
