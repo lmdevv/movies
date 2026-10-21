@@ -26,6 +26,7 @@ playback events are logged. `CONVEX_URL` without the key refuses to start.
 | `POST /api/playback/negotiate`                           | Token + client capabilities → mode, URL, subtitles                  |
 | `POST /api/playback/seek`                                | Move an HLS stream; returns the generation and playlist URL to load |
 | `POST /api/playback/stop`                                | End an HLS stream and delete its output (204)                       |
+| `POST /api/playback/diagnostics`                         | A player's events with its token (204; 429 past the session budget) |
 | `GET /api/health`                                        | Status, active streams, hardware acceleration                       |
 | `GET /api/client-config`                                 | The Convex URL apps sign in to (`CONVEX_PUBLIC_URL`)                |
 | `GET, HEAD /media/direct/:fileId?token=`                 | Original file with single byte ranges                               |
@@ -38,6 +39,9 @@ playback events are logged. `CONVEX_URL` without the key refuses to start.
 | `POST /api/migration/connect`                            | `migration.connect` command (bearer Convex token, `admin`)          |
 | `POST /api/migration/dry-run`                            | `migration.dryRun` command (bearer Convex token, `admin`)           |
 | `POST /api/migration/import`                             | `migration.import` command (bearer Convex token, `admin`)           |
+| `POST /api/logs`                                         | Retained log as NDJSON, followed on request (bearer, `admin`)       |
+| `POST /api/diagnostics/playback`                         | `diagnostics.playback` command (bearer, `read`; own sessions)       |
+| `POST /api/diagnostics/sessions`                         | `diagnostics.sessions` command (bearer, `read`; own sessions)       |
 | `GET /*`                                                 | Built web app from `WEB_DIST_DIR`, with SPA fallback                |
 
 The playback API (`/api/playback/*`, `/api/health`, `/api/client-config`) is the Effect HttpApi in
@@ -68,7 +72,11 @@ subtitles, and artwork under `DATA_DIR`, pruned hourly, least recently used firs
 `FFPROBE_PATH`,
 `OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVEX_URL`, `CONVEX_PUBLIC_URL` (the Convex URL browsers use; it
 narrows the web app's content security policy), `MEDIA_SERVICE_API_KEY`,
-`CONVEX_SELF_HOSTED_ADMIN_KEY` and `CONVEX_BACKEND_DIR` (backups), `BACKUP_RETENTION_DAYS` (14). The dev stack sets
+`CONVEX_SELF_HOSTED_ADMIN_KEY` and `CONVEX_BACKEND_DIR` (backups), `BACKUP_RETENTION_DAYS` (14),
+`LOG_LEVEL` (`info`; `trace`, `debug`, `warn`, `error`: the least severe level logged, on standard
+output and in the retained log), `LOG_RETENTION_DAYS` (14) and `LOG_MAX_MB` (512, from 8 to
+1048576: the size the retained log files under `DATA_DIR/logs`, which `movies logs` and
+`movies diagnostics playback` read, never grow past together). The dev stack sets
 `LIBRARY_ROOTS` to its own `library` folder unless `MOVIES_LIBRARY_ROOTS` says otherwise.
 
 QSV needs an ffmpeg built with libvpl; the Nix dev shell uses `ffmpeg-full` for that. ffmpeg and

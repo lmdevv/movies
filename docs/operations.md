@@ -239,7 +239,53 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
 ## Telemetry and logs
 
 - Logs are one JSON object per line on standard output (`docker compose logs movies`,
-  `journalctl -u movies`).
+  `journalctl -u movies`). The media service keeps the same lines, already redacted, in rotating
+  NDJSON files under its data folder (`/data/media/logs` in the Compose volume,
+  `/var/lib/movies/media/logs` on NixOS, private to the service): a new file each day and at each
+  start. Each name carries a sequence number and the time of the file's first record
+  (`media-000000000042-20261021T140503123Z.ndjson`), so `ls` lists the files in the order they
+  were written, and reading and retention follow that order even when the clock steps back. The
+  files together never grow past `LOG_MAX_MB` (512, at least 8): each holds at most an eighth of
+  it (64 MiB at most), and the oldest is deleted before a write would pass the cap. Files last
+  written more than `LOG_RETENTION_DAYS` (14) ago go too. `LOG_LEVEL` (`info`) sets the least
+  severe level for both; at `warn` or `error` the retained log loses the `INFO` records playback
+  diagnostics read (stream starts, player attaches, startups and stalls), and the timeline says
+  so. Lines waiting to be written are capped at 8 MiB of text; past that they are dropped and
+  counted (`RetainedLogs.dropped`). When the folder cannot be written or read, the service logs
+  to standard output only, says so once (`RetainedLogs.unwritable`), retries with every batch,
+  and `movies logs` says since when. A folder that comes back, such as a late mount, is listed
+  again at once, so the files already in it count against the cap.
+- Each HTTP response logs `HttpServer.response` at `DEBUG` with its method, status, time taken,
+  and path (no query string, cut to 128 characters), so at the default `info` nothing a caller
+  sends without a token reaches the retained log. A handler that died logs
+  `HttpServer.handler_died` at `ERROR` with its cause. A stop ends open responses after 3 s, such
+  as a direct-play file, which the player resumes with a range request; Compose gives the
+  container 30 s to stop.
+- `movies logs` reads the retained log without SSH or `sudo`: `--follow`, `--since 15m` or a time,
+  `--until`, `--level warn`, `--session-id`, `--stream-id`, `--slow 1s`, `--grep`, and `--json` for
+  NDJSON. It needs an admin session. The service streams it as NDJSON from `POST /api/logs` and
+  answers at most 5000 records before following. A follow ends as the service shuts down, and
+  `movies logs --follow` then exits `unavailable`.
+- A failed media request (any 4xx or 5xx on `/media/`) logs `MediaRoutes.request_failed` at `WARN`
+  with its playback session, at most 30 at once and one every 2 s per session (60, then one a
+  second, per account), with path parameters cut to 64 characters. The rest, and failures whose
+  token does not verify, log at `DEBUG`; every 30 s
+  `MediaRoutes.request_failures_suppressed` counts the ones each session went over. Every HLS
+  segment logs how long it took, split into waiting for the encoder, reading the disk, and writing
+  to the network: `MediaRoutes.slow_segment` at `WARN` from one second, `MediaRoutes.segment` at
+  `DEBUG` below. Stream starts, encoder restarts, mode
+  changes, and ends (with the reason, such as `idle`) log at `INFO`.
+- The web and iOS players report how long each session took to start, their stalls, errors,
+  dropped frames (web only), hls.js segment load times, and recoveries to
+  `POST /api/playback/diagnostics` with their playback token, in batches the service validates and
+  limits: each session 300 events at once, then 2 a second; each account 400 at once, then 8 a
+  second, so four screens of one family account can each report every hls.js segment load. A
+  refused batch, and a refused diagnostics read, answers `429` with `Retry-After`. They land in the same log as `Player.*` records. An event's
+  stream counts as its `streamId` only when the stream is the token's session's own (or ended in
+  the last ten minutes); otherwise it is kept as `claimedStreamId`, which `--stream-id` does not
+  match. `movies diagnostics playback <session-id>` builds a session's timeline from both sides;
+  admins read any session and other accounts only their own, a few times a minute. Audio/video drift is not measured:
+  no player reports it.
 - With `OTEL_EXPORTER_OTLP_ENDPOINT` (Compose) or `otlpEndpoint` (NixOS) set to an OTLP/HTTP
   collector, the media service exports traces and logs: library scans, playback negotiation, the
   first HLS segment, seeks, encoder failures and GPU-to-software fallbacks, backups and restores, and

@@ -1,9 +1,11 @@
 /** Handlers of the media HttpApi. */
 import { MediaApi } from "@movies/contracts/media-api";
 import { Effect, Layer, Option } from "effect";
+import { HttpEffect } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 
 import * as BackendHealth from "../backend-health.ts";
+import * as ClientDiagnostics from "../diagnostics/client-events.ts";
 import * as Downloads from "../downloads/downloads.ts";
 import * as MediaConfig from "../media-config.ts";
 import * as HardwareAcceleration from "../playback/hardware-acceleration.ts";
@@ -11,6 +13,7 @@ import * as PlaybackNegotiator from "../playback/playback-negotiator.ts";
 import { withToken } from "../playback/playback-negotiator.ts";
 import * as PlaybackToken from "../playback/playback-token.ts";
 import * as StreamSessions from "../playback/stream-sessions.ts";
+import { retryAfter } from "./rate-limit.ts";
 
 /** Playback endpoints. */
 const playbackHandlers = HttpApiBuilder.group(
@@ -21,6 +24,7 @@ const playbackHandlers = HttpApiBuilder.group(
     const negotiator = yield* PlaybackNegotiator.Service;
     const verifier = yield* PlaybackToken.Service;
     const sessions = yield* StreamSessions.Service;
+    const diagnostics = yield* ClientDiagnostics.Service;
 
     return handlers.handleAll({
       negotiate: ({ payload }) => negotiator.negotiate(payload),
@@ -41,6 +45,16 @@ const playbackHandlers = HttpApiBuilder.group(
         const grant = yield* verifier.verify(payload.token, PlaybackToken.PLAY);
         yield* sessions.stop(payload.streamId, grant);
       }),
+      diagnostics: ({ payload }) =>
+        diagnostics
+          .record(payload)
+          .pipe(
+            Effect.tapErrorTag("DiagnosticsRateLimited", (error) =>
+              HttpEffect.appendPreResponseHandler((_request, response) =>
+                Effect.succeed(retryAfter(response, error.retryAfterSeconds)),
+              ),
+            ),
+          ),
     });
   }),
 );

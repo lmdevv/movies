@@ -290,9 +290,9 @@ function PlayerSession({
 
   useEffect(() => {
     if (controller !== null && session !== null && Result.isSuccess(session)) {
-      controller.start(session.success);
+      controller.start(session.success, download === null);
     }
-  }, [controller, session]);
+  }, [controller, session, download]);
 
   // A session that could not start tries the same request again after the pause its failure calls
   // for, keeping where it was asked to start.

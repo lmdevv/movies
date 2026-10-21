@@ -24,6 +24,7 @@
     "./library-folder": "./src/library-folder.ts",
     "./scan-failure": "./src/scan-failure.ts",
     "./migration-plan": "./src/migration-plan.ts",
+    "./diagnostics": "./src/diagnostics.ts",
     "./models/*": "./src/models/*.ts"
   },
   "scripts": {

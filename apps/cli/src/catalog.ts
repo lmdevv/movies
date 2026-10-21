@@ -48,7 +48,13 @@ export interface Shortcut {
   readonly path: string;
   readonly synopsis: string;
   readonly summary: string;
-  readonly section: "Account" | "Watching" | "Rooms" | "Administration" | "Reference";
+  readonly section:
+    | "Account"
+    | "Watching"
+    | "Rooms"
+    | "Administration"
+    | "Troubleshooting"
+    | "Reference";
 }
 
 /** Every shortcut. A shortcut with the same path as a registry command replaces it there. */
@@ -213,6 +219,28 @@ export const shortcuts: ReadonlyArray<Shortcut> = [
     section: "Administration",
   },
   {
+    path: "logs",
+    synopsis:
+      "logs [--follow] [--since <duration|time>] [--until <duration|time>] [--level trace|debug|info|warn|error|fatal] [--session-id <id>] [--stream-id <id>] [--slow <duration>] [--grep <text>] [--limit <int>] [--json|--human]",
+    summary:
+      "Read the media service's retained log, newest last (admin sessions only); --follow keeps printing new records, --since 15m or a time starts there, --slow 1s keeps timed requests at least that long, --json prints the NDJSON records; a followed log the service ends fails as unavailable",
+    section: "Troubleshooting",
+  },
+  {
+    path: "diagnostics sessions",
+    synopsis: "diagnostics sessions [--since <duration|time>] [--json|--human]",
+    summary:
+      "List the playback sessions the retained log mentions (the last day by default), newest first; members see their own",
+    section: "Troubleshooting",
+  },
+  {
+    path: "diagnostics playback",
+    synopsis: "diagnostics playback <session-id> [--json|--human]",
+    summary:
+      "Print a playback session's timeline: streams and why they ended, slow and failed segments with their time split, the player's stalls, errors, and recoveries, and the evidence that is missing; audio/video drift is reported as not measured",
+    section: "Troubleshooting",
+  },
+  {
     path: "commands",
     synopsis: "commands [--markdown]",
     summary: "List every command with its flags and argument JSON Schema",
@@ -307,9 +335,9 @@ export const rootHelp = (version: string): string =>
     "",
     "Usage: movies <command> [flags]",
     "",
-    ...(["Account", "Watching", "Rooms", "Administration", "Reference"] as const).flatMap(
-      (section) => Array.of<string>(section).concat(pad(shortcutRows(section)), [""]),
-    ),
+    ...(
+      ["Account", "Watching", "Rooms", "Administration", "Troubleshooting", "Reference"] as const
+    ).flatMap((section) => Array.of<string>(section).concat(pad(shortcutRows(section)), [""])),
     "Commands (movies <group> --help lists a group)",
     ...pad([...groupWords].toSorted().map((group) => [group, groupSummary(group)] as const)),
     "",
