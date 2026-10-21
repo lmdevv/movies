@@ -92,7 +92,7 @@ check "the admin key is not in the web app" \
 check "Convex refuses admin calls without the key" \
   '[[ "$(curl -s -o /dev/null -w "%{http_code}" "${CONVEX_PUBLIC_URL}/api/check_admin_key")" =~ ^40[13]$ ]]'
 
-pnpm --dir "$root" --filter @movies/cli build >/dev/null
+pnpm --dir "$root" --filter @lmdevv/movies build >/dev/null
 
 MOVIES_PACKAGED_STACK=1 \
   MOVIES_PACKAGED_CONVEX_URL="$CONVEX_PUBLIC_URL" \

@@ -235,7 +235,7 @@ describe("the movies command", () => {
 
     const reference = (await movies("commands", "--markdown")).stdout;
 
-    expect(skill, "run pnpm --filter @movies/cli skill:reference").toContain(reference);
+    expect(skill, "run pnpm --filter @lmdevv/movies skill:reference").toContain(reference);
   });
 });
 
