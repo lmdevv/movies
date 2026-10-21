@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
+import packageJson from "../package.json" with { type: "json" };
+
 import { accountCommands } from "./account-commands";
 import { adminCommands } from "./admin-commands";
 import { registryEntries, shortcuts, visibleRegistryEntries } from "./catalog";
@@ -51,7 +53,7 @@ describe("the movies command", () => {
 
     expect(help.code).toBe(ExitCode.ok);
     expect(help.stdout).toContain("Usage: movies <command> [flags]");
-    expect((await movies("--version")).stdout).toBe("0.1.0");
+    expect((await movies("--version")).stdout).toBe(packageJson.version);
   });
 
   it("reaches every registry command, at its own path or through call", async () => {
