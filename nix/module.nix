@@ -458,6 +458,12 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    programs.movies = {
+      enable = lib.mkDefault true;
+      convexUrl = lib.mkDefault cfg.convexPublicUrl;
+      mediaUrl = lib.mkDefault cfg.publicUrl;
+    };
+
     users.users = lib.mkIf (cfg.user == "movies") {
       movies = {
         isSystemUser = true;

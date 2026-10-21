@@ -40,23 +40,21 @@
 
       formatter = forAllSystems (pkgs: pkgs.nixfmt);
 
-      # The server is Linux only; the CLI also builds on macOS.
       packages = forAllSystems (
         pkgs:
         let
+          inherit (pkgs.stdenv.hostPlatform) isLinux;
           cli = pkgs.callPackage ./nix/cli.nix { };
+          movies = pkgs.callPackage ./nix/package.nix { };
         in
         {
           inherit cli;
-          default = cli;
+          default = if isLinux then movies else cli;
         }
-        // nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux rec {
-          movies = pkgs.callPackage ./nix/package.nix { };
-          default = movies;
-        }
+        // nixpkgs.lib.optionalAttrs isLinux { inherit movies; }
       );
 
-      # `nix run github:lmdevv/movies -- whoami`; `nix build` still builds the server.
+      # `nix run github:lmdevv/movies -- whoami`; on Linux, `nix build` builds the server.
       apps = forAllSystems (
         pkgs:
         let
@@ -72,8 +70,6 @@
         }
       );
 
-      # `pkgs.movies` and `pkgs.movies-cli` for configurations that apply it; the module builds the
-      # same server package.
       overlays.default = final: _prev: {
         movies = final.callPackage ./nix/package.nix { };
         movies-cli = final.callPackage ./nix/cli.nix { };
@@ -153,8 +149,6 @@
             libraryWatch = "poll";
             libraryPollSeconds = 120;
           };
-          # programs.movies: on with the server and pointed at it, alone on a client machine
-          # (nixosModules.cli), next to the server module without a conflict, and off when asked.
           cli-module =
             let
               system =
