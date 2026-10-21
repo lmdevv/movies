@@ -19,10 +19,11 @@ import { useThemeColor } from "@/lib/theme-color";
 const COLLAPSE_AT = 48;
 
 /**
- * C02's top fade: the page's color through the status bar and title, then Paper's scrim, then
- * clear. Light fades the same way through white.
+ * C02's top fade, hung below the bar: the page's color, then Paper's scrim, then clear. Light fades
+ * the same way through white. The bar itself stays the page's color, so the compact title never
+ * sits over half-faded artwork or the hero's Play button.
  */
-const TOP_FADE_LOCATIONS = [0, 0.5, 0.8, 1] as const;
+const TOP_FADE_LOCATIONS = [0, 0.45, 1] as const;
 
 /** How far the top fade reaches past the title row, in points (Paper's 140 less 126). */
 const TOP_FADE_TAIL = 14;
@@ -108,11 +109,14 @@ export function CompactBar({
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         >
-          <LinearGradient
-            colors={[page, page, fade, clear]}
-            locations={TOP_FADE_LOCATIONS}
-            style={StyleSheet.absoluteFill}
-          />
+          <View className="absolute inset-0 bg-bg" />
+          <View className="absolute inset-x-0 top-full h-10">
+            <LinearGradient
+              colors={[page, fade, clear]}
+              locations={TOP_FADE_LOCATIONS}
+              style={StyleSheet.absoluteFill}
+            />
+          </View>
         </Animated.View>
       ) : null}
       <View className="h-16 flex-row items-center gap-3 px-5" pointerEvents="box-none">
