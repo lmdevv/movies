@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { qsvProbeArgs } from "./hardware-acceleration.ts";
 import { AudioPlan, VideoPlan } from "./playback-decision.ts";
 import type { HlsCommand } from "./transcode-command.ts";
-import { hlsCommandArgs } from "./transcode-command.ts";
+import { hlsCommandArgs, mp4CommandArgs } from "./transcode-command.ts";
 
 const command = (audio: AudioPlan, audioCodec: string): HlsCommand => ({
   input: "/media/Film (2021).ts",
@@ -244,5 +244,44 @@ describe("hlsCommandArgs", () => {
       "/media/Film (2021).ts",
     ]);
     expect(after(seeked, "-filter_complex")).toContain("[1:3]scale=1920:1080[subtitle]");
+  });
+});
+
+/** The MP4 arguments for a file with a DTS track converted to AAC, its video planned as `video`. */
+const mp4 = (video: VideoPlan) =>
+  mp4CommandArgs({
+    input: "/media/Film (2021).mkv",
+    videoIndex: 0,
+    videoCodec: "hevc",
+    videoBitDepth: 10,
+    video,
+    audio: AudioPlan.Aac({ index: 2 }),
+    audioCodec: "dts",
+    qsvDevice: "/dev/dri/renderD128",
+    vaapiDevice: "/dev/dri/renderD129",
+    output: "/tmp/downloads/f/key.mp4.part",
+    progress: "/tmp/downloads/f/key.mp4.progress",
+  });
+
+describe("mp4CommandArgs", () => {
+  it("copies the whole file into an MP4 with its index first, from the start", () => {
+    const args = mp4(VideoPlan.Copy());
+
+    expect(args).not.toContain("-ss");
+    expect(args).not.toContain("-copyts");
+    expect(args).not.toContain("-force_key_frames");
+    expect(after(args, "-tag:v")).toBe("hvc1");
+    expect(after(args, "-movflags")).toBe("+faststart");
+    expect(after(args, "-progress")).toBe("/tmp/downloads/f/key.mp4.progress");
+    expect(args.slice(-4)).toStrictEqual(["-f", "mp4", "-y", "/tmp/downloads/f/key.mp4.part"]);
+  });
+
+  it("encodes in software without a segment plan", () => {
+    const args = mp4(encode("software", {}));
+
+    expect(after(args, "-c:v")).toBe("libx264");
+    expect(after(args, "-vf")).toBe("scale=1920:1080:flags=bicubic,format=yuv420p");
+    expect(args).not.toContain("-force_key_frames");
+    expect(after(args, "-c:a")).toBe("aac");
   });
 });

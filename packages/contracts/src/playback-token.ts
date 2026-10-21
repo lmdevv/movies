@@ -24,7 +24,14 @@ export const PLAYBACK_TOKEN_LIFETIME_MS = 6 * 60 * 60 * 1000;
 /** The smallest accepted secret, in bytes. */
 export const PLAYBACK_TOKEN_SECRET_MIN_BYTES = 32;
 
-/** What a valid playback token authorizes: one user's profile playing one file in one session. */
+/** The purpose a download session's token names; playback tokens name none. */
+export const PLAYBACK_TOKEN_DOWNLOAD = "download";
+
+/**
+ * What a valid playback token authorizes: one user's profile playing one file in one session, or
+ * with `pur: "download"` downloading it. The media service refuses download tokens on streaming
+ * routes and playback tokens on download routes.
+ */
 export const PlaybackTokenPayload = Schema.Struct({
   aud: Schema.Literal(PLAYBACK_TOKEN_AUDIENCE),
   sub: UserId,
@@ -33,6 +40,7 @@ export const PlaybackTokenPayload = Schema.Struct({
   sid: PlaybackSessionId,
   iat: EpochMillis,
   exp: EpochMillis,
+  pur: Schema.optionalKey(Schema.Literal(PLAYBACK_TOKEN_DOWNLOAD)),
 });
 
 /** What a valid playback token authorizes. */
@@ -50,12 +58,19 @@ const decodeSignedClaims = Schema.decodeUnknownEffect(SignedClaims);
 
 /**
  * Why a playback token was rejected. Never includes the token itself. The media service answers
- * it with status 401; an `expired` token is renewed with `playback.renewToken`.
+ * it with status 401; an `expired` token is renewed with `playback.renewToken`. `wrong_purpose`
+ * is a download token on a playback route, or a playback token on a download route.
  */
 export class PlaybackTokenInvalid extends Schema.TaggedError<PlaybackTokenInvalid>()(
   "PlaybackTokenInvalid",
   {
-    reason: Schema.Literals(["malformed", "bad_signature", "wrong_audience", "expired"]),
+    reason: Schema.Literals([
+      "malformed",
+      "bad_signature",
+      "wrong_audience",
+      "expired",
+      "wrong_purpose",
+    ]),
     message: Schema.String,
   },
   { httpApiStatus: 401 },
@@ -216,6 +231,9 @@ export interface RejectedTokenVector {
   readonly reason: PlaybackTokenInvalid["reason"];
 }
 
+const DOWNLOAD_TOKEN =
+  "v1.eyJhdWQiOiJtZWRpYSIsInN1YiI6Imo1NzAxeXFibXJzZzJzMWJqdmh3ajZ4NWE5N3QzcWQ1IiwicGlkIjoiazE3MWF4OWV3cTB0dHQwbTNheHZibW56dzk3dDN4M20iLCJmaWQiOiJrZDdheThyMHR5MXJ5NnE5eTZlcXZkYzN5OTd0MndtZiIsInNpZCI6Imp4NzZrNmdhMzZnN3RmaGY5dnRtMXlhaGJzN3QzY2N2IiwiaWF0IjoxNzYwMDAwMDAwMDAwLCJleHAiOjE3NjAwMjE2MDAwMDAsInB1ciI6ImRvd25sb2FkIn0.BmCGIshy230JPTNp0XowwRlvGeJQFySdbvOvEGOctP8";
+
 const VALID_TOKEN =
   "v1.eyJhdWQiOiJtZWRpYSIsInN1YiI6Imo1NzAxeXFibXJzZzJzMWJqdmh3ajZ4NWE5N3QzcWQ1IiwicGlkIjoiazE3MWF4OWV3cTB0dHQwbTNheHZibW56dzk3dDN4M20iLCJmaWQiOiJrZDdheThyMHR5MXJ5NnE5eTZlcXZkYzN5OTd0MndtZiIsInNpZCI6Imp4NzZrNmdhMzZnN3RmaGY5dnRtMXlhaGJzN3QzY2N2IiwiaWF0IjoxNzYwMDAwMDAwMDAwLCJleHAiOjE3NjAwMjE2MDAwMDB9._3-7r8dV1nu5neIQTKAD9Ytq6xIxm-RTqgak580So74";
 
@@ -223,8 +241,8 @@ const VALID_TOKEN =
  * Fixed inputs and outputs every signer and verifier must reproduce, computed independently with
  * Node's `createHmac`. `secret` is a test value (bytes 0 to 31), never a deployment secret. Signing
  * `valid.payloadJson` (the payload serialized with keys in the order shown) with `secret` yields
- * exactly `valid.token`, which verifies at `valid.verifyAt`; every `rejected` token fails with its
- * `reason`.
+ * exactly `valid.token`, which verifies at `valid.verifyAt`; `download` is the same payload with the
+ * download purpose last; every `rejected` token fails with its `reason`.
  */
 export const PLAYBACK_TOKEN_TEST_VECTORS = {
   /** Base64url of the 32 bytes 0, 1, …, 31: `AAECAw…HB0eHw` without padding. */
@@ -242,6 +260,22 @@ export const PLAYBACK_TOKEN_TEST_VECTORS = {
     payloadJson:
       '{"aud":"media","sub":"j5701yqbmrsg2s1bjvhwj6x5a97t3qd5","pid":"k171ax9ewq0ttt0m3axvbmnzw97t3x3m","fid":"kd7ay8r0ty1ry6q9y6eqvdc3y97t2wmf","sid":"jx76k6ga36g7tfhf9vtm1yahbs7t3ccv","iat":1760000000000,"exp":1760021600000}',
     token: VALID_TOKEN,
+    verifyAt: 1_760_000_001_000,
+  },
+  download: {
+    payload: {
+      aud: "media",
+      sub: "j5701yqbmrsg2s1bjvhwj6x5a97t3qd5",
+      pid: "k171ax9ewq0ttt0m3axvbmnzw97t3x3m",
+      fid: "kd7ay8r0ty1ry6q9y6eqvdc3y97t2wmf",
+      sid: "jx76k6ga36g7tfhf9vtm1yahbs7t3ccv",
+      iat: 1_760_000_000_000,
+      exp: 1_760_021_600_000,
+      pur: "download",
+    },
+    payloadJson:
+      '{"aud":"media","sub":"j5701yqbmrsg2s1bjvhwj6x5a97t3qd5","pid":"k171ax9ewq0ttt0m3axvbmnzw97t3x3m","fid":"kd7ay8r0ty1ry6q9y6eqvdc3y97t2wmf","sid":"jx76k6ga36g7tfhf9vtm1yahbs7t3ccv","iat":1760000000000,"exp":1760021600000,"pur":"download"}',
+    token: DOWNLOAD_TOKEN,
     verifyAt: 1_760_000_001_000,
   },
   rejected: [
@@ -271,6 +305,13 @@ export const PLAYBACK_TOKEN_TEST_VECTORS = {
         "v1.eyJhdWQiOiJ3ZWIiLCJzdWIiOiJqNTcwMXlxYm1yc2cyczFianZod2o2eDVhOTd0M3FkNSIsInBpZCI6ImsxNzFheDlld3EwdHR0MG0zYXh2Ym1uenc5N3QzeDNtIiwiZmlkIjoia2Q3YXk4cjB0eTFyeTZxOXk2ZXF2ZGMzeTk3dDJ3bWYiLCJzaWQiOiJqeDc2azZnYTM2Zzd0ZmhmOXZ0bTF5YWhiczd0M2NjdiIsImlhdCI6MTc2MDAwMDAwMDAwMCwiZXhwIjoxNzYwMDIxNjAwMDAwfQ.5yl0qeSwTb9I4xFENOrOH6xNVT9egoFRw5u4v8uYtRA",
       verifyAt: 1_760_000_001_000,
       reason: "wrong_audience",
+    },
+    {
+      description: "correctly signed with an unknown purpose",
+      token:
+        "v1.eyJhdWQiOiJtZWRpYSIsInN1YiI6Imo1NzAxeXFibXJzZzJzMWJqdmh3ajZ4NWE5N3QzcWQ1IiwicGlkIjoiazE3MWF4OWV3cTB0dHQwbTNheHZibW56dzk3dDN4M20iLCJmaWQiOiJrZDdheThyMHR5MXJ5NnE5eTZlcXZkYzN5OTd0MndtZiIsInNpZCI6Imp4NzZrNmdhMzZnN3RmaGY5dnRtMXlhaGJzN3QzY2N2IiwiaWF0IjoxNzYwMDAwMDAwMDAwLCJleHAiOjE3NjAwMjE2MDAwMDAsInB1ciI6InN0cmVhbSJ9.MVmJkgdR7aZV0p5QJO_u1XjFPjg_cXIBoIwtEFcZ484",
+      verifyAt: 1_760_000_001_000,
+      reason: "malformed",
     },
     {
       description: "unknown version",

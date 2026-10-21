@@ -46,6 +46,7 @@ import * as authParams from "../convex/authParams";
 import * as backups from "../convex/backups";
 import * as collections from "../convex/collections";
 import * as deviceAuth from "../convex/deviceAuth";
+import * as downloads from "../convex/downloads";
 import * as history from "../convex/history";
 import * as invites from "../convex/invites";
 import * as jobs from "../convex/jobs";
@@ -83,6 +84,7 @@ const modules = {
   backups,
   collections,
   deviceAuth,
+  downloads,
   history,
   invites,
   jobs,
@@ -276,6 +278,22 @@ describe("constants shared across the seam", () => {
         sid: payload.sid,
         iat: payload.iat,
         exp: payload.exp,
+      }),
+    ).resolves.toBe(token);
+  });
+
+  it("signs the shared download token vector exactly", async () => {
+    const { payload, token } = PLAYBACK_TOKEN_TEST_VECTORS.download;
+
+    await expect(
+      signPlaybackToken(PLAYBACK_TOKEN_TEST_VECTORS.secret, {
+        sub: payload.sub,
+        pid: payload.pid,
+        fid: payload.fid,
+        sid: payload.sid,
+        iat: payload.iat,
+        exp: payload.exp,
+        pur: payload.pur,
       }),
     ).resolves.toBe(token);
   });

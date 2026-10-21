@@ -98,6 +98,17 @@ A review of `packages/backend` found these after the table above; each has a sta
   route takes a file ID, version, and name that must match `[0-9a-z]` IDs, a base-36 version, and
   `manifest.json` or `<n>.jpg`, and resolves inside `DATA_DIR/trickplay` (`trickplay.test.ts`,
   media stack test "reads chapters and makes scrub thumbnails").
+- **Downloads** use a playback session (`purpose: "download"`) with playback's checks, so sign-out,
+  a revoked grant, and a removed library end them like streams. An account holds at most eight
+  download sessions (four per device) beside its eight playback devices, the quietest ending past
+  either cap (backend stack test "keeps eight downloads on the account"). Their tokens carry
+  `pur: "download"`: streaming routes refuse them and download routes refuse playback tokens
+  (`wrong_purpose`; `playback-token.test.ts`, `downloads-http.test.ts`). A download session
+  queues at most one MP4, the MP4 being written reserves its space against streams, and a hung run
+  fails after ten minutes without output. The MP4 route takes
+  a file ID and a 24-hex-character name, must match the token's file, and serves only an MP4 the
+  service finished for that file. A failure's detail never names a server path. Files already on
+  a device stay there; the app plays them only for the account and profile that downloaded them.
 - **Artwork keys** are AES-256-GCM sealings under a key derived from `PLAYBACK_TOKEN_SECRET`; `?w=`
   takes a fixed list; cache names are hashes.
 - **No user-supplied ffmpeg arguments or paths:** every spawn is built from server-side state; the
