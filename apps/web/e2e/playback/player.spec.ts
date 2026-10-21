@@ -3,8 +3,9 @@
  * an MP4 plays directly, an MPEG-TS file remuxes to HLS, AC-3 audio is converted, and HEVC is
  * transcoded in software. Around them: the keyboard, progress landing in Continue watching, the
  * resume prompt, subtitles and audio switching, a seek outside what a transcode produced, autoplay
- * of the next episode, and a file gone from disk. Runs after the admin suites on the same stack,
- * signed in as their owner; first-frame times per mode go to the test's annotations.
+ * of the next episode, a stall that reaches the playback diagnostics, and a file gone from disk.
+ * Runs after the admin suites on the same stack, signed in as their owner; first-frame times per
+ * mode go to the test's annotations.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -309,6 +310,24 @@ const showingSubtitle = () =>
 
     return track === undefined ? null : { label: track.label, cues: track.cues?.length ?? 0 };
   });
+
+/** How late each segment arrives while the stall test holds them, as over a congested link. */
+const CONGESTED_SEGMENT_DELAY_MS = 4_000;
+
+/** Where the stall test seeks: 96 s into the two-minute remux. */
+const SEEK_FRACTION = 0.8;
+
+/** A position the stall test reaches only with segments that arrived late. */
+const PAST_THE_HELD_SEGMENTS_SECONDS = 100;
+
+/** The playback timeline of the web session the logs saw last, or null before there is one. */
+const latestWebTimeline = async () => {
+  const [session] = await owner.sdk.media("diagnostics.sessions", {});
+
+  if (session === undefined || session.platform !== "web") return null;
+
+  return owner.sdk.media("diagnostics.playback", { sessionId: session.sessionId });
+};
 
 const activeRung = (target: Page) =>
   target.getByRole("list", { name: "Playback mode" }).locator('[aria-current="true"]');
@@ -790,6 +809,46 @@ test("an MPEG-TS file remuxes to HLS", async () => {
   await revealControls(page);
   await page.getByRole("button", { name: "Stream info" }).click();
   await expect(activeRung(page)).toHaveText("Remux");
+});
+
+test("a stall while segments are held back reaches the playback timeline", async () => {
+  await playFromStart(MOVIES.remux, "remux");
+
+  const segments = /\/media\/hls\/[^/]+\/\d+\/\d+\.m4s/u;
+
+  await page.route(segments, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, CONGESTED_SEGMENT_DELAY_MS));
+    // hls.js may give up on a held request meanwhile, which leaves nothing to continue.
+    await route.continue().catch(() => undefined);
+  });
+
+  await clickScrubber(page, SEEK_FRACTION);
+  await expectPlayingPast(page, PAST_THE_HELD_SEGMENTS_SECONDS, 45_000);
+  await page.unroute(segments);
+
+  await expect
+    .poll(async () => (await latestWebTimeline())?.entries.map((entry) => entry.kind) ?? [], {
+      timeout: 30_000,
+    })
+    .toEqual(
+      expect.arrayContaining([
+        "stream-started",
+        "player-attached",
+        "buffering-started",
+        "buffering-ended",
+        "slow-fragment",
+      ]),
+    );
+
+  const diagnostics = await latestWebTimeline();
+
+  const stalls = (diagnostics?.entries ?? []).flatMap((entry) =>
+    entry.kind === "buffering-ended" ? [Number(entry.details["stalledMs"])] : [],
+  );
+
+  expect(diagnostics?.platform).toBe("web");
+  expect(diagnostics?.drift.status).toBe("not-measured");
+  expect(Math.max(...stalls)).toBeGreaterThanOrEqual(3_000);
 });
 
 test("AC-3 audio is converted while the video is copied", async () => {
