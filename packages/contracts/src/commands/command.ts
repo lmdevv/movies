@@ -26,6 +26,7 @@ export type CommandGroup =
   | "sessions"
   | "backups"
   | "migration"
+  | "diagnostics"
   | "media-service";
 
 /** A Convex function path such as `titles:list`: the module under `convex/`, a colon, and the export. */

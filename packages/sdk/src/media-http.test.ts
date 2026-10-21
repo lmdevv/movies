@@ -1,14 +1,14 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 
-import { Effect, Option, Predicate, Redacted, Schema } from "effect";
+import { Effect, Option, Predicate, Redacted, Schema, Stream } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { StreamGenerationGone } from "@movies/contracts/media-playback";
 import { PlaybackTokenInvalid } from "@movies/contracts/playback-token";
 
 import type { MediaRequest } from "./media-http";
-import { requestJson, requestPlayback } from "./media-http";
+import { requestJson, requestLines, requestPlayback } from "./media-http";
 import { recoveryFor } from "./playback";
 
 const received: Array<{
@@ -47,6 +47,11 @@ const route = (path: string, response: ServerResponse): void => {
         401,
         JSON.stringify({ _tag: "PlaybackTokenInvalid", reason: "expired", message: "expired" }),
       );
+    case "/lines":
+      response.writeHead(200, { "content-type": "application/x-ndjson", "x-test": "yes" });
+      response.end('{"n":1}\n{"n":2}\n');
+
+      return;
     case "/gateway":
       return respond(response, 502, "<html>Bad gateway</html>");
     case "/garbage":
@@ -133,6 +138,27 @@ describe("media service requests", () => {
     );
 
     expect(result).toMatchObject({ failure: { _tag: "TransportError" } });
+  });
+});
+
+describe("line-by-line requests", () => {
+  it("answers with the headers, then the lines as they arrive", async () => {
+    const lines = await Effect.runPromise(
+      Effect.flatMap(requestLines(request("/lines")), (answer) =>
+        Stream.runCollect(answer.lines).pipe(
+          Effect.map((collected) => ({ header: answer.headers.get("x-test"), collected })),
+        ),
+      ),
+    );
+
+    expect(lines).toStrictEqual({ header: "yes", collected: ['{"n":1}', '{"n":2}'] });
+    expect(received.at(-1)).toMatchObject({ auth: "Bearer secret-jwt" });
+  });
+
+  it("fails like a command when the service refuses", async () => {
+    const result = await Effect.runPromise(Effect.result(requestLines(request("/failure"))));
+
+    expect(result).toMatchObject({ failure: { _tag: "Forbidden", message: "Admins only" } });
   });
 });
 

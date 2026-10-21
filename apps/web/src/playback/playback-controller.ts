@@ -13,6 +13,8 @@
  * the movie or episode plays in a new session from the same position, keeping the audio and text
  * subtitle languages where the new file has them. A subtitle delay (`subtitle-timing`) moves the
  * text subtitles' cues for this playback only: another track or version starts at zero again.
+ * While it reports progress it also reports what the player saw (`diagnostics`): stalls, dropped
+ * frames, each stream attached, stream failures, hls.js segment loads, and every recovery.
  *
  * Every SDK call runs on the app's SDK runtime and comes back as a value; nothing here throws.
  */
@@ -24,14 +26,16 @@ import type {
   RoomId,
   TitleId,
 } from "@movies/contracts/ids";
+import { PlayerObservation } from "@movies/contracts/diagnostics";
 import type { ClientCapabilities, NegotiateResponse } from "@movies/contracts/media-playback";
 import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { Milliseconds } from "@movies/contracts/units";
 import type { CallError } from "@movies/sdk/effect";
-import { MoviesClient, Playback } from "@movies/sdk/effect";
+import { MoviesClient, Playback, PlayerDiagnostics } from "@movies/sdk/effect";
 import { Data, Effect, Exit, Option, Predicate, Result, Scope } from "effect";
 
 import { withoutFailedPath } from "./capabilities";
+import { bufferedAheadSeconds, frameCounts, recoveryObservation } from "./diagnostics";
 import type { QualityChoice } from "./quality";
 import { qualityCap } from "./quality";
 import { ELEMENT_SEEKER, MediaElementPlayer, isBuffered } from "./media-element-player";
@@ -45,8 +49,8 @@ import {
   afterStreamFailure,
   offersResume,
 } from "./playback-policy";
-import type { AttachedStream, StreamFailure } from "./stream-attachment";
-import { attachStream, preloadHlsJs } from "./stream-attachment";
+import type { AttachedStream, Observe, StreamFailure } from "./stream-attachment";
+import { attachStream, describeFailure, preloadHlsJs } from "./stream-attachment";
 import { RENEW_BEFORE_MS, inGeneration, runSdk } from "./sdk-calls";
 import type { Runtime } from "./sdk-calls";
 import { SubtitleRetimer, clampSubtitleDelay } from "./subtitle-timing";
@@ -255,6 +259,14 @@ export class PlaybackController {
   #recoveries = 0;
   #renewTimer: ReturnType<typeof setTimeout> | undefined;
   #reporting: Scope.Closeable | null = null;
+  /**
+   * Records what the player sees from the first stream until the controller is disposed, across
+   * restarts, and the scope that sends it.
+   */
+  #diagnostics: {
+    readonly recorder: PlayerDiagnostics.Recorder;
+    readonly scope: Scope.Closeable;
+  } | null = null;
   /** The playback the reporter was started with; it stops that stream when it closes. */
   #reported: Playback.Playback | null = null;
   #disposed = false;
@@ -347,7 +359,7 @@ export class PlaybackController {
         return this.start();
       }
 
-      return this.#follow(afterSessionFailure(created.failure), 0);
+      return this.#follow(afterSessionFailure(created.failure), 0, created.failure.message);
     }
 
     const started = created.success;
@@ -452,7 +464,11 @@ export class PlaybackController {
         return this.#restart(switching.positionMs, switching.play);
       }
 
-      return this.#follow(afterPlaybackFailure(negotiated.failure), positionMs);
+      return this.#follow(
+        afterPlaybackFailure(negotiated.failure),
+        positionMs,
+        negotiated.failure.message,
+      );
     }
 
     const playback: Playback.Playback = { started, stream: negotiated.success };
@@ -522,6 +538,9 @@ export class PlaybackController {
       (failure) => {
         if (generation === this.#generation) this.#onStreamFailure(failure);
       },
+      (observation) => {
+        if (generation === this.#generation) this.#observe(observation);
+      },
     );
 
     if (this.#disposed || generation !== this.#generation) {
@@ -531,6 +550,12 @@ export class PlaybackController {
     }
 
     this.#attached = attached;
+    this.#observe(
+      PlayerObservation.cases.Attached.make({
+        mode: stream.mode,
+        engine: attached.engine === "hls.js" ? "hls.js" : "html-video",
+      }),
+    );
     this.#loadedBurnIn = chosen.burnIn;
     this.#update({ loadedQuality: chosen.quality });
     this.player.setSeeker(stream.mode === "direct" ? ELEMENT_SEEKER : this.#hlsSeeker());
@@ -577,11 +602,20 @@ export class PlaybackController {
 
         if (signal.aborted || this.#disposed || playback !== this.#playback) return;
 
-        if (moved === null)
-          return this.#follow(PlaybackStep.Renegotiate({ afterMs: 0 }), positionMs);
+        if (moved === null) {
+          return this.#follow(
+            PlaybackStep.Renegotiate({ afterMs: 0 }),
+            positionMs,
+            "The seek could not reach the media service",
+          );
+        }
 
         if (Result.isFailure(moved)) {
-          return this.#follow(afterPlaybackFailure(moved.failure), positionMs);
+          return this.#follow(
+            afterPlaybackFailure(moved.failure),
+            positionMs,
+            moved.failure.message,
+          );
         }
 
         await this.#moveTo(playback, moved.success, positionMs);
@@ -668,12 +702,20 @@ export class PlaybackController {
   }
 
   #onStreamFailure(failure: StreamFailure): void {
-    void this.#follow(afterStreamFailure(failure), this.positionMs());
+    void this.#follow(afterStreamFailure(failure), this.positionMs(), describeFailure(failure));
   }
 
-  /** Carries out a recovery step at `positionMs`. */
-  async #follow(step: PlaybackStep, positionMs: number): Promise<void> {
+  readonly #observe: Observe = (observation) => {
+    this.#diagnostics?.recorder.record(observation);
+  };
+
+  /** Carries out a recovery step at `positionMs`, after a failure `reason` describes. */
+  async #follow(step: PlaybackStep, positionMs: number, reason: string): Promise<void> {
     if (this.#disposed || this.#parked) return;
+
+    const recovery = recoveryObservation(step, reason);
+
+    if (Option.isSome(recovery)) this.#observe(recovery.value);
 
     if (PlaybackStep.$is("Stop")(step)) return this.#stop(step.stop);
 
@@ -766,7 +808,11 @@ export class PlaybackController {
     if (created === null) return this.#stop(STOPPED);
 
     if (Result.isFailure(created)) {
-      return this.#follow(afterSessionFailure(created.failure), positionMs);
+      return this.#follow(
+        afterSessionFailure(created.failure),
+        positionMs,
+        created.failure.message,
+      );
     }
 
     const started = created.success;
@@ -942,7 +988,11 @@ export class PlaybackController {
     }
 
     if (Result.isFailure(renewed)) {
-      return this.#follow(afterPlaybackFailure(renewed.failure), positionMs);
+      return this.#follow(
+        afterPlaybackFailure(renewed.failure),
+        positionMs,
+        renewed.failure.message,
+      );
     }
 
     await this.#load(
@@ -1148,6 +1198,38 @@ export class PlaybackController {
     void this.#runtime.runPromiseExit(
       Scope.provide(scope)(Playback.reportProgress(playback, this.output)),
     );
+    this.#startDiagnostics();
+  }
+
+  #startDiagnostics(): void {
+    if (this.#diagnostics !== null) return;
+
+    const scope = Scope.makeUnsafe();
+
+    const started = this.#runtime.runSyncExit(
+      Scope.provide(scope)(
+        PlayerDiagnostics.reportDiagnostics(this.player, {
+          platform: "web",
+          playback: () => Option.fromNullishOr(this.#playback),
+          bufferedAheadSeconds: () => bufferedAheadSeconds(this.#element),
+          frames: () => frameCounts(this.#element),
+        }),
+      ),
+    );
+
+    if (Exit.isSuccess(started)) this.#diagnostics = { recorder: started.value, scope };
+  }
+
+  /** Stops recording and sends what was recorded since the last batch. */
+  #closeDiagnostics(): void {
+    const diagnostics = this.#diagnostics;
+
+    this.#diagnostics = null;
+
+    if (diagnostics !== null) {
+      diagnostics.recorder.close();
+      void this.#runtime.runPromiseExit(Scope.close(diagnostics.scope, Exit.void));
+    }
   }
 
   async #closeReporting(): Promise<void> {
@@ -1167,6 +1249,7 @@ export class PlaybackController {
 
     clearTimeout(this.#renewTimer);
     void this.#closeReporting();
+    this.#closeDiagnostics();
 
     // The reporter stops the stream it started with; a renegotiated one replaced it.
     const current = this.#playback;

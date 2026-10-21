@@ -1,6 +1,6 @@
 ---
 name: movies
-description: Control a [movies] server (the user's self-hosted movie and TV library) from the terminal with the `movies` CLI. Use when asked to find, play, or track movies and shows, run watch rooms, manage profiles, libraries, scans, API keys, devices, invites, and accounts, or migrate from Jellyfin or Plex, back up, or restore a [movies] server.
+description: Control a [movies] server (the user's self-hosted movie and TV library) from the terminal with the `movies` CLI. Use when asked to find, play, or track movies and shows, run watch rooms, manage profiles, libraries, scans, API keys, devices, invites, and accounts, migrate from Jellyfin or Plex, back up, or restore a [movies] server, or find out why playback stalled, buffered, or failed.
 ---
 
 # [movies] CLI
@@ -185,6 +185,16 @@ movies backups list
 movies restore movies-2026-10-12.zip        # every session signs in again
 ```
 
+Find out why playback buffered or stopped, from the media service's retained log:
+
+```sh
+movies diagnostics sessions --since 2d --human        # find the session; members see their own
+movies diagnostics playback <session-id> --human      # its timeline; JSON without --human
+movies logs --session-id <session-id> --level warn    # admin: the raw records, printed for people
+movies logs --since 1h --slow 1s --json               # admin: slow segments as NDJSON
+movies logs --follow --level warn                     # admin: watch new warnings as they happen
+```
+
 `movies import` connects, dry-runs, and only then imports what that dry run planned. Read the
 dry run's `users`: an `invite` user has no [movies] account yet, so import never creates one;
 invite the person or `--map` them to a profile (`skip` leaves them out). A source folder maps on
@@ -221,6 +231,29 @@ and newer [movies] progress is kept unless the source played the item more recen
 - A job stuck in `pending` means the media service is not running.
 - A scan job that fails with `Library root not approved` names a folder outside the media
   service's `LIBRARY_ROOTS`; point the library at an approved folder (`movies libraries update`).
+- Spinners, stalls, or a stream that stops: run `movies diagnostics sessions` to find the
+  playback session, then `movies diagnostics playback <session-id>`. Read its `counts`, then the
+  `entries`. A `slow-segment` splits the wait into encoder (`encoderWaitMs`: the transcoder was
+  behind; check CPU or GPU load and `MAX_CONCURRENT_TRANSCODES`), disk (`diskReadMs`: a slow
+  share), and network (`networkWriteMs`: a slow link to the player; try `movies play
+  --max-height 720`). A `stream-ended` with reason `idle` followed by a `request-failed` 404 means
+  the player went quiet longer than `STREAM_IDLE_SECONDS` and the service closed the stream.
+  `startup` is how long the player waited for the session to first play, never a stall;
+  `buffering-started` and `buffering-ended` are the player's own stalls after that;
+  `slow-fragment` is hls.js waiting on a segment; `recovery` is the player starting over.
+- The timeline never guesses: `drift` is always `not-measured`, because no player reports
+  audio/video sync, and `missing` names what the logs cannot tell, such as a player that sent no
+  diagnostics (mpv and VLC send none) or a `LOG_LEVEL` above `info` that keeps no `INFO`
+  records. Say so rather than inferring a cause.
+- `movies logs` needs an admin session (`forbidden` otherwise) and the media service URL
+  (`MOVIES_MEDIA_URL`). It prints for people by default; `--json` prints the NDJSON records for
+  parsing. Records older than `LOG_RETENTION_DAYS` (14) are gone. When stderr says older records
+  may match too, narrow it with `--since` or raise `--limit`. When stderr says the service has
+  not been able to write or read its retained log since a time, records since then are only on
+  its standard output (`docker compose logs movies`, `journalctl -u movies`): report that rather
+  than treating the empty answer as a quiet log. `--follow` exits `unavailable` when the
+  service goes away, as it does when it restarts. HTTP request lines are `DEBUG`: they are
+  there only while the service runs with `LOG_LEVEL=debug`.
 - `movies play` failures from the media service print `playback_<recovery>` codes:
   `playback_unsupported` (this player cannot play the file in any mode), `playback_retry_later`
   (exit 9: transcoders busy or the media service cannot reach its files right now),
@@ -258,6 +291,9 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies import jellyfin|plex --url <server-url> [--user <jellyfin-admin>] [--path-map <source-folder>=<local-folder>,...] [--map <source-user-id>=<profile-id>|skip,...] [--dry-run] [--wait [--timeout <seconds>]]`: Migrate libraries, watch history, favorites, collections, and metadata overrides; the token (or --user's password) is read from stdin, MOVIES_IMPORT_TOKEN, or MOVIES_IMPORT_PASSWORD.
 - `movies backup [--wait [--timeout <seconds>]]`: Back up the database now.
 - `movies restore <backup-file-or-id>`: Restore the database from a backup; every session signs in again.
+- `movies logs [--follow] [--since <duration|time>] [--until <duration|time>] [--level trace|debug|info|warn|error|fatal] [--session-id <id>] [--stream-id <id>] [--slow <duration>] [--grep <text>] [--limit <int>] [--json|--human]`: Read the media service's retained log, newest last (admin sessions only); --follow keeps printing new records, --since 15m or a time starts there, --slow 1s keeps timed requests at least that long, --json prints the NDJSON records; a followed log the service ends fails as unavailable.
+- `movies diagnostics sessions [--since <duration|time>] [--json|--human]`: List the playback sessions the retained log mentions (the last day by default), newest first; members see their own.
+- `movies diagnostics playback <session-id> [--json|--human]`: Print a playback session's timeline: streams and why they ended, slow and failed segments with their time split, the player's stalls, errors, and recoveries, and the evidence that is missing; audio/video drift is reported as not measured.
 - `movies commands [--markdown]`: List every command with its flags and argument JSON Schema.
 - `movies call <command-name> [--json <object>]`: Run any registry command by its dotted name, such as rooms.pause.
 
@@ -410,5 +446,10 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies migration dry-run <connection-id> [--users <json>]`: Preview what a migration would import without writing anything. (scope admin)
 - `movies migration import <connection-id> [--users <json>] [--wait [--timeout <seconds>]]`: Import libraries, watch history, favorites, collections, and metadata overrides. (scope admin; job: add `--wait`)
 - `movies migration status`: Show migration jobs, their phase, and what they imported. (scope admin)
+
+### diagnostics
+
+- `movies call diagnostics.playback --json <object>`: Build the timeline of a playback session from the retained logs: streams, slow and failed segments, stalls, player errors, and recoveries. (scope read)
+- `movies call diagnostics.sessions --json <object>`: List playback sessions the retained logs mention, newest first. (scope read)
 
 <!-- END:commands -->

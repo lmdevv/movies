@@ -2,10 +2,14 @@
  * The built `movies` binary as a separate process, for behaviour that depends on the process
  * itself, such as reading stdin. No server needed.
  */
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { ExitCode } from "./cli-errors";
-import { buildCli, makeTempDir, removeDir, runMovies } from "./testing/process";
+import { withMediaService } from "./testing/media-service";
+import { buildCli, makeTempDir, removeDir, runMovies, startMovies } from "./testing/process";
 
 let home = "";
 
@@ -56,5 +60,53 @@ describe("the movies binary", () => {
       expect(run.code, run.stderr).toBe(ExitCode.usage);
       expect(run.stderr).toContain("is set but empty");
     }
+  });
+
+  it("ends quietly when the reader of its output stops early, as `movies logs | head` does", async () => {
+    const signedIn = join(home, "signed-in");
+
+    const record = `${JSON.stringify({
+      message: "Stream.started",
+      level: "INFO",
+      timestamp: "2026-10-21T20:01:02.123Z",
+      annotations: {},
+    })}\n`;
+
+    mkdirSync(join(signedIn, "movies"), { recursive: true });
+    writeFileSync(
+      join(signedIn, "movies", "config.json"),
+      JSON.stringify({
+        defaultProfile: "home",
+        profiles: {
+          home: {
+            convexUrl: "http://127.0.0.1:9",
+            deviceId: "cli-home",
+            apiKey: "mk_home",
+            session: { token: "jwt-home", refreshToken: "refresh-home" },
+          },
+        },
+      }),
+    );
+
+    const run = await withMediaService(
+      (_request, response) => {
+        response.writeHead(200, { "content-type": "application/x-ndjson" });
+        response.end(record.repeat(5000));
+      },
+      (mediaUrl) => {
+        const running = startMovies(["logs", "--json", "--limit", "5000"], {
+          XDG_CONFIG_HOME: signedIn,
+          HOME: signedIn,
+          MOVIES_MEDIA_URL: mediaUrl,
+        });
+
+        running.child.stdout.once("data", () => running.child.stdout.destroy());
+
+        return running.done;
+      },
+    );
+
+    expect(run.stderr).not.toContain("EPIPE");
+    expect(run.code, run.stderr).toBe(ExitCode.ok);
   });
 });

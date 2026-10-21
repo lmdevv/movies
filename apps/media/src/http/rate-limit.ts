@@ -41,34 +41,53 @@ export const makeLimiter = (maxBuckets = MAX_BUCKETS) => {
   // Kept in order of last use: every take moves its key to the end.
   const buckets = new Map<string, Bucket>();
 
-  /** Takes a token for `key`; returns the seconds to wait when none is left. */
-  return (key: string, budget: Budget, now: number): Option.Option<number> => {
-    const previous = buckets.get(key) ?? { tokens: budget.burst, updatedAt: now };
+  /**
+   * Takes `cost` tokens from every one of `keyed` buckets, or from none when any has fewer left,
+   * as a session's and its account's: a request one bucket refuses costs the others nothing.
+   * Returns the seconds to wait when refused.
+   */
+  return (
+    keyed: ReadonlyArray<readonly [key: string, budget: Budget]>,
+    now: number,
+    cost = 1,
+  ): Option.Option<number> => {
+    const refilled = keyed.map(([key, budget]) => {
+      const previous = buckets.get(key) ?? { tokens: budget.burst, updatedAt: now };
 
-    buckets.delete(key);
+      buckets.delete(key);
 
-    if (buckets.size >= maxBuckets) {
-      const oldest = buckets.keys().next();
+      if (buckets.size >= maxBuckets) {
+        const oldest = buckets.keys().next();
 
-      if (oldest.done !== true) buckets.delete(oldest.value);
-    }
+        if (oldest.done !== true) buckets.delete(oldest.value);
+      }
 
-    const tokens = Math.min(
-      budget.burst,
-      previous.tokens + ((now - previous.updatedAt) / 1000) * budget.perSecond,
+      const tokens = Math.min(
+        budget.burst,
+        previous.tokens + ((now - previous.updatedAt) / 1000) * budget.perSecond,
+      );
+
+      return { key, budget, tokens };
+    });
+
+    const waits = refilled.flatMap(({ budget, tokens }) =>
+      tokens < cost ? [Math.ceil((cost - tokens) / budget.perSecond)] : [],
     );
 
-    if (tokens < 1) {
-      buckets.set(key, { tokens, updatedAt: now });
-
-      return Option.some(Math.ceil((1 - tokens) / budget.perSecond));
+    for (const { key, tokens } of refilled) {
+      buckets.set(key, { tokens: waits.length === 0 ? tokens - cost : tokens, updatedAt: now });
     }
 
-    buckets.set(key, { tokens: tokens - 1, updatedAt: now });
-
-    return Option.none();
+    return waits.length === 0 ? Option.none() : Option.some(Math.max(...waits));
   };
 };
+
+/** `response` telling its client to wait `seconds` before it tries again. */
+export const retryAfter = (
+  response: HttpServerResponse.HttpServerResponse,
+  seconds: number,
+): HttpServerResponse.HttpServerResponse =>
+  HttpServerResponse.setHeader(response, "retry-after", String(seconds));
 
 /** Limits the unauthenticated routes by client address. */
 export const layer: Layer.Layer<never, never, HttpRouter.HttpRouter> = Layer.unwrap(
@@ -85,13 +104,20 @@ export const layer: Layer.Layer<never, never, HttpRouter.HttpRouter> = Layer.unw
           if (limited === undefined) return yield* httpEffect;
           const [prefix, budget] = limited;
           const address = Option.getOrElse(request.remoteAddress, () => "unknown");
-          const wait = take(`${prefix}\u0000${address}`, budget, yield* Clock.currentTimeMillis);
+
+          const wait = take(
+            [[`${prefix}\u0000${address}`, budget]],
+            yield* Clock.currentTimeMillis,
+          );
 
           return Option.isSome(wait)
-            ? HttpServerResponse.text("Too many requests", {
-                status: 429,
-                headers: { "retry-after": String(wait.value), "cache-control": "no-store" },
-              })
+            ? retryAfter(
+                HttpServerResponse.text("Too many requests", {
+                  status: 429,
+                  headers: { "cache-control": "no-store" },
+                }),
+                wait.value,
+              )
             : yield* httpEffect;
         }),
       { global: true },

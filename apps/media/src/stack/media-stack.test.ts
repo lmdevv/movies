@@ -10,6 +10,12 @@
  * listens on the stack's media port, so stop any media service started with `pnpm dev` first.
  */
 import { artworkUrl } from "@movies/contracts/artwork";
+import {
+  ClientDiagnosticsRequest,
+  DIAGNOSTICS_ROUTES,
+  PlaybackDiagnostics,
+  PlayerObservation,
+} from "@movies/contracts/diagnostics";
 import { DeviceId } from "@movies/contracts/ids";
 import type { LibraryId, ProfileId, TitleId } from "@movies/contracts/ids";
 import {
@@ -175,6 +181,16 @@ const startSession = (titleId: TitleId, device: string) =>
   );
 
 const encodeNegotiate = Schema.encodeSync(Schema.toCodecJson(NegotiateRequest));
+
+const encodeBatch = Schema.encodeSync(Schema.toCodecJson(ClientDiagnosticsRequest));
+
+const decodeLogLine = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Struct({ message: Schema.String })),
+);
+
+const decodeDiagnostics = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.toCodecJson(PlaybackDiagnostics)),
+);
 
 const decodeNegotiated = Schema.decodeUnknownSync(Schema.toCodecJson(NegotiateResponse));
 
@@ -707,6 +723,186 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
       } finally {
         await removeDir(home);
       }
+    });
+
+    it("keeps playback evidence in the retained log, read through the CLI, admins only", async () => {
+      const remux = await asOwner(titleIn(moviesLibrary, "Remux Fixture"));
+      const started = await asOwner(startSession(remux.id, "diagnosed"));
+      const { stream } = await negotiate(started, browser);
+
+      await fetchHls(stream.url);
+
+      const playlist = new URL(stream.url);
+      const pastEndSegment = await fetch(new URL(`999999.m4s${playlist.search}`, playlist));
+
+      expect(pastEndSegment.status).toBe(404);
+
+      const reported = await fetch(`${mediaUrl}${DIAGNOSTICS_ROUTES.clientEvents}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          encodeBatch({
+            token: Redacted.make(started.token),
+            platform: "web",
+            events: [
+              {
+                ageMs: 40_000,
+                observation: PlayerObservation.cases.Attached.make({
+                  mode: "remux",
+                  engine: "hls.js",
+                }),
+              },
+              {
+                ageMs: 31_000,
+                observation: PlayerObservation.cases.BufferingStarted.make({
+                  positionSeconds: 4,
+                  bufferedAheadSeconds: 0,
+                }),
+              },
+              {
+                ageMs: 0,
+                observation: PlayerObservation.cases.BufferingEnded.make({
+                  positionSeconds: 4,
+                  bufferedAheadSeconds: 6,
+                  durationMs: 31_000,
+                  endedBy: "playing",
+                }),
+              },
+              {
+                ageMs: 0,
+                observation: PlayerObservation.cases.Recovery.make({
+                  action: "renegotiate",
+                  reason: "StreamNotFound",
+                }),
+              },
+            ],
+          }),
+        ),
+      });
+
+      expect(reported.status).toBe(204);
+
+      const home = await makeTempDir("movies-media-logs-");
+      const env = { XDG_CONFIG_HOME: home, HOME: home };
+
+      try {
+        const login = async (email: string) =>
+          (
+            await runMovies(
+              [
+                "login",
+                "--server",
+                convexUrl,
+                "--media-url",
+                mediaUrl,
+                "--email",
+                email,
+                "--password",
+              ],
+              env,
+              STACK_PASSWORD,
+            )
+          ).code === 0;
+
+        expect((await login(OWNER_EMAILS[0])) || (await login(OWNER_EMAILS[1]))).toBe(true);
+
+        const logs = await runMovies(["logs", "--session-id", started.sessionId, "--json"], env);
+
+        expect(logs.code, logs.stderr).toBe(0);
+
+        const messages = logs.stdout
+          .trim()
+          .split("\n")
+          .map((line) => decodeLogLine(line).message);
+
+        expect(messages).toEqual(
+          expect.arrayContaining([
+            "Stream.started",
+            "MediaRoutes.request_failed",
+            "Player.attached",
+            "Player.buffering_started",
+            "Player.buffering_ended",
+            "Player.recovery",
+          ]),
+        );
+
+        const readable = await runMovies(
+          ["logs", "--session-id", started.sessionId, "--level", "warn"],
+          env,
+        );
+
+        expect(readable.code, readable.stderr).toBe(0);
+        expect(readable.stdout).toMatch(/WARN {2}MediaRoutes\.request_failed .*status=404/u);
+        expect(readable.stdout).not.toContain('{"message"');
+
+        const timeline = await runMovies(["diagnostics", "playback", started.sessionId], env);
+
+        expect(timeline.code, timeline.stderr).toBe(0);
+
+        const diagnostics = decodeDiagnostics(timeline.stdout);
+
+        expect(diagnostics.entries.map((entry) => entry.kind)).toEqual(
+          expect.arrayContaining([
+            "stream-started",
+            "player-attached",
+            "buffering-started",
+            "buffering-ended",
+            "request-failed",
+            "recovery",
+          ]),
+        );
+        expect(diagnostics.counts).toMatchObject({
+          streams: 1,
+          stalls: 1,
+          stalledMs: 31_000,
+          failedRequests: 1,
+          recoveries: 1,
+        });
+        expect(diagnostics.drift.status).toBe("not-measured");
+        expect(diagnostics.platform).toBe("web");
+
+        const sessions = await runMovies(["diagnostics", "sessions", "--human"], env);
+
+        expect(sessions.code, sessions.stderr).toBe(0);
+        expect(sessions.stdout).toContain(started.sessionId);
+      } finally {
+        await removeDir(home);
+      }
+
+      const email = `media-member-${id}@movies.test`;
+
+      const invite = await asOwner(
+        Effect.flatMap(client, (movies) =>
+          movies.action("invites.create", { email, role: "member" }),
+        ),
+      );
+
+      const refused = await Effect.runPromise(
+        Effect.gen(function* () {
+          const session = yield* open();
+          const movies = Context.get(session, MoviesClient.MoviesClient);
+
+          yield* Context.get(session, Auth.Auth).signIn(
+            Auth.Credentials.Password({
+              flow: "signUp",
+              email,
+              password: Redacted.make(STACK_PASSWORD),
+              name: Option.none(),
+              inviteCode: Option.some(invite.code),
+            }),
+          );
+
+          return {
+            logs: yield* movies.logs({}).pipe(Effect.flip),
+            timeline: yield* movies
+              .media("diagnostics.playback", { sessionId: started.sessionId })
+              .pipe(Effect.flip),
+          };
+        }),
+      );
+
+      expect(refused.logs).toMatchObject({ _tag: "Forbidden" });
+      expect(refused.timeline).toMatchObject({ _tag: "NotFound" });
     });
 
     it("recovers a job whose worker died once the lease expires", async () => {

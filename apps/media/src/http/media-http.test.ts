@@ -1,5 +1,5 @@
 import { assert, describe, layer } from "@effect/vitest";
-import { Effect, FileSystem, Path, Schema } from "effect";
+import { Effect, FileSystem, Path, Predicate, Schedule, Schema } from "effect";
 import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/http";
 
 import { artworkUrl } from "@movies/contracts/artwork";
@@ -79,6 +79,17 @@ interface RequestBody {
   readonly positionSeconds?: number;
 }
 
+/** A diagnostics batch as a player sends it, or a malformed one. */
+interface WireBatch {
+  readonly token: string;
+  readonly platform: string;
+  readonly events: ReadonlyArray<{
+    readonly ageMs: number;
+    readonly streamId?: string;
+    readonly observation: Readonly<Record<string, string | number>>;
+  }>;
+}
+
 /** Decodes a negotiation body the way an HttpApi client does. */
 const decodeNegotiation = Schema.decodeUnknownEffect(Schema.toCodecJson(NegotiateResponse));
 
@@ -92,7 +103,7 @@ const local = (baseUrl: string, url: string): string => {
 const get = (url: string, headers: Readonly<Record<string, string>> = {}) =>
   HttpClient.get(url, { headers }).pipe(Effect.orDie);
 
-const post = (url: string, body: RequestBody) =>
+const post = (url: string, body: RequestBody | WireBatch) =>
   HttpClient.execute(HttpClientRequest.post(url).pipe(HttpClientRequest.bodyJsonUnsafe(body))).pipe(
     Effect.orDie,
   );
@@ -688,6 +699,37 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           ),
         );
 
+        const gone = yield* get(local(server.baseUrl, first.url));
+
+        assert.strictEqual(gone.status, 404);
+
+        const logged = server.logged();
+
+        assert.isTrue(
+          logged.some(
+            (entry) =>
+              entry.message === "Stream.ended" &&
+              entry.annotations["reason"] === "idle" &&
+              entry.annotations["sessionId"] === "one",
+          ),
+        );
+
+        assert.deepInclude(
+          logged.find((entry) => entry.message === "MediaRoutes.request_failed")?.annotations,
+          {
+            route: "playlist",
+            status: 404,
+            error: "Stream not found: renegotiate playback",
+            streamId: first.streamId,
+            sessionId: "one",
+            userId: "user_test",
+          },
+        );
+        assert.strictEqual(
+          logged.find((entry) => entry.message === "MediaRoutes.request_failed")?.level,
+          "WARN",
+        );
+
         const retry = yield* negotiated({
           token: signTestToken({ fid: fileId, sid: "two" }),
           capabilities: smallScreen,
@@ -739,6 +781,233 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const status = yield* decodeHealth(yield* json(health)).pipe(Effect.orDie);
 
         assert.strictEqual(status.hardwareAcceleration, "none");
+      }),
+    );
+  });
+
+  layer(MediaTestServer.layer({ LOG_LEVEL: "debug" }), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })("with debug logs", (it) => {
+    it.effect("times every segment: encoder wait, disk read, and network write", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const { library } = yield* FixtureWorkspace.Service;
+
+        const stream = yield* negotiated({
+          token: signTestToken({ fid: server.fileId("movies", library.remuxMovie), sid: "timed" }),
+          capabilities: browser,
+        });
+
+        const { segment } = yield* fetchSegment(local(server.baseUrl, stream.url), 0);
+        const body = yield* bytes(segment);
+
+        const timed = yield* Effect.sync(() =>
+          server
+            .logged()
+            .find(
+              (entry) =>
+                entry.message === "MediaRoutes.segment" && entry.annotations["segment"] === 0,
+            ),
+        ).pipe(
+          Effect.repeat({ until: (entry) => entry !== undefined, schedule: Schedule.spaced(20) }),
+          Effect.timeout("5 seconds"),
+          Effect.orDie,
+        );
+
+        assert.deepInclude(timed?.annotations, {
+          route: "hls",
+          streamId: stream.streamId,
+          sessionId: "timed",
+          bytes: body.length,
+          completed: true,
+        });
+
+        for (const part of ["elapsedMs", "encoderWaitMs", "diskReadMs", "networkWriteMs"]) {
+          assert.isAtLeast(Number(timed?.annotations[part]), 0, part);
+        }
+      }),
+    );
+
+    it.effect("logs a refused token below WARN, so no stranger can flood the log", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+
+        const refused = yield* get(
+          `${server.baseUrl}/media/hls/AAAAAAAAAAAAAAAAAAAAAA/1/0.m4s?token=v1.forged.token`,
+        );
+
+        assert.strictEqual(refused.status, 401);
+
+        const logged = server
+          .logged()
+          .filter(
+            (entry) =>
+              entry.message === "MediaRoutes.request_failed" && entry.annotations["status"] === 401,
+          );
+
+        assert.deepStrictEqual(
+          logged.map((entry) => entry.level),
+          ["DEBUG"],
+        );
+      }),
+    );
+
+    it.effect("logs a member's failing requests within a budget, with path parameters cut", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const token = signTestToken({ fid: "file_1", sid: "flood" });
+        const junk = "x".repeat(100);
+
+        for (let index = 0; index < 100; index += 1) {
+          const response = yield* get(
+            `${server.baseUrl}/media/hls/AAAAAAAAAAAAAAAAAAAAAA/1/${junk}?token=${token}`,
+          );
+
+          assert.strictEqual(response.status, 404);
+        }
+
+        const failures = server
+          .logged()
+          .filter(
+            (entry) =>
+              entry.message === "MediaRoutes.request_failed" &&
+              entry.annotations["sessionId"] === "flood",
+          );
+
+        assert.strictEqual(failures.length, 100);
+        assert.isAtMost(failures.filter((entry) => entry.level === "WARN").length, 32);
+        assert.isAtLeast(failures.filter((entry) => entry.level === "WARN").length, 30);
+        assert.isTrue(
+          failures.every((entry) => {
+            const file = entry.annotations["file"];
+
+            return Predicate.isString(file) && file.length <= 65;
+          }),
+          "file cut short",
+        );
+      }),
+    );
+
+    it.effect("files a player's event under a stream only for the stream's own session", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const { library } = yield* FixtureWorkspace.Service;
+        const fileId = server.fileId("movies", library.remuxMovie);
+        const owner = signTestToken({ fid: fileId, sid: "owner" });
+
+        const stream = yield* negotiated({ token: owner, capabilities: browser });
+
+        const event = {
+          ageMs: 0,
+          streamId: stream.streamId ?? "",
+          observation: { _tag: "BufferingStarted", positionSeconds: 1, bufferedAheadSeconds: 0 },
+        };
+
+        for (const token of [owner, signTestToken({ fid: fileId, sid: "intruder" })]) {
+          const sent = yield* post(`${server.baseUrl}/api/playback/diagnostics`, {
+            token,
+            platform: "web",
+            events: [event],
+          });
+
+          assert.strictEqual(sent.status, 204);
+        }
+
+        assert.deepStrictEqual(
+          server
+            .logged()
+            .filter((entry) => entry.message === "Player.buffering_started")
+            .map((entry) => [
+              entry.annotations["sessionId"],
+              entry.annotations["streamId"],
+              entry.annotations["claimedStreamId"],
+            ]),
+          [
+            ["owner", stream.streamId, null],
+            ["intruder", null, stream.streamId],
+          ],
+        );
+
+        const intruding = yield* get(
+          `${server.baseUrl}/media/hls/${stream.streamId ?? ""}/1/0.m4s?token=${signTestToken({ fid: fileId, sid: "intruder" })}`,
+        );
+
+        assert.isAtLeast(intruding.status, 400);
+        assert.deepStrictEqual(
+          server
+            .logged()
+            .filter(
+              (entry) =>
+                entry.message === "MediaRoutes.request_failed" &&
+                entry.annotations["sessionId"] === "intruder",
+            )
+            .map((entry) => [entry.annotations["streamId"], entry.annotations["claimedStreamId"]]),
+          [[null, stream.streamId]],
+        );
+      }),
+    );
+
+    it.effect("takes a player's events, and refuses batches outside the limits", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const token = signTestToken({ fid: "file_1", sid: "reported" });
+
+        const observation = {
+          _tag: "BufferingStarted",
+          positionSeconds: 1,
+          bufferedAheadSeconds: 0,
+        };
+
+        const stall = { ageMs: 0, observation };
+
+        const send = (body: WireBatch) =>
+          HttpClient.execute(
+            HttpClientRequest.post(`${server.baseUrl}/api/playback/diagnostics`).pipe(
+              HttpClientRequest.bodyJsonUnsafe(body),
+            ),
+          ).pipe(Effect.orDie);
+
+        assert.strictEqual((yield* send({ token, platform: "web", events: [stall] })).status, 204);
+        assert.isTrue(
+          server
+            .logged()
+            .some(
+              (entry) =>
+                entry.message === "Player.buffering_started" &&
+                entry.annotations["sessionId"] === "reported",
+            ),
+        );
+
+        const tooMany = Array.from({ length: 101 }, () => stall);
+
+        assert.strictEqual((yield* send({ token, platform: "web", events: tooMany })).status, 400);
+        assert.strictEqual(
+          (yield* send({
+            token,
+            platform: "web",
+            events: [{ ageMs: 0, observation: { ...observation, _tag: "Unknown" } }],
+          })).status,
+          400,
+        );
+        assert.strictEqual(
+          (yield* send({ token, platform: "web", events: [{ ...stall, ageMs: 3_600_000 }] }))
+            .status,
+          400,
+        );
+        assert.strictEqual(
+          (yield* send({ token: "v1.forged.token", platform: "web", events: [stall] })).status,
+          401,
+        );
+
+        const hundred = Array.from({ length: 100 }, () => stall);
+
+        const refused = yield* send({ token, platform: "web", events: hundred }).pipe(
+          Effect.repeat({ until: (response) => response.status === 429, times: 5 }),
+        );
+
+        assert.strictEqual(refused.status, 429);
+        assert.match(refused.headers["retry-after"] ?? "", /^[1-9]\d*$/u);
       }),
     );
   });

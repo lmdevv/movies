@@ -46,6 +46,9 @@ services:
     restart: unless-stopped
     # Reaps ffmpeg processes and forwards signals to the service.
     init: true
+    # The service ends open responses 3 s into a stop, then closes its streams and writes its last
+    # log lines; Docker's default of 10 s could cut that short on a busy server.
+    stop_grace_period: 30s
     # The health check is the image's (GET /api/health; see the Dockerfile).
     depends_on:
       convex:
@@ -86,6 +89,9 @@ services:
       FILE_SCAN_TIMEOUT_SECONDS: ${FILE_SCAN_TIMEOUT_SECONDS:-}
       CACHE_MAX_MB: ${CACHE_MAX_MB:-}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-}
+      LOG_LEVEL: ${LOG_LEVEL:-}
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-}
+      LOG_MAX_MB: ${LOG_MAX_MB:-}
     ports:
       - "${MOVIES_BIND:-127.0.0.1}:${MOVIES_PORT:-8080}:8080"
     volumes:

@@ -1,7 +1,8 @@
 import { createServer } from "node:http";
 
-import { describe, expect, it } from "@effect/vitest";
-import { Console, Effect, Layer, Predicate, Redacted, Schema } from "effect";
+import { NodeServices } from "@effect/platform-node";
+import { expect, layer } from "@effect/vitest";
+import { Console, Effect, FileSystem, Layer, Path, Predicate, Redacted, Schema } from "effect";
 import { FetchHttpClient, HttpClient } from "effect/http";
 
 import * as Observability from "./observability.ts";
@@ -68,28 +69,59 @@ const recordingConsole = (lines: Array<string>): Console.Console => ({
   },
 });
 
-/** `effect` run with the observability layer for `env` and an HTTP client, and the console lines it wrote. */
-const runObserved = (
+/** What a run wrote: to the console, and to the retained log files. */
+interface Written {
+  readonly console: string;
+  readonly retained: string;
+}
+
+/**
+ * `effect` run with the observability layer for `env` (with a fresh `DATA_DIR`) and an HTTP
+ * client, and the lines it wrote.
+ */
+const runWriting = (
   effect: Effect.Effect<void, never, HttpClient.HttpClient>,
   env: Readonly<Record<string, string>>,
 ) =>
   Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const dataDir = yield* fs.makeTempDirectoryScoped({ prefix: "movies-observability-" });
     const lines: Array<string> = [];
 
-    // The layer's scope closes before the lines are returned, which flushes any exporter.
     yield* Effect.gen(function* () {
       const context = yield* Layer.build(
         Layer.provideMerge(
           Observability.layer,
-          Layer.merge(testConfigLayer(env), FetchHttpClient.layer),
+          Layer.mergeAll(
+            testConfigLayer({ DATA_DIR: dataDir, ...env }),
+            FetchHttpClient.layer,
+            Layer.succeed(FileSystem.FileSystem, fs),
+            Layer.succeed(Path.Path, path),
+          ),
         ),
       );
 
       yield* effect.pipe(Effect.provideContext(context));
     }).pipe(Effect.scoped, Effect.provideService(Console.Console, recordingConsole(lines)));
 
-    return lines.join("\n");
-  });
+    const logs = path.join(dataDir, "logs");
+    const names = (yield* fs.readDirectory(logs)).toSorted();
+
+    const retained = yield* Effect.forEach(names, (name) =>
+      fs.readFileString(path.join(logs, name)),
+    );
+
+    const written: Written = { console: lines.join("\n"), retained: retained.join("").trimEnd() };
+
+    return written;
+  }).pipe(Effect.orDie, Effect.scoped);
+
+/** The console lines `effect` wrote, as `runWriting` runs it. */
+const runObserved = (
+  effect: Effect.Effect<void, never, HttpClient.HttpClient>,
+  env: Readonly<Record<string, string>>,
+) => runWriting(effect, env).pipe(Effect.map((written) => written.console));
 
 /** A local OTLP/HTTP receiver that keeps every export it is sent and answers anything else. */
 const otlpReceiver = Effect.acquireRelease(
@@ -133,7 +165,7 @@ const otlpReceiver = Effect.acquireRelease(
   (receiver) => Effect.sync(receiver.close),
 );
 
-describe("Observability", () => {
+layer(NodeServices.layer, { excludeTestServices: true })("Observability", (it) => {
   it.effect("writes one JSON object per log line", () =>
     Effect.gen(function* () {
       const output = yield* runObserved(
@@ -146,6 +178,32 @@ describe("Observability", () => {
         level: "INFO",
         annotations: { workerId: "w1" },
       });
+    }),
+  );
+
+  it.effect("keeps the same redacted lines in the retained log as on the console", () =>
+    Effect.gen(function* () {
+      const written = yield* runWriting(logEverySecret, {});
+
+      expect(written.retained).toBe(written.console);
+      expect(written.retained).toContain("Request.failed");
+
+      for (const [name, secret] of Object.entries(secrets)) {
+        expect(written.retained, name).not.toContain(secret);
+      }
+    }),
+  );
+
+  it.effect("keeps lines at LOG_LEVEL and above only", () =>
+    Effect.gen(function* () {
+      const written = yield* runWriting(
+        Effect.all([Effect.logInfo("Quiet.info"), Effect.logWarning("Loud.warning")]),
+        { LOG_LEVEL: "warn" },
+      );
+
+      expect(written.retained).toContain("Loud.warning");
+      expect(written.retained).not.toContain("Quiet.info");
+      expect(written.console).not.toContain("Quiet.info");
     }),
   );
 
@@ -166,7 +224,7 @@ describe("Observability", () => {
     }),
   );
 
-  it.live("exports spans and logs over OTLP without any secret", () =>
+  it.effect("exports spans and logs over OTLP without any secret", () =>
     Effect.gen(function* () {
       const receiver = yield* otlpReceiver;
 

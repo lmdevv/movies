@@ -7,13 +7,15 @@
  * - registry `media` commands answer failures with the same `{ code, message }` body as Convex
  *   (`requestJson`);
  * - the playback API answers with the tagged errors of `@movies/contracts/media-playback`
- *   (`requestPlayback`), so clients can tell a stale playlist from an expired token.
+ *   (`requestPlayback`), so clients can tell a stale playlist from an expired token;
+ * - the retained log answers with NDJSON lines as they come (`requestLines`), and failures like
+ *   registry commands.
  */
 import { CommandFailure, commandError } from "@movies/contracts/errors";
 import type { CommandError, ErrorCode } from "@movies/contracts/errors";
 import { PlaybackApiError } from "@movies/contracts/media-playback";
 import type { StartedPlayback } from "@movies/contracts/models/playback";
-import { Context, Effect, Option, Redacted, Schema } from "effect";
+import { Context, Effect, Option, Redacted, Schema, Stream } from "effect";
 
 import type { CallError } from "./sdk-errors";
 import { ProtocolError, TransportError } from "./sdk-errors";
@@ -149,12 +151,16 @@ const readJson = (
     ),
   );
 
-/** Sends `request` and reads its JSON body. Network failures become `TransportError`. */
-const send = (
+/**
+ * Sends `request`, accepting `accept`, and answers with the response once its headers arrive.
+ * Network failures and gateway answers become `TransportError`.
+ */
+const fetchResponse = (
   request: MediaRequest,
-): Effect.Effect<MediaResponse, TransportError | ProtocolError> =>
+  accept: string,
+): Effect.Effect<Response, TransportError> =>
   Effect.gen(function* () {
-    const headers = new Headers({ accept: "application/json" });
+    const headers = new Headers({ accept });
 
     if (Option.isSome(request.body)) headers.set("content-type", "application/json");
 
@@ -188,6 +194,16 @@ const send = (
         cause: null,
       });
     }
+
+    return response;
+  });
+
+/** Sends `request` and reads its JSON body. Network failures become `TransportError`. */
+const send = (
+  request: MediaRequest,
+): Effect.Effect<MediaResponse, TransportError | ProtocolError> =>
+  Effect.gen(function* () {
+    const response = yield* fetchResponse(request, "application/json");
 
     return { status: response.status, ok: response.ok, body: yield* readJson(request, response) };
   });
@@ -241,6 +257,43 @@ export const requestJson = <A>(
 
     return yield* decodeSuccess(request, result, response.body);
   }).pipe(Effect.withSpan("MediaHttp.request", { attributes: { operation: request.operation } }));
+
+/** An answer streamed line by line: its headers, then its lines as they arrive. */
+export interface LineResponse {
+  readonly headers: Headers;
+  /** The body's lines, without line ends; failing with `TransportError` if the body is cut off. */
+  readonly lines: Stream.Stream<string, TransportError>;
+}
+
+/**
+ * Sends a request whose answer is NDJSON, such as the retained log, and answers once its headers
+ * arrive. Failures are registry command errors, as for `requestJson`. Ending or interrupting the
+ * lines cancels the body, which closes the connection.
+ */
+export const requestLines = (request: MediaRequest): Effect.Effect<LineResponse, CallError> =>
+  Effect.gen(function* () {
+    const response = yield* fetchResponse(request, "application/x-ndjson");
+
+    if (!response.ok) {
+      const body = yield* readJson(request, response);
+
+      return yield* commandFailureOf(request, { status: response.status, ok: false, body });
+    }
+
+    const lines = Stream.fromReadableStream({
+      evaluate: () => response.body ?? new ReadableStream<Uint8Array>(),
+      onError: (cause) =>
+        new TransportError({
+          operation: request.operation,
+          message: `Transport failed during ${request.operation}: the stream was cut off`,
+          cause,
+        }),
+    }).pipe(Stream.decodeText(), Stream.splitLines);
+
+    const answer: LineResponse = { headers: response.headers, lines };
+
+    return answer;
+  }).pipe(Effect.withSpan("MediaHttp.lines", { attributes: { operation: request.operation } }));
 
 /** Any failure of a playback API call. */
 export type PlaybackCallError = PlaybackApiError | TransportError | ProtocolError;

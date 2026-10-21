@@ -45,8 +45,9 @@ import {
   Semaphore,
 } from "effect";
 
-import type { MediaFileId, PlaybackSessionId } from "@movies/contracts/ids";
+import type { MediaFileId, PlaybackSessionId, UserId } from "@movies/contracts/ids";
 import { StreamId } from "@movies/contracts/media-playback";
+import { LogEvent } from "../diagnostics/log-events.ts";
 import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import type { ResolvedMediaFile } from "./file-resolver.ts";
@@ -57,6 +58,7 @@ import * as KeyframeIndex from "./keyframe-index.ts";
 import { AudioPlan, decidePlayback, PlaybackPlan, VideoPlan } from "./playback-decision.ts";
 import * as PlaybackReporter from "./playback-reporter.ts";
 import type { PlaybackGrant } from "./playback-token.ts";
+import * as StreamOwners from "./stream-owners.ts";
 import * as TranscodeSpace from "./transcode-space.ts";
 import { hlsCommandArgs } from "./transcode-command.ts";
 
@@ -194,6 +196,8 @@ interface Generation {
 interface Session {
   readonly streamId: StreamId;
   readonly sessionId: PlaybackSessionId;
+  /** The account whose token started the stream, for log records. */
+  readonly userId: UserId;
   readonly fileId: MediaFileId;
   readonly file: ResolvedMediaFile;
   readonly client: ClientCapabilities;
@@ -245,6 +249,7 @@ const make = Effect.gen(function* () {
   const hardware = yield* HardwareAcceleration.Service;
   const reporter = yield* PlaybackReporter.Service;
   const space = yield* TranscodeSpace.Service;
+  const owners = yield* StreamOwners.Service;
   const sessions = yield* Ref.make<ReadonlyMap<StreamId, Session>>(new Map());
   const transcodes = yield* Ref.make(0);
   const copies = yield* Ref.make(0);
@@ -267,6 +272,8 @@ const make = Effect.gen(function* () {
   const touch = (session: Session) =>
     Clock.currentTimeMillis.pipe(Effect.flatMap((now) => Ref.set(session.lastActivity, now)));
 
+  // Uninterruptible, so a caller that goes away while the stream closes, such as a stop request
+  // whose connection drops, never leaves it removed but unreported and open in `owners`.
   const closeSession = Effect.fn("StreamSessions.close")(function* (
     session: Session,
     reason: PlaybackReporter.StreamEndReason,
@@ -282,16 +289,18 @@ const make = Effect.gen(function* () {
     yield* Scope.close(session.scope, Exit.void);
 
     if (removed) {
+      yield* owners.closed(session.streamId);
       yield* reporter.report(
         PlaybackReporter.PlaybackEvent.cases.StreamEnded.make({
           sessionId: session.sessionId,
+          userId: session.userId,
           fileId: session.fileId,
           streamId: session.streamId,
           reason,
         }),
       );
     }
-  });
+  }, Effect.uninterruptible);
 
   /** Indexes fragment files ffmpeg finished since the last look. */
   const refreshFragments = Effect.fnUntraced(function* (generation: Generation) {
@@ -433,6 +442,19 @@ const make = Effect.gen(function* () {
     // A seek starts here; the encoder may run ahead of this point until the player asks further.
     yield* Ref.set(session.requested, startSegment);
 
+    if (number > 1) {
+      yield* Effect.logInfo(LogEvent.streamMoved).pipe(
+        Effect.annotateLogs({
+          sessionId: session.sessionId,
+          userId: session.userId,
+          streamId: session.streamId,
+          generation: number,
+          segment: startSegment,
+          fromSeconds: from,
+        }),
+      );
+    }
+
     const previous = yield* Ref.getAndSet(session.generation, generation);
 
     if (previous.number !== number) yield* Scope.close(previous.scope, Exit.void);
@@ -475,6 +497,7 @@ const make = Effect.gen(function* () {
     yield* reporter.report(
       PlaybackReporter.PlaybackEvent.cases.ModeChanged.make({
         sessionId: session.sessionId,
+        userId: session.userId,
         fileId: session.fileId,
         streamId: session.streamId,
         from,
@@ -511,8 +534,15 @@ const make = Effect.gen(function* () {
           mode,
           segmentIndex: index,
         });
-        yield* Effect.logWarning("StreamSessions.encoder_failed", detail).pipe(
-          Effect.annotateLogs({ streamId: session.streamId, mode, generation: generation.number }),
+        yield* Effect.logWarning(LogEvent.encoderFailed).pipe(
+          Effect.annotateLogs({
+            sessionId: session.sessionId,
+            userId: session.userId,
+            streamId: session.streamId,
+            mode,
+            generation: generation.number,
+            detail,
+          }),
         );
 
         const encoder = hardwareOf(mode);
@@ -831,6 +861,7 @@ const make = Effect.gen(function* () {
     const session: Session = {
       streamId,
       sessionId: grant.sessionId,
+      userId: grant.userId,
       fileId: grant.fileId,
       file,
       client: request.client,
@@ -854,34 +885,51 @@ const make = Effect.gen(function* () {
       Effect.forkIn(scope),
     );
 
-    // One stream per device session: a newer negotiation replaces the older stream.
-    const replaced = yield* registry.withPermits(1)(
-      Ref.modify(sessions, (current) => {
-        const previous = [...current.values()].filter(
-          (existing) => existing.sessionId === grant.sessionId,
+    // One stream per device session: a newer negotiation replaces the older stream. The swap and
+    // the end of what it replaced run uninterruptibly: a caller that went away between them would
+    // leave the replaced stream running, unreported, and open in `owners`.
+    yield* Effect.uninterruptible(
+      Effect.gen(function* () {
+        const replaced = yield* registry.withPermits(1)(
+          Ref.modify(sessions, (current) => {
+            const previous = [...current.values()].filter(
+              (existing) => existing.sessionId === grant.sessionId,
+            );
+
+            const next = new Map(current);
+
+            for (const existing of previous) next.delete(existing.streamId);
+            next.set(streamId, session);
+
+            return [previous, next] as const;
+          }).pipe(
+            Effect.tap(() => Ref.set(registered, Option.some(session))),
+            // Under the registry permit, so a negotiation that replaces this stream closes it
+            // after, and the streams it replaced are closed before any other negotiation looks.
+            Effect.tap((previous) =>
+              Effect.forEach(previous, (existing) => owners.closed(existing.streamId), {
+                discard: true,
+              }),
+            ),
+            Effect.tap(() => owners.opened(streamId, grant.sessionId)),
+          ),
         );
 
-        const next = new Map(current);
+        for (const previous of replaced) {
+          yield* Scope.close(previous.scope, Exit.void);
 
-        for (const existing of previous) next.delete(existing.streamId);
-        next.set(streamId, session);
-
-        return [previous, next] as const;
-      }).pipe(Effect.tap(() => Ref.set(registered, Option.some(session)))),
+          yield* reporter.report(
+            PlaybackReporter.PlaybackEvent.cases.StreamEnded.make({
+              sessionId: previous.sessionId,
+              userId: previous.userId,
+              fileId: previous.fileId,
+              streamId: previous.streamId,
+              reason: "replaced",
+            }),
+          );
+        }
+      }),
     );
-
-    for (const previous of replaced) {
-      yield* Scope.close(previous.scope, Exit.void);
-
-      yield* reporter.report(
-        PlaybackReporter.PlaybackEvent.cases.StreamEnded.make({
-          sessionId: previous.sessionId,
-          fileId: previous.fileId,
-          streamId: previous.streamId,
-          reason: "replaced",
-        }),
-      );
-    }
 
     const segmentIndex = segmentAt(segmentPlan, quickStart);
 
@@ -897,6 +945,7 @@ const make = Effect.gen(function* () {
     yield* reporter.report(
       PlaybackReporter.PlaybackEvent.cases.ModeChosen.make({
         sessionId: grant.sessionId,
+        userId: grant.userId,
         fileId: grant.fileId,
         streamId,
         mode,
@@ -1047,4 +1096,5 @@ export const layer: Layer.Layer<
   | HardwareAcceleration.Service
   | PlaybackReporter.Service
   | TranscodeSpace.Service
+  | StreamOwners.Service
 > = Layer.effect(Service, make);

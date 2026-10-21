@@ -7,11 +7,12 @@
 import { createServer } from "node:http";
 
 import { NodeHttpServer } from "@effect/platform-node";
-import { Effect, Layer, Option } from "effect";
+import { Duration, Effect, Layer, Option } from "effect";
 import { HttpMiddleware, HttpRouter } from "effect/http";
 
 import * as MediaConfig from "../media-config.ts";
 import * as TrickplayRoutes from "../trickplay/trickplay-routes.ts";
+import { accessLog } from "./access-log.ts";
 import { apiLayer } from "./api-handlers.ts";
 import * as ArtworkRoutes from "./artwork-routes.ts";
 import * as Hardening from "./hardening.ts";
@@ -36,9 +37,27 @@ export const routesLayer = Layer.mergeAll(
 );
 
 /** Keeps playback tokens in `/media/` URLs out of Effect's automatic server spans. */
-export const tokenSafeTracing = Layer.succeed(HttpMiddleware.TracerDisabledWhen)((request) =>
+const tokenSafeTracing = Layer.succeed(HttpMiddleware.TracerDisabledWhen)((request) =>
   request.url.startsWith("/media/"),
 );
+
+/**
+ * How long a shutdown waits for open responses before it ends them. API calls answer in
+ * milliseconds and a segment reaches a player on the LAN well within a second, so what is still
+ * open after this is a long transfer, such as a direct-play file, a download, or a followed log,
+ * which its client resumes with a range request or a new follow. Effect's default, 20 s, let one
+ * viewer hold every restart.
+ */
+const SHUTDOWN_GRACE = Duration.seconds(3);
+
+/**
+ * `routes` served over the `HttpServer` in context, the way the service serves every request:
+ * Effect's INFO request logger off and the DEBUG `accessLog` in its place.
+ */
+export const serve = <E, R>(routes: Layer.Layer<never, E, R>) =>
+  HttpRouter.serve(routes, { disableLogger: true, middleware: accessLog }).pipe(
+    Layer.provide(tokenSafeTracing),
+  );
 
 /**
  * Serves the common routes plus `commandRoutes` (route groups of registry `media` commands, which
@@ -49,12 +68,12 @@ export const layer = <E, R>(commandRoutes: Layer.Layer<never, E, R>) =>
     Effect.gen(function* () {
       const config = yield* MediaConfig.Service;
 
-      return HttpRouter.serve(Layer.mergeAll(routesLayer, commandRoutes)).pipe(
-        Layer.provide(tokenSafeTracing),
+      return serve(Layer.mergeAll(routesLayer, commandRoutes)).pipe(
         Layer.provide(
           NodeHttpServer.layer(createServer, {
             port: config.port,
             host: Option.getOrUndefined(config.host),
+            gracefulShutdownTimeout: SHUTDOWN_GRACE,
           }),
         ),
       );
