@@ -21,14 +21,14 @@ const recordTime = (record: LogRecord): Option.Option<number> => {
 
 /**
  * Whether `line` may match, judged from its text alone: cheap enough to run on every line before
- * decoding any, and never false for a line that `matches`.
+ * redacting or decoding any, and never false for a line that `matches`. It leaves `grep` to
+ * `matches`, which sees the line only once it is redacted.
  */
 export const mayMatch = (query: LogQuery, line: string): boolean =>
   (query.sessionId === undefined || line.includes(query.sessionId)) &&
-  (query.streamId === undefined || line.includes(query.streamId)) &&
-  (query.grep === undefined || line.toLowerCase().includes(query.grep.toLowerCase()));
+  (query.streamId === undefined || line.includes(query.streamId));
 
-/** Whether `record`, read from `line`, matches every filter of `query`. */
+/** Whether `record`, read from the redacted `line`, matches every filter of `query`. */
 export const matches = (query: LogQuery, record: LogRecord, line: string): boolean => {
   const { since, until, level, sessionId, streamId, slowMs } = query;
   const time = recordTime(record);
@@ -37,6 +37,7 @@ export const matches = (query: LogQuery, record: LogRecord, line: string): boole
 
   return (
     mayMatch(query, line) &&
+    (query.grep === undefined || line.toLowerCase().includes(query.grep.toLowerCase())) &&
     (since === undefined || Option.exists(time, (at) => at >= since)) &&
     (until === undefined || Option.exists(time, (at) => at < until)) &&
     (level === undefined || atLeast(record.level, level)) &&

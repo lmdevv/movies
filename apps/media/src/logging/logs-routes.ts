@@ -2,7 +2,8 @@
  * `POST /api/logs`: the retained log for admins, as NDJSON. The body is a `LogQuery`, and the
  * caller's Convex auth token must hold the `admin` scope. Without `follow` the answer ends after
  * the last matching record; with it, new matching records stream until the caller disconnects,
- * and a blank line every 15 seconds keeps idle proxies from closing the connection.
+ * and a blank line every 15 seconds keeps idle proxies from closing the connection. A follow ends
+ * as the service begins to shut down, so an open one never holds the shutdown up.
  *
  * NDJSON over a plain chunked response rather than server-sent events: it is the files' own
  * format, so the CLI passes lines through untouched, and `fetch` sends the bearer token, which a
@@ -59,6 +60,10 @@ export const layer: Layer.Layer<
         return yield* new InvalidArgs({ message: "A followed log has no end: drop until" });
       }
 
+      if (query.since !== undefined && query.until !== undefined && query.since >= query.until) {
+        return yield* new InvalidArgs({ message: "since must be before until" });
+      }
+
       const found = yield* LogReader.read(query).pipe(
         Effect.provideService(RetainedLogs.Service, retained),
         Effect.provideService(FileSystem.FileSystem, fs),
@@ -71,7 +76,11 @@ export const layer: Layer.Layer<
       );
 
       const lines = Stream.fromIterable(found.matches.map((match) => match.line)).pipe(
-        Stream.concat(query.follow === true ? Stream.merge(found.live, keepalive) : Stream.empty),
+        Stream.concat(
+          query.follow === true
+            ? Stream.merge(found.live, keepalive).pipe(Stream.interruptWhen(retained.closing))
+            : Stream.empty,
+        ),
         Stream.map((line) => `${line}\n`),
         Stream.encodeText,
       );

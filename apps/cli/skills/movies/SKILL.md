@@ -238,15 +238,18 @@ and newer [movies] progress is kept unless the source played the item more recen
   share), and network (`networkWriteMs`: a slow link to the player; try `movies play
   --max-height 720`). A `stream-ended` with reason `idle` followed by a `request-failed` 404 means
   the player went quiet longer than `STREAM_IDLE_SECONDS` and the service closed the stream.
-  `buffering-started` and `buffering-ended` are the player's own stalls; `slow-fragment` is
-  hls.js waiting on a segment; `recovery` is the player starting over.
+  `startup` is how long the player waited for the session to first play, never a stall;
+  `buffering-started` and `buffering-ended` are the player's own stalls after that;
+  `slow-fragment` is hls.js waiting on a segment; `recovery` is the player starting over.
 - The timeline never guesses: `drift` is always `not-measured`, because no player reports
   audio/video sync, and `missing` names what the logs cannot tell, such as a player that sent no
-  diagnostics (mpv and VLC send none). Say so rather than inferring a cause.
+  diagnostics (mpv and VLC send none) or a `LOG_LEVEL` above `info` that keeps no `INFO`
+  records. Say so rather than inferring a cause.
 - `movies logs` needs an admin session (`forbidden` otherwise) and the media service URL
   (`MOVIES_MEDIA_URL`). It prints for people by default; `--json` prints the NDJSON records for
   parsing. Records older than `LOG_RETENTION_DAYS` (14) are gone. When stderr says older records
-  may match too, narrow it with `--since` or raise `--limit`.
+  may match too, narrow it with `--since` or raise `--limit`. `--follow` exits `unavailable`
+  when the service goes away, as it does when it restarts.
 - `movies play` failures from the media service print `playback_<recovery>` codes:
   `playback_unsupported` (this player cannot play the file in any mode), `playback_retry_later`
   (exit 9: transcoders busy or the media service cannot reach its files right now),

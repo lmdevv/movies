@@ -17,7 +17,7 @@ import {
 } from "@movies/contracts/diagnostics";
 import { PlaybackSessionId, UserId } from "@movies/contracts/ids";
 import { EpochMillis } from "@movies/contracts/units";
-import { Option, Predicate, type Schema } from "effect";
+import { LogLevel, Option, Predicate, type Schema } from "effect";
 
 import { LogEvent, SLOW_MS } from "./log-events.ts";
 
@@ -292,12 +292,24 @@ const isPlatform = (value: Schema.Json | undefined): value is ClientPlatform =>
 const platformOf = (records: ReadonlyArray<LogRecord>): ClientPlatform | null =>
   records.map((record) => record.annotations["platform"]).find(isPlatform) ?? null;
 
+/** What the records say about how they were kept, beyond their entries. */
+interface Keeping {
+  /** Only the latest records were read. */
+  readonly truncated: boolean;
+  /** The service's least severe level logged. */
+  readonly logLevel: LogLevel.LogLevel;
+  /** Failed requests counted past the session's budget rather than logged one by one. */
+  readonly suppressedFailures: number;
+}
+
 const missingEvidence = (
   entries: ReadonlyArray<TimelineEntry>,
   platform: ClientPlatform | null,
-  truncated: boolean,
+  { truncated, logLevel, suppressedFailures }: Keeping,
 ): ReadonlyArray<string> => {
   const fromPlayer = entries.some((entry) => entry.source === "player");
+  // Above INFO the service never wrote the records the other notes reason from.
+  const dropsInfo = LogLevel.isGreaterThan(logLevel, "Info");
 
   const engines = new Set(
     entries.flatMap((entry) =>
@@ -315,12 +327,22 @@ const missingEvidence = (
           "Only the latest records fit in one timeline; earlier events of this session are left out.",
         ]
       : []),
-    ...(entries.some((entry) => entry.kind === "stream-started")
+    ...(dropsInfo
+      ? [
+          `The media service logs at ${logLevel.toUpperCase()} and above (LOG_LEVEL=${logLevel.toLowerCase()}), so it keeps no INFO records: stream starts, player attaches, startups, the start of each stall, and stalls under a second are missing. Set LOG_LEVEL=info to keep them.`,
+        ]
+      : []),
+    ...(suppressedFailures > 0
+      ? [
+          `${String(suppressedFailures)} more failed requests were counted, not logged one by one: the session went past its budget of failure records.`,
+        ]
+      : []),
+    ...(dropsInfo || entries.some((entry) => entry.kind === "stream-started")
       ? []
       : [
           "No stream started in the retained logs: the session began before the oldest log file (LOG_RETENTION_DAYS) or never reached this media service.",
         ]),
-    ...(fromPlayer
+    ...(fromPlayer || dropsInfo
       ? []
       : [
           "The player sent no diagnostics: an app from before diagnostics, a player that does not report them (mpv or VLC through movies play), or events lost on the way. Stalls and player errors are unknown.",
@@ -340,12 +362,14 @@ const DRIFT_REASON =
 
 /**
  * The timeline of session `sessionId` from its records, oldest first; none when no record names a
- * playback event. `truncated` says the records are only the latest of more.
+ * playback event. `truncated` says the records are only the latest of more, and `logLevel` is the
+ * least severe level the service logs, which decides what the records can hold.
  */
 export const timelineOf = (
   sessionId: PlaybackSessionId,
   records: ReadonlyArray<LogRecord>,
   truncated: boolean,
+  logLevel: LogLevel.LogLevel = "Info",
 ): Option.Option<PlaybackDiagnostics> => {
   const entries = records
     .flatMap((record) => Option.toArray(entryOf(record)))
@@ -364,7 +388,13 @@ export const timelineOf = (
     platform,
     counts: countsOf(entries),
     drift: { status: "not-measured", reason: DRIFT_REASON },
-    missing: missingEvidence(entries, platform, truncated),
+    missing: missingEvidence(entries, platform, {
+      truncated,
+      logLevel,
+      suppressedFailures: records
+        .filter((record) => messageOf(record) === LogEvent.requestFailuresSuppressed)
+        .reduce((total, record) => total + number(record.annotations["failures"]), 0),
+    }),
     truncated,
     entries,
   });

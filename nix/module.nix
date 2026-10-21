@@ -404,10 +404,11 @@ in
     };
 
     logMaxMb = lib.mkOption {
-      type = lib.types.ints.positive;
+      type = lib.types.ints.between 8 1048576;
       default = 512;
       description = ''
-        Size in MiB the retained log files may take together; the oldest go first beyond it.
+        Size in MiB the retained log files never grow past together. Each file holds at most an
+        eighth of it (64 MiB at most), and the oldest go before a write would pass it.
       '';
     };
 

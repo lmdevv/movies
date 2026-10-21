@@ -12,7 +12,17 @@ import { AuthSessionId, UserId } from "@movies/contracts/ids";
 import type { Viewer } from "@movies/contracts/models/account";
 import { type Role, roleScopes } from "@movies/contracts/scopes";
 import { EpochMillis } from "@movies/contracts/units";
-import { Context, Duration, Effect, FileSystem, Layer, Option, Redacted, Schema } from "effect";
+import {
+  Context,
+  Duration,
+  Effect,
+  Fiber,
+  FileSystem,
+  Layer,
+  Option,
+  Redacted,
+  Schema,
+} from "effect";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
 
 import * as ViewerAuth from "../convex/viewer-auth.ts";
@@ -214,6 +224,17 @@ layer(serverLayer, { timeout: 30_000 })("log and diagnostics routes", (it) => {
     }),
   );
 
+  it.effect("reject a window that ends before or as it starts", () =>
+    Effect.gen(function* () {
+      for (const until of [now - 120_000, now - 60_000]) {
+        const response = yield* post("/api/logs", ADMIN, { since: now - 60_000, until });
+
+        assert.strictEqual(response.status, 400);
+        assert.strictEqual((yield* failureOf(response)).code, "invalid_args");
+      }
+    }),
+  );
+
   it.effect("follow the log: new matching records arrive as they are written", () =>
     Effect.gen(function* () {
       const { logs } = yield* Server;
@@ -350,6 +371,22 @@ layer(serverLayer, { timeout: 30_000 })("log and diagnostics routes", (it) => {
       ).pipe(Effect.orDie);
 
       assert.strictEqual((yield* failureOf(limited)).code, "rate_limited");
+    }),
+  );
+});
+
+layer(serverLayer, { timeout: 30_000 })("log routes as the service shuts down", (it) => {
+  it.effect("end a followed log at once", () =>
+    Effect.gen(function* () {
+      const { logs } = yield* Server;
+      const response = yield* post("/api/logs", ADMIN, { follow: true });
+      const body = yield* Effect.forkChild(text(response));
+
+      yield* logs.close;
+
+      const received = yield* Fiber.join(body).pipe(Effect.timeout("2 seconds"));
+
+      assert.deepStrictEqual(received.trim().split("\n"), SEED);
     }),
   );
 });

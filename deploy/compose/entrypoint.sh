@@ -32,6 +32,13 @@ if ! [[ "$puid" =~ ^[0-9]+$ && "$pgid" =~ ^[0-9]+$ ]] || [ "$puid" = 0 ] || [ "$
   exit 1
 fi
 
+# The media service refuses these too, but only after the Convex deploy; say so before it.
+if [ -n "${LOG_MAX_MB:-}" ] &&
+  ! [[ "$LOG_MAX_MB" =~ ^[0-9]+$ && "$((10#$LOG_MAX_MB))" -ge 8 && "$((10#$LOG_MAX_MB))" -le 1048576 ]]; then
+  log "LOG_MAX_MB must be a whole number of MiB from 8 to 1048576; got LOG_MAX_MB=$LOG_MAX_MB"
+  exit 1
+fi
+
 [ "$(id -g movies)" = "$pgid" ] || groupmod --non-unique --gid "$pgid" movies
 [ "$(id -u movies)" = "$puid" ] || usermod --non-unique --uid "$puid" --gid "$pgid" movies
 

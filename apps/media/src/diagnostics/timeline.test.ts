@@ -205,6 +205,37 @@ describe("playback timeline", () => {
     assert.strictEqual(started.counts.stalledMs, 0);
   });
 
+  it("says what LOG_LEVEL above info leaves out, instead of guessing why", () => {
+    const warnings = Option.getOrThrow(
+      timelineOf(
+        SESSION,
+        RECORDS.filter((entry) => entry.level !== "INFO" && entry.level !== "DEBUG"),
+        false,
+        "Warn",
+      ),
+    );
+
+    assert.isTrue(warnings.missing.some((gap) => gap.includes("LOG_LEVEL=warn")));
+    assert.isFalse(warnings.missing.some((gap) => gap.includes("No stream started")));
+    assert.isFalse(warnings.missing.some((gap) => gap.includes("player sent no diagnostics")));
+  });
+
+  it("counts the failed requests past the session's budget", () => {
+    const flooded = Option.getOrThrow(
+      timelineOf(
+        SESSION,
+        [
+          ...RECORDS,
+          record(LogEvent.requestFailuresSuppressed, 50_000, { failures: 70 }, "WARN"),
+          record(LogEvent.requestFailuresSuppressed, 80_000, { failures: 5 }, "WARN"),
+        ],
+        false,
+      ),
+    );
+
+    assert.isTrue(flooded.missing.some((gap) => gap.startsWith("75 more failed requests")));
+  });
+
   it("is none for records without playback events", () => {
     assert.isTrue(Option.isNone(timelineOf(SESSION, [record("Sent HTTP response", 0, {})], false)));
   });

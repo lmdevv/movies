@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { LibraryId } from "@movies/contracts/ids";
-import { Effect, Layer, Option, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
 
 import * as ArtworkKeys from "./artwork/artwork-keys.ts";
 import * as BackupJob from "./backups/backup-job.ts";
@@ -40,6 +40,7 @@ import * as ScanJob from "./jobs/scan-job.ts";
 import * as FolderRoutes from "./library/folder-routes.ts";
 import * as LibraryMonitor from "./library/library-monitor.ts";
 import * as LogsRoutes from "./logging/logs-routes.ts";
+import * as RetainedLogs from "./logging/retained-logs.ts";
 import * as MemoryLibrary from "./library/memory-library.ts";
 import * as MediaConfig from "./media-config.ts";
 import { servicesLayer } from "./media-service.ts";
@@ -150,9 +151,18 @@ const application = Layer.unwrap(
     });
   }),
 ).pipe(
-  Layer.provide(Observability.layer),
+  Layer.provideMerge(Observability.layer),
   Layer.provide(MediaConfig.layer),
   Layer.provide(Layer.mergeAll(NodeServices.layer, Outbound.layer)),
 );
 
-Layer.launch(application).pipe(NodeRuntime.runMain);
+Effect.gen(function* () {
+  const services = yield* Layer.build(application);
+  const retained = Context.get(services, RetainedLogs.Service);
+
+  // Runs first at shutdown: an open `movies logs --follow` never ends on its own, and the HTTP
+  // server waits for open responses before it closes.
+  yield* Effect.addFinalizer(() => retained.close);
+
+  return yield* Effect.never;
+}).pipe(Effect.scoped, NodeRuntime.runMain);

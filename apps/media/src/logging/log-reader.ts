@@ -2,8 +2,8 @@
  * Reads the retained log for a query: the last `limit` matching records, newest file first so a
  * recent question never reads the whole history, then, when following, each new matching line as
  * it is written. Files outside the query's time window are skipped by their names and modification
- * times. Lines are redacted again on the way out, so a file written by anything else still never
- * shows what the console would hide.
+ * times. Each line is redacted again before it is decoded or matched, so a file written by anything
+ * else never shows, and a `grep` never finds, what the console would hide.
  */
 import type { LogQuery, LogRecord } from "@movies/contracts/diagnostics";
 import { Effect, FileSystem, Option, Path, Stream } from "effect";
@@ -34,15 +34,17 @@ interface Found {
 
 const overlaps = (file: LogFile, query: LogQuery): boolean =>
   (query.since === undefined || file.modifiedAt >= query.since) &&
-  (query.until === undefined || file.createdAt < query.until);
+  (query.until === undefined || file.startsAt < query.until);
 
-const matchLine = (query: LogQuery, line: string): Option.Option<Match> =>
-  mayMatch(query, line)
-    ? decodeRecord(line).pipe(
-        Option.filter((record) => matches(query, record, line)),
-        Option.map((record) => ({ line: redactJsonText(line), record })),
-      )
-    : Option.none();
+const matchLine = (query: LogQuery, line: string): Option.Option<Match> => {
+  if (!mayMatch(query, line)) return Option.none();
+  const redacted = redactJsonText(line);
+
+  return decodeRecord(redacted).pipe(
+    Option.filter((record) => matches(query, record, redacted)),
+    Option.map((record) => ({ line: redacted, record })),
+  );
+};
 
 /** What a file that retention deleted after the snapshot holds. */
 const nothingFound = () => ({ kept: Array.of<Match>(), total: 0 });
@@ -75,8 +77,8 @@ export const read = Effect.fn("LogReader.read")(function* (query: LogQuery) {
       ),
       Effect.catchIf(isNotFound, () => Effect.sync(nothingFound)),
       Effect.catch((error) =>
-        Effect.logWarning("LogReader.unreadable", error.message).pipe(
-          Effect.annotateLogs({ file: file.name }),
+        Effect.logWarning("LogReader.unreadable").pipe(
+          Effect.annotateLogs({ file: file.name, error: error.message }),
           Effect.map(nothingFound),
         ),
       ),

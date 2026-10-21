@@ -13,7 +13,7 @@ import { type LogQuery, MAX_LOG_LIMIT } from "@movies/contracts/diagnostics";
 import { NotFound, RateLimited } from "@movies/contracts/errors";
 import { EpochMillis } from "@movies/contracts/units";
 import type { Viewer } from "@movies/contracts/models/account";
-import { Clock, Duration, Effect, FileSystem, Layer, Option, Path } from "effect";
+import { Clock, Duration, Effect, FileSystem, Layer, Option, Path, References } from "effect";
 import type { HttpRouter } from "effect/http";
 
 import type * as ViewerAuth from "../convex/viewer-auth.ts";
@@ -91,7 +91,11 @@ export const layer: Layer.Layer<
         const allowed =
           isAdmin(viewer) || (owners.size > 0 && [...owners].every((id) => id === viewer.user.id));
 
-        const timeline = allowed ? timelineOf(sessionId, records, found.truncated) : Option.none();
+        const logLevel = yield* References.MinimumLogLevel;
+
+        const timeline = allowed
+          ? timelineOf(sessionId, records, found.truncated, logLevel)
+          : Option.none();
 
         if (Option.isNone(timeline)) {
           return yield* new NotFound({

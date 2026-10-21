@@ -1,0 +1,46 @@
+import { assert, describe, it } from "@effect/vitest";
+import { ConfigProvider, Context, Effect, Exit, Layer } from "effect";
+
+import * as MediaConfig from "./media-config.ts";
+
+/** The configuration decoded from `env` and the required names. */
+const decode = (env: Readonly<Record<string, string>>) =>
+  Layer.build(
+    MediaConfig.layer.pipe(
+      Layer.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({
+            env: {
+              MEDIA_BASE_URL: "http://127.0.0.1:4300",
+              PLAYBACK_TOKEN_SECRET: Buffer.alloc(32, 9).toString("base64url"),
+              DATA_DIR: "/nonexistent/data",
+              TRANSCODE_DIR: "/nonexistent/transcode",
+              HARDWARE_ACCELERATION: "none",
+              ...env,
+            },
+          }),
+        ),
+      ),
+    ),
+  ).pipe(
+    Effect.map((context) => Context.get(context, MediaConfig.Service)),
+    Effect.scoped,
+    Effect.exit,
+  );
+
+describe("media configuration", () => {
+  it.effect("keeps the retained log at least 8 MiB, so it always holds several files", () =>
+    Effect.gen(function* () {
+      for (const tooSmall of ["0", "1", "7"]) {
+        assert.isTrue(Exit.isFailure(yield* decode({ LOG_MAX_MB: tooSmall })), tooSmall);
+      }
+
+      const smallest = yield* decode({ LOG_MAX_MB: "8" });
+
+      assert.deepStrictEqual(
+        Exit.map(smallest, (config) => config.logs.maxBytes),
+        Exit.succeed(8 * 1024 * 1024),
+      );
+    }),
+  );
+});

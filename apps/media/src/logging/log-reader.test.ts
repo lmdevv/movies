@@ -67,6 +67,7 @@ const messages = (query: LogQuery) =>
       messages: found.matches.map((match) => match.record.message),
       truncated: found.truncated,
       lines: found.matches.map((match) => match.line),
+      records: found.matches.map((match) => match.record),
     };
   }).pipe(Effect.scoped);
 
@@ -119,13 +120,50 @@ layer(NodeServices.layer)("log queries", (it) => {
     }),
   );
 
-  it.effect("redacts what it serves", () =>
+  it.effect("redacts what it serves, and the records it hands on", () =>
     Effect.gen(function* () {
       const read = yield* messages({ grep: "disk full" });
 
       assert.notInclude(read.lines.join("\n"), "abc.def");
       assert.include(read.lines.join("\n"), "disk full");
+      assert.deepStrictEqual(read.records[0]?.annotations, {
+        detail: "token=<redacted> disk full",
+      });
     }),
+  );
+
+  it.effect("never lets grep find what redaction hides", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual((yield* messages({ grep: "abc.def" })).messages, []);
+    }),
+  );
+
+  it.effect("reads up to until a record logged just before its file began", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "movies-logs-" });
+
+      yield* TestClock.setTime(BASE);
+
+      const logs = yield* RetainedLogs.make({
+        directory,
+        retention: { maxAgeMs: Duration.toMillis(Duration.days(14)), maxBytes: 1 << 29 },
+      });
+
+      yield* TestClock.adjust(Duration.millis(100));
+      logs.append(line("Stream.started", 100));
+      yield* TestClock.adjust(Duration.millis(400));
+      yield* logs.flush;
+
+      const found = yield* LogReader.read({ until: EpochMillis.make(BASE + 200) }).pipe(
+        Effect.provideService(RetainedLogs.Service, logs),
+      );
+
+      assert.deepStrictEqual(
+        found.matches.map((match) => match.record.message),
+        ["Stream.started"],
+      );
+    }).pipe(Effect.scoped),
   );
 
   it.effect("follows: matching lines written after the query arrive live", () =>

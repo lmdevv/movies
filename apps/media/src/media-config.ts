@@ -41,7 +41,10 @@ interface LogSettings {
   readonly directory: string;
   /** Files last written longer ago than this are deleted. */
   readonly retention: Duration.Duration;
-  /** The oldest files are deleted once all of them together grow past this size. */
+  /**
+   * All files together never grow past this size: each holds at most an eighth of it (64 MiB at
+   * most), and the oldest go before a write would pass it.
+   */
   readonly maxBytes: number;
 }
 
@@ -135,6 +138,12 @@ const LOG_LEVELS = {
   error: "Error",
 } as const satisfies Record<string, LogLevel.LogLevel>;
 
+/**
+ * The retained log's size cap in MiB: at least 8, so it holds eight files of 1 MiB, and at most
+ * 1 TiB.
+ */
+const LogMaxMb = Schema.Int.check(Schema.isBetween({ minimum: 8, maximum: 1_048_576 }));
+
 /** One thumbnail a second at most, one every ten minutes at least. */
 const TrickplayIntervalSeconds = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 600 }));
 
@@ -183,7 +192,7 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
       Config.withDefault(14),
     );
 
-    const logMaxMb = yield* Config.schema(PositiveInt, "LOG_MAX_MB").pipe(Config.withDefault(512));
+    const logMaxMb = yield* Config.schema(LogMaxMb, "LOG_MAX_MB").pipe(Config.withDefault(512));
     const convexUrl = yield* Config.option(Config.URL("CONVEX_URL"));
     const convexPublicUrl = yield* Config.option(Config.URL("CONVEX_PUBLIC_URL"));
     const mediaServiceApiKey = yield* Config.option(Config.Redacted("MEDIA_SERVICE_API_KEY"));
