@@ -10,6 +10,7 @@ on:
       - "apps/**"
       - "packages/**"
       - "scripts/stack-e2e.sh"
+      - "scripts/check-version.sh"
       - "pnpm-lock.yaml"
       - ".dockerignore"
       - ".github/workflows/image.yml"
@@ -26,15 +27,10 @@ jobs:
         with:
           persist-credentials: false
       # A release tag must name the version the image records, which decides when an upgrade backs
-      # up: bump packages/backend/package.json first.
+      # up: bump every package's version first (docs/operations.md, Releasing).
       - name: Release tag matches the package version
         if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          version="$(node -p 'require("./packages/backend/package.json").version')"
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::tag $GITHUB_REF_NAME does not match packages/backend/package.json ($version)"
-            exit 1
-          fi
+        run: scripts/check-version.sh "$GITHUB_REF_NAME"
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       # The amd64 image, loaded into Docker for the packaged-stack smoke test. Pull requests read
