@@ -119,6 +119,11 @@ check "the printed stream URL plays from the host" \
   '[[ "$(curl -fsS -r 0-0 -o /dev/null -w "%{http_code}" "$play_url")" =~ ^20[06]$ ]]'
 check "the CLI login is root's and private, in the data volume" \
   '[[ "$(in_movies stat -c "%U %a" /data/config/movies/config.json)" == "root 600" ]]'
+check "the image's CLI reads the retained log as the owner" \
+  'in_movies movies logs --since 5m --json | grep -qF "\"message\":\"Stream.started\""'
+check "the retained log is private to the media user" \
+  '[[ "$(in_movies stat -c "%u %a" /data/media/logs)" == "$PUID 700" ]] &&
+    ! in_movies find /data/media/logs -type f ! -perm 600 | grep -q .'
 
 # An upgrade (another image version in /data/version) backs up before deploying the new functions.
 archives() { in_movies sh -c 'ls /data/backups | grep -c "^movies-.*\.zip$"' || true; }
