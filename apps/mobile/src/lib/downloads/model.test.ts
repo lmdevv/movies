@@ -196,26 +196,33 @@ describe("the download store", () => {
     ).toStrictEqual(["Queued"]);
   });
 
-  it("keeps a received file when the same delivery resumes, and starts over for another", () => {
+  it("starts every delivery at the first byte, and keeps its session to end later", () => {
+    const later = PlaybackSessionId.make("session-2");
+
     const store = run(
+      DownloadEvent.Added({ download: movie, at: 1 }),
+      DownloadEvent.SessionStarted({ id: movieId, sessionId: later }),
+    );
+
+    expect(store.downloads[0]?.sessionId).toBe(later);
+
+    const received = run(
       DownloadEvent.Added({ download: movie, at: 1 }),
       DownloadEvent.Delivering({ id: movieId, delivery, playback, sessionId }),
       DownloadEvent.Received({ id: movieId, bytes: 100 }),
-      DownloadEvent.Delivering({ id: movieId, delivery, playback, sessionId }),
     );
 
-    expect(store.downloads[0]?.receivedBytes).toBe(100);
     expect(
-      reduce(
-        store,
-        DownloadEvent.Delivering({
-          id: movieId,
-          delivery: { ...delivery, sizeBytes: 9 },
-          playback,
-          sessionId,
-        }),
-      ).downloads[0]?.receivedBytes,
+      reduce(received, DownloadEvent.Delivering({ id: movieId, delivery, playback, sessionId }))
+        .downloads[0]?.receivedBytes,
     ).toBe(0);
+
+    // H21 asks for the whole file: nothing received carries over.
+    const full = reduce(received, DownloadEvent.NoSpace({ id: movieId, totalBytes: 500 }));
+
+    expect([full.downloads[0]?.receivedBytes, full.downloads[0]?.totalBytes]).toStrictEqual([
+      0, 500,
+    ]);
   });
 
   it("removes one download, or all of one profile's", () => {

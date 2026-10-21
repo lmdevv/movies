@@ -220,7 +220,10 @@ export type DownloadEvent = Data.TaggedEnum<{
   RemovedAll: { readonly profileId: ProfileId };
   /** Waits for Wi-Fi (`wifi`), or for its turn again. */
   Waiting: { readonly id: string; readonly wifi: boolean; readonly resume: string | null };
+  /** Its download session started; kept so a later run ends it when it cannot carry on in it. */
+  SessionStarted: { readonly id: string; readonly sessionId: PlaybackSessionId };
   Preparing: { readonly id: string; readonly progress: number; readonly estimatedBytes: number };
+  /** A transfer starts from the first byte. */
   Delivering: {
     readonly id: string;
     readonly delivery: Delivery;
@@ -315,17 +318,15 @@ export const reduce = (store: DownloadStore, event: DownloadEvent): DownloadStor
           error: null,
         } as const),
       ),
+    SessionStarted: ({ id, sessionId }) =>
+      update(store, id, (download) => Struct.assign(download, { sessionId })),
     Delivering: ({ id, delivery, playback, sessionId }) =>
       update(store, id, (download) =>
         Struct.assign(download, {
           phase: "downloading",
           prepared: 1,
-          // A different file than the one partly received starts over.
-          receivedBytes:
-            download.delivery?.sizeBytes === delivery.sizeBytes &&
-            download.delivery.fileId === delivery.fileId
-              ? download.receivedBytes
-              : 0,
+          // Resuming a paused transfer does not deliver again; a delivery starts at the first byte.
+          receivedBytes: 0,
           totalBytes: delivery.sizeBytes,
           delivery,
           playback,
@@ -350,7 +351,13 @@ export const reduce = (store: DownloadStore, event: DownloadEvent): DownloadStor
       ),
     NoSpace: ({ id, totalBytes }) =>
       update(store, id, (download) =>
-        Struct.assign(download, { phase: "noSpace", totalBytes } as const),
+        // Nothing received so far carries over: the next delivery starts at the first byte.
+        Struct.assign(download, {
+          phase: "noSpace",
+          totalBytes,
+          receivedBytes: 0,
+          resume: null,
+        } as const),
       ),
     Retried: ({ id }) =>
       update(store, id, (download) =>

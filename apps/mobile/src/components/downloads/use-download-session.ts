@@ -64,7 +64,13 @@ export const useDownloadSession = (
 
   useEffect(() => {
     if (!playing || engine === null || player === null || downloadId === null) return undefined;
-    const record = () => engine.played(downloadId, player.positionMs(), durationMs);
+
+    const record = () => {
+      const positionMs = player.positionMs();
+
+      // Before the start seek lands, or once the player is torn down, it reads 0: no progress.
+      if (positionMs > 0) engine.played(downloadId, positionMs, durationMs);
+    };
 
     const unsubscribe = player.subscribe((event) => {
       if (event !== "waiting") record();

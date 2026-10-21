@@ -42,9 +42,36 @@ const decodeProfile = Schema.decodeUnknownOption(StoredProfile);
 
 const encodeProfile = Schema.encodeSync(StoredProfile);
 
+/** The remembered profile of each server, read from the keychain once. */
+const rememberedProfiles = new Map<string, Profile | null>();
+
+const profileListeners = new Set<() => void>();
+
+const subscribeProfiles = (listener: () => void): (() => void) => {
+  profileListeners.add(listener);
+
+  return () => {
+    profileListeners.delete(listener);
+  };
+};
+
+const rememberedOf = (mediaUrl: string): Profile | null => {
+  const known = rememberedProfiles.get(mediaUrl);
+
+  if (known !== undefined) return known;
+  const read = Option.getOrNull(decodeProfile(readValue(profileKey(mediaUrl))));
+
+  rememberedProfiles.set(mediaUrl, read);
+
+  return read;
+};
+
 /** Remembers the profile on screen, so its downloads can be shown when the server is unreachable. */
 export const rememberProfile = (mediaUrl: string, profile: Profile): void => {
   writeValue(profileKey(mediaUrl), encodeProfile(profile));
+  rememberedProfiles.set(mediaUrl, profile);
+
+  for (const listener of profileListeners) listener();
 };
 
 /**
@@ -56,10 +83,8 @@ export const useOfflineProfile = (): Profile | null => {
   const { mediaUrl } = useServer();
   const { status } = useAuth();
   const { profileId } = useProfileChoice();
-
-  const [remembered] = useState(() =>
-    Option.getOrNull(decodeProfile(readValue(profileKey(mediaUrl)))),
-  );
+  const read = () => rememberedOf(mediaUrl);
+  const remembered = useSyncExternalStore(subscribeProfiles, read, read);
 
   return status === "signedIn" && remembered !== null && remembered.id === profileId
     ? remembered

@@ -1,6 +1,6 @@
 /**
  * Downloads on this iPhone, the imperative shell over `lib/downloads/model`: it keeps one
- * account's store in `downloads/<server>/<account>/index.json` and works through it one download
+ * account's store in `downloads/<server>/<account>/index.json` and works through it two downloads
  * at a time. Each download starts a download session in Convex (`downloads.start`), asks the media
  * service to prepare it until it is ready, checks the space it needs (H21), keeps its text
  * subtitles and picture, and transfers the video in a background-capable iOS download task, which
@@ -99,8 +99,11 @@ const MAX_RUNS = 2;
 /** New sessions in a row before a download gives up. */
 const MAX_RESTARTS = 3;
 
-/** How often a transfer's progress is kept on disk (it is shown at once). */
+/** How often a transfer's progress is kept on disk. */
 const SAVE_EVERY_MS = 2_000;
+
+/** How often a transfer's progress reaches the screens. */
+const SHOW_EVERY_MS = 500;
 
 const DownloadPauseStateJson = Schema.fromJsonString(
   Schema.Struct({
@@ -180,6 +183,9 @@ export class DownloadEngine {
   /** The downloads being worked on, by ID. */
   readonly #active = new Map<string, Active>();
   #saveTimer: ReturnType<typeof setTimeout> | undefined;
+  #showTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Each download's kept picture, once looked for: its URI, or null when there is none. */
+  readonly #artwork = new Map<string, string | null>();
   #sending = false;
   #started = false;
   #disposed = false;
@@ -206,7 +212,8 @@ export class DownloadEngine {
     this.#snapshot = {
       store: settled,
       settings: options.settings,
-      network: { connected: true, wifi: true },
+      // Unknown until the first report: nothing transfers before it, so not over mobile data.
+      network: { connected: false, wifi: false },
     };
   }
 
@@ -235,6 +242,7 @@ export class DownloadEngine {
   /** Stops every transfer for good, keeping what was saved; the engine does nothing after. */
   dispose(): void {
     this.#disposed = true;
+    clearTimeout(this.#showTimer);
     this.#save();
 
     for (const active of this.#active.values()) active.task?.cancel();
@@ -320,9 +328,15 @@ export class DownloadEngine {
 
   /** The kept picture of `download`, or null when there is none yet. */
   artworkUri(download: DownloadRecord): string | null {
-    const file = new File(this.#itemDirectory(download.id), ARTWORK_FILE);
+    const known = this.#artwork.get(download.id);
 
-    return file.exists ? file.uri : null;
+    if (known !== undefined) return known;
+    const file = new File(this.#itemDirectory(download.id), ARTWORK_FILE);
+    const uri = file.exists ? file.uri : null;
+
+    this.#artwork.set(download.id, uri);
+
+    return uri;
   }
 
   /** Sends the progress played offline; what the server took or refused for good leaves the queue. */
@@ -371,10 +385,14 @@ export class DownloadEngine {
       ),
     );
 
-    // Unreachable: keep the rest for later. A refusal (the title is gone) is final.
-    if (result === null || (Result.isFailure(result) && isTransient(result.failure))) return sent;
+    // Unreachable: keep the rest for later.
+    if (result === null || (Result.isFailure(result) && isUnreachable(result.failure))) return sent;
 
-    return this.#sendFrom(rest, [...sent, entry]);
+    // A refusal for good (the title is gone, the profile lost it) leaves the queue; any other
+    // failure keeps this entry for the next try and goes on with the rest.
+    const taken = Result.isSuccess(result) || isFinal(result.failure);
+
+    return this.#sendFrom(rest, taken ? [...sent, entry] : sent);
   }
 
   #notify(): void {
@@ -384,11 +402,16 @@ export class DownloadEngine {
   #dispatch(event: DownloadEvent, save: "now" | "soon" = "now"): void {
     if (this.#disposed) return;
     this.#snapshot = { ...this.#snapshot, store: reduce(this.#snapshot.store, event) };
-    this.#notify();
 
     if (save === "now") {
+      this.#notify();
       this.#save();
     } else {
+      // Transfer progress arrives many times a second; the screens and the disk take it in turns.
+      this.#showTimer ??= setTimeout(() => {
+        this.#showTimer = undefined;
+        this.#notify();
+      }, SHOW_EVERY_MS);
       this.#saveTimer ??= setTimeout(() => this.#save(), SAVE_EVERY_MS);
     }
   }
@@ -420,6 +443,8 @@ export class DownloadEngine {
   }
 
   #deleteFiles(id: string): void {
+    this.#artwork.delete(id);
+
     try {
       const directory = this.#itemDirectory(id);
 
@@ -447,12 +472,15 @@ export class DownloadEngine {
     );
   }
 
-  /** Pauses the transfer Wi-Fi Only no longer allows, or starts the next one now allowed. */
+  /** Pauses the transfers the network no longer allows, or starts the next one now allowed. */
   #reconsider(): void {
     const { network, settings } = this.#snapshot;
 
     if (this.#active.size > 0 && !mayTransfer(network, settings.wifiOnly)) {
-      for (const active of this.#active.values()) void this.#pauseForWifi(active);
+      // Off Wi-Fi under Wi-Fi Only it waits for Wi-Fi; offline it waits for its turn again.
+      const wifi = network.connected && settings.wifiOnly;
+
+      for (const active of this.#active.values()) void this.#pauseForNetwork(active, wifi);
 
       return;
     }
@@ -460,32 +488,27 @@ export class DownloadEngine {
     this.#pump();
   }
 
-  async #pauseForWifi(active: Active): Promise<void> {
+  async #pauseForNetwork(active: Active, wifi: boolean): Promise<void> {
     const task = active.task;
 
     if (active.pausing) return;
     active.pausing = true;
 
     if (task === null) {
-      // Still preparing: the run stops at its next step, and the download waits for Wi-Fi.
+      // Still preparing: the run stops at its next step, and the download waits.
       this.#endSession(active.sessionId);
       const waiting = this.#snapshot.store.downloads.find((download) => download.id === active.id);
 
       this.#dispatch(
-        DownloadEvent.Waiting({ id: active.id, wifi: true, resume: waiting?.resume ?? null }),
+        DownloadEvent.Waiting({ id: active.id, wifi, resume: waiting?.resume ?? null }),
       );
 
       return;
     }
 
-    try {
-      await task.pauseAsync();
-      const resume = JSON.stringify(task.savable());
+    const resume = await pauseKeeping(task);
 
-      this.#dispatch(DownloadEvent.Waiting({ id: active.id, wifi: true, resume }));
-    } catch {
-      this.#dispatch(DownloadEvent.Waiting({ id: active.id, wifi: true, resume: null }));
-    }
+    this.#dispatch(DownloadEvent.Waiting({ id: active.id, wifi, resume }));
   }
 
   /** Starts the next downloads in line, up to `MAX_RUNS` at once, when the network allows it. */
@@ -574,6 +597,16 @@ export class DownloadEngine {
     }
 
     active.sessionId = opened.success.sessionId;
+    this.#dispatch(
+      DownloadEvent.SessionStarted({ id: download.id, sessionId: opened.success.sessionId }),
+    );
+
+    // Removed or paused while the session started: nothing else will end it.
+    if (this.#stopped(active)) {
+      this.#endSession(opened.success.sessionId);
+
+      return null;
+    }
 
     return opened.success;
   }
@@ -716,6 +749,9 @@ export class DownloadEngine {
       // The saved request no longer works (an expired link, a restarted server): start over.
       this.#endSession(download.sessionId);
       this.#dispatch(DownloadEvent.Waiting({ id: download.id, wifi: false, resume: null }));
+    } else {
+      // Nothing to resume in it (an app that quit mid-way, a retry): its session ends here.
+      this.#endSession(download.sessionId);
     }
 
     const prepared = await this.#prepare(download, active, {
@@ -747,7 +783,14 @@ export class DownloadEngine {
 
     const kept = await this.#keepCompanions(download, ready, directory);
 
-    if (this.#stopped(active)) return;
+    this.#artwork.delete(download.id);
+
+    if (this.#stopped(active)) {
+      // A later run ends it from the store when this engine is gone.
+      if (!this.#disposed) this.#endSession(started.sessionId);
+
+      return;
+    }
 
     this.#dispatch(
       DownloadEvent.Delivering({
@@ -827,7 +870,9 @@ export class DownloadEngine {
     } finally {
       unwatch();
       active.task = null;
-      task.release();
+
+      // A pause still reads the task's resume data; it releases the task once it has.
+      if (!active.pausing) task.release();
     }
   }
 
@@ -885,26 +930,41 @@ export class DownloadEngine {
     if (this.#stopped(active)) return;
     active.pausing = true;
 
-    try {
-      await task.pauseAsync();
-      const resume = JSON.stringify(task.savable());
+    const resume = await pauseKeeping(task);
 
-      this.#dispatch(DownloadEvent.Interrupted({ id, error: SERVER_UNAVAILABLE, resume }));
-    } catch {
-      task.cancel();
-      this.#endSession(active.sessionId);
-      this.#dispatch(DownloadEvent.Interrupted({ id, error: SERVER_UNAVAILABLE, resume: null }));
-    }
+    if (resume === null) this.#endSession(active.sessionId);
+    this.#dispatch(DownloadEvent.Interrupted({ id, error: SERVER_UNAVAILABLE, resume }));
   }
 }
+
+/** Pauses `task` and reads its resume data, then releases it; null when it cannot resume. */
+const pauseKeeping = async (task: DownloadTask): Promise<string | null> => {
+  try {
+    await task.pauseAsync();
+
+    return JSON.stringify(task.savable());
+  } catch {
+    task.cancel();
+
+    return null;
+  } finally {
+    task.release();
+  }
+};
 
 /** The saved state of a paused transfer, or null when it cannot be read. */
 const resumeState = (text: string): DownloadPauseState | null =>
   Option.getOrNull(decodePauseState(text));
 
-/** Whether a failed call may work later, so its progress stays queued. */
-const isTransient = (failure: CallError): boolean =>
-  Predicate.isTagged(failure, "TransportError") || Predicate.isTagged(failure, "ProtocolError");
+/** Whether a failed call never reached the server, so the rest waits too. */
+const isUnreachable = (failure: CallError): boolean =>
+  Predicate.isTagged(failure, "TransportError");
+
+/** Whether the server refused progress for good: the item or the profile's access is gone. */
+const isFinal = (failure: CallError): boolean =>
+  Predicate.isTagged(failure, "NotFound") ||
+  Predicate.isTagged(failure, "Forbidden") ||
+  Predicate.isTagged(failure, "InvalidArgs");
 
 /** H19's line for a failure. */
 const failureLine = (failure: CallError | PlaybackCallError): string => {
