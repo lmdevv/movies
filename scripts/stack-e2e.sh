@@ -113,12 +113,13 @@ check "the stack publishes media on another port than 8080" '[[ "$movies_port" !
 played="$(in_movies movies play "Big Buck Fixture")" ||
   { echo "check failed: the image's CLI plays in its own stack" >&2; exit 1; }
 play_url="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).url)' "$played")"
-echo "ok: the image's CLI plays in its own stack: $play_url"
+# The URL carries a playback token; print it without.
+echo "ok: the image's CLI plays in its own stack: ${play_url%%\?*}"
 check "the image's CLI plays at the public URL" '[[ "$play_url" == "$MOVIES_PUBLIC_URL/"* ]]'
 check "the printed stream URL plays from the host" \
   '[[ "$(curl -fsS -r 0-0 -o /dev/null -w "%{http_code}" "$play_url")" =~ ^20[06]$ ]]'
-check "the CLI login is private, in the data volume" \
-  '[[ "$(in_movies stat -c "%a" /data/config/movies/config.json)" == 600 ]]'
+check "the CLI login is root's and private, in the data volume" \
+  '[[ "$(in_movies stat -c "%U %a" /data/config/movies/config.json)" == "root 600" ]]'
 
 # An upgrade (another image version in /data/version) backs up before deploying the new functions.
 archives() { in_movies sh -c 'ls /data/backups | grep -c "^movies-.*\.zip$"' || true; }
