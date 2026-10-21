@@ -90,8 +90,8 @@ The Effect reference lives in `.repos/effect-smol`. Effect 4 stable releases are
   at base + 3. `scripts/dev-stack.sh env` prints them. Playwright uses `E2E_PORT`, else the stack's
   web port, else 3011.
 - Stack suites need Docker and `scripts/dev-stack.sh up`: `pnpm --filter <pkg> test:stack` for
-  `@movies/backend`, `@movies/sdk`, `@movies/cli`, and `@movies/media`, then `pnpm --filter web exec
-  playwright test`. For the migration suites, pull the pinned image (`docker pull` the
+  `@movies/backend`, `@movies/sdk`, `@lmdevv/movies`, and `@movies/media`, then
+  `pnpm --filter web exec playwright test`. For the migration suites, pull the pinned image (`docker pull` the
   `jellyfin/jellyfin:12.2@sha256:…` reference in `.github/workflows/ci.yml`) and set
   `MOVIES_JELLYFIN_DOCKER=1`; without the image the media suite skips the real-Jellyfin case
   silently, but the web migration spec starts Jellyfin anyway, pulling the image or failing.

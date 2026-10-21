@@ -33,7 +33,7 @@ jobs:
       # The installs pin one Convex backend and expose every media service setting.
       - run: scripts/check-deploy.sh
       # The release's standalone binary, so a change that breaks it fails here and not at a tag.
-      - run: pnpm --filter @movies/cli build:sea
+      - run: pnpm --filter @lmdevv/movies build:sea
       - run: test "$(apps/cli/dist/sea/movies-linux-x64 --version)" = "$(scripts/check-version.sh)"
 
   stack:
@@ -54,7 +54,7 @@ jobs:
       - run: scripts/dev-stack.sh up
       - run: pnpm --filter @movies/backend test:stack
       - run: pnpm --filter @movies/sdk test:stack
-      - run: pnpm --filter @movies/cli test:stack
+      - run: pnpm --filter @lmdevv/movies test:stack
       # The migration suite also imports from a real Jellyfin, set up over the fixture library.
       - run: docker pull jellyfin/jellyfin:12.2@sha256:357724bf0ae27a672c7cbaa899db2d9abeb13dbd8657ccce750258a4c059d037
       - run: pnpm --filter @movies/media test:stack

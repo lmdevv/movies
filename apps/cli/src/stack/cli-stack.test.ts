@@ -1,7 +1,7 @@
 /**
  * The built `movies` binary against a real self-hosted backend:
  *
- *   scripts/dev-stack.sh up && pnpm --filter @movies/cli test:stack
+ *   scripts/dev-stack.sh up && pnpm --filter @lmdevv/movies test:stack
  *
  * Skipped unless `MOVIES_STACK_TESTS=1`. Shares the owner accounts of the backend's stack suite.
  */

@@ -101,9 +101,9 @@ Releases are git tags `vX.Y.Z`. Each one publishes the image as `X.Y.Z`, `X.Y`, 
 higher version is already tagged, `latest` (pre-releases such as `v0.2.0-rc.1` only as
 `0.2.0-rc.1`); `main` publishes `:main`, the edge,
 and every build also gets `sha-<commit>`. The NixOS module follows whatever revision the flake
-input points at. A release also publishes the `movies` CLI at the same version: `@movies/cli` on
+input points at. A release also publishes the `movies` CLI at the same version: `@lmdevv/movies` on
 npm and standalone binaries on the tag's GitHub Release. Upgrade a CLI installed that way with
-`npm install -g @movies/cli@X.Y.Z` or the release's binary, fetched with `curl` as in the
+`npm install -g @lmdevv/movies@X.Y.Z` or the release's binary, fetched with `curl` as in the
 [README](../README.md#cli) (macOS quarantines a browser download, and Gatekeeper then blocks the
 ad hoc signed binary until `xattr -d com.apple.quarantine`); the image and the Nix modules carry
 their own.
@@ -159,7 +159,7 @@ upgrades ride along with [movies] releases; never change its image on your own.
 
 ### Releasing
 
-For maintainers. One version covers the image, the Nix packages, `@movies/cli` on npm, and the
+For maintainers. One version covers the image, the Nix packages, `@lmdevv/movies` on npm, and the
 CLI binaries. `scripts/check-version.sh`, run by CI and the pre-commit hook, fails while any
 workspace package carries another version. The iOS app's store version (`expo.version` in
 `apps/mobile/app.json`) is not part of it: the App Store build ships through review on its own
@@ -184,7 +184,7 @@ The tag runs two workflows, and each refuses a tag that does not name the packag
 - `release.yml` builds the standalone binaries on their own runners (`linux-x64`, `linux-arm64`,
   and `darwin-arm64`, signed ad hoc, from a pinned Node version) and checks each one's
   `--version`. It then waits for the tag's `image.yml` run. Only once that run has published the
-  image does it publish `@movies/cli` to npm through trusted publishing, with a provenance
+  image does it publish `@lmdevv/movies` to npm through trusted publishing, with a provenance
   attestation, and create the GitHub Release with the binaries, `SHA256SUMS`, the third-party
   licenses (Node.js's among them), install notes, and generated notes.
 
@@ -198,15 +198,15 @@ replaces its assets and publishes a release an earlier run left as a draft.
 A pre-release such as `v0.3.0-rc.1` publishes under `next` and makes a GitHub pre-release.
 
 npm only lets a trusted publisher be set on a package that exists, so the first version is
-published by hand, before its tag is pushed. Run it from an npm account in the `movies` org:
+published by hand, before its tag is pushed. Run it from an npm account in the `lmdevv` org:
 
 ```sh
 npm login
-mkdir -p /tmp/movies-cli && pnpm --filter @movies/cli pack --pack-destination /tmp/movies-cli
-npm publish /tmp/movies-cli/movies-cli-0.2.0.tgz --access public
+mkdir -p /tmp/movies-cli && pnpm --filter @lmdevv/movies pack --pack-destination /tmp/movies-cli
+npm publish /tmp/movies-cli/lmdevv-movies-0.2.0.tgz --access public
 ```
 
-Then, on npmjs.com, open `@movies/cli` → Settings → Trusted publishing, choose GitHub Actions,
+Then, on npmjs.com, open `@lmdevv/movies` → Settings → Trusted publishing, choose GitHub Actions,
 and enter the owner `lmdevv`, the repository `movies`, and the workflow `release.yml`. Once a tag
 has published through it, set Publishing access to require two-factor authentication and
 disallow tokens.

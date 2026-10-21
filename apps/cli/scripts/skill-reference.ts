@@ -1,6 +1,7 @@
 /**
  * Regenerates the command reference in `skills/movies/SKILL.md` from the registry, between the
- * `BEGIN:commands` and `END:commands` markers. Run with `pnpm --filter @movies/cli skill:reference`.
+ * `BEGIN:commands` and `END:commands` markers. Run with
+ * `pnpm --filter @lmdevv/movies skill:reference`.
  */
 import { execFileSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";

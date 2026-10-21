@@ -43,7 +43,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   inherit (packageJson) version;
   inherit src;
 
-  pnpmWorkspaces = [ "@movies/cli..." ];
+  pnpmWorkspaces = [ "@lmdevv/movies..." ];
 
   pnpmDeps = fetchPnpmDeps {
     inherit (finalAttrs)
@@ -66,7 +66,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
   buildPhase = ''
     runHook preBuild
-    pnpm --filter @movies/cli build
+    pnpm --filter @lmdevv/movies build
     runHook postBuild
   '';
 
