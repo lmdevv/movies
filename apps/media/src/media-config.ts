@@ -2,7 +2,17 @@
 import { isAbsolute, resolve } from "node:path";
 
 import { DEFAULT_TRICKPLAY_INTERVAL_SECONDS } from "@movies/contracts/trickplay";
-import { Config, Context, Duration, Effect, Layer, Option, type Redacted, Schema } from "effect";
+import {
+  Config,
+  Context,
+  Duration,
+  Effect,
+  Layer,
+  type LogLevel,
+  Option,
+  type Redacted,
+  Schema,
+} from "effect";
 
 /** How the service may use the GPU for video transcoding. */
 type HardwareAccelerationMode = "auto" | "qsv" | "vaapi" | "none";
@@ -21,6 +31,18 @@ interface TrickplaySettings {
   readonly interval: Duration.Duration;
   /** Files whose thumbnails are made at once, besides the other jobs. */
   readonly concurrency: number;
+}
+
+/** Retained service logs: rotating NDJSON files under `DATA_DIR/logs`. */
+interface LogSettings {
+  /** The least severe level logged, to standard output and to the files alike. */
+  readonly level: LogLevel.LogLevel;
+  /** Folder of the log files. */
+  readonly directory: string;
+  /** Files last written longer ago than this are deleted. */
+  readonly retention: Duration.Duration;
+  /** The oldest files are deleted once all of them together grow past this size. */
+  readonly maxBytes: number;
 }
 
 /** Typed media service settings. */
@@ -52,6 +74,7 @@ export interface Interface {
   readonly omdbApiKey: Option.Option<Redacted.Redacted>;
   /** OTLP/HTTP collector base URL. Telemetry export is off without it. */
   readonly otlpEndpoint: Option.Option<string>;
+  readonly logs: LogSettings;
   /** Convex deployment URL; used once the service subscribes to Convex. */
   readonly convexUrl: Option.Option<string>;
   /** The Convex URL browsers use, for the web app's content security policy. */
@@ -104,6 +127,15 @@ const MEBIBYTE = 1024 * 1024;
 
 const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0));
 
+/** `LOG_LEVEL` names and the Effect levels they set. */
+const LOG_LEVELS = {
+  trace: "Trace",
+  debug: "Debug",
+  info: "Info",
+  warn: "Warn",
+  error: "Error",
+} as const satisfies Record<string, LogLevel.LogLevel>;
+
 /** One thumbnail a second at most, one every ten minutes at least. */
 const TrickplayIntervalSeconds = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 600 }));
 
@@ -142,6 +174,17 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
     const tmdbApiKey = yield* Config.option(Config.Redacted("TMDB_API_KEY"));
     const omdbApiKey = yield* Config.option(Config.Redacted("OMDB_API_KEY"));
     const otlpEndpoint = yield* Config.option(Config.URL("OTEL_EXPORTER_OTLP_ENDPOINT"));
+
+    const logLevel = yield* Config.Literals(
+      ["trace", "debug", "info", "warn", "error"],
+      "LOG_LEVEL",
+    ).pipe(Config.withDefault("info"));
+
+    const logRetentionDays = yield* Config.schema(PositiveInt, "LOG_RETENTION_DAYS").pipe(
+      Config.withDefault(14),
+    );
+
+    const logMaxMb = yield* Config.schema(PositiveInt, "LOG_MAX_MB").pipe(Config.withDefault(512));
     const convexUrl = yield* Config.option(Config.URL("CONVEX_URL"));
     const convexPublicUrl = yield* Config.option(Config.URL("CONVEX_PUBLIC_URL"));
     const mediaServiceApiKey = yield* Config.option(Config.Redacted("MEDIA_SERVICE_API_KEY"));
@@ -243,6 +286,12 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
       tmdbApiKey,
       omdbApiKey,
       otlpEndpoint: Option.map(otlpEndpoint, withoutTrailingSlash),
+      logs: {
+        level: LOG_LEVELS[logLevel],
+        directory: resolve(absolute(dataDir), "logs"),
+        retention: Duration.days(logRetentionDays),
+        maxBytes: logMaxMb * MEBIBYTE,
+      },
       convexUrl: Option.map(convexUrl, withoutTrailingSlash),
       convexPublicUrl: Option.map(convexPublicUrl, withoutTrailingSlash),
       mediaServiceApiKey,

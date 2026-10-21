@@ -68,7 +68,10 @@ subtitles, and artwork under `DATA_DIR`, pruned hourly, least recently used firs
 `FFPROBE_PATH`,
 `OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVEX_URL`, `CONVEX_PUBLIC_URL` (the Convex URL browsers use; it
 narrows the web app's content security policy), `MEDIA_SERVICE_API_KEY`,
-`CONVEX_SELF_HOSTED_ADMIN_KEY` and `CONVEX_BACKEND_DIR` (backups), `BACKUP_RETENTION_DAYS` (14). The dev stack sets
+`CONVEX_SELF_HOSTED_ADMIN_KEY` and `CONVEX_BACKEND_DIR` (backups), `BACKUP_RETENTION_DAYS` (14),
+`LOG_LEVEL` (`info`; `trace`, `debug`, `warn`, `error`: the least severe level logged, on standard
+output and in the retained log), `LOG_RETENTION_DAYS` (14) and `LOG_MAX_MB` (512: the retained log
+files under `DATA_DIR/logs`, which `movies logs` and `movies diagnostics playback` read). The dev stack sets
 `LIBRARY_ROOTS` to its own `library` folder unless `MOVIES_LIBRARY_ROOTS` says otherwise.
 
 QSV needs an ffmpeg built with libvpl; the Nix dev shell uses `ffmpeg-full` for that. ffmpeg and

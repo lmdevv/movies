@@ -378,6 +378,35 @@ in
       '';
     };
 
+    logLevel = lib.mkOption {
+      type = lib.types.enum [
+        "trace"
+        "debug"
+        "info"
+        "warn"
+        "error"
+      ];
+      default = "info";
+      description = ''
+        Least severe level the media service logs, to the journal and to its retained log files
+        under `dataDir/media/logs`, which `movies logs` reads.
+      '';
+    };
+
+    logRetentionDays = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 14;
+      description = "Days the media service keeps its retained log files.";
+    };
+
+    logMaxMb = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 512;
+      description = ''
+        Size in MiB the retained log files may take together; the oldest go first beyond it.
+      '';
+    };
+
     tmdbApiKeyFile = lib.mkOption {
       type = lib.types.nullOr lib.types.path;
       default = null;
@@ -539,6 +568,9 @@ in
         PROBE_TIMEOUT_SECONDS = toString cfg.probeTimeoutSeconds;
         FILE_SCAN_TIMEOUT_SECONDS = toString cfg.fileScanTimeoutSeconds;
         CACHE_MAX_MB = toString cfg.cacheMaxMb;
+        LOG_LEVEL = cfg.logLevel;
+        LOG_RETENTION_DAYS = toString cfg.logRetentionDays;
+        LOG_MAX_MB = toString cfg.logMaxMb;
         FFMPEG_PATH = lib.getExe' cfg.ffmpegPackage "ffmpeg";
         FFPROBE_PATH = lib.getExe' cfg.ffmpegPackage "ffprobe";
       }

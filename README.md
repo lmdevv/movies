@@ -107,6 +107,9 @@ default. The NixOS options are in brackets.
 | `FILE_SCAN_TIMEOUT_SECONDS`   | Longest whole-file scan, 900 (`fileScanTimeoutSeconds`)                   |
 | `CACHE_MAX_MB`                | Size the caches are pruned to, 2048 MiB (`cacheMaxMb`)                    |
 | `BACKUP_RETENTION_DAYS`       | Days of nightly backups kept, 14 (`backupRetentionDays`)                  |
+| `LOG_LEVEL`                   | Least severe level logged and retained, `info` (`logLevel`)               |
+| `LOG_RETENTION_DAYS`          | Days the retained logs are kept, 14 (`logRetentionDays`)                  |
+| `LOG_MAX_MB`                  | Size the retained logs are pruned to, 512 MiB (`logMaxMb`)                |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Optional OTLP/HTTP collector for traces and logs (`otlpEndpoint`)         |
 
 On NixOS, `environmentFile` adds secrets (such as `TMDB_API_KEY`) from a root-only file and

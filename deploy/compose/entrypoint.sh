@@ -158,6 +158,9 @@ optional_settings=(
   PROBE_TIMEOUT_SECONDS
   FILE_SCAN_TIMEOUT_SECONDS
   CACHE_MAX_MB
+  LOG_LEVEL
+  LOG_RETENTION_DAYS
+  LOG_MAX_MB
 )
 for name in "${optional_settings[@]}"; do
   setting "$name" "${!name:-}"
