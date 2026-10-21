@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # [movies] media service image: the Effect media service, the built web app it serves, the
-# deployed Convex functions with the pinned Convex CLI (deploy, configure, backups), and ffmpeg
-# with Intel Quick Sync. The Convex backend runs as its own service (compose.yaml).
+# deployed Convex functions with the pinned Convex CLI (deploy, configure, backups), the `movies`
+# CLI, and ffmpeg with Intel Quick Sync. The Convex backend runs as its own service (compose.yaml).
 # Build from the repo root:
 #   docker build -f deploy/compose/Dockerfile -t movies .
 
@@ -23,7 +23,8 @@ RUN pnpm install --frozen-lockfile --ignore-scripts --os=linux --cpu=x64 --cpu=a
 # The web app is built once with a placeholder Convex URL; startup writes the real one into a copy
 # (apps/media/scripts/configure-web.ts).
 RUN VITE_CONVEX_URL=__MOVIES_CONVEX_URL__ pnpm --config.verify-deps-before-run=false --filter web build \
- && pnpm --config.verify-deps-before-run=false --filter @movies/media build
+ && pnpm --config.verify-deps-before-run=false --filter @movies/media build \
+ && pnpm --config.verify-deps-before-run=false --filter @movies/cli build
 # The backend with production dependencies only: the Convex functions, the Convex CLI, and
 # scripts/configure.ts. Its tsconfig extends the shared config, which `convex deploy` reads.
 RUN pnpm --filter @movies/backend deploy --prod --legacy /out/backend \
@@ -34,7 +35,9 @@ RUN pnpm --filter @movies/backend deploy --prod --legacy /out/backend \
  && mkdir -p /out/media/scripts \
  && cp -r apps/media/dist /out/media/dist \
  && cp apps/media/scripts/configure-web.ts /out/media/scripts/ \
- && cp -r apps/web/dist /out/web
+ && cp -r apps/web/dist /out/web \
+ && install -D -m 644 apps/cli/dist/movies.js /out/cli/movies.mjs \
+ && install -m 644 apps/cli/dist/THIRD_PARTY_LICENSES.md /out/cli/
 
 FROM ${NODE_IMAGE}
 ARG TARGETARCH
@@ -66,6 +69,8 @@ RUN printf '%s\n' "$CONVEX_IMAGE" >/app/convex/image
 COPY --from=build /out/backend /app/backend
 COPY --from=build /out/media /app/media
 COPY --from=build /out/web /app/web
+COPY --from=build /out/cli /app/cli
+COPY deploy/compose/movies.sh /usr/local/bin/movies
 COPY deploy/compose/entrypoint.sh /app/bin/entrypoint
 
 ENV NODE_ENV=production \

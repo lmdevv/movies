@@ -15,7 +15,10 @@ import type { TokenStorage, TokenStorageError } from "./token-storage";
 export interface Options {
   /** The Convex deployment URL. */
   readonly convexUrl: string;
-  /** The media service URL for `media` commands; playback uses the URL each session names. */
+  /**
+   * The media service URL for `media` commands. Playback requests go to the URL each session
+   * names unless `MediaOrigin` is provided.
+   */
   readonly mediaUrl: Option.Option<string>;
   /**
    * `websocket` keeps one connection with pushed subscriptions, for apps. `http` makes one-shot

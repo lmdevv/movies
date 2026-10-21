@@ -1,12 +1,23 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { createServer } from "node:http";
+
 import type { FunctionPath } from "@movies/contracts/command";
 import { StartedPlayback } from "@movies/contracts/models/playback";
-import { Effect, Exit, Fiber, Layer, Ref, Schema, Scope, Stream } from "effect";
+import { Milliseconds } from "@movies/contracts/units";
+import { Effect, Exit, Fiber, Layer, Option, Predicate, Ref, Schema, Scope, Stream } from "effect";
 import { TestClock } from "effect/testing";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import * as ConvexTransport from "./convex-transport";
 import type { WireArgs } from "./convex-transport";
-import { autoplayCountdown, PROGRESS_INTERVAL_MS, reportProgress } from "./playback";
+import { MediaOrigin } from "./media-http";
+import {
+  autoplayCountdown,
+  negotiate,
+  PROGRESS_INTERVAL_MS,
+  reportProgress,
+  stop,
+} from "./playback";
 import type { Playback } from "./playback";
 import { clientLayer } from "./testing/client-context";
 import { makeFakePlayer } from "./testing/fake-player";
@@ -121,6 +132,102 @@ describe("progress reporting", () => {
         });
       }),
     ));
+});
+
+/** Paths the media service below received, in order. */
+const received: Array<string> = [];
+
+/** A media service whose answers point at `PUBLIC_URL`, as a real one's do. */
+const PUBLIC_URL = "http://movies.invalid:18480";
+
+const STREAM_ID = "stream-0123456789abcde";
+
+const mediaService = createServer((request: IncomingMessage, response: ServerResponse) => {
+  request.resume();
+
+  request.on("end", () => {
+    received.push(request.url ?? "");
+
+    const body =
+      request.url === "/api/playback/negotiate"
+        ? {
+            mode: "remux",
+            url: `${PUBLIC_URL}/media/hls/${STREAM_ID}/0/index.m3u8?token=t`,
+            streamId: STREAM_ID,
+            generation: 0,
+            startSeconds: 0,
+            durationSeconds: 600,
+            video: { codec: "h264", width: 1920, height: 1080, dynamicRange: "sdr" },
+            subtitles: [],
+            expiresAt: 1_760_000_000_000,
+          }
+        : null;
+
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(body));
+  });
+});
+
+let mediaServiceUrl = "";
+
+beforeAll(async () => {
+  await new Promise<void>((resolve) => mediaService.listen(0, "127.0.0.1", resolve));
+  const address = mediaService.address();
+
+  if (address === null || Predicate.isString(address)) throw new Error("The server is not on TCP");
+
+  mediaServiceUrl = `http://127.0.0.1:${String(address.port)}/`;
+});
+
+afterAll(() => {
+  mediaService.close();
+});
+
+const DESKTOP = {
+  containers: ["mp4"],
+  videoCodecs: [{ codec: "h264" }],
+  audioCodecs: [{ codec: "aac" }],
+  maxWidth: 1920,
+  maxHeight: 1080,
+  hls: true,
+  mse: false,
+} as const;
+
+/** Negotiates `session` and then stops its stream, returning the stream URL it was given. */
+const negotiateAndStop = (session: StartedPlayback) =>
+  Effect.gen(function* () {
+    const stream = yield* negotiate(session, DESKTOP, Milliseconds.make(0), Option.none());
+
+    yield* stop({ started: session, stream });
+
+    return stream.url;
+  });
+
+describe("reaching the media service", () => {
+  it("sends playback requests to the URL the session names", async () => {
+    received.length = 0;
+
+    const url = await Effect.runPromise(
+      negotiateAndStop({ ...started, mediaBaseUrl: mediaServiceUrl }),
+    );
+
+    expect(received).toStrictEqual(["/api/playback/negotiate", "/api/playback/stop"]);
+    expect(url).toBe(`${PUBLIC_URL}/media/hls/${STREAM_ID}/0/index.m3u8?token=t`);
+  });
+
+  it("sends them to a provided MediaOrigin instead, and keeps the stream URL public", async () => {
+    received.length = 0;
+
+    // The session names the public URL, which this client cannot reach.
+    const url = await Effect.runPromise(
+      negotiateAndStop({ ...started, mediaBaseUrl: PUBLIC_URL }).pipe(
+        Effect.provideService(MediaOrigin, Option.some(mediaServiceUrl)),
+      ),
+    );
+
+    expect(received).toStrictEqual(["/api/playback/negotiate", "/api/playback/stop"]);
+    expect(url).toBe(`${PUBLIC_URL}/media/hls/${STREAM_ID}/0/index.m3u8?token=t`);
+  });
 });
 
 describe("autoplay countdown", () => {

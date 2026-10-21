@@ -1,0 +1,96 @@
+# The `movies` CLI, bundled by esbuild into one file and run with Node.
+#
+#   nix run github:lmdevv/movies#cli -- login --server http://nas.tailnet.ts.net:3210
+#
+# Dependencies come from pnpm-lock.yaml through fetchPnpmDeps. When the lockfile changes, update
+# `hash` below: set it to "" and copy the hash from the error `nix build .#cli` prints.
+{
+  lib,
+  stdenvNoCC,
+  nodejs_24,
+  pnpm_12,
+  fetchPnpmDeps,
+  pnpmConfigHook,
+  makeWrapper,
+}:
+let
+  packageJson = lib.importJSON ../apps/cli/package.json;
+
+  # pnpm checks the lockfile against every workspace's package.json, so all of them come along;
+  # sources only for the CLI and the workspace packages it bundles. The tsconfigs give esbuild the
+  # same compiler settings as the workspace build.
+  src = lib.fileset.toSource {
+    root = ../.;
+    fileset = lib.fileset.unions [
+      ../package.json
+      ../pnpm-lock.yaml
+      ../pnpm-workspace.yaml
+      (lib.fileset.fileFilter (file: file.name == "package.json") ../apps)
+      (lib.fileset.fileFilter (file: file.name == "package.json") ../packages)
+      ../apps/cli/src
+      ../apps/cli/scripts
+      ../apps/cli/tsconfig.json
+      ../packages/contracts/src
+      ../packages/contracts/tsconfig.json
+      ../packages/sdk/src
+      ../packages/sdk/tsconfig.json
+      ../packages/config
+    ];
+  };
+in
+stdenvNoCC.mkDerivation (finalAttrs: {
+  pname = "movies-cli";
+  inherit (packageJson) version;
+  inherit src;
+
+  pnpmWorkspaces = [ "@movies/cli..." ];
+
+  pnpmDeps = fetchPnpmDeps {
+    inherit (finalAttrs)
+      pname
+      version
+      src
+      pnpmWorkspaces
+      ;
+    pnpm = pnpm_12;
+    fetcherVersion = 4;
+    hash = "sha256-Bnt3lo8DMxFZ+/uhKbVV3qTPBNzWQIfF9sGD5HIYO9Y=";
+  };
+
+  nativeBuildInputs = [
+    nodejs_24
+    pnpm_12
+    pnpmConfigHook
+    makeWrapper
+  ];
+
+  buildPhase = ''
+    runHook preBuild
+    pnpm --filter @movies/cli build
+    runHook postBuild
+  '';
+
+  installPhase = ''
+    runHook preInstall
+    install -Dm644 apps/cli/dist/movies.js "$out/lib/movies/movies.mjs"
+    install -Dm644 apps/cli/dist/THIRD_PARTY_LICENSES.md -t "$out/share/doc/movies-cli"
+    makeWrapper ${lib.getExe nodejs_24} "$out/bin/movies" --add-flags "$out/lib/movies/movies.mjs"
+    runHook postInstall
+  '';
+
+  doInstallCheck = true;
+  installCheckPhase = ''
+    runHook preInstallCheck
+    [ "$("$out/bin/movies" --version)" = "${finalAttrs.version}" ]
+    "$out/bin/movies" --help | grep -q "Usage: movies"
+    runHook postInstallCheck
+  '';
+
+  meta = {
+    description = "The [movies] command line: every command of a self-hosted [movies] server";
+    homepage = "https://github.com/lmdevv/movies";
+    license = lib.licenses.mit;
+    mainProgram = "movies";
+    platforms = lib.platforms.linux ++ lib.platforms.darwin;
+  };
+})

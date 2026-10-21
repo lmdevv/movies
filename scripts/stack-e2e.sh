@@ -2,7 +2,8 @@
 # Packaged-stack smoke test: builds the image, starts deploy/compose/compose.yaml on a fresh
 # project with a generated fixture library mounted read-only, checks the install's privilege and
 # secret boundaries, then runs apps/media/src/stack/packaged-stack.test.ts against it (sign-up,
-# library, scan, direct and HLS playback, a media restart, CLI backup and restore).
+# library, scan, direct and HLS playback, a media restart, CLI backup and restore) and the image's
+# own `movies` CLI.
 #
 #   scripts/stack-e2e.sh
 #   IMAGE=ghcr.io/lmdevv/movies:main scripts/stack-e2e.sh   # skip the build
@@ -99,6 +100,25 @@ MOVIES_PACKAGED_STACK=1 \
   MOVIES_PACKAGED_LIBRARY=/media/library \
   MOVIES_PACKAGED_RESTART="docker compose ${compose_args[*]} restart movies" \
   pnpm --dir "$root" exec vitest run --root "$root" apps/media/src/stack/packaged-stack.test.ts
+
+release="$("$root/scripts/check-version.sh")"
+check "the image's CLI reports the release version" '[[ "$(in_movies movies --version)" == "$release" ]]'
+check "the image's CLI signs in to its own stack" \
+  'printf %s stack-test-password | in_movies movies login --email owner@movies.test --password >/dev/null'
+check "the image's CLI calls its own stack" 'in_movies movies whoami | grep -qF "owner@movies.test"'
+# With MOVIES_PORT other than 8080 (the default 18080), the public URL does not answer inside the
+# container. The CLI negotiates at its own media URL and prints the public stream URL, which plays
+# from the host.
+played="$(in_movies movies play "Big Buck Fixture")" ||
+  { echo "check failed: the image's CLI plays in its own stack" >&2; exit 1; }
+play_url="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).url)' "$played")"
+# The URL carries a playback token; print it without.
+echo "ok: the image's CLI plays in its own stack: ${play_url%%\?*}"
+check "the image's CLI plays at the public URL" '[[ "$play_url" == "$MOVIES_PUBLIC_URL/"* ]]'
+check "the printed stream URL plays from the host" \
+  '[[ "$(curl -fsS -r 0-0 -o /dev/null -w "%{http_code}" "$play_url")" =~ ^20[06]$ ]]'
+check "the CLI login is root's and private, in the data volume" \
+  '[[ "$(in_movies stat -c "%U %a" /data/config/movies/config.json)" == "root 600" ]]'
 
 # An upgrade (another image version in /data/version) backs up before deploying the new functions.
 archives() { in_movies sh -c 'ls /data/backups | grep -c "^movies-.*\.zip$"' || true; }

@@ -32,6 +32,9 @@ jobs:
       - run: pnpm --filter mobile bundle
       # The installs pin one Convex backend and expose every media service setting.
       - run: scripts/check-deploy.sh
+      # The release's standalone binary, so a change that breaks it fails here and not at a tag.
+      - run: pnpm --filter @movies/cli build:sea
+      - run: test "$(apps/cli/dist/sea/movies-linux-x64 --version)" = "$(scripts/check-version.sh)"
 
   stack:
     name: backend against a local Convex
