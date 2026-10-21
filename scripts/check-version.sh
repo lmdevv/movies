@@ -10,7 +10,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-mapfile -t manifests < <(git ls-files -- ':(glob)apps/*/package.json' ':(glob)packages/*/package.json')
+# A command substitution, so a git failure stops the script instead of checking nothing.
+tracked="$(git ls-files -- ':(glob)apps/*/package.json' ':(glob)packages/*/package.json')"
+mapfile -t manifests <<<"$tracked"
 
 node - "${1:-}" "${manifests[@]}" <<'EOF'
 const { readFileSync } = require("node:fs");

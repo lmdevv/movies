@@ -97,8 +97,9 @@ admin key from `/run/movies/media.env`, then `systemctl restart movies`.
 
 ## Upgrading
 
-Releases are git tags `vX.Y.Z`. Each one publishes the image as `X.Y.Z`, `X.Y`, and `latest`
-(pre-releases such as `v0.2.0-rc.1` only as `0.2.0-rc.1`); `main` publishes `:main`, the edge,
+Releases are git tags `vX.Y.Z`. Each one publishes the image as `X.Y.Z`, `X.Y`, and, unless a
+higher version is already tagged, `latest` (pre-releases such as `v0.2.0-rc.1` only as
+`0.2.0-rc.1`); `main` publishes `:main`, the edge,
 and every build also gets `sha-<commit>`. The NixOS module follows whatever revision the flake
 input points at. A release also publishes the `movies` CLI at the same version: `@movies/cli` on
 npm and standalone binaries on the tag's GitHub Release. Upgrade a CLI installed that way with

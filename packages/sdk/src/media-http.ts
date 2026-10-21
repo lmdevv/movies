@@ -30,6 +30,9 @@ export const MediaOrigin = Context.Reference<Option.Option<string>>("@movies/sdk
   defaultValue: Option.none,
 });
 
+/** Strips a trailing slash so routes join cleanly. */
+export const baseUrl = (url: string): string => url.replace(/\/+$/u, "");
+
 /** `path` on the media service of a started session, at `MediaOrigin` when one is provided. */
 export const mediaUrl = (
   started: { readonly mediaBaseUrl: string },
@@ -38,7 +41,7 @@ export const mediaUrl = (
   Effect.gen(function* () {
     const origin = Option.getOrElse(yield* MediaOrigin, () => started.mediaBaseUrl);
 
-    return `${origin.replace(/\/+$/u, "")}${path}`;
+    return `${baseUrl(origin)}${path}`;
   });
 
 /** `value` as the JSON its schema's JSON codec writes, for a request body. */
