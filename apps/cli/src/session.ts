@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { hostname, userInfo } from "node:os";
 
 import { DeviceId, ProfileId } from "@movies/contracts/ids";
-import { Auth, Movies, MoviesClient, TokenStorage } from "@movies/sdk/effect";
+import { Auth, MediaOrigin, Movies, MoviesClient, TokenStorage } from "@movies/sdk/effect";
 import type { CallError } from "@movies/sdk/effect";
 import { Context, Effect, Layer, Option } from "effect";
 
@@ -24,7 +24,10 @@ export interface Connection {
   readonly deviceId: DeviceId;
   /** The default viewing profile from `movies profiles use` or login. */
   readonly viewingProfileId: Option.Option<ProfileId>;
-  /** Runs a call, signing in again with the API key once if the server ended the session. */
+  /**
+   * Runs a call, signing in again with the API key once if the server ended the session. Its
+   * playback requests go to the configured media URL, when there is one (`MediaOrigin`).
+   */
   readonly withSession: <A>(
     effect: Effect.Effect<A, MoviesClient.ClientError>,
   ) => Effect.Effect<A, CallError | ConfigFileError>;
@@ -116,7 +119,11 @@ export const connect = Effect.fn("Session.connect")(function* (
   const withSession = <A>(
     effect: Effect.Effect<A, MoviesClient.ClientError>,
   ): Effect.Effect<A, CallError | ConfigFileError> => {
+    // A configured media URL is how this install reaches the media service, such as the image's
+    // own `http://127.0.0.1:8080`, so playback requests go there too. The URLs the service
+    // answers with stay its public ones.
     const attempt = effect.pipe(
+      Effect.provideService(MediaOrigin, target.mediaUrl),
       Effect.catchTag("TokenStorageError", (error) =>
         Effect.fail(storageFailure(env.configPath)(error)),
       ),

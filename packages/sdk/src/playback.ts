@@ -103,7 +103,7 @@ export const negotiate = Effect.fn("Playback.negotiate")(function* (
   return yield* requestPlayback(
     {
       operation: "playback.negotiate",
-      url: mediaUrl(started, MEDIA_ROUTES.negotiate),
+      url: yield* mediaUrl(started, MEDIA_ROUTES.negotiate),
       method: "POST",
       body: Option.some(
         yield* encodeJson(NegotiateRequest, {
@@ -143,7 +143,7 @@ export const seekStream = Effect.fn("Playback.seekStream")(function* (
     yield* requestPlayback(
       {
         operation: "playback.seek",
-        url: mediaUrl(playback.started, MEDIA_ROUTES.seek),
+        url: yield* mediaUrl(playback.started, MEDIA_ROUTES.seek),
         method: "POST",
         body: Option.some(
           yield* encodeJson(SeekRequest, {
@@ -168,21 +168,23 @@ export const stop = (playback: Playback): Effect.Effect<void, PlaybackCallError>
   Option.match(Option.fromNullishOr(playback.stream.streamId), {
     onNone: () => Effect.void,
     onSome: (streamId) =>
-      encodeJson(StopRequest, { token: Redacted.make(playback.started.token), streamId }).pipe(
-        Effect.flatMap((body) =>
-          requestPlayback(
-            {
-              operation: "playback.stop",
-              url: mediaUrl(playback.started, MEDIA_ROUTES.stop),
-              method: "POST",
-              body: Option.some(body),
-              bearer: Option.none(),
-            },
-            Schema.Null,
-          ),
-        ),
-        Effect.asVoid,
-      ),
+      Effect.gen(function* () {
+        yield* requestPlayback(
+          {
+            operation: "playback.stop",
+            url: yield* mediaUrl(playback.started, MEDIA_ROUTES.stop),
+            method: "POST",
+            body: Option.some(
+              yield* encodeJson(StopRequest, {
+                token: Redacted.make(playback.started.token),
+                streamId,
+              }),
+            ),
+            bearer: Option.none(),
+          },
+          Schema.Null,
+        );
+      }),
   });
 
 /**

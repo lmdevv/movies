@@ -106,6 +106,17 @@ check "the image's CLI reports the release version" '[[ "$(in_movies movies --ve
 check "the image's CLI signs in to its own stack" \
   'printf %s stack-test-password | in_movies movies login --email owner@movies.test --password >/dev/null'
 check "the image's CLI calls its own stack" 'in_movies movies whoami | grep -qF "owner@movies.test"'
+# The host publishes the media service on another port than the container's 8080, so the public
+# URL does not answer inside the container. The CLI negotiates at its own media URL and prints the
+# public stream URL, which plays from the host.
+check "the stack publishes media on another port than 8080" '[[ "$movies_port" != 8080 ]]'
+played="$(in_movies movies play "Big Buck Fixture")" ||
+  { echo "check failed: the image's CLI plays in its own stack" >&2; exit 1; }
+play_url="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).url)' "$played")"
+echo "ok: the image's CLI plays in its own stack: $play_url"
+check "the image's CLI plays at the public URL" '[[ "$play_url" == "$MOVIES_PUBLIC_URL/"* ]]'
+check "the printed stream URL plays from the host" \
+  '[[ "$(curl -fsS -r 0-0 -o /dev/null -w "%{http_code}" "$play_url")" =~ ^20[06]$ ]]'
 check "the CLI login is private, in the data volume" \
   '[[ "$(in_movies stat -c "%a" /data/config/movies/config.json)" == 600 ]]'
 
