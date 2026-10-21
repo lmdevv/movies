@@ -54,7 +54,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
       ;
     pnpm = pnpm_12;
     fetcherVersion = 4;
-    hash = "sha256-5zSNJep+IEfBArXlxmd7VcXE8adBIeYmo6Dj8OrfR0A=";
+    hash = "sha256-Bnt3lo8DMxFZ+/uhKbVV3qTPBNzWQIfF9sGD5HIYO9Y=";
   };
 
   nativeBuildInputs = [
@@ -72,8 +72,9 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
   installPhase = ''
     runHook preInstall
-    install -Dm644 apps/cli/dist/movies.js "$out/lib/movies/movies.js"
-    makeWrapper ${lib.getExe nodejs_24} "$out/bin/movies" --add-flags "$out/lib/movies/movies.js"
+    install -Dm644 apps/cli/dist/movies.js "$out/lib/movies/movies.mjs"
+    install -Dm644 apps/cli/dist/THIRD_PARTY_LICENSES.md -t "$out/share/doc/movies-cli"
+    makeWrapper ${lib.getExe nodejs_24} "$out/bin/movies" --add-flags "$out/lib/movies/movies.mjs"
     runHook postInstall
   '';
 

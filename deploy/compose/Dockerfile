@@ -36,7 +36,8 @@ RUN pnpm --filter @movies/backend deploy --prod --legacy /out/backend \
  && cp -r apps/media/dist /out/media/dist \
  && cp apps/media/scripts/configure-web.ts /out/media/scripts/ \
  && cp -r apps/web/dist /out/web \
- && install -D -m 644 apps/cli/dist/movies.js /out/cli/movies.js
+ && install -D -m 644 apps/cli/dist/movies.js /out/cli/movies.mjs \
+ && install -m 644 apps/cli/dist/THIRD_PARTY_LICENSES.md /out/cli/
 
 FROM ${NODE_IMAGE}
 ARG TARGETARCH

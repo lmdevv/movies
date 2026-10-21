@@ -44,7 +44,8 @@ pnpm --filter @movies/cli test:stack        # the built binary against scripts/d
   `watch-commands.ts` (search, play, progress, continue), `room-commands.ts`, and
   `admin-commands.ts` (scan, import, backup, restore).
 - The bundle inlines the workspace packages and every dependency, so the published package has no
-  runtime dependencies. Releases publish it from `.github/workflows/release.yml`
+  runtime dependencies; each build writes their licenses to `dist/THIRD_PARTY_LICENSES.md`, which
+  ships beside every copy. Releases publish it from `.github/workflows/release.yml`
   ([docs/operations.md](https://github.com/lmdevv/movies/blob/main/docs/operations.md#releasing)).
 
 The CLI parses argv with `node:util` rather than `effect/cli`, which is an unstable module the

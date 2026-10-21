@@ -1,16 +1,20 @@
 /**
  * Builds the standalone `movies` executable for this machine's OS and CPU, a Node single executable
  * application: a copy of the running `node` with the CLI injected, so it runs without Node
- * installed. Writes `dist/sea/movies-<os>-<arch>` (such as `movies-linux-x64`) and signs it ad hoc
- * on macOS, which Apple silicon requires. The release workflow runs it on each target's runner.
+ * installed. Writes `dist/sea/movies-<os>-<arch>` (such as `movies-linux-x64`), signed ad hoc on
+ * macOS, which Apple silicon requires, and `dist/sea/THIRD_PARTY_LICENSES.md`. The release
+ * workflow runs it on each target's runner.
  *
  *   node scripts/build-sea.ts
  */
 import { execFileSync } from "node:child_process";
 import { chmod, copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
+
+import { writeThirdPartyLicenses } from "./licenses.ts";
 
 const root = join(import.meta.dirname, "..");
 
@@ -24,6 +28,8 @@ const config = join(out, "sea-config.json");
 
 const executable = join(out, `movies-${process.platform}-${process.arch}`);
 
+const postject = fileURLToPath(import.meta.resolve("postject/dist/cli.js"));
+
 const darwin = process.platform === "darwin";
 
 const run = (command: string, args: ReadonlyArray<string>): void => {
@@ -35,7 +41,7 @@ await rm(out, { recursive: true, force: true });
 await mkdir(out, { recursive: true });
 
 // Node 24 runs a single executable's entry point as CommonJS only.
-await build({
+const { metafile } = await build({
   entryPoints: [join(root, "src", "main.ts")],
   outfile: main,
   bundle: true,
@@ -44,7 +50,10 @@ await build({
   target: `node${process.versions.node}`,
   legalComments: "none",
   logLevel: "warning",
+  metafile: true,
 });
+
+await writeThirdPartyLicenses(metafile, join(out, "THIRD_PARTY_LICENSES.md"));
 
 await writeFile(
   config,
@@ -59,9 +68,8 @@ await chmod(executable, 0o755);
 
 if (darwin) run("codesign", ["--remove-signature", executable]);
 
-run("npx", [
-  "--yes",
-  "postject@1.0.0-alpha.6",
+run(process.execPath, [
+  postject,
   executable,
   "NODE_SEA_BLOB",
   blob,
