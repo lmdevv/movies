@@ -61,13 +61,27 @@ const authLayer = Layer.succeed(
 
 const now = Date.now();
 
-const line = (message: string, offsetMs: number, annotations: Readonly<Record<string, string>>) =>
+const line = (
+  message: string,
+  offsetMs: number,
+  annotations: Readonly<Record<string, string>>,
+  level = "INFO",
+) =>
   JSON.stringify({
     message,
-    level: "INFO",
+    level,
     timestamp: new Date(now - 60_000 + offsetMs).toISOString(),
     annotations,
     spans: {},
+  });
+
+/** `count` lines `make` writes, flushed to the log. */
+const appendMany = (count: number, make: (index: number) => string) =>
+  Effect.gen(function* () {
+    const { logs } = yield* Server;
+
+    for (let index = 0; index < count; index += 1) logs.append(make(index));
+    yield* logs.flush;
   });
 
 const SEED = [
@@ -279,6 +293,63 @@ layer(serverLayer, { timeout: 30_000 })("log and diagnostics routes", (it) => {
 
       assert.deepStrictEqual(member, ["session_b"]);
       assert.sameMembers(admin, ["session_a", "session_b"]);
+    }),
+  );
+
+  it.effect("keep a long session's start in its timeline, past its debug records", () =>
+    Effect.gen(function* () {
+      const { logs } = yield* Server;
+
+      logs.append(line(LogEvent.streamStarted, 4000, { sessionId: "session_c", userId: "user_a" }));
+      yield* appendMany(5001, (index) =>
+        line(
+          LogEvent.segmentServed,
+          4001 + index,
+          { sessionId: "session_c", userId: "user_a", segment: String(index) },
+          "DEBUG",
+        ),
+      );
+
+      const timeline = yield* timelineOf(
+        yield* post("/api/diagnostics/playback", MEMBER, { sessionId: "session_c" }),
+      );
+
+      assert.include(
+        timeline.entries.map((entry) => entry.kind),
+        "stream-started",
+      );
+    }),
+  );
+
+  it.effect("list a member's sessions past other accounts' busy traffic", () =>
+    Effect.gen(function* () {
+      const { logs } = yield* Server;
+
+      logs.append(line(LogEvent.streamStarted, 5000, { sessionId: "session_f", userId: "user_a" }));
+      yield* appendMany(5001, (index) =>
+        line(LogEvent.streamStarted, 5001 + index, {
+          sessionId: `busy_${String(index)}`,
+          userId: "user_b",
+        }),
+      );
+
+      const member = yield* sessionIdsOf(yield* post("/api/diagnostics/sessions", MEMBER, {}));
+
+      assert.isTrue(member.some((sessionId) => sessionId === "session_f"));
+    }),
+  );
+
+  it.effect("limit how often one account reads diagnostics", () =>
+    Effect.gen(function* () {
+      const answers = yield* Effect.forEach(Array.from({ length: 30 }), () =>
+        post("/api/diagnostics/sessions", OTHER, {}),
+      );
+
+      const limited = yield* Effect.fromOption(
+        Option.fromNullishOr(answers.find((answer) => answer.status === 429)),
+      ).pipe(Effect.orDie);
+
+      assert.strictEqual((yield* failureOf(limited)).code, "rate_limited");
     }),
   );
 });

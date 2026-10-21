@@ -9,6 +9,7 @@ import { commands } from "@movies/contracts/commands";
 import {
   type DiagnosedSession,
   LOG_LEVELS,
+  MAX_LOG_LIMIT,
   type LogLevel,
   type LogQuery,
   LogRecord,
@@ -189,10 +190,13 @@ const logQuery = Effect.fn("Logs.query")(function* (invocation: Invocation) {
     onSome: (raw) => {
       const value = Number(raw);
 
-      return Number.isInteger(value) && value >= 1 && value <= 5000
+      return Number.isInteger(value) && value >= 1 && value <= MAX_LOG_LIMIT
         ? Effect.succeedSome(value)
         : Effect.fail(
-            usage(invocation, `--limit expects a whole number from 1 to 5000, got "${raw}"`),
+            usage(
+              invocation,
+              `--limit expects a whole number from 1 to ${String(MAX_LOG_LIMIT)}, got "${raw}"`,
+            ),
           );
     },
   });
@@ -251,7 +255,7 @@ const logs: ShortcutCommand = {
 
       if (found.truncated) {
         yield* output.err(
-          "Older records may match too: narrow it with --since or raise --limit (up to 5000).",
+          `Older records may match too: narrow it with --since or raise --limit (up to ${String(MAX_LOG_LIMIT)}).`,
         );
       }
 

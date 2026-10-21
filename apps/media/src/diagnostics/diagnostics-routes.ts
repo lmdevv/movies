@@ -4,10 +4,13 @@
  * `diagnostics.sessions` (`POST /api/diagnostics/sessions`), the sessions the log mentions. A
  * session holding the `admin` scope reads every session; any other reads only sessions whose
  * records all name its own account, and another account's session is `NotFound`, as if it did
- * not exist.
+ * not exist. Both read at `INFO` and above, where every playback event is, so `DEBUG` records never
+ * crowd a session's events out of the read limit. A read can scan the whole retained log, so an
+ * account without the `admin` scope may read a few times a minute; admins, who may read the log
+ * itself, are not limited.
  */
-import { MAX_LOG_LIMIT } from "@movies/contracts/diagnostics";
-import { NotFound } from "@movies/contracts/errors";
+import { type LogQuery, MAX_LOG_LIMIT } from "@movies/contracts/diagnostics";
+import { NotFound, RateLimited } from "@movies/contracts/errors";
 import { EpochMillis } from "@movies/contracts/units";
 import type { Viewer } from "@movies/contracts/models/account";
 import { Clock, Duration, Effect, FileSystem, Layer, Option, Path } from "effect";
@@ -15,6 +18,7 @@ import type { HttpRouter } from "effect/http";
 
 import type * as ViewerAuth from "../convex/viewer-auth.ts";
 import { commandRoute } from "../http/command-routes.ts";
+import { makeLimiter } from "../http/rate-limit.ts";
 import * as LogReader from "../logging/log-reader.ts";
 import * as RetainedLogs from "../logging/retained-logs.ts";
 import { ownersOf, sessionsOf, timelineOf } from "./timeline.ts";
@@ -24,6 +28,9 @@ const RECENT = Duration.days(1);
 
 /** The most sessions `diagnostics.sessions` lists. */
 const MAX_SESSIONS = 50;
+
+/** Reads one account may make at once, and how many more each second after that. */
+const READ_BUDGET = { burst: 10, perSecond: 0.2 };
 
 const isAdmin = (viewer: Viewer): boolean => viewer.scopes.includes("admin");
 
@@ -42,8 +49,31 @@ export const layer: Layer.Layer<
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
-    const read = (query: Parameters<typeof LogReader.read>[0]) =>
-      LogReader.read(query).pipe(
+    const take = makeLimiter();
+
+    const allowRead = (viewer: Viewer) =>
+      Clock.currentTimeMillis.pipe(
+        Effect.flatMap((now) =>
+          Option.match(isAdmin(viewer) ? Option.none() : take(viewer.user.id, READ_BUDGET, now), {
+            onNone: () => Effect.void,
+            onSome: (seconds) =>
+              Effect.fail(
+                new RateLimited({
+                  message: `Too many diagnostics reads: try again in ${String(seconds)} s`,
+                }),
+              ),
+          }),
+        ),
+      );
+
+    const read = (filter: Pick<LogQuery, "sessionId" | "since" | "grep">) =>
+      LogReader.read({
+        sessionId: filter.sessionId,
+        since: filter.since,
+        grep: filter.grep,
+        level: "INFO",
+        limit: MAX_LOG_LIMIT,
+      }).pipe(
         Effect.scoped,
         Effect.provideService(RetainedLogs.Service, retained),
         Effect.provideService(FileSystem.FileSystem, fs),
@@ -53,7 +83,8 @@ export const layer: Layer.Layer<
     yield* commandRoute(
       "diagnostics.playback",
       Effect.fn("DiagnosticsRoutes.playback")(function* ({ sessionId }, viewer) {
-        const found = yield* read({ sessionId, limit: MAX_LOG_LIMIT });
+        yield* allowRead(viewer);
+        const found = yield* read({ sessionId });
         const records = found.matches.map((match) => match.record);
         const owners = ownersOf(records);
 
@@ -75,12 +106,13 @@ export const layer: Layer.Layer<
     yield* commandRoute(
       "diagnostics.sessions",
       Effect.fn("DiagnosticsRoutes.sessions")(function* ({ since }, viewer) {
+        yield* allowRead(viewer);
         const now = yield* Clock.currentTimeMillis;
 
+        // A member's records all carry its account ID, so other accounts' traffic is skipped.
         const found = yield* read({
           since: since ?? EpochMillis.make(Math.max(0, now - Duration.toMillis(RECENT))),
-          grep: '"sessionId"',
-          limit: MAX_LOG_LIMIT,
+          grep: isAdmin(viewer) ? '"sessionId"' : viewer.user.id,
         });
 
         return sessionsOf(found.matches.map((match) => match.record))

@@ -199,7 +199,7 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
   NDJSON. It needs an admin session. The service streams it as NDJSON from `POST /api/logs` and
   answers at most 5000 records before following.
 - A failed media request (any 4xx or 5xx on `/media/`) logs `MediaRoutes.request_failed` at `WARN`
-  with its playback session, and every HLS segment logs how long it took, split into waiting for
+  with its playback session (at `DEBUG` when its token does not verify), and every HLS segment logs how long it took, split into waiting for
   the encoder, reading the disk, and writing to the network: `MediaRoutes.slow_segment` at `WARN`
   from one second, `MediaRoutes.segment` at `DEBUG` below. Stream starts, encoder restarts, mode
   changes, and ends (with the reason, such as `idle`) log at `INFO`.
@@ -207,7 +207,7 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
   load times, and recoveries to `POST /api/playback/diagnostics` with their playback token, in
   batches the service validates and limits per session. They land in the same log as `Player.*`
   records. `movies diagnostics playback <session-id>` builds a session's timeline from both sides;
-  admins read any session and other accounts only their own. Audio/video drift is not measured:
+  admins read any session and other accounts only their own, a few times a minute. Audio/video drift is not measured:
   no player reports it.
 - With `OTEL_EXPORTER_OTLP_ENDPOINT` (Compose) or `otlpEndpoint` (NixOS) set to an OTLP/HTTP
   collector, the media service exports traces and logs: library scans, playback negotiation, the

@@ -6,8 +6,8 @@
  * download tokens. Expected failures become JSON bodies encoded with their error schema and
  * status.
  *
- * Every answer with a 4xx or 5xx status logs `MediaRoutes.request_failed` at `WARN`, with the
- * session once the token is verified. Every HLS segment logs how long it took, split into waiting
+ * Every answer with a 4xx or 5xx status logs `MediaRoutes.request_failed`: at `WARN` with the
+ * session once the token is verified, at `DEBUG` for a token that is not. Every HLS segment logs how long it took, split into waiting
  * for the encoder, reading the disk, and writing to the network: at `WARN` from one second
  * (`MediaRoutes.slow_segment`), at `DEBUG` below.
  */
@@ -189,7 +189,7 @@ type Remember = (grant: PlaybackToken.PlaybackGrant) => Effect.Effect<void>;
 /**
  * Runs a media route: failures become their error responses, and any answer with a 4xx or 5xx
  * status logs `MediaRoutes.request_failed` with the route, the stream in the path, and the
- * session of the verified token.
+ * session of the verified token; at `DEBUG` when no token was verified.
  */
 const observed = <R>(
   route: string,
@@ -214,7 +214,12 @@ const observed = <R>(
     if (answer.response.status >= 400) {
       const grant = yield* Ref.get(verified);
 
-      yield* Effect.logWarning(LogEvent.requestFailed).pipe(
+      // Anyone can send a bad token; only a player's own failures may fill the retained log.
+      yield* (
+        Option.isSome(grant)
+          ? Effect.logWarning(LogEvent.requestFailed)
+          : Effect.logDebug(LogEvent.requestFailed)
+      ).pipe(
         Effect.annotateLogs({
           route,
           status: answer.response.status,

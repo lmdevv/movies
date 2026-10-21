@@ -828,6 +828,30 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
       }),
     );
 
+    it.effect("logs a refused token below WARN, so no stranger can flood the log", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+
+        const refused = yield* get(
+          `${server.baseUrl}/media/hls/AAAAAAAAAAAAAAAAAAAAAA/1/0.m4s?token=v1.forged.token`,
+        );
+
+        assert.strictEqual(refused.status, 401);
+
+        const logged = server
+          .logged()
+          .filter(
+            (entry) =>
+              entry.message === "MediaRoutes.request_failed" && entry.annotations["status"] === 401,
+          );
+
+        assert.deepStrictEqual(
+          logged.map((entry) => entry.level),
+          ["DEBUG"],
+        );
+      }),
+    );
+
     it.effect("takes a player's events, and refuses batches outside the limits", () =>
       Effect.gen(function* () {
         const server = yield* MediaTestServer.Service;
