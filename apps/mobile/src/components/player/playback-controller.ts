@@ -244,7 +244,6 @@ export class PlayerController {
     void this.port.play();
   }
 
-  /** Starts recording what AVPlayer sees; nothing it needs is a service, so it starts at once. */
   #diagnose(): void {
     const scope = Scope.makeUnsafe();
 
@@ -263,9 +262,17 @@ export class PlayerController {
     this.#diagnostics = { recorder, scope };
   }
 
-  /** Records what AVPlayer saw, for a streamed session. */
   #observe(observation: PlayerObservation): void {
     this.#diagnostics?.recorder.record(observation);
+  }
+
+  /** Stops recording and sends what was recorded since the last batch. */
+  #closeDiagnostics(): void {
+    const diagnostics = this.#diagnostics;
+
+    this.#diagnostics = null;
+
+    if (diagnostics !== null) void Effect.runPromise(Scope.close(diagnostics.scope, Exit.void));
   }
 
   /** Names what plays on the lock screen and in Control Center, from the next stream on. */
@@ -720,12 +727,7 @@ export class PlayerController {
     clearTimeout(this.#renewTimer);
     this.#unsubscribePort();
 
-    // Sends what is left before the port lets go of the player.
-    const diagnostics = this.#diagnostics;
-
-    this.#diagnostics = null;
-
-    if (diagnostics !== null) void Effect.runPromise(Scope.close(diagnostics.scope, Exit.void));
+    this.#closeDiagnostics();
 
     // Before releasing the players: the exit report reads the port afterwards.
     this.port.dispose();

@@ -89,8 +89,6 @@ const runWriting = (
     const dataDir = yield* fs.makeTempDirectoryScoped({ prefix: "movies-observability-" });
     const lines: Array<string> = [];
 
-    // The layer's scope closes before the lines are returned, which flushes any exporter and the
-    // retained log.
     yield* Effect.gen(function* () {
       const context = yield* Layer.build(
         Layer.provideMerge(

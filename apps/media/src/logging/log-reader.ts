@@ -9,11 +9,11 @@ import type { LogQuery, LogRecord } from "@movies/contracts/diagnostics";
 import { Effect, FileSystem, Option, Path, Stream } from "effect";
 
 import { redactJsonText } from "../observability.ts";
+import { isNotFound } from "../platform/file-info.ts";
 import type { LogFile } from "./log-files.ts";
 import { decodeRecord, matches, mayMatch } from "./log-query.ts";
 import * as RetainedLogs from "./retained-logs.ts";
 
-/** The records a query asks for when it names no limit. */
 const DEFAULT_LOG_LIMIT = 500;
 
 /** One matching line and its record. */
@@ -32,12 +32,10 @@ interface Found {
   readonly live: Stream.Stream<string>;
 }
 
-/** Whether `file` may hold records inside the query's time window. */
 const overlaps = (file: LogFile, query: LogQuery): boolean =>
   (query.since === undefined || file.modifiedAt >= query.since) &&
   (query.until === undefined || file.createdAt < query.until);
 
-/** The decoded record of `line` when it matches `query`. */
 const matchLine = (query: LogQuery, line: string): Option.Option<Match> =>
   mayMatch(query, line)
     ? decodeRecord(line).pipe(
@@ -45,6 +43,9 @@ const matchLine = (query: LogQuery, line: string): Option.Option<Match> =>
         Option.map((record) => ({ line: redactJsonText(line), record })),
       )
     : Option.none();
+
+/** What a file that retention deleted after the snapshot holds. */
+const nothingFound = () => ({ kept: Array.of<Match>(), total: 0 });
 
 /** Reads the retained log for `query`; following lasts as long as the scope. */
 export const read = Effect.fn("LogReader.read")(function* (query: LogQuery) {
@@ -72,8 +73,13 @@ export const read = Effect.fn("LogReader.read")(function* (query: LogQuery) {
           return { kept: state.kept, total: state.total + 1 };
         },
       ),
-      // Retention may delete a file between the snapshot and this read.
-      Effect.orElseSucceed(() => ({ kept: Array.of<Match>(), total: 0 })),
+      Effect.catchIf(isNotFound, () => Effect.sync(nothingFound)),
+      Effect.catch((error) =>
+        Effect.logWarning("LogReader.unreadable", error.message).pipe(
+          Effect.annotateLogs({ file: file.name }),
+          Effect.map(nothingFound),
+        ),
+      ),
     );
 
   const collected: Array<Match> = [];

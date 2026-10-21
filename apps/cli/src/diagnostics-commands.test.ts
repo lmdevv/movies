@@ -40,6 +40,21 @@ describe("log flags", () => {
 });
 
 describe("log lines for people", () => {
+  it("never prints a control character a player sent, such as a terminal escape", () => {
+    const line = JSON.stringify({
+      message: "Player.error",
+      level: "WARN",
+      timestamp: "2026-10-21T20:01:02.123Z",
+      annotations: { detail: "\u001b[2Jcleared", kind: "x\u0007y" },
+      spans: {},
+    });
+
+    const printed = formatLogLine(line);
+
+    expect(printed).not.toMatch(/\p{Cc}/u);
+    expect(printed).toContain(String.raw`detail="\u001b[2Jcleared"`);
+  });
+
   it("prints time, level, event, and fields, quoting text with spaces", () => {
     const line = JSON.stringify({
       message: "MediaRoutes.slow_segment",

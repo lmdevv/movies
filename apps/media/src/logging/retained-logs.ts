@@ -84,7 +84,6 @@ interface OpenFile {
 
 const encoder = new TextEncoder();
 
-/** A record in the log's own format saying how many lines were dropped. */
 const droppedLine = (count: number, now: number): string =>
   JSON.stringify({
     message: "RetainedLogs.dropped",
@@ -154,7 +153,6 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
     yield* Ref.set(lastPrune, now);
   });
 
-  /** Closes the current file and opens one named for `now`, then applies retention. */
   const rotate = Effect.fnUntraced(function* (now: number) {
     const previous = yield* Ref.getAndSet(current, Option.none());
 
@@ -164,7 +162,6 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
 
     while (yield* fs.exists(path.join(settings.directory, fileName(createdAt)))) createdAt += 1;
 
-    // Closed by rotation or, after the last flush, by the finalizer below; never before that flush.
     const fileScope = yield* Scope.make("sequential");
     const name = fileName(createdAt);
 
@@ -195,7 +192,6 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
     yield* Ref.set(current, Option.some({ ...file, sizeBytes: file.sizeBytes + bytes.length }));
   });
 
-  /** Writes and publishes the queued lines. Call with the lock held. */
   const flushLocked = Effect.gen(function* () {
     const queued = yield* Queue.clear(pending);
     const now = yield* Clock.currentTimeMillis;

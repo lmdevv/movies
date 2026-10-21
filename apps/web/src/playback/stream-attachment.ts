@@ -35,6 +35,26 @@ const fragmentLoaded = ({ frag }: FragLoadedData): PlayerObservation | null => {
   });
 };
 
+/** A stream failure in a sentence. */
+export const describeFailure = (failure: StreamFailure): string => {
+  if (failure.kind === "http")
+    return `A media request was answered with HTTP ${String(failure.status)}`;
+
+  return failure.kind === "media"
+    ? "The browser could not demux or decode the stream"
+    : "A media request got no answer";
+};
+
+/** What the element's own failure looks like to the service. */
+export const failureObservation = (failure: StreamFailure): PlayerObservation =>
+  PlayerObservation.cases.PlayerError.make({
+    source: "html-video",
+    kind: failure.kind,
+    detail: describeFailure(failure),
+    fatal: true,
+    status: failure.kind === "http" ? failure.status : undefined,
+  });
+
 /** An hls.js error as the diagnostics record it, recovered or not. */
 const hlsError = (data: ErrorData): PlayerObservation =>
   PlayerObservation.cases.PlayerError.make({
@@ -101,9 +121,14 @@ const attachToElement = (
   url: string,
   seconds: number,
   onFailure: (failure: StreamFailure) => void,
+  observe: Observe,
 ): AttachedStream => {
   const onError = (): void => {
-    onFailure(element.error?.code === MEDIA_ERR_NETWORK ? { kind: "network" } : { kind: "media" });
+    const failure: StreamFailure =
+      element.error?.code === MEDIA_ERR_NETWORK ? { kind: "network" } : { kind: "media" };
+
+    observe(failureObservation(failure));
+    onFailure(failure);
   };
 
   element.addEventListener("error", onError);
@@ -240,7 +265,7 @@ const attachHlsJs = async (
 /**
  * Plays `stream` in `element` from `seconds`. `onFailure` hears about failures the stream cannot
  * recover from by itself; hls.js retries busy answers (503) on its own first. `observe` hears
- * hls.js segment loads, errors, and recoveries.
+ * the element's failures, and hls.js segment loads, errors, and recoveries.
  */
 export const attachStream = (
   element: HTMLVideoElement,
@@ -252,4 +277,4 @@ export const attachStream = (
 ): Promise<AttachedStream> =>
   stream.mode !== "direct" && hlsJs
     ? attachHlsJs(element, stream.url, seconds, onFailure, observe)
-    : Promise.resolve(attachToElement(element, stream.url, seconds, onFailure));
+    : Promise.resolve(attachToElement(element, stream.url, seconds, onFailure, observe));

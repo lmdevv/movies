@@ -35,13 +35,7 @@ import { MoviesClient, Playback, PlayerDiagnostics } from "@movies/sdk/effect";
 import { Data, Effect, Exit, Option, Predicate, Result, Scope } from "effect";
 
 import { withoutFailedPath } from "./capabilities";
-import {
-  bufferedAheadSeconds,
-  describeFailure,
-  failureObservation,
-  frameCounts,
-  recoveryObservation,
-} from "./diagnostics";
+import { bufferedAheadSeconds, frameCounts, recoveryObservation } from "./diagnostics";
 import type { QualityChoice } from "./quality";
 import { qualityCap } from "./quality";
 import { ELEMENT_SEEKER, MediaElementPlayer, isBuffered } from "./media-element-player";
@@ -56,7 +50,7 @@ import {
   offersResume,
 } from "./playback-policy";
 import type { AttachedStream, Observe, StreamFailure } from "./stream-attachment";
-import { attachStream, preloadHlsJs } from "./stream-attachment";
+import { attachStream, describeFailure, preloadHlsJs } from "./stream-attachment";
 import { RENEW_BEFORE_MS, inGeneration, runSdk } from "./sdk-calls";
 import type { Runtime } from "./sdk-calls";
 import { SubtitleRetimer, clampSubtitleDelay } from "./subtitle-timing";
@@ -530,15 +524,13 @@ export class PlaybackController {
     });
     this.#scheduleRenewal(stream);
 
-    const engine = stream.mode !== "direct" && this.#hlsJs ? "hls.js" : "element";
-
     const attached = await attachStream(
       this.#element,
       stream,
       stream.startSeconds,
       this.#hlsJs,
       (failure) => {
-        if (generation === this.#generation) this.#onStreamFailure(failure, engine);
+        if (generation === this.#generation) this.#onStreamFailure(failure);
       },
       (observation) => {
         if (generation === this.#generation) this.#observe(observation);
@@ -703,13 +695,10 @@ export class PlaybackController {
     void this.#renegotiate(playback, positionMs, this.#snapshot.audioStreamIndex, { play });
   }
 
-  #onStreamFailure(failure: StreamFailure, engine: "hls.js" | "element"): void {
-    // hls.js reports its own errors as it sees them.
-    if (engine === "element") this.#observe(failureObservation(failure, engine));
+  #onStreamFailure(failure: StreamFailure): void {
     void this.#follow(afterStreamFailure(failure), this.positionMs(), describeFailure(failure));
   }
 
-  /** Records what the player saw, while the session reports. */
   readonly #observe: Observe = (observation) => {
     this.#diagnostics?.record(observation);
   };
@@ -1203,7 +1192,6 @@ export class PlaybackController {
     void this.#runtime.runPromiseExit(
       Scope.provide(scope)(Playback.reportProgress(playback, this.output)),
     );
-    // Starting the recorder needs no service, so it records from the first attach on.
     this.#diagnostics = Effect.runSync(
       Scope.provide(scope)(
         PlayerDiagnostics.reportDiagnostics(this.player, {

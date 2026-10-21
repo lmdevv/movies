@@ -16,8 +16,8 @@ import {
   MAX_CLIENT_EVENTS,
   PlayerObservation,
 } from "@movies/contracts/diagnostics";
-import type { StreamId } from "@movies/contracts/media-playback";
 import {
+  Array as Arr,
   Clock,
   Duration,
   Effect,
@@ -53,7 +53,10 @@ export interface FrameCounts {
 /** Where the recorder sends events and what it samples on its own. */
 export interface Options {
   readonly platform: ClientPlatform;
-  /** The playback whose token sends a batch and whose stream an event belongs to, if one plays. */
+  /**
+   * The playback playing now, if one does. An event goes out with the token of the playback that
+   * played when it happened, which stays good for its session's last events once it ended.
+   */
   readonly playback: () => Option.Option<Playback>;
   /** Seconds the player holds ahead of its position. */
   readonly bufferedAheadSeconds: () => number;
@@ -73,11 +76,11 @@ const MAX_PENDING = 500;
 /** The service refuses events older than this. */
 const MAX_AGE_MS = 600_000;
 
-/** An observation waiting to be sent: what happened, when, and in which stream. */
+/** An observation waiting to be sent: what happened, when, and during which playback. */
 interface Pending {
   readonly observation: PlayerObservation;
   readonly at: number;
-  readonly streamId: Option.Option<StreamId>;
+  readonly playback: Playback;
 }
 
 /** `pending` as the events of a batch sent at `now`, leaving out those too old to send. */
@@ -85,20 +88,19 @@ const toEvents = (
   pending: ReadonlyArray<Pending>,
   now: number,
 ): ReadonlyArray<ClientDiagnosticEvent> =>
-  pending.flatMap(({ observation, at, streamId }): ReadonlyArray<ClientDiagnosticEvent> => {
+  pending.flatMap(({ observation, at, playback }): ReadonlyArray<ClientDiagnosticEvent> => {
     const ageMs = Math.max(0, Math.round(now - at));
 
     if (ageMs > MAX_AGE_MS) return [];
 
     return [
-      Option.match(streamId, {
+      Option.match(Option.fromNullishOr(playback.stream.streamId), {
         onNone: () => ({ ageMs, observation }),
         onSome: (id) => ({ ageMs, streamId: id, observation }),
       }),
     ];
   });
 
-/** The batches `events` go out in. */
 const batches = <A>(events: ReadonlyArray<A>): ReadonlyArray<ReadonlyArray<A>> =>
   Array.from({ length: Math.ceil(events.length / MAX_CLIENT_EVENTS) }, (_, index) =>
     events.slice(index * MAX_CLIENT_EVENTS, (index + 1) * MAX_CLIENT_EVENTS),
@@ -146,22 +148,23 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   const clock = yield* Clock.Clock;
   const queue = yield* Queue.sliding<Pending>(MAX_PENDING);
   const counted = yield* Ref.make<FrameCounts>({ dropped: 0, decoded: 0 });
-  /** One batch goes out at a time, and the last one waits for any still on its way. */
-  const sending = yield* Semaphore.make(1);
+  const oneBatchAtATime = yield* Semaphore.make(1);
   /** When the current stall began; none while playing. Player events change it as they fire. */
   const stall = { since: Option.none<number>() };
 
+  /** Keeps `observation` for the next batch; with no playback playing there is no one to tell. */
   const note = (observation: PlayerObservation): void => {
-    Queue.offerUnsafe(queue, {
-      observation,
-      at: clock.currentTimeMillisUnsafe(),
-      streamId: Option.flatMap(options.playback(), (playback) =>
-        Option.fromNullishOr(playback.stream.streamId),
-      ),
-    });
+    const playback = options.playback();
+
+    if (Option.isSome(playback)) {
+      Queue.offerUnsafe(queue, {
+        observation,
+        at: clock.currentTimeMillisUnsafe(),
+        playback: playback.value,
+      });
+    }
   };
 
-  /** Where the player is, for the stall events. */
   const where = () => ({
     positionSeconds: Math.max(0, player.positionMs() / 1000),
     bufferedAheadSeconds: Math.max(0, options.bufferedAheadSeconds()),
@@ -185,7 +188,6 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
     }
   };
 
-  /** Notes the frames dropped since the last sample, if any were. */
   const sampleFrames = Effect.gen(function* () {
     const counts = options.frames();
 
@@ -199,20 +201,17 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
       note(PlayerObservation.cases.DroppedFrames.make({ dropped, decoded }));
   });
 
-  const flush = sending.withPermits(1)(
+  const flush = oneBatchAtATime.withPermits(1)(
     Effect.gen(function* () {
       yield* sampleFrames;
-      const playback = options.playback();
-
-      if (Option.isNone(playback)) return;
       const pending = yield* Queue.clear(queue);
+      const now = yield* Clock.currentTimeMillis;
+      const byToken = Arr.groupBy(pending, (each) => each.playback.started.token);
 
-      if (pending.length === 0) return;
-
-      yield* send(
-        playback.value,
-        options.platform,
-        toEvents(pending, yield* Clock.currentTimeMillis),
+      yield* Effect.forEach(
+        Object.values(byToken),
+        (group) => send(group[0].playback, options.platform, toEvents(group, now)),
+        { discard: true },
       );
     }),
   );

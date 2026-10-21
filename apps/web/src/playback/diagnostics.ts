@@ -1,8 +1,8 @@
 /**
  * What the web player tells the media service about playback (`PlayerDiagnostics` in the SDK):
- * how much the element holds ahead, the frames it dropped, and the observations for a stream
- * failure and for the recovery the controller chose. hls.js segment loads and errors are recorded
- * where hls.js runs (`stream-attachment.ts`).
+ * how much the element holds ahead, the frames it dropped, and the observation for the recovery
+ * the controller chose. Stream failures, hls.js segment loads, and hls.js errors are recorded where
+ * the stream plays (`stream-attachment.ts`).
  */
 import { PlayerObservation, type RecoveryAction } from "@movies/contracts/diagnostics";
 import type { PlayerDiagnostics } from "@movies/sdk/effect";
@@ -10,7 +10,6 @@ import { Option } from "effect";
 
 import type { TimeRangesLike } from "./media-element-player";
 import { PlaybackStep } from "./playback-policy";
-import type { StreamFailure } from "./stream-attachment";
 
 /** The parts of a `<video>` element the diagnostics read. */
 export interface DiagnosedElement {
@@ -44,29 +43,6 @@ export const frameCounts = (
     const counts = quality.call(element);
 
     return { dropped: counts.droppedVideoFrames, decoded: counts.totalVideoFrames };
-  });
-
-/** A stream failure in a sentence. */
-export const describeFailure = (failure: StreamFailure): string => {
-  if (failure.kind === "http")
-    return `A media request was answered with HTTP ${String(failure.status)}`;
-
-  return failure.kind === "media"
-    ? "The browser could not demux or decode the stream"
-    : "A media request got no answer";
-};
-
-/** What a failure of the stream in the element looks like to the service. */
-export const failureObservation = (
-  failure: StreamFailure,
-  engine: "hls.js" | "element",
-): PlayerObservation =>
-  PlayerObservation.cases.PlayerError.make({
-    source: engine === "hls.js" ? "hls.js" : "html-video",
-    kind: failure.kind,
-    detail: describeFailure(failure),
-    fatal: true,
-    status: failure.kind === "http" ? failure.status : undefined,
   });
 
 /** The recovery action of a step that tries again; none for one that stops. */

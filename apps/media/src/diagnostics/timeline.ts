@@ -67,7 +67,6 @@ const STREAM_END_REASONS = new Map([
   ["session-ended", "the playback session ended"],
 ]);
 
-/** Timeline rules by log message. */
 const RULES = new Map<string, Rule>([
   [
     LogEvent.streamStarted,
@@ -223,7 +222,6 @@ const occurredAt = (record: LogRecord): Option.Option<number> => {
 const messageOf = (record: LogRecord): string =>
   Predicate.isString(record.message) ? record.message : "";
 
-/** The timeline entry of `record`, when it records a playback event. */
 const entryOf = (record: LogRecord): Option.Option<TimelineEntry> => {
   const rule = RULES.get(messageOf(record));
   const fields = record.annotations;
@@ -269,7 +267,6 @@ const isPlatform = (value: Schema.Json | undefined): value is ClientPlatform =>
 const platformOf = (records: ReadonlyArray<LogRecord>): ClientPlatform | null =>
   records.map((record) => record.annotations["platform"]).find(isPlatform) ?? null;
 
-/** The gaps in what `entries` can tell. */
 const missingEvidence = (
   entries: ReadonlyArray<TimelineEntry>,
   platform: ClientPlatform | null,

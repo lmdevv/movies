@@ -1,5 +1,5 @@
 import { assert, describe, layer } from "@effect/vitest";
-import { Effect, FileSystem, Path, Schema } from "effect";
+import { Effect, FileSystem, Path, Schedule, Schema } from "effect";
 import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/http";
 
 import { artworkUrl } from "@movies/contracts/artwork";
@@ -698,7 +698,6 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           ),
         );
 
-        // The player comes back after the idle close: the refusal is logged with its session.
         const gone = yield* get(local(server.baseUrl, first.url));
 
         assert.strictEqual(gone.status, 404);
@@ -802,15 +801,18 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const { segment } = yield* fetchSegment(local(server.baseUrl, stream.url), 0);
         const body = yield* bytes(segment);
 
-        // The timing is logged once the body is sent, as the request's scope closes.
-        yield* Effect.sleep("200 millis");
-
-        const timed = server
-          .logged()
-          .find(
-            (entry) =>
-              entry.message === "MediaRoutes.segment" && entry.annotations["segment"] === 0,
-          );
+        const timed = yield* Effect.sync(() =>
+          server
+            .logged()
+            .find(
+              (entry) =>
+                entry.message === "MediaRoutes.segment" && entry.annotations["segment"] === 0,
+            ),
+        ).pipe(
+          Effect.repeat({ until: (entry) => entry !== undefined, schedule: Schedule.spaced(20) }),
+          Effect.timeout("5 seconds"),
+          Effect.orDie,
+        );
 
         assert.deepInclude(timed?.annotations, {
           route: "hls",

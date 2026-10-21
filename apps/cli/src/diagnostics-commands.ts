@@ -82,9 +82,20 @@ const clockTime = (time: number): string => {
   return `${String(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
 };
 
-/** A value as a `key=value` part: strings with spaces quoted, everything else as JSON. */
+/**
+ * `text` safe to print on one terminal line: control characters, such as an escape sequence a
+ * player put in an error message, become spaces.
+ */
+const printable = (text: string): string => text.replaceAll(/\p{Cc}/gu, " ");
+
+/**
+ * A value as a `key=value` part: strings with spaces, quotes, or control characters quoted as
+ * JSON (which escapes them), everything else as JSON.
+ */
 const fieldValue = (value: Schema.Json): string => {
-  if (Predicate.isString(value)) return /[\s"=]/u.test(value) ? JSON.stringify(value) : value;
+  if (Predicate.isString(value)) {
+    return /[\s"=\p{Cc}]/u.test(value) ? JSON.stringify(value) : value;
+  }
 
   return JSON.stringify(value);
 };
@@ -97,12 +108,12 @@ const decodeRecord = Schema.decodeUnknownOption(Schema.fromJsonString(LogRecord)
  */
 export const formatLogLine = (line: string): string =>
   Option.match(decodeRecord(line), {
-    onNone: () => line,
+    onNone: () => printable(line),
     onSome: (record) => {
       const time = Date.parse(record.timestamp);
 
       const message = Predicate.isString(record.message)
-        ? record.message
+        ? printable(record.message)
         : JSON.stringify(record.message);
 
       const fields = Object.entries(record.annotations)
@@ -120,7 +131,7 @@ export const formatLogLine = (line: string): string =>
         ? head
         : `${head}\n${record.cause
             .split("\n")
-            .map((causeLine) => `    ${causeLine}`)
+            .map((causeLine) => `    ${printable(causeLine)}`)
             .join("\n")}`;
     },
   });
@@ -244,10 +255,8 @@ const logs: ShortcutCommand = {
         );
       }
 
-      yield* found.lines.pipe(
-        // The service keeps a followed connection open with blank lines.
-        Stream.filter((line) => line.trim().length > 0),
-        Stream.runForEach((line) => output.out(json ? line : formatLogLine(line))),
+      yield* Stream.runForEach(found.lines, (line) =>
+        output.out(json ? line : formatLogLine(line)),
       );
 
       return Outcome.Printed();
@@ -280,10 +289,10 @@ export const renderTimeline = (diagnostics: PlaybackDiagnostics): string => {
       plural(counts.slowFragments, "slow segment load"),
       plural(counts.droppedFrames, "dropped frame"),
     ].join(", "),
-    `Audio/video drift: not measured. ${diagnostics.drift.reason}`,
+    `Audio/video drift: not measured. ${printable(diagnostics.drift.reason)}`,
     ...(diagnostics.missing.length === 0
       ? []
-      : ["Missing evidence:", ...diagnostics.missing.map((gap) => `  - ${gap}`)]),
+      : ["Missing evidence:", ...diagnostics.missing.map((gap) => `  - ${printable(gap)}`)]),
     "",
     ...diagnostics.entries.map((entry) =>
       [
@@ -291,7 +300,7 @@ export const renderTimeline = (diagnostics: PlaybackDiagnostics): string => {
         entry.source.padEnd(6),
         entry.level.padEnd(5),
         entry.kind.padEnd(17),
-        entry.summary,
+        printable(entry.summary),
       ].join("  "),
     ),
   ].join("\n");

@@ -3,7 +3,7 @@ import { assert, layer } from "@effect/vitest";
 import { Duration, Effect, FileSystem, Option, Path, PubSub } from "effect";
 import { TestClock } from "effect/testing";
 
-import { createdAtOf, fileName } from "./log-files.ts";
+import { createdAtOf, fileCapBytes, fileName } from "./log-files.ts";
 import * as RetainedLogs from "./retained-logs.ts";
 
 const DAY = 86_400_000;
@@ -64,19 +64,22 @@ layer(NodeServices.layer)("retained log writer", (it) => {
 
   it.effect("starts another file once the current one reaches its share of the cap", () =>
     Effect.gen(function* () {
-      // An 8 MiB cap rotates at 1 MiB.
       const { logs, directory } = yield* writerIn(8 * MEBIBYTE);
       const line = "x".repeat(64 * 1024);
+      const linesPerFile = Math.ceil(fileCapBytes(8 * MEBIBYTE) / (line.length + 1));
+      const written = linesPerFile + 4;
 
-      for (let index = 0; index < 20; index += 1) {
+      for (let index = 0; index < written; index += 1) {
         logs.append(line);
         yield* logs.flush;
       }
 
       const files = yield* linesIn(directory);
 
-      assert.strictEqual(files.length, 2);
-      assert.strictEqual(files.flatMap((entry) => entry.lines).length, 20);
+      assert.deepStrictEqual(
+        files.map((entry) => entry.lines.length),
+        [linesPerFile, written - linesPerFile],
+      );
     }).pipe(Effect.scoped),
   );
 

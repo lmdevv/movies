@@ -49,7 +49,10 @@ export type ClientError = CallError | TokenStorageError;
 export interface LogLines {
   /** Older records may match too: the query's limit was reached first. */
   readonly truncated: boolean;
-  /** One JSON record per line, oldest first; with `follow`, new records until interrupted. */
+  /**
+   * One JSON record per line, oldest first; with `follow`, new records until interrupted. The
+   * blank lines that keep a followed connection open are left out.
+   */
   readonly lines: Stream.Stream<string, TransportError>;
 }
 
@@ -213,7 +216,7 @@ export const make = Effect.fn("MoviesClient.make")(function* (options: Options) 
 
     const lines: LogLines = {
       truncated: answer.headers.get(LOG_TRUNCATED_HEADER) === "true",
-      lines: answer.lines,
+      lines: answer.lines.pipe(Stream.filter((line) => line.trim().length > 0)),
     };
 
     return lines;

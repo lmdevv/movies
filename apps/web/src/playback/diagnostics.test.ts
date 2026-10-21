@@ -4,11 +4,11 @@ import { describe, expect, it } from "vitest";
 import {
   bufferedAheadSeconds,
   type DiagnosedElement,
-  failureObservation,
   frameCounts,
   recoveryObservation,
 } from "./diagnostics";
 import { PlaybackStep, PlaybackStop } from "./playback-policy";
+import { failureObservation } from "./stream-attachment";
 
 /** An element at `currentTime` holding `ranges`, as `[start, end]` seconds. */
 const element = (
@@ -48,14 +48,17 @@ describe("player diagnostics on the web", () => {
   });
 
   it("describes a stream failure with its status", () => {
-    expect(failureObservation({ kind: "http", status: 404 }, "element")).toMatchObject({
+    expect(failureObservation({ kind: "http", status: 404 })).toMatchObject({
       _tag: "PlayerError",
       source: "html-video",
       kind: "http",
       status: 404,
       fatal: true,
     });
-    expect(failureObservation({ kind: "media" }, "hls.js")).toMatchObject({ source: "hls.js" });
+    expect(failureObservation({ kind: "media" })).toMatchObject({
+      kind: "media",
+      status: undefined,
+    });
   });
 
   it("records each recovery the controller takes, and nothing for a stop", () => {

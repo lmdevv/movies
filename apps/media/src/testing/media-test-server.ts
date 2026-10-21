@@ -64,7 +64,6 @@ export const layer = (overrides: Readonly<Record<string, string>> = {}) =>
 
       const logged: Array<LogRecord> = [];
 
-      // Each entry as the retained log would read it back.
       const logging = Layer.mergeAll(
         Logger.layer(
           [

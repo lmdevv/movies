@@ -92,7 +92,6 @@ export const redactJsonText = (text: string): string =>
 const redactString = (text: string): string =>
   /^\s*[[{]/.test(text) ? redactJsonText(text) : redactText(text);
 
-/** Each log entry as one redacted JSON line. */
 const redactedLine = Logger.map(Logger.formatStructured, (structured) =>
   redactJsonText(Formatter.formatJson(structured)),
 );

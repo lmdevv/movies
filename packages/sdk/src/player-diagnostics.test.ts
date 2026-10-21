@@ -53,7 +53,7 @@ beforeEach(() => {
 });
 
 /** A playback of an HLS stream served by the test server. */
-const playbackAt = (mediaBaseUrl: string): Playback => ({
+const playbackAt = (mediaBaseUrl: string, token = "v1.payload.signature"): Playback => ({
   started: Schema.decodeSync(StartedPlayback)({
     sessionId: "session-1",
     titleId: "title-1",
@@ -78,7 +78,7 @@ const playbackAt = (mediaBaseUrl: string): Playback => ({
       missing: false,
       trickplay: null,
     },
-    token: "v1.payload.signature",
+    token,
     tokenExpiresAt: 1_760_000_000_000,
     mediaBaseUrl,
     resumePositionMs: 0,
@@ -118,6 +118,10 @@ const until = (predicate: () => boolean) =>
         check();
       }),
   );
+
+/** A recovery after `reason`. */
+const recovery = (reason: string) =>
+  PlayerObservation.cases.Recovery.make({ action: "new-session", reason });
 
 /** Every event received, in order. */
 const received = () => batches.flatMap((batch) => batch.events);
@@ -219,6 +223,41 @@ describe("playback diagnostics", () => {
           { observation: { _tag: "DroppedFrames", dropped: 2, decoded: 100 } },
           { observation: { _tag: "Recovery" } },
           { observation: { _tag: "DroppedFrames", dropped: 10, decoded: 1_000 } },
+        ]);
+      }),
+    ));
+
+  it("sends each event with the token of the playback it happened in, and none without one", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const player = yield* makeFakePlayer(0);
+        const scope = yield* Scope.make();
+        const first = playbackAt(base, "v1.first.session");
+        const second = playbackAt(base, "v1.second.session");
+        let playing = Option.some(first);
+
+        const recorder = yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => playing,
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        recorder.record(recovery("first"));
+        playing = Option.none();
+        recorder.record(recovery("between"));
+        playing = Option.some(second);
+        recorder.record(recovery("second"));
+        yield* Scope.close(scope, Exit.void);
+
+        expect(
+          batches.map((batch) => [
+            Redacted.value(batch.token),
+            batch.events.map((event) => event.observation),
+          ]),
+        ).toMatchObject([
+          ["v1.first.session", [{ reason: "first" }]],
+          ["v1.second.session", [{ reason: "second" }]],
         ]);
       }),
     ));

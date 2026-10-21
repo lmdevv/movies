@@ -41,7 +41,6 @@ export class Service extends Context.Service<Service, Interface>()(
  */
 const BUDGET = { burst: 300, perSecond: 2 };
 
-/** The fields every record of `event` carries. */
 const commonFields = (
   event: ClientDiagnosticEvent,
   grant: PlaybackGrant,
@@ -108,7 +107,6 @@ const logObservation = (observation: PlayerObservation, fields: ReturnType<typeo
       Effect.logWarning(LogEvent.recovery).pipe(Effect.annotateLogs({ ...fields, action, reason })),
   });
 
-/** Builds the recorder over the playback token verifier. */
 const make = Effect.gen(function* () {
   const verifier = yield* PlaybackToken.Service;
   const take = makeLimiter();

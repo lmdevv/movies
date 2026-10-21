@@ -127,7 +127,6 @@ const MEBIBYTE = 1024 * 1024;
 
 const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0));
 
-/** `LOG_LEVEL` names and the Effect levels they set. */
 const LOG_LEVELS = {
   trace: "Trace",
   debug: "Debug",
