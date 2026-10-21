@@ -1,4 +1,4 @@
-# @movies/cli
+# @lmdevv/movies
 
 `movies`, the command line for [[movies]](https://github.com/lmdevv/movies), a self-hosted movie
 and TV server. It runs every action the app has: search, play, progress, watch rooms, profiles,
@@ -7,7 +7,7 @@ JSON on stdout by default, `--human` prints tables, and exit codes are stable, s
 use the same commands.
 
 ```sh
-npm install -g @movies/cli      # Node 22 or newer
+npm install -g @lmdevv/movies   # Node 22 or newer
 movies login --server http://nas.tailnet.ts.net:3210 --media-url http://nas.tailnet.ts.net:8080
 movies search alien
 movies play "Alien" --open      # mpv; without --open, prints the stream URL
@@ -32,11 +32,11 @@ binary), Nix, and the server's own copy, are in the
 ## Development
 
 ```sh
-pnpm --filter @movies/cli build             # dist/movies.js, a single executable bundle
+pnpm --filter @lmdevv/movies build             # dist/movies.js, a single executable bundle
 node apps/cli/dist/movies.js --help
-pnpm --filter @movies/cli build:sea         # dist/sea/movies-<os>-<arch>, a standalone binary
-pnpm --filter @movies/cli skill:reference   # regenerate the skill's command reference
-pnpm --filter @movies/cli test:stack        # the built binary against scripts/dev-stack.sh
+pnpm --filter @lmdevv/movies build:sea         # dist/sea/movies-<os>-<arch>, a standalone binary
+pnpm --filter @lmdevv/movies skill:reference   # regenerate the skill's command reference
+pnpm --filter @lmdevv/movies test:stack        # the built binary against scripts/dev-stack.sh
 ```
 
 - `src/cli.ts` routes argv to a shortcut or a registry command (`movies <group> <action>`, or

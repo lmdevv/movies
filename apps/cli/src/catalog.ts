@@ -568,7 +568,7 @@ export const markdownReference = (): string => {
   );
 
   return [
-    "<!-- Generated from the command registry by `pnpm --filter @movies/cli skill:reference`. Do not edit by hand. -->",
+    "<!-- Generated from the command registry by `pnpm --filter @lmdevv/movies skill:reference`. Do not edit by hand. -->",
     "",
     shortcutSection,
     "",

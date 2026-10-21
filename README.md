@@ -175,7 +175,7 @@ version as the server.
 | --------------------------- | ------------------------------------------------------------------------------------------------ |
 | The Compose server          | In the image: `docker compose exec movies movies login`                                          |
 | The NixOS server            | Installed by `services.movies`, pointed at the server                                            |
-| Anywhere with Node 22+      | `npm install -g @movies/cli`                                                                     |
+| Anywhere with Node 22+      | `npm install -g @lmdevv/movies`                                                                  |
 | Linux or macOS without Node | `movies-<os>-<arch>` from the [latest release](https://github.com/lmdevv/movies/releases/latest) |
 | Another NixOS machine       | `nixosModules.cli` with `programs.movies` (below)                                                |
 | Home Manager (Linux, macOS) | `homeManagerModules.movies` with `programs.movies` (below)                                       |
@@ -236,7 +236,7 @@ Home Manager, or pass `--server` and `--media-url` to `movies login` instead.
 No install stores a credential: each user runs `movies login` once, or sets `MOVIES_API_KEY`.
 Output is JSON by default. Agents get an API key from Settings → API keys and follow
 [apps/cli/skills/movies/SKILL.md](apps/cli/skills/movies/SKILL.md). In a checkout,
-`pnpm --filter @movies/cli build` writes `apps/cli/dist/movies.js`.
+`pnpm --filter @lmdevv/movies build` writes `apps/cli/dist/movies.js`.
 
 ## iOS app
 

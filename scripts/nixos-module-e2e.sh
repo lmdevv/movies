@@ -142,7 +142,7 @@ check "no secret is in the unit or its startup script" \
     -e "$(sudo sed -n "s/^MEDIA_SERVICE_API_KEY=//p" /run/movies/media.env)" "$unit_file" "$setup_script"'
 sudo systemd-analyze security "$unit" --no-pager | tail -1
 
-pnpm --dir "$root" --filter @movies/cli build >/dev/null
+pnpm --dir "$root" --filter @lmdevv/movies build >/dev/null
 
 MOVIES_PACKAGED_STACK=1 \
   MOVIES_PACKAGED_CONVEX_URL="http://127.0.0.1:$convex_port" \

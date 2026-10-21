@@ -24,7 +24,7 @@ RUN pnpm install --frozen-lockfile --ignore-scripts --os=linux --cpu=x64 --cpu=a
 # (apps/media/scripts/configure-web.ts).
 RUN VITE_CONVEX_URL=__MOVIES_CONVEX_URL__ pnpm --config.verify-deps-before-run=false --filter web build \
  && pnpm --config.verify-deps-before-run=false --filter @movies/media build \
- && pnpm --config.verify-deps-before-run=false --filter @movies/cli build
+ && pnpm --config.verify-deps-before-run=false --filter @lmdevv/movies build
 # The backend with production dependencies only: the Convex functions, the Convex CLI, and
 # scripts/configure.ts. Its tsconfig extends the shared config, which `convex deploy` reads.
 RUN pnpm --filter @movies/backend deploy --prod --legacy /out/backend \

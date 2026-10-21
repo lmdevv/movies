@@ -17,7 +17,7 @@ version.
   already pointed at that stack; it runs as root and keeps its login root-only in `/data/config`).
   A NixOS install puts it on every user's `PATH` with `MOVIES_CONVEX_URL` and `MOVIES_MEDIA_URL`
   set.
-- **Node 22 or newer:** `npm install -g @movies/cli`, or once with `npx @movies/cli --help`.
+- **Node 22 or newer:** `npm install -g @lmdevv/movies`, or once with `npx @lmdevv/movies --help`.
 - **No Node:** download the binary with `curl`, check it, and install it (`movies-linux-arm64` or
   `movies-darwin-arm64` likewise; `shasum -a 256 -c` on macOS):
 
@@ -262,7 +262,7 @@ and newer [movies] progress is kept unless the source played the item more recen
 ## Command reference
 
 <!-- BEGIN:commands -->
-<!-- Generated from the command registry by `pnpm --filter @movies/cli skill:reference`. Do not edit by hand. -->
+<!-- Generated from the command registry by `pnpm --filter @lmdevv/movies skill:reference`. Do not edit by hand. -->
 
 ### Shortcuts
 
