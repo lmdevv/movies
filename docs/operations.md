@@ -189,7 +189,26 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
 ## Telemetry and logs
 
 - Logs are one JSON object per line on standard output (`docker compose logs movies`,
-  `journalctl -u movies`).
+  `journalctl -u movies`). The media service keeps the same lines, already redacted, in rotating
+  NDJSON files under its data folder (`/data/media/logs` in the Compose volume,
+  `/var/lib/movies/media/logs` on NixOS): a new file each day, at each start, and at an eighth of
+  `LOG_MAX_MB` (512), deleted after `LOG_RETENTION_DAYS` (14) and oldest first beyond the size
+  cap. `LOG_LEVEL` (`info`) sets the least severe level for both.
+- `movies logs` reads the retained log without SSH or `sudo`: `--follow`, `--since 15m` or a time,
+  `--until`, `--level warn`, `--session-id`, `--stream-id`, `--slow 1s`, `--grep`, and `--json` for
+  NDJSON. It needs an admin session. The service streams it as NDJSON from `POST /api/logs` and
+  answers at most 5000 records before following.
+- A failed media request (any 4xx or 5xx on `/media/`) logs `MediaRoutes.request_failed` at `WARN`
+  with its playback session, and every HLS segment logs how long it took, split into waiting for
+  the encoder, reading the disk, and writing to the network: `MediaRoutes.slow_segment` at `WARN`
+  from one second, `MediaRoutes.segment` at `DEBUG` below. Stream starts, encoder restarts, mode
+  changes, and ends (with the reason, such as `idle`) log at `INFO`.
+- The web and iOS players report their stalls, errors, dropped frames (web only), hls.js segment
+  load times, and recoveries to `POST /api/playback/diagnostics` with their playback token, in
+  batches the service validates and limits per session. They land in the same log as `Player.*`
+  records. `movies diagnostics playback <session-id>` builds a session's timeline from both sides;
+  admins read any session and other accounts only their own. Audio/video drift is not measured:
+  no player reports it.
 - With `OTEL_EXPORTER_OTLP_ENDPOINT` (Compose) or `otlpEndpoint` (NixOS) set to an OTLP/HTTP
   collector, the media service exports traces and logs: library scans, playback negotiation, the
   first HLS segment, seeks, encoder failures and GPU-to-software fallbacks, backups and restores, and
