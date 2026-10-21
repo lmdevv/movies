@@ -1,19 +1,38 @@
 {
   "name": "@movies/cli",
   "version": "0.1.0",
-  "private": true,
-  "description": "Effect CLI with JSON output for people and agents, plus the agent skill.",
+  "description": "The [movies] command line: every action of a self-hosted [movies] server, JSON output for people and agents, and the agent skill.",
+  "keywords": [
+    "agent",
+    "cli",
+    "jellyfin",
+    "media-server",
+    "movies",
+    "self-hosted"
+  ],
+  "homepage": "https://github.com/lmdevv/movies#readme",
+  "bugs": "https://github.com/lmdevv/movies/issues",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lmdevv/movies.git",
+    "directory": "apps/cli"
+  },
   "bin": {
     "movies": "dist/movies.js"
   },
   "files": [
-    "dist",
+    "dist/movies.js",
     "skills"
   ],
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "node scripts/build.ts",
+    "build:sea": "node scripts/build-sea.ts",
+    "prepack": "node scripts/build.ts",
     "typecheck": "tsc --noEmit",
     "skill:reference": "node scripts/skill-reference.ts",
     "test:stack": "MOVIES_STACK_TESTS=1 vitest run --root ../.. apps/cli/src/stack"
