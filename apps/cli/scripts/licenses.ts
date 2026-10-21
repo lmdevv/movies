@@ -1,6 +1,7 @@
 /**
- * The licenses of the third-party packages a CLI bundle inlines, which every copy of the bundle
- * ships beside it: each package's name, version, license, and LICENSE and NOTICE files, found from
+ * The licenses of the third-party software a CLI bundle carries, which every copy of the bundle
+ * ships beside it: any runtime the bundle is built into (Node.js, for the standalone executable),
+ * then each inlined package's name, version, license, and LICENSE and NOTICE files, found from
  * esbuild's metafile.
  */
 import { readdir, readFile, writeFile } from "node:fs/promises";
@@ -29,10 +30,22 @@ const section = async (directory: string): Promise<string> => {
   return `## ${manifest.name} ${manifest.version} (${manifest.license ?? "no license field"})\n\n${body}\n`;
 };
 
-/** Writes the licenses of every package `metafile`'s inputs come from to `outfile`. */
+/** Software a bundle is built into besides its packages, such as the Node.js runtime. */
+export interface Runtime {
+  /** The section heading, such as `Node.js v24.22.1`. */
+  readonly name: string;
+  /** Its complete license text. */
+  readonly license: string;
+}
+
+/**
+ * Writes the licenses of `runtimes`, then of every package `metafile`'s inputs come from, to
+ * `outfile`.
+ */
 export const writeThirdPartyLicenses = async (
   metafile: Metafile,
   outfile: string,
+  runtimes: ReadonlyArray<Runtime> = [],
 ): Promise<void> => {
   const directories = new Set(
     Object.keys(metafile.inputs).flatMap((input) => {
@@ -42,10 +55,15 @@ export const writeThirdPartyLicenses = async (
     }),
   );
 
-  const sections = await Promise.all([...directories].toSorted().map(section));
+  const packages = await Promise.all([...directories].toSorted().map(section));
+
+  const sections = [
+    ...runtimes.map((runtime) => `## ${runtime.name}\n\n${runtime.license.trim()}\n`),
+    ...packages,
+  ];
 
   await writeFile(
     outfile,
-    `# Third-party licenses\n\nThe \`movies\` CLI bundles these packages.\n\n${sections.join("\n")}`,
+    `# Third-party licenses\n\nThe \`movies\` CLI bundles this software.\n\n${sections.join("\n")}`,
   );
 };

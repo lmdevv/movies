@@ -2,14 +2,15 @@
  * Builds the standalone `movies` executable for this machine's OS and CPU, a Node single executable
  * application: a copy of the running `node` with the CLI injected, so it runs without Node
  * installed. Writes `dist/sea/movies-<os>-<arch>` (such as `movies-linux-x64`), signed ad hoc on
- * macOS, which Apple silicon requires, and `dist/sea/THIRD_PARTY_LICENSES.md`. The release
- * workflow runs it on each target's runner.
+ * macOS, which Apple silicon requires, and `dist/sea/THIRD_PARTY_LICENSES.md`, Node's license
+ * included. The release workflow runs it on each target's runner.
  *
  *   node scripts/build-sea.ts
+ *   NODE_LICENSE=path/to/LICENSE node scripts/build-sea.ts   # a node without its LICENSE beside it
  */
 import { execFileSync } from "node:child_process";
-import { chmod, copyFile, mkdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, copyFile, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
@@ -36,6 +37,24 @@ const run = (command: string, args: ReadonlyArray<string>): void => {
   execFileSync(command, args, { stdio: "inherit" });
 };
 
+// The executable is a copy of node, so it carries Node.js and the libraries Node bundles (V8,
+// OpenSSL, ICU, libuv, and more), whose licenses Node's LICENSE file collects. Node's release
+// archives, which actions/setup-node installs, put it beside `bin/`. Other builds, such as
+// nixpkgs', do not ship it: set NODE_LICENSE to the LICENSE of this Node version's source.
+const nodeLicensePath =
+  process.env["NODE_LICENSE"] ??
+  join(dirname(dirname(await realpath(process.execPath))), "LICENSE");
+
+const missingNodeLicense = `${nodeLicensePath} is not Node.js's LICENSE. Build with Node from nodejs.org (as the release workflow does), or set NODE_LICENSE to the LICENSE of Node ${process.version}.`;
+
+const nodeLicense = await readFile(nodeLicensePath, "utf8").catch((cause: unknown) => {
+  throw new Error(missingNodeLicense, { cause });
+});
+
+if (!nodeLicense.startsWith("Node.js is licensed for use as follows:")) {
+  throw new Error(missingNodeLicense);
+}
+
 await rm(out, { recursive: true, force: true });
 
 await mkdir(out, { recursive: true });
@@ -53,7 +72,9 @@ const { metafile } = await build({
   metafile: true,
 });
 
-await writeThirdPartyLicenses(metafile, join(out, "THIRD_PARTY_LICENSES.md"));
+await writeThirdPartyLicenses(metafile, join(out, "THIRD_PARTY_LICENSES.md"), [
+  { name: `Node.js ${process.version}`, license: nodeLicense },
+]);
 
 await writeFile(
   config,
