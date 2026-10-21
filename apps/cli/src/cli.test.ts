@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,6 +13,8 @@ import { registryEntries, shortcuts, visibleRegistryEntries } from "./catalog";
 import { ExitCode } from "./cli-errors";
 import { diagnosticsCommands } from "./diagnostics-commands";
 import { roomCommands } from "./room-commands";
+import { withMediaService } from "./testing/media-service";
+import type { CliRun } from "./testing/run-cli";
 import { runInProcess } from "./testing/run-cli";
 import { watchCommands } from "./watch-commands";
 
@@ -236,6 +239,101 @@ describe("the movies command", () => {
   });
 });
 
+/**
+ * Runs `run` against a stand-in media service answering with `handler`, signed in from a stored
+ * profile whose Convex URL is the discard port: nothing here may reach Convex.
+ */
+const withSignedInMedia = (
+  handler: (request: IncomingMessage, response: ServerResponse) => void,
+  run: (signedIn: (...argv: ReadonlyArray<string>) => Promise<CliRun>) => Promise<void>,
+) =>
+  withMediaService(handler, async (mediaUrl) => {
+    const { home: signedIn } = storedHome("http://127.0.0.1:9");
+
+    try {
+      await run((...argv) =>
+        runInProcess(argv, { XDG_CONFIG_HOME: signedIn, MOVIES_MEDIA_URL: mediaUrl }),
+      );
+    } finally {
+      rmSync(signedIn, { recursive: true, force: true });
+    }
+  });
+
+/** Text a player could have put in a log record: C0 escape, DEL, and the C1 NEL and CSI. */
+const hostile = "a\u001b[2Jb\u007fc\u0085d\u009be";
+
+const hostileRecord = `${JSON.stringify({
+  message: `Player.error ${hostile}`,
+  level: "WARN",
+  timestamp: "2026-10-21T20:01:02.123Z",
+  annotations: { detail: hostile, [`key${hostile}`]: 1 },
+  spans: {},
+})}\n`;
+
+const timeline = {
+  sessionId: `session${hostile}`,
+  firstSeenAt: Date.UTC(2026, 9, 21, 20),
+  lastSeenAt: Date.UTC(2026, 9, 21, 20, 47),
+  platform: "web",
+  counts: {
+    streams: 1,
+    stalls: 0,
+    stalledMs: 0,
+    slowSegments: 0,
+    failedRequests: 0,
+    playerErrors: 1,
+    recoveries: 0,
+    slowFragments: 0,
+    droppedFrames: 0,
+  },
+  drift: { status: "not-measured", reason: `No report ${hostile}` },
+  missing: [`Gap ${hostile}`],
+  truncated: false,
+  entries: [
+    {
+      at: Date.UTC(2026, 9, 21, 20, 1),
+      source: "player",
+      kind: "player-error",
+      level: "WARN",
+      streamId: null,
+      summary: `Player said ${hostile}`,
+      details: { detail: hostile },
+    },
+  ],
+};
+
+const sessionList = [
+  {
+    sessionId: `session${hostile}`,
+    userId: null,
+    firstSeenAt: Date.UTC(2026, 9, 21, 20),
+    lastSeenAt: Date.UTC(2026, 9, 21, 20, 47),
+    platform: "web",
+    warnings: 1,
+  },
+];
+
+/** Answers the log route with `hostileRecord` and the diagnostics routes with the values above. */
+const diagnosticsService = (request: IncomingMessage, response: ServerResponse) => {
+  const body = { "/api/diagnostics/playback": timeline, "/api/diagnostics/sessions": sessionList };
+
+  if (request.url === "/api/logs") {
+    response.writeHead(200, { "content-type": "application/x-ndjson" });
+    response.end(hostileRecord);
+  } else if (
+    request.url === "/api/diagnostics/playback" ||
+    request.url === "/api/diagnostics/sessions"
+  ) {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(body[request.url]));
+  } else {
+    response.writeHead(404).end();
+  }
+};
+
+/** Whether `text` holds a control character other than the newlines between lines. */
+const hasControl = (text: string): boolean => /\p{Cc}/u.test(text.replaceAll("\n", ""));
+
 describe("troubleshooting commands", () => {
   it("refuses flags they cannot read before connecting", async () => {
     const since = await movies("logs", "--since", "whenever");
@@ -246,6 +344,79 @@ describe("troubleshooting commands", () => {
     expect(since.stderr).toContain("--since expects a duration");
     expect(follow.stderr).toContain("drop --until");
     expect(level.stderr).toContain("--level must be");
+  });
+
+  it("refuses a window that ends before or when it starts, before connecting", async () => {
+    const runs = await Promise.all([
+      movies("logs", "--since", "1m", "--until", "2m"),
+      movies("logs", "--since", "2026-10-21T14:00:00Z", "--until", "2026-10-21T14:00:00Z"),
+    ]);
+
+    for (const run of runs) {
+      expect(run.code).toBe(ExitCode.usage);
+      expect(JSON.parse(run.stderr)).toMatchObject({ error: { code: "usage" } });
+    }
+  });
+
+  it("prints no control character a player sent, in logs or a playback timeline", async () => {
+    await withSignedInMedia(diagnosticsService, async (signedIn) => {
+      const logs = await signedIn("logs");
+      const playback = await signedIn("diagnostics", "playback", "s1", "--human");
+      const sessions = await signedIn("diagnostics", "sessions", "--human");
+
+      for (const [name, run] of Object.entries({ logs, playback, sessions })) {
+        expect(run.code, `${name}: ${run.stderr}`).toBe(ExitCode.ok);
+        expect(hasControl(run.stdout), name).toBe(false);
+        expect(run.stdout, name).toContain(String.raw`a\u001b[2Jb\u007fc\u0085d\u009be`);
+      }
+
+      expect(logs.stdout).toContain(String.raw`detail="a\u001b[2Jb\u007fc\u0085d\u009be"`);
+    });
+  });
+
+  it("takes --json and --human the same way in logs and diagnostics", async () => {
+    await withSignedInMedia(diagnosticsService, async (signedIn) => {
+      const logs = await signedIn("logs", "--json");
+      const playback = await signedIn("diagnostics", "playback", "s1", "--json");
+      const sessions = await signedIn("diagnostics", "sessions", "--json");
+
+      expect(logs.stdout).toBe(hostileRecord.trim());
+      expect(JSON.parse(playback.stdout)).toMatchObject({ sessionId: timeline.sessionId });
+      expect(JSON.parse(sessions.stdout)).toMatchObject([{ warnings: 1 }]);
+
+      const both = await Promise.all([
+        signedIn("logs", "--json", "--human"),
+        signedIn("diagnostics", "playback", "s1", "--json", "--human"),
+        signedIn("diagnostics", "sessions", "--json", "--human"),
+      ]);
+
+      for (const run of both) expect(run.code, run.stderr).toBe(ExitCode.usage);
+    });
+  });
+
+  it("fails as unavailable when the service ends a followed log", async () => {
+    const ending = {
+      "closes the response": (response: ServerResponse) => response.end(),
+      "drops the connection": (response: ServerResponse) => response.socket?.destroy(),
+    };
+
+    await Promise.all(
+      Object.entries(ending).map(([how, end]) =>
+        withSignedInMedia(
+          (_request, response) => {
+            response.writeHead(200, { "content-type": "application/x-ndjson" });
+            response.write(hostileRecord, () => setTimeout(() => end(response), 50));
+          },
+          async (signedIn) => {
+            const run = await signedIn("logs", "--follow");
+
+            expect(run.code, how).toBe(ExitCode.unavailable);
+            expect(JSON.parse(run.stderr), how).toMatchObject({ error: { code: "unavailable" } });
+            expect(run.stdout, how).toContain("Player.error");
+          },
+        ),
+      ),
+    );
   });
 
   it("asks for a session ID and says where to find one", async () => {

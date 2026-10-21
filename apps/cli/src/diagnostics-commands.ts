@@ -1,9 +1,9 @@
 /**
  * Troubleshooting from the media service's retained log: `movies logs` reads or follows it
  * (admin sessions only), `movies diagnostics sessions` lists the playback sessions it mentions,
- * and `movies diagnostics playback <session-id>` prints one session's timeline. Logs print for
- * people by default and as the service's NDJSON with `--json`; diagnostics follow the CLI's usual
- * JSON default.
+ * and `movies diagnostics playback <session-id>` prints one session's timeline. All three take
+ * `--json` and `--human`: logs print for people by default and as the service's NDJSON with
+ * `--json`; diagnostics print JSON by default, like every other command.
  */
 import { commands } from "@movies/contracts/commands";
 import {
@@ -17,6 +17,7 @@ import {
 } from "@movies/contracts/diagnostics";
 import { PlaybackSessionId } from "@movies/contracts/ids";
 import { EpochMillis } from "@movies/contracts/units";
+import { TransportError } from "@movies/sdk/effect";
 import { Clock, Effect, Option, Predicate, Schema, Stream } from "effect";
 
 import type { ShortcutCommand, Invocation } from "./invocation";
@@ -84,22 +85,24 @@ const clockTime = (time: number): string => {
 };
 
 /**
- * `text` safe to print on one terminal line: control characters, such as an escape sequence a
- * player put in an error message, become spaces.
+ * `text` safe to print on one terminal line: every control character, such as an escape sequence
+ * a player put in an error message, a newline, or a C1 control a terminal also obeys, becomes a
+ * `\u001b`-style escape. Every untrusted string printed for people goes through it.
  */
-const printable = (text: string): string => text.replaceAll(/\p{Cc}/gu, " ");
+const printable = (text: string): string =>
+  text.replaceAll(
+    /\p{Cc}/gu,
+    (control) => String.raw`\u${control.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
 
 /**
  * A value as a `key=value` part: strings with spaces, quotes, or control characters quoted as
- * JSON (which escapes them), everything else as JSON.
+ * JSON, everything else as JSON, and both `printable`: JSON leaves DEL and C1 controls raw.
  */
-const fieldValue = (value: Schema.Json): string => {
-  if (Predicate.isString(value)) {
-    return /[\s"=\p{Cc}]/u.test(value) ? JSON.stringify(value) : value;
-  }
-
-  return JSON.stringify(value);
-};
+const fieldValue = (value: Schema.Json): string =>
+  printable(
+    Predicate.isString(value) && !/[\s"=\p{Cc}]/u.test(value) ? value : JSON.stringify(value),
+  );
 
 const decodeRecord = Schema.decodeUnknownOption(Schema.fromJsonString(LogRecord));
 
@@ -113,16 +116,16 @@ export const formatLogLine = (line: string): string =>
     onSome: (record) => {
       const time = Date.parse(record.timestamp);
 
-      const message = Predicate.isString(record.message)
-        ? printable(record.message)
-        : JSON.stringify(record.message);
+      const message = printable(
+        Predicate.isString(record.message) ? record.message : JSON.stringify(record.message),
+      );
 
       const fields = Object.entries(record.annotations)
         .filter(([, value]) => value !== null)
-        .map(([key, value]) => `${key}=${fieldValue(value)}`);
+        .map(([key, value]) => `${printable(key)}=${fieldValue(value)}`);
 
       const head = [
-        Number.isNaN(time) ? record.timestamp : clockTime(time),
+        Number.isNaN(time) ? printable(record.timestamp) : clockTime(time),
         record.level.padEnd(5),
         message,
         ...fields,
@@ -161,6 +164,10 @@ const logQuery = Effect.fn("Logs.query")(function* (invocation: Invocation) {
 
   if (follow && Option.isSome(until)) {
     return yield* usage(invocation, "--follow has no end: drop --until");
+  }
+
+  if (Option.isSome(since) && Option.isSome(until) && since.value >= until.value) {
+    return yield* usage(invocation, "--since must be before --until");
   }
 
   const level = yield* Option.match(stringFlag(tokens, "level"), {
@@ -263,6 +270,14 @@ const logs: ShortcutCommand = {
         output.out(json ? line : formatLogLine(line)),
       );
 
+      if (query.follow) {
+        return yield* new TransportError({
+          operation: "logs",
+          message: "Transport failed during logs: the media service ended the followed log",
+          cause: null,
+        });
+      }
+
       return Outcome.Printed();
     }),
 };
@@ -281,7 +296,7 @@ export const renderTimeline = (diagnostics: PlaybackDiagnostics): string => {
   const { counts } = diagnostics;
 
   return [
-    `Playback session ${diagnostics.sessionId}${diagnostics.platform === null ? "" : ` (${diagnostics.platform})`}`,
+    `Playback session ${printable(diagnostics.sessionId)}${diagnostics.platform === null ? "" : ` (${diagnostics.platform})`}`,
     `${shortTime(diagnostics.firstSeenAt)} to ${shortTime(diagnostics.lastSeenAt)}`,
     [
       plural(counts.streams, "stream"),
@@ -317,18 +332,18 @@ const renderSessions = (sessions: ReadonlyArray<DiagnosedSession>): string =>
     : sessions
         .map((session) =>
           [
-            session.sessionId,
+            printable(session.sessionId),
             shortTime(session.lastSeenAt),
             (session.platform ?? "-").padEnd(3),
             plural(session.warnings, "warning"),
-            session.userId ?? "",
+            printable(session.userId ?? ""),
           ].join("  "),
         )
         .join("\n");
 
 const playbackTimeline: ShortcutCommand = {
   path: "diagnostics playback",
-  options: {},
+  options: { json: { type: "boolean" } },
   positionals: true,
   run: (invocation) =>
     Effect.gen(function* () {
@@ -361,7 +376,7 @@ const playbackTimeline: ShortcutCommand = {
 
 const sessions: ShortcutCommand = {
   path: "diagnostics sessions",
-  options: { since: { type: "string" } },
+  options: { since: { type: "string" }, json: { type: "boolean" } },
   positionals: false,
   run: (invocation) =>
     Effect.gen(function* () {

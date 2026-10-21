@@ -166,9 +166,26 @@ const resolve = (argv: ReadonlyArray<string>): Result.Result<Route, UsageError> 
   return Result.succeed(Route.Registry({ entry, rest: restAfter(2) }));
 };
 
-/** The output format from the parsed flags. */
+/**
+ * The output format from the parsed flags. A shortcut that declares a boolean `--json` takes it as
+ * `--format json`; asking for JSON and for tables at once is a usage error.
+ */
 const formatOf = (tokens: ParsedTokens, command: string): Effect.Effect<Format, UsageError> => {
-  if (booleanFlag(tokens, "human")) return Effect.succeed("table");
+  const table =
+    booleanFlag(tokens, "human") || Option.contains(stringFlag(tokens, "format"), "table");
+
+  if (booleanFlag(tokens, "json")) {
+    return table
+      ? Effect.fail(
+          new UsageError({
+            message: "--json asks for JSON and --human or --format table for tables: pass one",
+            command,
+          }),
+        )
+      : Effect.succeed("json");
+  }
+
+  if (table) return Effect.succeed("table");
 
   return Option.match(stringFlag(tokens, "format"), {
     onNone: () => Effect.succeed<Format>("json"),

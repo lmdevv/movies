@@ -221,21 +221,21 @@ export const shortcuts: ReadonlyArray<Shortcut> = [
   {
     path: "logs",
     synopsis:
-      "logs [--follow] [--since <duration|time>] [--until <duration|time>] [--level debug|info|warn|error] [--session-id <id>] [--stream-id <id>] [--slow <duration>] [--grep <text>] [--limit <int>] [--json]",
+      "logs [--follow] [--since <duration|time>] [--until <duration|time>] [--level debug|info|warn|error] [--session-id <id>] [--stream-id <id>] [--slow <duration>] [--grep <text>] [--limit <int>] [--json|--human]",
     summary:
-      "Read the media service's retained log, newest last (admin sessions only); --follow keeps printing new records, --since 15m or a time starts there, --slow 1s keeps timed requests at least that long, --json prints the NDJSON records",
+      "Read the media service's retained log, newest last (admin sessions only); --follow keeps printing new records, --since 15m or a time starts there, --slow 1s keeps timed requests at least that long, --json prints the NDJSON records; a followed log the service ends fails as unavailable",
     section: "Troubleshooting",
   },
   {
     path: "diagnostics sessions",
-    synopsis: "diagnostics sessions [--since <duration|time>]",
+    synopsis: "diagnostics sessions [--since <duration|time>] [--json|--human]",
     summary:
       "List the playback sessions the retained log mentions (the last day by default), newest first; members see their own",
     section: "Troubleshooting",
   },
   {
     path: "diagnostics playback",
-    synopsis: "diagnostics playback <session-id>",
+    synopsis: "diagnostics playback <session-id> [--json|--human]",
     summary:
       "Print a playback session's timeline: streams and why they ended, slow and failed segments with their time split, the player's stalls, errors, and recoveries, and the evidence that is missing; audio/video drift is reported as not measured",
     section: "Troubleshooting",
