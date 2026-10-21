@@ -1,6 +1,6 @@
 {
   "name": "@movies/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The [movies] command line: every action of a self-hosted [movies] server, JSON output for people and agents, and the agent skill.",
   "keywords": [
     "agent",
