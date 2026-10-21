@@ -106,7 +106,8 @@ The Effect reference lives in `.repos/effect-smol`. Effect 4 stable releases are
 - CI runs `check`, both stack jobs, and the Nix job. PRs matching the `paths` in
   `.github/workflows/image.yml` also run its `build and smoke-test`. `main` has no branch
   protection, so check every one yourself before merging. Never merge with admin bypass.
-- Every PR gets CodeRabbit, Codex automatic review, and Claude's `/code-review`.
+- Every PR gets Claude's `/code-review`. Do not enable, request, or wait for CodeRabbit or Codex
+  automatic review for this repository.
 - Cloud environments: none yet. Pin the Claude one in `.claude/settings.json`
   (`remote.defaultEnvironmentId`) and write the Codex ID here for `codex cloud exec --env`. Docker
   suites run in Claude cloud only.
@@ -129,6 +130,20 @@ Paper Desktop must be running.
 - Follow the design handoff note in the owner's vault (`projects/movies/movies Design.md`): flows,
   artboard map, decisions, and open questions. If code must differ from Paper, flag it instead of
   drifting.
+
+## Pstack skills
+
+Poteto's pstack is the Claude Code plugin `pstack@cursor-plugins`, enabled at project scope in
+`.claude/settings.json`. Its commands take the `pstack:` prefix, such as `/pstack:poteto-mode`.
+Do not copy its skills into `.agents/skills/`. Invoke `/pstack:poteto-mode` explicitly for a
+substantial task; do not apply the whole workflow to every small edit or casual question.
+
+Model choices live in `.agents/pstack-models.md`, not `~/.claude/rules/pstack-models.md` or
+`~/.cursor/rules/pstack-models.mdc`. `/pstack:setup-pstack` writes there, and every pstack role
+reads its line there.
+
+This file takes precedence over pstack. Keep `coding-standards`, required `// SAFETY:` comments,
+and Claude's `/code-review`; do not request Bugbot, CodeRabbit, or Codex automatic PR review.
 
 <!-- BEGIN:turborepo-agent-rules -->
 
