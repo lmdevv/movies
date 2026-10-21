@@ -896,10 +896,12 @@ const make = Effect.gen(function* () {
         next.set(streamId, session);
 
         return [previous, next] as const;
-      }).pipe(Effect.tap(() => Ref.set(registered, Option.some(session)))),
+      }).pipe(
+        Effect.tap(() => Ref.set(registered, Option.some(session))),
+        // Under the registry permit, so a negotiation that replaces this stream closes it after.
+        Effect.tap(() => owners.opened(streamId, grant.sessionId)),
+      ),
     );
-
-    yield* owners.opened(streamId, grant.sessionId);
 
     for (const previous of replaced) {
       yield* Scope.close(previous.scope, Exit.void);

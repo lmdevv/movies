@@ -28,8 +28,15 @@ export const mayMatch = (query: LogQuery, line: string): boolean =>
   (query.sessionId === undefined || line.includes(query.sessionId)) &&
   (query.streamId === undefined || line.includes(query.streamId));
 
-/** Whether `record`, read from the redacted `line`, matches every filter of `query`. */
-export const matches = (query: LogQuery, record: LogRecord, line: string): boolean => {
+/** Whether `line`, already redacted, contains the query's `grep`, ignoring case. */
+export const matchesText = (query: LogQuery, line: string): boolean =>
+  query.grep === undefined || line.toLowerCase().includes(query.grep.toLowerCase());
+
+/**
+ * Whether `record`, read from `line`, matches every filter of `query` but `grep`: none of them can
+ * change when the line is redacted.
+ */
+export const matchesFields = (query: LogQuery, record: LogRecord, line: string): boolean => {
   const { since, until, level, sessionId, streamId, slowMs } = query;
   const time = recordTime(record);
   const { annotations } = record;
@@ -37,7 +44,6 @@ export const matches = (query: LogQuery, record: LogRecord, line: string): boole
 
   return (
     mayMatch(query, line) &&
-    (query.grep === undefined || line.toLowerCase().includes(query.grep.toLowerCase())) &&
     (since === undefined || Option.exists(time, (at) => at >= since)) &&
     (until === undefined || Option.exists(time, (at) => at < until)) &&
     (level === undefined || atLeast(record.level, level)) &&

@@ -928,6 +928,23 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
             ["intruder", null, stream.streamId],
           ],
         );
+
+        const intruding = yield* get(
+          `${server.baseUrl}/media/hls/${stream.streamId ?? ""}/1/0.m4s?token=${signTestToken({ fid: fileId, sid: "intruder" })}`,
+        );
+
+        assert.isAtLeast(intruding.status, 400);
+        assert.deepStrictEqual(
+          server
+            .logged()
+            .filter(
+              (entry) =>
+                entry.message === "MediaRoutes.request_failed" &&
+                entry.annotations["sessionId"] === "intruder",
+            )
+            .map((entry) => [entry.annotations["streamId"], entry.annotations["claimedStreamId"]]),
+          [[null, stream.streamId]],
+        );
       }),
     );
 

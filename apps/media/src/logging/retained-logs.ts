@@ -128,21 +128,30 @@ const afterLineBreak = (chunk: Uint8Array): Uint8Array => {
   return bytes;
 };
 
-/** Lines ready to write: UTF-8 groups, and how many lines were too large for any file. */
+/** Lines ready to write, as UTF-8 groups of `lines` lines each. */
+interface Chunk {
+  readonly bytes: Uint8Array;
+  readonly lines: number;
+}
+
+/** Lines ready to write in groups, and how many lines were too large for any file. */
 interface Chunks {
-  readonly chunks: ReadonlyArray<Uint8Array>;
+  readonly chunks: ReadonlyArray<Chunk>;
   readonly oversized: number;
 }
 
 /** `lines` as UTF-8, each with its line break, grouped so no group is larger than `capBytes`. */
 const chunksOf = (lines: ReadonlyArray<string>, capBytes: number): Chunks => {
-  const chunks: Array<Uint8Array> = [];
+  const chunks: Array<Chunk> = [];
   let group: Array<string> = [];
   let groupBytes = 0;
   let oversized = 0;
 
   const close = (): void => {
-    if (group.length > 0) chunks.push(encoder.encode(`${group.join("\n")}\n`));
+    if (group.length > 0) {
+      chunks.push({ bytes: encoder.encode(`${group.join("\n")}\n`), lines: group.length });
+    }
+
     group = [];
     groupBytes = 0;
   };
@@ -186,9 +195,11 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
    */
   const counters = { dropped: 0, failing: false, partial: false };
 
+  // The mode is tightened where it can be; a folder the service may write but not chmod, such
+  // as one another user owns, is still written.
   const ensureDirectory = fs
     .makeDirectory(settings.directory, { recursive: true, mode: DIRECTORY_MODE })
-    .pipe(Effect.andThen(fs.chmod(settings.directory, DIRECTORY_MODE)));
+    .pipe(Effect.andThen(fs.chmod(settings.directory, DIRECTORY_MODE).pipe(Effect.ignore)));
 
   const listFiles = Effect.gen(function* () {
     const names = yield* fs.readDirectory(settings.directory).pipe(Effect.orElseSucceed(() => []));
@@ -358,7 +369,19 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
 
     counters.dropped += oversized;
 
-    yield* Effect.forEach(chunks, (chunk) => writeChunk(now, floor, chunk), { discard: true }).pipe(
+    let written = 0;
+
+    yield* Effect.forEach(
+      chunks,
+      (chunk) =>
+        Effect.andThen(
+          writeChunk(now, floor, chunk.bytes),
+          Effect.sync(() => {
+            written += 1;
+          }),
+        ),
+      { discard: true },
+    ).pipe(
       Effect.tap(() =>
         Effect.sync(() => {
           counters.failing = false;
@@ -367,7 +390,11 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
       Effect.catch((error) =>
         Effect.andThen(
           Effect.sync(() => {
-            counters.dropped += dropped + queued.length;
+            // The failed chunk and those after it; the last holds this batch's drop count.
+            counters.dropped +=
+              dropped +
+              chunks.slice(written).reduce((total, chunk) => total + chunk.lines, 0) -
+              (dropped > 0 ? 1 : 0);
           }),
           failed(now, error),
         ),

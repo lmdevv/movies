@@ -11,7 +11,7 @@ import { Effect, FileSystem, Option, Path, Stream } from "effect";
 import { redactJsonText } from "../observability.ts";
 import { isNotFound } from "../platform/file-info.ts";
 import type { LogFile } from "./log-files.ts";
-import { decodeRecord, matches, mayMatch } from "./log-query.ts";
+import { decodeRecord, matchesFields, matchesText, mayMatch } from "./log-query.ts";
 import * as RetainedLogs from "./retained-logs.ts";
 
 const DEFAULT_LOG_LIMIT = 500;
@@ -36,12 +36,25 @@ const overlaps = (file: LogFile, query: LogQuery): boolean =>
   (query.since === undefined || file.modifiedAt >= query.since) &&
   (query.until === undefined || file.startsAt < query.until);
 
+/**
+ * The match on `line`, if it is one. Filters that redaction cannot change run on the line as
+ * written, so most lines are decoded once and never redacted; `grep` and the record handed on
+ * see the redacted line.
+ */
 const matchLine = (query: LogQuery, line: string): Option.Option<Match> => {
-  if (!mayMatch(query, line)) return Option.none();
+  if (
+    !mayMatch(query, line) ||
+    !Option.exists(decodeRecord(line), (raw) => matchesFields(query, raw, line))
+  ) {
+    return Option.none();
+  }
+
   const redacted = redactJsonText(line);
 
   return decodeRecord(redacted).pipe(
-    Option.filter((record) => matches(query, record, redacted)),
+    Option.filter(
+      (record) => matchesText(query, redacted) && matchesFields(query, record, redacted),
+    ),
     Option.map((record) => ({ line: redacted, record })),
   );
 };

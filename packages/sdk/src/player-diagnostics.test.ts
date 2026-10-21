@@ -460,6 +460,34 @@ describe("playback diagnostics", () => {
       }),
     ));
 
+  it("counts a stall as no time when the clock was set back during it", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const player = yield* makeFakePlayer(0);
+        const scope = yield* Scope.make();
+        const playback = playbackAt(base);
+
+        yield* TestClock.setTime(1_760_000_000_000);
+        yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => Option.some(playback),
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        player.userPlay();
+        player.stall();
+        yield* TestClock.setTime(1_760_000_000_000 - 60_000);
+        player.recover();
+        yield* Scope.close(scope, Exit.void);
+
+        expect(received().map((event) => event.observation)).toMatchObject([
+          { _tag: "BufferingStarted" },
+          { _tag: "BufferingEnded", durationMs: 0, endedBy: "playing" },
+        ]);
+      }),
+    ));
+
   it("reads the player as it is told to close, never after", () =>
     onTestClock(
       Effect.gen(function* () {

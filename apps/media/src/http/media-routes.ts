@@ -60,6 +60,7 @@ import * as FileResolver from "../playback/file-resolver.ts";
 import { resolveInsideRoots } from "../playback/file-resolver.ts";
 import { renderPlaylist } from "../playback/hls-plan.ts";
 import * as PlaybackToken from "../playback/playback-token.ts";
+import * as StreamOwners from "../playback/stream-owners.ts";
 import * as StreamSessions from "../playback/stream-sessions.ts";
 import * as SubtitleConverter from "../subtitles/subtitle-tracks.ts";
 import {
@@ -203,14 +204,22 @@ const loggedParam = (value: string | undefined): string | null =>
       ? `${value.slice(0, MAX_LOGGED_PARAM)}…`
       : value;
 
+/** How failed requests are logged: within a budget, and with the streams they may name. */
+interface FailureLog {
+  readonly budget: FailureBudget;
+  readonly owners: StreamOwners.Interface;
+}
+
 /**
  * Runs a media route: failures become their error responses, and any answer with a 4xx or 5xx
  * status logs `MediaRoutes.request_failed` with the route, the stream in the path, and the
- * session of the verified token. It logs at `WARN` while the session's `budget` allows, and at
- * `DEBUG` when no token was verified or the budget is spent; the budget counts those instead.
+ * session of the verified token. It logs at `WARN` while the session's budget allows, and at
+ * `DEBUG` when no token was verified or the budget is spent; the budget counts those instead. The
+ * path's stream is filed as `streamId` only when it is the verified session's own, and as
+ * `claimedStreamId` otherwise, so no request can put records under another session's stream.
  */
 const observed = <R>(
-  budget: FailureBudget,
+  failures: FailureLog,
   route: string,
   handler: (
     remember: Remember,
@@ -233,11 +242,17 @@ const observed = <R>(
     if (answer.response.status >= 400) {
       const grant = yield* Ref.get(verified);
       const now = yield* Clock.currentTimeMillis;
+      const pathStream = loggedParam(params["streamId"]);
+
+      const ownStream =
+        pathStream === null ||
+        (Option.isSome(grant) &&
+          (yield* failures.owners.belongsTo(params["streamId"] ?? "", grant.value.sessionId)));
 
       // Anyone can send a bad token, and a member any number of bad requests: only a player's own
       // failures, within its budget, may fill the retained log.
       yield* (
-        Option.exists(grant, (verifiedGrant) => budget.allow(verifiedGrant, now))
+        Option.exists(grant, (verifiedGrant) => failures.budget.allow(verifiedGrant, now))
           ? Effect.logWarning(LogEvent.requestFailed)
           : Effect.logDebug(LogEvent.requestFailed)
       ).pipe(
@@ -246,7 +261,8 @@ const observed = <R>(
           status: answer.response.status,
           error: Option.getOrNull(answer.error),
           elapsedMs: now - started,
-          streamId: loggedParam(params["streamId"]),
+          streamId: ownStream ? pathStream : null,
+          claimedStreamId: ownStream ? null : pathStream,
           file: loggedParam(params["file"]),
           ...Option.match(grant, { onNone: () => ({}), onSome: grantAnnotations }),
         }),
@@ -269,6 +285,7 @@ export const layer: Layer.Layer<
   | PlaybackToken.Service
   | FileResolver.Service
   | StreamSessions.Service
+  | StreamOwners.Service
   | SubtitleConverter.Service
   | Downloads.Service
   | FileSystem.FileSystem
@@ -287,6 +304,7 @@ export const layer: Layer.Layer<
     const platform = yield* HttpPlatform.HttpPlatform;
     const downloads = yield* Downloads.Service;
     const budget = makeFailureBudget();
+    const failures: FailureLog = { budget, owners: yield* StreamOwners.Service };
 
     const reportSuppressed = Effect.suspend(() =>
       Effect.forEach(
@@ -370,7 +388,7 @@ export const layer: Layer.Layer<
       Effect.mapError(() => new MediaFileUnreadable()),
     );
 
-    const direct = observed(budget, "direct", (remember) =>
+    const direct = observed(failures, "direct", (remember) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
 
@@ -390,7 +408,7 @@ export const layer: Layer.Layer<
       }),
     ).pipe(Effect.withSpan("MediaRoutes.direct"));
 
-    const download = observed(budget, "download", (remember) =>
+    const download = observed(failures, "download", (remember) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
 
@@ -429,7 +447,7 @@ export const layer: Layer.Layer<
       };
     });
 
-    const playlist = observed(budget, "playlist", (remember) =>
+    const playlist = observed(failures, "playlist", (remember) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const { streamId, generation } = yield* streamParams;
@@ -452,7 +470,7 @@ export const layer: Layer.Layer<
       }),
     ).pipe(Effect.withSpan("MediaRoutes.playlist"));
 
-    const hlsFile = observed(budget, "hls", (remember) =>
+    const hlsFile = observed(failures, "hls", (remember) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const { streamId, generation, file } = yield* streamParams;
@@ -534,7 +552,7 @@ export const layer: Layer.Layer<
       }),
     ).pipe(Effect.withSpan("MediaRoutes.hls"));
 
-    const subtitle = observed(budget, "subtitle", (remember) =>
+    const subtitle = observed(failures, "subtitle", (remember) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const { fileId = "", track = "" } = yield* HttpRouter.params;

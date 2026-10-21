@@ -230,7 +230,8 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   const endWait = (endedBy: "playing" | "paused" | "closed"): void => {
     if (Option.isNone(state.waiting)) return;
     const { kind, since } = state.waiting.value;
-    const durationMs = Math.round(clock.currentTimeMillisUnsafe() - since);
+    // A clock set back during the wait would make it negative, which no observation may carry.
+    const durationMs = Math.max(0, Math.round(clock.currentTimeMillisUnsafe() - since));
 
     state.waiting = Option.none();
     note(
