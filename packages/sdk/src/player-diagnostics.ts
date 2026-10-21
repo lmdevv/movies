@@ -130,7 +130,7 @@ const send = (
             Schema.Null,
           ),
         ),
-        Effect.catch((error) => Effect.logDebug("PlaybackDiagnostics.dropped", error)),
+        Effect.catch((error) => Effect.logDebug("PlayerDiagnostics.dropped", error)),
       ),
     { discard: true },
   );
@@ -139,7 +139,7 @@ const send = (
  * Records `player`'s stalls and the platform's own events until the scope closes, sending them
  * in batches with the playback `options.playback` names.
  */
-export const reportDiagnostics = Effect.fn("PlaybackDiagnostics.report")(function* (
+export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function* (
   player: PlayerPort,
   options: Options,
 ): Effect.fn.Return<Recorder, never, Scope.Scope> {

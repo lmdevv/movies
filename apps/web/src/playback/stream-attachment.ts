@@ -3,10 +3,12 @@
  * HLS elsewhere through hls.js (loaded on demand, so direct play never downloads it). Failures
  * reach the caller as a `StreamFailure`, keeping the HTTP status the media service answered with
  * so the caller can tell a replaced generation (410) from a lost stream (404) or an expired token
- * (401).
+ * (401). What hls.js sees on the way, every segment it loads and every error, recovered or not,
+ * reaches the caller's `observe` for the player diagnostics.
  */
+import { PlayerObservation } from "@movies/contracts/diagnostics";
 import type { NegotiateResponse } from "@movies/contracts/media-playback";
-import type { ErrorData } from "hls.js";
+import type { ErrorData, FragLoadedData } from "hls.js";
 
 /** Why a stream stopped playing. */
 export type StreamFailure =
@@ -16,6 +18,32 @@ export type StreamFailure =
   | { readonly kind: "media" }
   /** A media request got no answer. */
   | { readonly kind: "network" };
+
+/** Receives what the player saw, for the player diagnostics. */
+export type Observe = (observation: PlayerObservation) => void;
+
+/** How long hls.js took to load a media segment, or none for the init segment. */
+const fragmentLoaded = ({ frag }: FragLoadedData): PlayerObservation | null => {
+  if (frag.sn === "initSegment") return null;
+  const { loading, loaded } = frag.stats;
+
+  return PlayerObservation.cases.FragmentLoaded.make({
+    segment: Math.max(0, frag.sn),
+    durationMs: Math.max(0, Math.round(loading.end - loading.start)),
+    firstByteMs: Math.max(0, Math.round(loading.first - loading.start)),
+    bytes: Math.max(0, Math.round(loaded)),
+  });
+};
+
+/** An hls.js error as the diagnostics record it, recovered or not. */
+const hlsError = (data: ErrorData): PlayerObservation =>
+  PlayerObservation.cases.PlayerError.make({
+    source: "hls.js",
+    kind: data.details.slice(0, 64) || "unknown",
+    detail: (data.error.message || data.type).slice(0, 300),
+    fatal: data.fatal,
+    status: data.response?.code,
+  });
 
 /** A stream playing in an element. */
 export interface AttachedStream {
@@ -123,6 +151,7 @@ const attachHlsJs = async (
   url: string,
   seconds: number,
   onFailure: (failure: StreamFailure) => void,
+  observe: Observe,
 ): Promise<AttachedStream> => {
   const { default: Hls } = await preloadHlsJs();
   let mediaRecoveries = 0;
@@ -152,7 +181,14 @@ const attachHlsJs = async (
     },
   });
 
+  hls.on(Hls.Events.FRAG_LOADED, (_event, data) => {
+    const loaded = fragmentLoaded(data);
+
+    if (loaded !== null) observe(loaded);
+  });
+
   hls.on(Hls.Events.ERROR, (_event, data) => {
+    observe(hlsError(data));
     const failure = failureOf(data, data.type === Hls.ErrorTypes.MEDIA_ERROR);
 
     if (failure === null) return;
@@ -160,6 +196,12 @@ const attachHlsJs = async (
     // A decoder hiccup often recovers in place once; a second one means the path does not work.
     if (failure.kind === "media" && mediaRecoveries === 0) {
       mediaRecoveries += 1;
+      observe(
+        PlayerObservation.cases.Recovery.make({
+          action: "media-error-recovery",
+          reason: data.details.slice(0, 120),
+        }),
+      );
       hls.recoverMediaError();
 
       return;
@@ -197,7 +239,8 @@ const attachHlsJs = async (
 
 /**
  * Plays `stream` in `element` from `seconds`. `onFailure` hears about failures the stream cannot
- * recover from by itself; hls.js retries busy answers (503) on its own first.
+ * recover from by itself; hls.js retries busy answers (503) on its own first. `observe` hears
+ * hls.js segment loads, errors, and recoveries.
  */
 export const attachStream = (
   element: HTMLVideoElement,
@@ -205,7 +248,8 @@ export const attachStream = (
   seconds: number,
   hlsJs: boolean,
   onFailure: (failure: StreamFailure) => void,
+  observe: Observe,
 ): Promise<AttachedStream> =>
   stream.mode !== "direct" && hlsJs
-    ? attachHlsJs(element, stream.url, seconds, onFailure)
+    ? attachHlsJs(element, stream.url, seconds, onFailure, observe)
     : Promise.resolve(attachToElement(element, stream.url, seconds, onFailure));

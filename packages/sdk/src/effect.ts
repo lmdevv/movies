@@ -1,6 +1,6 @@
 /**
  * `@movies/sdk/effect`: the Effect core. Start from `Movies.layer` with a `TokenStorage` layer,
- * then use `MoviesClient`, `Auth`, `DeviceLogin`, `Playback` (with `PlaybackDiagnostics`),
+ * then use `MoviesClient`, `Auth`, `DeviceLogin`, `Playback` (with `PlayerDiagnostics`),
  * `Downloads`, `Versions` (with `MediaLabels` naming their facts), `RoomSync`, and `RoomPresence`.
  */
 export * as Auth from "./auth";
@@ -19,7 +19,7 @@ export * as MoviesClient from "./movies-client";
 
 export * as Playback from "./playback";
 
-export * as PlaybackDiagnostics from "./playback-diagnostics";
+export * as PlayerDiagnostics from "./player-diagnostics";
 
 export type { PlayerEvent, PlayerPort } from "./room-sync/player-port";
 

@@ -9,8 +9,8 @@ import { TestClock } from "effect/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { Playback } from "./playback";
-import type { FrameCounts } from "./playback-diagnostics";
-import { reportDiagnostics } from "./playback-diagnostics";
+import type { FrameCounts } from "./player-diagnostics";
+import { reportDiagnostics } from "./player-diagnostics";
 import { makeFakePlayer } from "./testing/fake-player";
 
 /** Every batch the media service received, decoded as the service decodes it. */

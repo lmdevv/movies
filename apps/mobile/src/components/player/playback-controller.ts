@@ -9,20 +9,28 @@
  * renegotiates, a path AVPlayer cannot play is dropped and the next tried, and a missing file
  * stops with its own state. Tokens renew by renegotiating five minutes before they expire. Audio
  * tracks, the quality cap, and picture subtitles (burned in by the media service) renegotiate at
- * the current position; text subtitles are drawn by the screen and switch in place.
+ * the current position; text subtitles are drawn by the screen and switch in place. A streamed
+ * session also reports what AVPlayer saw (`diagnostics`): stalls, each stream attached, AVPlayer
+ * failures, and every recovery.
  *
  * Every SDK call runs on the app's SDK runtime and comes back as a value; nothing here throws.
  */
+import { PlayerObservation } from "@movies/contracts/diagnostics";
 import type { ClientCapabilities, NegotiateResponse } from "@movies/contracts/media-playback";
 import { Milliseconds } from "@movies/contracts/units";
 import type { Movies } from "@movies/sdk/effect";
-import { Playback } from "@movies/sdk/effect";
+import { Playback, PlayerDiagnostics } from "@movies/sdk/effect";
 import type { useMoviesRuntime } from "@movies/sdk/react";
-import { Data, Effect, Exit, Option, Result, Struct } from "effect";
+import { Data, Effect, Exit, Option, Result, Scope, Struct } from "effect";
 import { createVideoPlayer } from "expo-video";
 import type { VideoMetadata, VideoPlayer } from "expo-video";
 
 import { IOS_CAPABILITIES } from "@/lib/player/capabilities";
+import {
+  bufferedAheadSeconds,
+  playerErrorObservation,
+  recoveryObservation,
+} from "@/lib/player/diagnostics";
 import {
   MAX_RECOVERIES,
   PlaybackStep,
@@ -137,6 +145,11 @@ export class PlayerController {
   #original: Playback.Playback | null = null;
   #playback: Playback.Playback | null = null;
   #video: VideoPlayer | null = null;
+  /** Records what AVPlayer sees for a streamed session, and the scope that sends it. */
+  #diagnostics: {
+    readonly recorder: PlayerDiagnostics.Recorder;
+    readonly scope: Scope.Closeable;
+  } | null = null;
   readonly #videoSubscriptions = new Map<VideoPlayer, { remove(): void }>();
   /** Bumped by every new stream, so late callbacks of an older one do nothing. */
   #generation = 0;
@@ -217,15 +230,42 @@ export class PlayerController {
 
   /**
    * Plays the session `usePlaybackSession` started, whose stream starts at the saved progress
-   * unless the viewer asked to start over. It plays at once; there is no resume prompt.
+   * unless the viewer asked to start over. It plays at once; there is no resume prompt. A
+   * `streamed` session (not a kept download) reports what AVPlayer sees to the media service.
    */
-  start(playback: Playback.Playback): void {
+  start(playback: Playback.Playback, streamed: boolean): void {
     if (this.#original !== null || this.#disposed) return;
     this.#original = playback;
+
+    if (streamed) this.#diagnose();
 
     this.#update({ phase: PlayerPhase.Preparing() });
     this.#load(playback, playback.stream.startSeconds * 1000);
     void this.port.play();
+  }
+
+  /** Starts recording what AVPlayer sees; nothing it needs is a service, so it starts at once. */
+  #diagnose(): void {
+    const scope = Scope.makeUnsafe();
+
+    const recorder = Effect.runSync(
+      Scope.provide(scope)(
+        PlayerDiagnostics.reportDiagnostics(this.port, {
+          platform: "ios",
+          playback: () => Option.fromNullishOr(this.#playback),
+          bufferedAheadSeconds: () =>
+            this.#video === null ? 0 : bufferedAheadSeconds(this.#video),
+          frames: () => Option.none(),
+        }),
+      ),
+    );
+
+    this.#diagnostics = { recorder, scope };
+  }
+
+  /** Records what AVPlayer saw, for a streamed session. */
+  #observe(observation: PlayerObservation): void {
+    this.#diagnostics?.recorder.record(observation);
   }
 
   /** Names what plays on the lock screen and in Control Center, from the next stream on. */
@@ -260,10 +300,10 @@ export class PlayerController {
     video.allowsExternalPlayback = true;
     this.#videoSubscriptions.set(
       video,
-      video.addListener("statusChange", ({ status }) => {
+      video.addListener("statusChange", ({ status, error }) => {
         if (generation !== this.#generation) return;
 
-        if (status === "error") this.#onPlayerError();
+        if (status === "error") this.#onPlayerError(error?.message);
       }),
     );
 
@@ -277,6 +317,7 @@ export class PlayerController {
       stream.mode === "direct" ? NATIVE_SEEKER : this.#hlsSeeker(),
     );
     this.#update({ video, playback, audioStreamIndex: stream.audio?.streamIndex ?? null });
+    this.#observe(PlayerObservation.cases.Attached.make({ mode: stream.mode, engine: "avplayer" }));
     this.#scheduleRenewal(stream);
   }
 
@@ -304,15 +345,18 @@ export class PlayerController {
     }
   }
 
-  #onPlayerError(): void {
+  #onPlayerError(message: string | undefined): void {
     const playback = this.#playback;
 
     if (playback === null) return;
 
+    const observed = playerErrorObservation(message);
     const step = afterPlayerError(playback.stream, this.#reloadedAfterError);
 
+    this.#observe(observed);
+
     if (PlaybackStep.$is("ReloadPlaylist")(step)) this.#reloadedAfterError = true;
-    void this.#follow(step, this.port.positionMs());
+    void this.#follow(step, this.port.positionMs(), message ?? "AVPlayer failed");
   }
 
   /** Seeks an HLS stream beyond what AVPlayer holds through the media service. */
@@ -353,11 +397,20 @@ export class PlayerController {
           return;
         }
 
-        if (moved === null)
-          return this.#follow(PlaybackStep.Renegotiate({ afterMs: 0 }), positionMs);
+        if (moved === null) {
+          return this.#follow(
+            PlaybackStep.Renegotiate({ afterMs: 0 }),
+            positionMs,
+            "The seek could not reach the media service",
+          );
+        }
 
         if (Result.isFailure(moved)) {
-          return this.#follow(afterPlaybackFailure(moved.failure), positionMs);
+          return this.#follow(
+            afterPlaybackFailure(moved.failure),
+            positionMs,
+            moved.failure.message,
+          );
         }
 
         this.#moveTo(playback, moved.success, positionMs);
@@ -388,9 +441,13 @@ export class PlayerController {
     this.#load(inGeneration(playback, moved.value), positionMs);
   }
 
-  /** Carries out a recovery step at `positionMs`. */
-  async #follow(step: PlaybackStep, positionMs: number): Promise<void> {
+  /** Carries out a recovery step at `positionMs`, after a failure `reason` describes. */
+  async #follow(step: PlaybackStep, positionMs: number, reason: string): Promise<void> {
     if (this.#disposed) return;
+
+    const recovery = recoveryObservation(step, reason);
+
+    if (Option.isSome(recovery)) this.#observe(recovery.value);
 
     if (PlaybackStep.$is("Stop")(step)) return this.#stop(step.stop);
 
@@ -521,7 +578,11 @@ export class PlayerController {
     }
 
     if (Result.isFailure(renewed)) {
-      return this.#follow(afterPlaybackFailure(renewed.failure), positionMs);
+      return this.#follow(
+        afterPlaybackFailure(renewed.failure),
+        positionMs,
+        renewed.failure.message,
+      );
     }
 
     this.#load(renewed.success, positionMs);
@@ -658,6 +719,14 @@ export class PlayerController {
     this.#disposed = true;
     clearTimeout(this.#renewTimer);
     this.#unsubscribePort();
+
+    // Sends what is left before the port lets go of the player.
+    const diagnostics = this.#diagnostics;
+
+    this.#diagnostics = null;
+
+    if (diagnostics !== null) void Effect.runPromise(Scope.close(diagnostics.scope, Exit.void));
+
     // Before releasing the players: the exit report reads the port afterwards.
     this.port.dispose();
 
