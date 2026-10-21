@@ -15,40 +15,14 @@
 }:
 let
   cfg = config.programs.movies;
+
+  shared = import ./cli-options.nix { inherit lib pkgs; };
 in
 {
-  options.programs.movies = {
-    enable = lib.mkEnableOption "the [movies] command line";
-
-    package = lib.mkOption {
-      type = lib.types.package;
-      default = pkgs.callPackage ./cli.nix { };
-      defaultText = lib.literalExpression "movies.packages.\${system}.cli";
-      description = "The `movies` CLI package.";
-    };
-
-    convexUrl = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      example = "http://nas.tailnet.ts.net:3210";
-      description = ''
-        The server's Convex URL, set as `MOVIES_CONVEX_URL` in your session, so `movies login`
-        needs no `--server`. A profile saved for another server stays unused while it is set.
-      '';
-    };
-
-    mediaUrl = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      example = "http://nas.tailnet.ts.net:8080";
-      description = "The server's web app and stream URL, set as `MOVIES_MEDIA_URL`.";
-    };
-  };
+  options.programs.movies = shared.options;
 
   config = lib.mkIf cfg.enable {
     home.packages = [ cfg.package ];
-    home.sessionVariables =
-      lib.optionalAttrs (cfg.convexUrl != null) { MOVIES_CONVEX_URL = cfg.convexUrl; }
-      // lib.optionalAttrs (cfg.mediaUrl != null) { MOVIES_MEDIA_URL = cfg.mediaUrl; };
+    home.sessionVariables = shared.sessionVariables cfg;
   };
 }

@@ -207,6 +207,8 @@ programs.movies = {
   enable = true;
   convexUrl = "http://nas.tailnet.ts.net:3210";
   mediaUrl = "http://nas.tailnet.ts.net:8080";
+  # It builds with your nixpkgs; on an older one, use the flake's own build:
+  # package = inputs.movies.packages.${pkgs.stdenv.hostPlatform.system}.cli;
 };
 ```
 
