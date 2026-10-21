@@ -273,6 +273,7 @@ export class PlayerController {
     this.#diagnostics = null;
 
     if (diagnostics !== null) {
+      diagnostics.recorder.close();
       void this.#runtime.runPromiseExit(Scope.close(diagnostics.scope, Exit.void));
     }
   }

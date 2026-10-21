@@ -460,6 +460,56 @@ describe("playback diagnostics", () => {
       }),
     ));
 
+  it("reads the player as it is told to close, never after", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const scope = yield* Scope.make();
+        const playback = playbackAt(base);
+        const { element, player } = makeElement();
+        let released = false;
+
+        const read = <A>(value: A): A => {
+          if (released) throw new Error("The player was released");
+
+          return value;
+        };
+
+        const recorder = yield* reportDiagnostics(
+          { ...player, positionMs: () => read(element.positionMs) },
+          {
+            platform: "ios",
+            playback: () => Option.some(playback),
+            bufferedAheadSeconds: () => read(8),
+            frames: () => Option.some(read({ dropped: 3, decoded: 100 })),
+          },
+        ).pipe(Scope.provide(scope));
+
+        element.paused = false;
+        element.positionMs = 60_000;
+        element.emit("playing");
+        element.emit("waiting");
+        yield* TestClock.adjust(4_000);
+        recorder.close();
+        released = true;
+        element.emit("playing");
+        yield* Scope.close(scope, Exit.void);
+
+        expect(received().map((event) => event.observation)).toStrictEqual([
+          PlayerObservation.cases.BufferingStarted.make({
+            positionSeconds: 60,
+            bufferedAheadSeconds: 8,
+          }),
+          PlayerObservation.cases.BufferingEnded.make({
+            positionSeconds: 60,
+            bufferedAheadSeconds: 8,
+            durationMs: 4_000,
+            endedBy: "closed",
+          }),
+          PlayerObservation.cases.DroppedFrames.make({ dropped: 3, decoded: 100 }),
+        ]);
+      }),
+    ));
+
   it("sends to a provided MediaOrigin instead of the session's public URL", () =>
     onTestClock(
       Effect.gen(function* () {

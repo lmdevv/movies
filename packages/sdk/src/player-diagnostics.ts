@@ -27,7 +27,6 @@ import {
   Option,
   Queue,
   Redacted,
-  Ref,
   Schedule,
   Schema,
   Semaphore,
@@ -52,6 +51,12 @@ export interface Recorder {
    * batch. Never blocks or fails.
    */
   readonly record: (observation: PlayerObservation) => void;
+  /**
+   * Ends a startup or stall in progress as `closed` and samples dropped frames one last time,
+   * reading the player now, so a caller can release the player right after. The player is never
+   * read again; closing the scope sends what is queued. Closing twice does nothing more.
+   */
+  readonly close: () => void;
 }
 
 /** Frames the decoder has dropped and decoded since the element or player was created. */
@@ -170,18 +175,20 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
 ): Effect.fn.Return<Recorder, never, Scope.Scope> {
   const clock = yield* Clock.Clock;
   const queue = yield* Queue.sliding<Pending>(MAX_PENDING);
-  const counted = yield* Ref.make<FrameCounts>({ dropped: 0, decoded: 0 });
   const oneBatchAtATime = yield* Semaphore.make(1);
 
   /**
-   * The wait in progress, none while playing; the playback that played last; and the playback
-   * session that reached `playing`, after which its waits are stalls. Player events and records
-   * change them as they happen.
+   * The wait in progress, none while playing; the playback that played last; the playback session
+   * that reached `playing`, after which its waits are stalls; the frame counts sampled last; and
+   * whether the recorder closed, after which it reads nothing from the player. Player events and
+   * records change them as they happen.
    */
   const state = {
     waiting: Option.none<Wait>(),
     lastPlayback: Option.none<Playback>(),
     played: Option.none<PlaybackSessionId>(),
+    counted: { dropped: 0, decoded: 0 } satisfies FrameCounts,
+    closed: false,
   };
 
   const playbackNow = (): Option.Option<Playback> =>
@@ -238,6 +245,8 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   };
 
   const onPlayerEvent = (event: PlayerEvent): void => {
+    if (state.closed) return;
+
     if (event === "waiting" && Option.isNone(state.waiting) && !player.isPaused()) {
       startWait();
     } else if (event === "playing") {
@@ -248,22 +257,31 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
     }
   };
 
-  const sampleFrames = Effect.gen(function* () {
+  const sampleFrames = (): void => {
+    if (state.closed) return;
     const counts = options.frames();
 
     if (Option.isNone(counts)) return;
-    const previous = yield* Ref.getAndSet(counted, counts.value);
-    const dropped = counts.value.dropped - previous.dropped;
-    const decoded = counts.value.decoded - previous.decoded;
+    const dropped = counts.value.dropped - state.counted.dropped;
+    const decoded = counts.value.decoded - state.counted.decoded;
+
+    state.counted = counts.value;
 
     // A new element counts from zero again, which reads as fewer frames and is skipped.
     if (dropped > 0 && decoded >= 0)
       note(PlayerObservation.cases.DroppedFrames.make({ dropped, decoded }));
-  });
+  };
+
+  const close = (): void => {
+    if (state.closed) return;
+    endWait("closed");
+    sampleFrames();
+    state.closed = true;
+  };
 
   const flush = oneBatchAtATime.withPermits(1)(
     Effect.gen(function* () {
-      yield* sampleFrames;
+      yield* Effect.sync(sampleFrames);
       const pending = yield* Queue.clear(queue);
       const now = yield* Clock.currentTimeMillis;
       const byToken = Arr.groupBy(pending, (each) => each.playback.started.token);
@@ -282,12 +300,12 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   );
   yield* Effect.forkScoped(Effect.repeat(Effect.delay(flush, FLUSH_INTERVAL), Schedule.forever));
   yield* Effect.addFinalizer(() =>
-    Effect.sync(() => endWait("closed")).pipe(
+    Effect.sync(close).pipe(
       Effect.andThen(flush),
       Effect.timeout(FINAL_FLUSH_TIMEOUT),
       Effect.ignore,
     ),
   );
 
-  return { record: note } satisfies Recorder;
+  return { record: note, close } satisfies Recorder;
 });
