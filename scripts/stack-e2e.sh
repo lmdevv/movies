@@ -119,8 +119,14 @@ check "the printed stream URL plays from the host" \
   '[[ "$(curl -fsS -r 0-0 -o /dev/null -w "%{http_code}" "$play_url")" =~ ^20[06]$ ]]'
 check "the CLI login is root's and private, in the data volume" \
   '[[ "$(in_movies stat -c "%U %a" /data/config/movies/config.json)" == "root 600" ]]'
+retained="$(in_movies movies logs --since 5m --json 2>&1)" || true
+if ! grep -qF '"message":"Stream.started"' <<<"$retained"; then
+  echo "movies logs answered $(wc -l <<<"$retained") lines; the last ten:" >&2
+  tail -n 10 <<<"$retained" | cut -c1-300 >&2
+  in_movies ls -l /data/media/logs >&2 || true
+fi
 check "the image's CLI reads the retained log as the owner" \
-  'in_movies movies logs --since 5m --json | grep -qF "\"message\":\"Stream.started\""'
+  'grep -qF "\"message\":\"Stream.started\"" <<<"$retained"'
 check "the retained log is private to the media user" \
   '[[ "$(in_movies stat -c "%u %a" /data/media/logs)" == "$PUID 700" ]] &&
     ! in_movies find /data/media/logs -type f ! -perm 600 | grep -q .'
