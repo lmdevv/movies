@@ -26,6 +26,13 @@ List, and Collections. Genres, collections and people open from there or from Se
 My List opens from You. Selecting Search moves the tab bar's search field above the keyboard
 (E00), and scrolling down minimizes the bar to a Home circle and the Search circle (C02).
 
+## Downloads
+
+Movies and episodes download to the iPhone from their `…` sheets and play offline in the same
+player. The files live under the app's documents folder, per server and account; the media
+service prepares an MP4 when the original does not play on the iPhone within Download Settings'
+quality. When the server cannot be reached at launch, Go to Downloads opens what is kept.
+
 ## Develop
 
 Native code needs a development build; Expo Go does not carry the modules this app uses. On a Mac
@@ -59,7 +66,7 @@ ssh -N -R 8081:[::1]:8081 -R 3210:127.0.0.1:3210 -R 8080:127.0.0.1:8080 mac
 | `src/components/ui`        | Text, buttons, fields, rows, and headers from Paper's iOS components |
 | `src/components`           | Posters, cards, and avatars                                          |
 | `src/components/browse`    | Home's hero, rails, grids, and context menus, and the tabs' chrome   |
-| `src/components/downloads` | The Downloads tab's content                                          |
+| `src/components/downloads` | Downloads: rows, the list, the engine's hooks, and offline playback  |
 | `src/components/rooms`     | Watch Together: the player's pane and popups, and the room pages     |
 | `src/components/owner`     | Owner Settings: the library form, import state, and shared parts     |
 | `src/session`              | Connection, SDK provider, profile choice, and the session phase      |

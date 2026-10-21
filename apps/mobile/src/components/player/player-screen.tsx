@@ -57,6 +57,8 @@ import { useActiveProfile } from "@/session/active-profile";
 import { useServer } from "@/session/connection";
 import { usePreferences } from "@/session/preferences";
 
+import { useDownloadSession } from "@/components/downloads/use-download-session";
+
 import { NextEpisodeCard } from "./next-episode-card";
 import { PlayerController, PlayerPhase } from "./playback-controller";
 import type { PlayerSnapshot } from "./playback-controller";
@@ -275,10 +277,16 @@ function PlayerSession({
     ],
   );
 
-  const session = usePlaybackSession(
-    controller === null ? null : request,
+  // A kept download plays its local file (`useDownloadSession`) instead of a server session.
+  const download = params.download ?? null;
+
+  const online = usePlaybackSession(
+    controller === null || download !== null ? null : request,
     controller?.port ?? null,
   );
+
+  const offline = useDownloadSession(download, controller?.port ?? null);
+  const session = download === null ? online : offline;
 
   useEffect(() => {
     if (controller !== null && session !== null && Result.isSuccess(session)) {
@@ -554,7 +562,16 @@ function PlayerSession({
             onPress: () => setPanel("chapters"),
           } as const,
         ]),
-    { label: "Playback Quality", systemImage: "dial.medium", onPress: () => setPanel("quality") },
+    // A download plays the quality it was kept at.
+    ...(download === null
+      ? [
+          {
+            label: "Playback Quality",
+            systemImage: "dial.medium",
+            onPress: () => setPanel("quality"),
+          } as const,
+        ]
+      : []),
   ];
 
   const close = useCallback(() => {
@@ -718,7 +735,7 @@ function PlayerSession({
                 setHeld(false);
               }}
               together={
-                started === null
+                started === null || download !== null
                   ? undefined
                   : room.room === null
                     ? { kind: "start", onPress: room.onTogether }
@@ -1082,7 +1099,8 @@ export function PlayerScreen({ params }: { readonly params: WatchParams }) {
 
   // The player's own safe area: the modal turns to landscape, where the app's provider would still
   // report the portrait insets.
-  if (data.step !== "play") {
+  // A kept download plays from this iPhone and uses no data.
+  if (data.step !== "play" && params.download === undefined) {
     return (
       <SafeAreaProvider>
         <MobileDataPanel

@@ -1,7 +1,8 @@
 /**
  * D07 · Episode Actions: play it from the beginning once it has progress, mark it watched or
- * unwatched, watch it together, and choose among its versions when it has several. Tapping the
- * episode itself already plays or resumes it, so the sheet has no Play row.
+ * unwatched, watch it together, download it, and choose among its versions when it has several.
+ * Tapping the episode itself already plays or resumes it, so the sheet has no Play row. Paper's
+ * D07 draws no Download row; this is D10's Download row, in the same place for an episode.
  */
 import type { EpisodeId, TitleId } from "@movies/contracts/ids";
 import type { SeasonEpisode } from "@movies/contracts/models/catalog";
@@ -9,6 +10,7 @@ import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { useLocalSearchParams } from "expo-router";
 import { Check, Clapperboard, EyeOff, RotateCcw, UsersRound } from "lucide-react-native";
 
+import { useDownloadAction } from "@/components/downloads/use-download-action";
 import { episodeIdParam, seasonParam, titleIdParam } from "@/components/title/route-params";
 import { Sheet, useSheetExit } from "@/components/title/sheet";
 import { episodeSubtitle, resumeOf } from "@/components/title/title-model";
@@ -34,6 +36,22 @@ function EpisodeActions({ episode }: { readonly episode: SeasonEpisode }) {
     profileId: profile.id,
     titleId: episode.titleId,
     episodeId: episode.id,
+  });
+
+  // The show's page has subscribed to it already; a download keeps the show's name.
+  const show = useCommandQuery("titles.get", { profileId: profile.id, titleId: episode.titleId });
+
+  const download = useDownloadAction({
+    profileId: profile.id,
+    titleId: episode.titleId,
+    episodeId: episode.id,
+    fileId: null,
+    titleName: show.status === "success" ? show.data.name : "",
+    episodeName: episode.name,
+    seasonNumber: episode.seasonNumber,
+    episodeNumber: episode.episodeNumber,
+    runtimeMs: episode.runtimeMs,
+    artwork: episode.still,
   });
 
   const toggleWatched = async () => {
@@ -72,6 +90,19 @@ function EpisodeActions({ episode }: { readonly episode: SeasonEpisode }) {
           )
         }
       />
+      {episode.available && download !== null && show.status === "success" ? (
+        <ListRow
+          icon={download.icon}
+          title={download.title}
+          detail={download.detail}
+          onPress={() => {
+            const page = download.press();
+
+            if (page === null) exit.close();
+            else exit.leaveFor(page);
+          }}
+        />
+      ) : null}
       {versions.status === "success" && versions.data.length > 1 ? (
         <ListRow
           icon={Clapperboard}
