@@ -12,10 +12,42 @@
 import { CommandFailure, commandError } from "@movies/contracts/errors";
 import type { CommandError, ErrorCode } from "@movies/contracts/errors";
 import { PlaybackApiError } from "@movies/contracts/media-playback";
+import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { Effect, Option, Redacted, Schema } from "effect";
 
 import type { CallError } from "./sdk-errors";
 import { ProtocolError, TransportError } from "./sdk-errors";
+
+/** `path` on the media service of a started session. */
+export const mediaUrl = (started: { readonly mediaBaseUrl: string }, path: string): string =>
+  `${started.mediaBaseUrl.replace(/\/+$/u, "")}${path}`;
+
+/** `value` as the JSON its schema's JSON codec writes, for a request body. */
+export const encodeJson = <A, I>(
+  schema: Schema.Codec<A, I>,
+  value: A,
+): Effect.Effect<Schema.Json> =>
+  Schema.encodeEffect(Schema.toCodecJson(schema))(value).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)),
+    // The request schemas only hold JSON values; failing to encode one is a defect.
+    Effect.orDie,
+  );
+
+/** `started` with a token `playback.renewToken` signed for it. */
+export const withRenewedToken = (
+  started: StartedPlayback,
+  renewed: Pick<StartedPlayback, "token" | "tokenExpiresAt">,
+): StartedPlayback => ({
+  sessionId: started.sessionId,
+  titleId: started.titleId,
+  episodeId: started.episodeId,
+  episode: started.episode,
+  file: started.file,
+  token: renewed.token,
+  tokenExpiresAt: renewed.tokenExpiresAt,
+  mediaBaseUrl: started.mediaBaseUrl,
+  resumePositionMs: started.resumePositionMs,
+});
 
 /** One request to the media service. */
 export interface MediaRequest {

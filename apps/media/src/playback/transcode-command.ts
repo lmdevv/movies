@@ -32,6 +32,28 @@ export interface HlsCommand {
   readonly vaapiDevice: string;
 }
 
+/** What the stream arguments read: everything but where the input and the output are. */
+type EncodeSource = Omit<HlsCommand, "input" | "outputDirectory">;
+
+/** Everything one ffmpeg run that writes a whole file as MP4 needs, for a download. */
+export interface Mp4Command {
+  readonly input: string;
+  readonly videoIndex: number;
+  readonly videoCodec: string;
+  readonly videoBitDepth: number;
+  /** A copy, or an encode without a burned-in subtitle. */
+  readonly video: VideoPlan;
+  readonly audio: AudioPlan;
+  /** ffprobe's name for the source audio track's codec, such as `aac`; empty without audio. */
+  readonly audioCodec: string;
+  readonly qsvDevice: string;
+  readonly vaapiDevice: string;
+  /** The MP4 to write. */
+  readonly output: string;
+  /** Where ffmpeg writes `key=value` progress (`out_time_us`) as it goes. */
+  readonly progress: string;
+}
+
 /** Codecs Intel (Quick Sync, VA-API) and AMD (VA-API) media engines decode in hardware. */
 const HARDWARE_DECODERS: ReadonlySet<string> = new Set([
   "h264",
@@ -59,11 +81,11 @@ interface FilterGraph {
 }
 
 /** Whether the source decodes on the GPU straight into the encoder's filters. */
-const decodesOnGpu = (command: HlsCommand, video: Encode): boolean =>
+const decodesOnGpu = (command: EncodeSource, video: Encode): boolean =>
   video.encoder !== "software" && HARDWARE_DECODERS.has(command.videoCodec);
 
 /** Filters from frames in system memory to frames the GPU encoder takes, scaled to the target. */
-const gpuFilters = (command: HlsCommand, video: Encode, uploaded: boolean): string => {
+const gpuFilters = (command: EncodeSource, video: Encode, uploaded: boolean): string => {
   const size = `w=${String(video.width)}:h=${String(video.height)}`;
 
   const upload = uploaded
@@ -89,7 +111,7 @@ const gpuFilters = (command: HlsCommand, video: Encode, uploaded: boolean): stri
  * software straight away, on a GPU after downloading its frames, which are then uploaded again
  * for the encoder. The subtitle's canvas (720x576 for DVD) is scaled to the picture it covers.
  */
-const videoFilters = (command: HlsCommand, video: Encode): FilterGraph => {
+const videoFilters = (command: EncodeSource, video: Encode): FilterGraph => {
   const width = String(video.width);
   const height = String(video.height);
 
@@ -128,7 +150,7 @@ const videoFilters = (command: HlsCommand, video: Encode): FilterGraph => {
   };
 };
 
-const videoArgs = (command: HlsCommand): ReadonlyArray<string> =>
+const videoArgs = (command: EncodeSource): ReadonlyArray<string> =>
   VideoPlan.$match(command.video, {
     Copy: () => [
       "-map",
@@ -138,7 +160,11 @@ const videoArgs = (command: HlsCommand): ReadonlyArray<string> =>
       ...(command.videoCodec === "hevc" ? ["-tag:v", "hvc1"] : []),
     ],
     Encode: (video) => {
-      const keyframes = ["-force_key_frames", command.segmentStarts.map(seconds).join(",")];
+      const keyframes =
+        command.segmentStarts.length === 0
+          ? []
+          : ["-force_key_frames", command.segmentStarts.map(seconds).join(",")];
+
       const rate = String(video.bitrate);
       const filters = videoFilters(command, video);
 
@@ -191,7 +217,7 @@ const videoArgs = (command: HlsCommand): ReadonlyArray<string> =>
 const copyBitstreamFilter = (codec: string): ReadonlyArray<string> =>
   codec === "aac" ? ["-bsf:a", "aac_adtstoasc"] : [];
 
-const audioArgs = (command: HlsCommand): ReadonlyArray<string> =>
+const audioArgs = (command: EncodeSource): ReadonlyArray<string> =>
   AudioPlan.$match(command.audio, {
     None: () => ["-an"],
     Copy: ({ index }) => [
@@ -211,7 +237,7 @@ const audioArgs = (command: HlsCommand): ReadonlyArray<string> =>
  */
 export const qsvDeviceInit = (device: string): string => `qsv=hw,child_device=${device}`;
 
-const hardwareInput = (command: HlsCommand): ReadonlyArray<string> => {
+const hardwareInput = (command: EncodeSource): ReadonlyArray<string> => {
   const video = command.video;
 
   if (!VideoPlan.$is("Encode")(video) || video.encoder === "software") return [];
@@ -249,7 +275,7 @@ const SUBTITLE_LEAD = 30;
 const DVD_CANVAS = "720x576";
 
 /** How a burned-in subtitle is read: its canvas size, and whether from a second reading. */
-const subtitleReading = (command: HlsCommand) => {
+const subtitleReading = (command: EncodeSource) => {
   const video = command.video;
   const burning = VideoPlan.$is("Encode")(video) && video.burnSubtitle !== undefined;
   const offset = command.from - command.sourceStart;
@@ -319,5 +345,57 @@ export const hlsCommandArgs = (command: HlsCommand): ReadonlyArray<string> => {
     "-hls_segment_filename",
     `${command.outputDirectory}/f%d.m4s`,
     `${command.outputDirectory}/ffmpeg.m3u8`,
+  ];
+};
+
+/**
+ * The ffmpeg arguments for `command`: the whole file from its start, the planned video and audio,
+ * no subtitles, metadata, or chapters, and the index moved to the front (`+faststart`), so AVPlayer
+ * opens the finished file at once. Progress goes to `command.progress`.
+ */
+export const mp4CommandArgs = (command: Mp4Command): ReadonlyArray<string> => {
+  // A whole-file run: no seek, no keyframes forced onto a segment plan, nothing burned in.
+  const source: EncodeSource = {
+    sourceStart: 0,
+    from: 0,
+    videoIndex: command.videoIndex,
+    videoCodec: command.videoCodec,
+    videoBitDepth: command.videoBitDepth,
+    video: command.video,
+    audio: command.audio,
+    audioCodec: command.audioCodec,
+    subtitleCodec: "",
+    segmentStarts: [],
+    qsvDevice: command.qsvDevice,
+    vaapiDevice: command.vaapiDevice,
+  };
+
+  return [
+    "-hide_banner",
+    "-nostdin",
+    "-nostats",
+    "-v",
+    "error",
+    "-progress",
+    command.progress,
+    ...hardwareInput(source),
+    "-i",
+    command.input,
+    ...videoArgs(source),
+    ...audioArgs(source),
+    "-map_metadata",
+    "-1",
+    "-map_chapters",
+    "-1",
+    "-sn",
+    "-dn",
+    "-max_muxing_queue_size",
+    "4096",
+    "-movflags",
+    "+faststart",
+    "-f",
+    "mp4",
+    "-y",
+    command.output,
   ];
 };

@@ -1,6 +1,6 @@
 /**
  * `@movies/sdk/effect`: the Effect core. Start from `Movies.layer` with a `TokenStorage` layer,
- * then use `MoviesClient`, `Auth`, `DeviceLogin`, `Playback`, `Versions` (with
+ * then use `MoviesClient`, `Auth`, `DeviceLogin`, `Playback`, `Downloads`, `Versions` (with
  * `MediaLabels` naming their facts), `RoomSync`, and `RoomPresence`.
  */
 export * as Auth from "./auth";
@@ -8,6 +8,8 @@ export * as Auth from "./auth";
 export * as ConvexTransport from "./convex-transport";
 
 export * as DeviceLogin from "./device-login";
+
+export * as Downloads from "./downloads";
 
 export * as MediaLabels from "./media-labels";
 

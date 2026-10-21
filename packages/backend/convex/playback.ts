@@ -1,7 +1,8 @@
 /**
  * Per-device playback sessions. Creating one signs a playback token for the media service; each
  * device then reports its own position, and a report from an older session of the same profile
- * cannot overwrite a newer one's progress.
+ * cannot overwrite a newer one's progress. Downloads (`downloads.ts`) are sessions too; they leave
+ * the device's playback alone and report no progress.
  */
 import { v } from "convex/values";
 
@@ -9,22 +10,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { loadAudience, loadVisibleTitle } from "./lib/access";
-import { checkDeviceId, checkDisplayName, checkMilliseconds } from "./lib/bounds";
+import { checkDeviceId, checkMilliseconds } from "./lib/bounds";
 import { endPlaybackSession } from "./lib/endings";
 import { fail } from "./lib/errors";
-import { resolveEpisode, resolvePlayable } from "./lib/playable";
-import {
-  mediaBaseUrl,
-  PLAYBACK_TOKEN_LIFETIME_MS,
-  playbackTokenSecret,
-  signPlaybackToken,
-} from "./lib/playbackToken";
-import {
-  findProgress,
-  presentEpisodeFor,
-  presentMediaFile,
-  presentPlaybackSession,
-} from "./lib/present";
+import { presentEpisodeFor, presentPlaybackSession } from "./lib/present";
 import {
   clientCapabilities,
   episode,
@@ -35,42 +24,20 @@ import {
   renewedToken,
   startedPlayback,
 } from "./lib/validators";
+import {
+  activeSessions,
+  choosePlayable,
+  isDownload,
+  issueToken,
+  loadOwnSession,
+  openSession,
+} from "./lib/sessions";
 import type { Viewer } from "./lib/viewer";
 import { authorize } from "./lib/viewer";
 import { nextEpisodeAfter, reachedEnd, writeProgress } from "./lib/viewing";
 
 /** Most devices one account plays on at once; starting another ends the quietest. */
 const MAX_ACTIVE_SESSIONS = 8;
-
-const issueToken = async (
-  session: Doc<"playbackSessions">,
-): Promise<{ readonly token: string; readonly tokenExpiresAt: number }> => {
-  const iat = Date.now();
-  const tokenExpiresAt = iat + PLAYBACK_TOKEN_LIFETIME_MS;
-
-  const token = await signPlaybackToken(playbackTokenSecret(), {
-    sub: session.userId,
-    pid: session.profileId,
-    fid: session.fileId,
-    sid: session._id,
-    iat,
-    exp: tokenExpiresAt,
-  });
-
-  return { token, tokenExpiresAt };
-};
-
-const loadOwnSession = async (
-  ctx: MutationCtx,
-  viewer: Viewer,
-  sessionId: Id<"playbackSessions">,
-): Promise<Doc<"playbackSessions">> => {
-  const session = await ctx.db.get(sessionId);
-
-  if (session?.userId !== viewer.userId) return fail("not_found", "No such playback session");
-
-  return session;
-};
 
 /** Where a room member's stream starts: the room's file, with the member's own session. */
 const roomFile = async (
@@ -131,30 +98,15 @@ export const createSession = mutation({
       return fail("invalid_args", "The room is playing another title");
     }
 
-    const played = await resolveEpisode(ctx, title, room?.episodeId ?? args.episodeId ?? null);
-    const episodeId = played?._id ?? null;
-    const saved = await findProgress(ctx, args.profileId, title._id, episodeId);
-
-    const playable = await resolvePlayable(
-      ctx,
-      title,
-      played,
-      room?.fileId ?? args.fileId ?? null,
-      {
-        lastPlayed: saved?.fileId ?? null,
-        client: args.capabilities ?? null,
-      },
-    );
-
-    const resumePositionMs =
-      saved === null || reachedEnd(saved.positionMs, saved.durationMs) ? 0 : saved.positionMs;
+    const chosen = await choosePlayable(ctx, args.profileId, title, {
+      episodeId: room?.episodeId ?? args.episodeId ?? null,
+      fileId: room?.fileId ?? args.fileId ?? null,
+      capabilities: args.capabilities ?? null,
+    });
 
     const now = Date.now();
 
-    const previous = await ctx.db
-      .query("playbackSessions")
-      .withIndex("by_user_status", (q) => q.eq("userId", viewer.userId).eq("status", "active"))
-      .collect();
+    const previous = (await activeSessions(ctx, viewer)).filter((session) => !isDownload(session));
 
     // One device plays one thing: starting here ends this device's earlier session. An account
     // plays on at most `MAX_ACTIVE_SESSIONS` devices; past that, the quietest sessions end, so one
@@ -170,52 +122,19 @@ export const createSession = mutation({
 
     await Promise.all(ending.map((session) => endPlaybackSession(ctx, session, now)));
 
-    const sessionId = await ctx.db.insert("playbackSessions", {
-      userId: viewer.userId,
-      profileId: args.profileId,
-      authSessionId: viewer.session._id,
-      deviceId: args.deviceId,
-      deviceName:
-        args.deviceName === undefined ? null : checkDisplayName(args.deviceName, "Device names"),
-      titleId: title._id,
-      episodeId,
-      fileId: playable.file._id,
+    return openSession(ctx, viewer, {
+      args,
+      chosen,
       roomId: room?._id ?? null,
-      mode: null,
-      status: "active",
-      state: "paused",
-      positionMs: resumePositionMs,
-      startedAt: now,
-      lastReportAt: now,
-      endedAt: null,
+      purpose: undefined,
+      now,
     });
-
-    const session = await ctx.db.get(sessionId);
-
-    if (session === null)
-      return fail("internal", "The playback session vanished right after it was created");
-    const { token, tokenExpiresAt } = await issueToken(session);
-
-    return {
-      sessionId,
-      titleId: title._id,
-      episodeId,
-      episode:
-        playable.episode === null
-          ? null
-          : await presentEpisodeFor(ctx, args.profileId, playable.episode),
-      file: presentMediaFile(playable.file),
-      token,
-      tokenExpiresAt,
-      mediaBaseUrl: mediaBaseUrl(),
-      resumePositionMs,
-    };
   },
 });
 
 /**
  * Signs a fresh playback token for an active session, after checking the profile may still see the
- * title. Fails with `conflict` once the session ended.
+ * title. Fails with `conflict` once the session ended. Renewing keeps a download session active.
  */
 export const renewToken = mutation({
   args: { sessionId: v.id("playbackSessions") },
@@ -232,6 +151,9 @@ export const renewToken = mutation({
       await loadAudience(ctx, viewer, session.profileId),
       session.titleId,
     );
+
+    // A download reports nothing else, so renewing is what keeps it from going idle.
+    if (isDownload(session)) await ctx.db.patch(sessionId, { lastReportAt: Date.now() });
 
     return issueToken(session);
   },
@@ -281,7 +203,9 @@ export const reportProgress = mutation({
 
     if (durationMs !== undefined) checkMilliseconds(durationMs, "Durations");
 
-    if (session.status !== "active") return { applied: false, watched: false };
+    if (session.status !== "active" || isDownload(session)) {
+      return { applied: false, watched: false };
+    }
 
     await ctx.db.patch(sessionId, {
       positionMs,
@@ -308,7 +232,7 @@ export const endSession = mutation({
 
     checkMilliseconds(positionMs, "Positions");
 
-    await recordPosition(ctx, session, positionMs, undefined, false);
+    if (!isDownload(session)) await recordPosition(ctx, session, positionMs, undefined, false);
     const now = Date.now();
 
     await ctx.db.patch(sessionId, { positionMs, lastReportAt: now });
@@ -338,18 +262,16 @@ export const nextEpisode = query({
   },
 });
 
-/** The account's active playback sessions on every device. */
+/** The account's active playback sessions on every device; downloads are not playback. */
 export const active = query({
   args: {},
   returns: v.array(playbackSession),
   handler: async (ctx) => {
     const viewer = await authorize(ctx, "read");
+    const sessions = await activeSessions(ctx, viewer);
 
-    const sessions = await ctx.db
-      .query("playbackSessions")
-      .withIndex("by_user_status", (q) => q.eq("userId", viewer.userId).eq("status", "active"))
-      .collect();
-
-    return sessions.map(presentPlaybackSession);
+    return sessions.flatMap((session) =>
+      isDownload(session) ? [] : [presentPlaybackSession(session)],
+    );
   },
 });

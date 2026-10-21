@@ -41,20 +41,23 @@ export interface TestTokenClaims {
   readonly sid?: string;
   readonly aud?: string;
   readonly exp?: number;
+  readonly pur?: "download";
 }
 
 /** Signs a playback token the way Convex does, with Node's HMAC and the test secret. */
 export const signTestToken = (claims: TestTokenClaims): string => {
+  const signed = {
+    aud: claims.aud ?? "media",
+    sub: "user_test",
+    pid: "profile_test",
+    fid: claims.fid,
+    sid: claims.sid ?? "session_test",
+    iat: Date.now(),
+    exp: claims.exp ?? Date.now() + 6 * 60 * 60 * 1000,
+  };
+
   const payload = Buffer.from(
-    JSON.stringify({
-      aud: claims.aud ?? "media",
-      sub: "user_test",
-      pid: "profile_test",
-      fid: claims.fid,
-      sid: claims.sid ?? "session_test",
-      iat: Date.now(),
-      exp: claims.exp ?? Date.now() + 6 * 60 * 60 * 1000,
-    }),
+    JSON.stringify(claims.pur === undefined ? signed : Object.assign(signed, { pur: claims.pur })),
   ).toString("base64url");
 
   const signature = createHmac("sha256", testSecretBytes)

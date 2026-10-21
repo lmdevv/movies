@@ -385,6 +385,11 @@ export default defineSchema({
     startedAt: v.number(),
     lastReportAt: v.number(),
     endedAt: nullable(v.number()),
+    /**
+     * `download` for a file the device keeps: it reports no progress, and neither ends nor is ended
+     * by the device's playback. Absent for playback.
+     */
+    purpose: v.optional(v.literal("download")),
   })
     .index("by_status_ended", ["status", "endedAt"])
     .index("by_status_report", ["status", "lastReportAt"])

@@ -35,13 +35,10 @@ import { Milliseconds } from "@movies/contracts/units";
 import { Clock, Duration, Effect, Match, Option, Redacted, Schedule, Schema, Stream } from "effect";
 
 import type { PlaybackCallError } from "./media-http";
-import { requestPlayback } from "./media-http";
+import { encodeJson, mediaUrl, requestPlayback, withRenewedToken } from "./media-http";
 import { MoviesClient } from "./movies-client";
 import type { PlayerEvent, PlayerPort } from "./room-sync/player-port";
 import { playerEvents } from "./room-sync/player-port";
-
-const mediaUrl = (started: StartedPlayback, path: string): string =>
-  `${started.mediaBaseUrl.replace(/\/+$/u, "")}${path}`;
 
 /**
  * What to play. Omitted options pick the version the profile last played, else the best the
@@ -91,13 +88,6 @@ export interface Playback {
   readonly started: StartedPlayback;
   readonly stream: NegotiateResponse;
 }
-
-const encodeJson = <A, I>(schema: Schema.Codec<A, I>, value: A): Effect.Effect<Schema.Json> =>
-  Schema.encodeEffect(Schema.toCodecJson(schema))(value).pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)),
-    // The request schemas only hold JSON values; failing to encode one is a defect.
-    Effect.orDie,
-  );
 
 /**
  * Asks the media service for a stream of a started session's file at `startAtMs`, with the audio
@@ -266,17 +256,7 @@ export const renegotiate = Effect.fn("Playback.renegotiate")(function* (
 
   const started: StartedPlayback = Option.match(renewed, {
     onNone: () => playback.started,
-    onSome: ({ token, tokenExpiresAt }) => ({
-      sessionId: playback.started.sessionId,
-      titleId: playback.started.titleId,
-      episodeId: playback.started.episodeId,
-      episode: playback.started.episode,
-      file: playback.started.file,
-      token,
-      tokenExpiresAt,
-      mediaBaseUrl: playback.started.mediaBaseUrl,
-      resumePositionMs: playback.started.resumePositionMs,
-    }),
+    onSome: (fresh) => withRenewedToken(playback.started, fresh),
   });
 
   const stream = yield* negotiate(started, capabilities, positionMs, audioStreamIndex, choices);

@@ -19,6 +19,7 @@ export const MEDIA_ROUTES = {
   negotiate: "/api/playback/negotiate",
   seek: "/api/playback/seek",
   stop: "/api/playback/stop",
+  prepareDownload: "/api/downloads/prepare",
   health: "/api/health",
   clientConfig: "/api/client-config",
 } as const;
@@ -208,6 +209,76 @@ export const StopRequest = Schema.Struct({
   token: Schema.Redacted(Schema.String),
   streamId: StreamId,
 });
+
+/**
+ * How large a download may be: `standard` caps it at 720p and 4 Mb/s, `high` at 1080p and
+ * 10 Mb/s (the players' 720p and 1080p presets). A source within the cap downloads as it is.
+ */
+export const DownloadQuality = Schema.Literals(["standard", "high"]);
+
+/** How large a download may be. */
+export type DownloadQuality = typeof DownloadQuality.Type;
+
+/** A request to make a download session's file ready to fetch. Repeat it to follow progress. */
+export const PrepareDownloadRequest = Schema.Struct({
+  /** The playback token of the download session (`downloads.start`). */
+  token: Schema.Redacted(Schema.String),
+  capabilities: ClientCapabilities,
+  quality: DownloadQuality,
+  /** ffmpeg stream index of the audio track to keep; the default track when absent. */
+  audioStreamIndex: Schema.optional(Schema.Int),
+});
+
+/** A request to make a download ready. */
+export interface PrepareDownloadRequest extends Schema.Schema.Type<typeof PrepareDownloadRequest> {}
+
+/** A text subtitle track to fetch beside a download, as WebVTT. */
+const DownloadSubtitle = Schema.Struct({
+  ...SubtitleTrack.fields,
+  /** WebVTT URL with the playback token. */
+  url: Schema.String,
+});
+
+/**
+ * The media service is still writing the download's MP4: ask again in a few seconds. `progress`
+ * runs from 0 to 1; `estimatedBytes` is an upper bound on the finished size.
+ */
+export const DownloadPreparing = Schema.TaggedStruct("Preparing", {
+  progress: Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 1 })),
+  estimatedBytes: Schema.Finite,
+});
+
+/**
+ * The download is ready at `url` (with the playback token), which answers byte ranges so a
+ * transfer resumes. `direct` is the original file; the other modes are an MP4 the service wrote.
+ */
+export const DownloadReady = Schema.TaggedStruct("Ready", {
+  mode: PlaybackMode,
+  url: Schema.String,
+  sizeBytes: Schema.Finite,
+  /** `mp4` or `mov`. */
+  container: Container,
+  durationSeconds: Schema.Finite,
+  video: Schema.Struct({
+    codec: Schema.String,
+    width: Schema.Int,
+    height: Schema.Int,
+    dynamicRange: DynamicRange,
+  }),
+  audio: Schema.optional(
+    Schema.Struct({ streamIndex: Schema.Int, codec: Schema.String, channels: Schema.Int }),
+  ),
+  /** Text tracks only: picture subtitles cannot be kept beside a file. */
+  subtitles: Schema.Array(DownloadSubtitle),
+  /** Token expiry in milliseconds since the epoch; renew the token (`playback.renewToken`) before it. */
+  expiresAt: Schema.Finite,
+});
+
+/** Where a download stands on the media service. */
+export const PrepareDownloadResponse = Schema.Union([DownloadPreparing, DownloadReady]);
+
+/** Where a download stands on the media service. */
+export type PrepareDownloadResponse = typeof PrepareDownloadResponse.Type;
 
 /** Service health. */
 export const HealthResponse = Schema.Struct({
@@ -422,6 +493,17 @@ export const StopErrors = [
   PlaybackSessionEnded,
   StreamNotFound,
   StreamAccessDenied,
+] as const;
+
+/** Failures of `POST /api/downloads/prepare`. */
+export const PrepareDownloadErrors = [
+  PlaybackTokenInvalid,
+  PlaybackSessionEnded,
+  MediaFileNotFound,
+  FileResolverUnavailable,
+  UnsupportedPlayback,
+  InsufficientTranscodeSpace,
+  TranscodeFailed,
 ] as const;
 
 /** Every failure the playback API answers with, for decoding error bodies. */
