@@ -377,4 +377,9 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies migration import <connection-id> [--users <json>] [--wait [--timeout <seconds>]]`: Import libraries, watch history, favorites, collections, and metadata overrides. (scope admin; job: add `--wait`)
 - `movies migration status`: Show migration jobs, their phase, and what they imported. (scope admin)
 
+### diagnostics
+
+- `movies diagnostics playback <session-id>`: Build the timeline of a playback session from the retained logs: streams, slow and failed segments, stalls, player errors, and recoveries. (scope read)
+- `movies diagnostics sessions [--since <int>]`: List playback sessions the retained logs mention, newest first. (scope read)
+
 <!-- END:commands -->
