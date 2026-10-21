@@ -42,6 +42,9 @@ const titles = Effect.flatMap(MoviesClient.MoviesClient, (client) =>
   playback API failure (`@movies/contracts/media-playback`) to what the player does next:
   `reload-playlist`, `renegotiate`, `renew-token`, `new-session`, `retry-later`, `unsupported`,
   or `fail`. Media URLs carry the token, so after renewing load the new `stream.url`.
+- `MediaOrigin`: playback and download requests go to the public URL the session names unless
+  this reference is provided, as the CLI does with its configured media URL. The URLs the service
+  answers with, such as `stream.url`, stay public either way.
 - `RoomSync.run({ roomId, deviceId, player, tunables })`: the watch room engine (below).
 - `ConvexTransport`: `layerWebSocket` for apps, `layerHttp` for short-lived processes.
 

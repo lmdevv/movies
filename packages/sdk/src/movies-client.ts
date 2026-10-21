@@ -25,7 +25,7 @@ import { Context, Effect, Layer, Option, Schema, SchemaIssue, Stream } from "eff
 import * as Auth from "./auth";
 import * as ConvexTransport from "./convex-transport";
 import type { FunctionKind, WireArgs } from "./convex-transport";
-import { encodeJson, requestJson, requestLines } from "./media-http";
+import { baseUrl, encodeJson, requestJson, requestLines } from "./media-http";
 import type { CallError } from "./sdk-errors";
 import { ProtocolError, TransportError } from "./sdk-errors";
 import type { TokenStorageError } from "./token-storage";
@@ -146,9 +146,6 @@ const decodeResult = <A>(
         }),
     ),
   );
-
-/** Strips a trailing slash so routes join cleanly. */
-const baseUrl = (url: string): string => url.replace(/\/+$/u, "");
 
 /** Builds the client over the Convex connection and the session's auth. */
 export const make = Effect.fn("MoviesClient.make")(function* (options: Options) {

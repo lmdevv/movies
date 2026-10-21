@@ -8,6 +8,7 @@ import { Effect, Exit, Layer, Option, Predicate, Redacted, Schema, Scope } from 
 import { TestClock } from "effect/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { MediaOrigin } from "./media-http";
 import type { Playback } from "./playback";
 import type { PlayerEvent, PlayerPort } from "./room-sync/player-port";
 import type { FrameCounts } from "./player-diagnostics";
@@ -333,6 +334,28 @@ describe("playback diagnostics", () => {
           { _tag: "BufferingStarted" },
           { _tag: "BufferingEnded", durationMs: 7_000, endedBy: "closed" },
         ]);
+      }),
+    ));
+
+  it("sends to a provided MediaOrigin instead of the session's public URL", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const player = yield* makeFakePlayer(0);
+        const scope = yield* Scope.make();
+        // The session names a public URL this client cannot reach.
+        const playback = playbackAt("http://192.0.2.1:9");
+
+        const recorder = yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => Option.some(playback),
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope), Effect.provideService(MediaOrigin, Option.some(base)));
+
+        recorder.record(recovery("origin"));
+        yield* Scope.close(scope, Exit.void);
+
+        expect(received().map((event) => event.observation)).toMatchObject([{ reason: "origin" }]);
       }),
     ));
 

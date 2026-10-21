@@ -15,14 +15,36 @@ import { CommandFailure, commandError } from "@movies/contracts/errors";
 import type { CommandError, ErrorCode } from "@movies/contracts/errors";
 import { PlaybackApiError } from "@movies/contracts/media-playback";
 import type { StartedPlayback } from "@movies/contracts/models/playback";
-import { Effect, Option, Redacted, Schema, Stream } from "effect";
+import { Context, Effect, Option, Redacted, Schema, Stream } from "effect";
 
 import type { CallError } from "./sdk-errors";
 import { ProtocolError, TransportError } from "./sdk-errors";
 
-/** `path` on the media service of a started session. */
-export const mediaUrl = (started: { readonly mediaBaseUrl: string }, path: string): string =>
-  `${started.mediaBaseUrl.replace(/\/+$/u, "")}${path}`;
+/**
+ * Where this client sends playback API requests, when not to the public URL a started session
+ * names (`mediaBaseUrl`). A client that reaches the media service at an address its viewers
+ * cannot, such as the CLI inside the server's container at `http://127.0.0.1:8080`, provides its
+ * configured media URL here. The URLs the service answers with, such as `stream.url`, still use
+ * the service's public URL, so they stay the ones to hand a player. None (the default) sends
+ * requests to the session's URL.
+ */
+export const MediaOrigin = Context.Reference<Option.Option<string>>("@movies/sdk/MediaOrigin", {
+  defaultValue: Option.none,
+});
+
+/** Strips a trailing slash so routes join cleanly. */
+export const baseUrl = (url: string): string => url.replace(/\/+$/u, "");
+
+/** `path` on the media service of a started session, at `MediaOrigin` when one is provided. */
+export const mediaUrl = (
+  started: { readonly mediaBaseUrl: string },
+  path: string,
+): Effect.Effect<string> =>
+  Effect.gen(function* () {
+    const origin = Option.getOrElse(yield* MediaOrigin, () => started.mediaBaseUrl);
+
+    return `${baseUrl(origin)}${path}`;
+  });
 
 /** `value` as the JSON its schema's JSON codec writes, for a request body. */
 export const encodeJson = <A, I>(

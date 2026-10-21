@@ -7,7 +7,8 @@
 #     apps/media/README.md;
 #   - a setting the entrypoint passes on is missing from compose.yaml, deploy/compose/.env.example,
 #     the root .env.example, or the README's configuration table;
-#   - the Jellyfin test image is referenced in code or CI without a digest, or with different ones.
+#   - the Jellyfin test image is referenced in code or CI without a digest, or with different ones;
+#   - a workspace package carries another version than the release (scripts/check-version.sh).
 #
 #   scripts/check-deploy.sh
 set -euo pipefail
@@ -107,14 +108,7 @@ done
 
 # --- Versions ------------------------------------------------------------------------------------
 
-# A release tag is checked against packages/backend/package.json; every other package (the CLI
-# reports its own) must carry the same version.
-release_version="$(node -p 'require("./packages/backend/package.json").version')"
-while IFS= read -r manifest; do
-  version="$(node -p "require('./$manifest').version")"
-  [[ "$version" == "$release_version" ]] ||
-    fail "$manifest is version $version; packages/backend/package.json is $release_version"
-done < <(git ls-files -- 'apps/*/package.json' 'packages/*/package.json')
+scripts/check-version.sh >/dev/null || fail "the workspace packages disagree on the release version"
 
 if ((failures > 0)); then
   exit 1

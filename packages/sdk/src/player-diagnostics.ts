@@ -130,15 +130,17 @@ const send = (
         events: batch,
       }).pipe(
         Effect.flatMap((body) =>
-          requestPlayback(
-            {
-              operation: "playback.diagnostics",
-              url: mediaUrl(playback.started, DIAGNOSTICS_ROUTES.clientEvents),
-              method: "POST",
-              body: Option.some(body),
-              bearer: Option.none(),
-            },
-            Schema.Null,
+          Effect.flatMap(mediaUrl(playback.started, DIAGNOSTICS_ROUTES.clientEvents), (url) =>
+            requestPlayback(
+              {
+                operation: "playback.diagnostics",
+                url,
+                method: "POST",
+                body: Option.some(body),
+                bearer: Option.none(),
+              },
+              Schema.Null,
+            ),
           ),
         ),
         Effect.catch((error) => Effect.logDebug("PlayerDiagnostics.dropped", error)),

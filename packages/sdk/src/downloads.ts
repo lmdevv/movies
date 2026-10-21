@@ -70,7 +70,7 @@ export const prepare = Effect.fn("Downloads.prepare")(function* (
   return yield* requestPlayback(
     {
       operation: "downloads.prepare",
-      url: mediaUrl(started, MEDIA_ROUTES.prepareDownload),
+      url: yield* mediaUrl(started, MEDIA_ROUTES.prepareDownload),
       method: "POST",
       body: Option.some(
         yield* encodeJson(PrepareDownloadRequest, {

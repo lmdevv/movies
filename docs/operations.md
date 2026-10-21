@@ -97,10 +97,16 @@ admin key from `/run/movies/media.env`, then `systemctl restart movies`.
 
 ## Upgrading
 
-Releases are git tags `vX.Y.Z`. Each one publishes the image as `X.Y.Z`, `X.Y`, and `latest`
-(pre-releases such as `v0.2.0-rc.1` only as `0.2.0-rc.1`); `main` publishes `:main`, the edge,
+Releases are git tags `vX.Y.Z`. Each one publishes the image as `X.Y.Z`, `X.Y`, and, unless a
+higher version is already tagged, `latest` (pre-releases such as `v0.2.0-rc.1` only as
+`0.2.0-rc.1`); `main` publishes `:main`, the edge,
 and every build also gets `sha-<commit>`. The NixOS module follows whatever revision the flake
-input points at.
+input points at. A release also publishes the `movies` CLI at the same version: `@movies/cli` on
+npm and standalone binaries on the tag's GitHub Release. Upgrade a CLI installed that way with
+`npm install -g @movies/cli@X.Y.Z` or the release's binary, fetched with `curl` as in the
+[README](../README.md#cli) (macOS quarantines a browser download, and Gatekeeper then blocks the
+ad hoc signed binary until `xattr -d com.apple.quarantine`); the image and the Nix modules carry
+their own.
 
 | Track     | Compose `MOVIES_IMAGE`                              | NixOS flake input             |
 | --------- | --------------------------------------------------- | ----------------------------- |
@@ -153,13 +159,57 @@ upgrades ride along with [movies] releases; never change its image on your own.
 
 ### Releasing
 
-For maintainers: set `version` in `packages/backend/package.json` to `X.Y.Z` on `main`, then tag
-and push the tag. The image workflow refuses a tag that does not match that version, runs the
-packaged-stack smoke test, and publishes the multi-arch image.
+For maintainers. One version covers the image, the Nix packages, `@movies/cli` on npm, and the
+CLI binaries. `scripts/check-version.sh`, run by CI and the pre-commit hook, fails while any
+workspace package carries another version. The iOS app's store version (`expo.version` in
+`apps/mobile/app.json`) is not part of it: the App Store build ships through review on its own
+schedule, so a server release does not bump it.
+
+1. On `main`, set every package's version, then commit and merge it:
+
+   ```sh
+   pnpm -r exec npm pkg set version=0.2.0
+   scripts/check-version.sh     # 0.2.0
+   ```
+
+2. Tag the merged commit and push the tag:
+
+   ```sh
+   git tag -a v0.2.0 -m "[movies] 0.2.0" && git push origin v0.2.0
+   ```
+
+The tag runs two workflows, and each refuses a tag that does not name the package version:
+
+- `image.yml` runs the packaged-stack smoke test and publishes the multi-arch image.
+- `release.yml` builds the standalone binaries on their own runners (`linux-x64`, `linux-arm64`,
+  and `darwin-arm64`, signed ad hoc, from a pinned Node version) and checks each one's
+  `--version`. It then waits for the tag's `image.yml` run. Only once that run has published the
+  image does it publish `@movies/cli` to npm through trusted publishing, with a provenance
+  attestation, and create the GitHub Release with the binaries, `SHA256SUMS`, the third-party
+  licenses (Node.js's among them), install notes, and generated notes.
+
+If the image fails, nothing reaches npm or the Release: fix the cause, rerun `image.yml`, then
+rerun `release.yml`. Every job can run again: npm skips a version it already has, and the release
+replaces its assets and publishes a release an earlier run left as a draft.
+
+`scripts/release-channel.sh` decides what a version becomes. The highest stable version among the
+`v*` tags is npm's `latest` and the latest GitHub Release. A backport to an older line, such as
+`v0.2.5` after `v0.3.0`, publishes under the npm dist-tag `release-0.2` and is not marked latest.
+A pre-release such as `v0.3.0-rc.1` publishes under `next` and makes a GitHub pre-release.
+
+npm only lets a trusted publisher be set on a package that exists, so the first version is
+published by hand, before its tag is pushed. Run it from an npm account in the `movies` org:
 
 ```sh
-git tag -a v0.2.0 -m "[movies] 0.2.0" && git push origin v0.2.0
+npm login
+mkdir -p /tmp/movies-cli && pnpm --filter @movies/cli pack --pack-destination /tmp/movies-cli
+npm publish /tmp/movies-cli/movies-cli-0.2.0.tgz --access public
 ```
+
+Then, on npmjs.com, open `@movies/cli` → Settings → Trusted publishing, choose GitHub Actions,
+and enter the owner `lmdevv`, the repository `movies`, and the workflow `release.yml`. Once a tag
+has published through it, set Publishing access to require two-factor authentication and
+disallow tokens.
 
 ## Remote access
 
@@ -225,7 +275,8 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
 - `scripts/stack-e2e.sh` builds the image and runs the packaged suite against a fresh Compose
   stack: privilege and secret checks, owner sign-up, library, scan, direct and HLS playback, a
   media restart (streams answer a typed `StreamNotFound`, then play again), CLI backup and
-  restore, and an upgrade backup. CI runs it on every image change.
+  restore, the image's own `movies` signing in to its stack, and an upgrade backup. CI runs it on
+  every image change.
 - `scripts/nixos-module-e2e.sh` does the same against the NixOS module's own unit on a NixOS host
   (needs sudo and Docker), and checks the sandbox.
-- `nix flake check` evaluates the module and builds the package.
+- `nix flake check` evaluates the server, CLI, and Home Manager modules and builds the packages.
