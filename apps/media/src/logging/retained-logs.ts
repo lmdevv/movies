@@ -159,15 +159,17 @@ interface Chunk {
   readonly firstAt: number;
 }
 
-/** Lines ready to write in groups, and how many lines were too large for any file. */
+/** Lines ready to write in groups, all of them in order, and how many no file could hold. */
 interface Chunks {
   readonly chunks: ReadonlyArray<Chunk>;
+  readonly lines: ReadonlyArray<string>;
   readonly oversized: number;
 }
 
 /** `entries` as UTF-8, each with its line break, grouped so no group is larger than `capBytes`. */
 const chunksOf = (entries: ReadonlyArray<Entry>, capBytes: number): Chunks => {
   const chunks: Array<Chunk> = [];
+  const lines: Array<string> = [];
   let group: Array<string> = [];
   let groupBytes = 0;
   let firstAt = Number.POSITIVE_INFINITY;
@@ -193,13 +195,14 @@ const chunksOf = (entries: ReadonlyArray<Entry>, capBytes: number): Chunks => {
 
     if (groupBytes + bytes > capBytes) close();
     group.push(entry.line);
+    lines.push(entry.line);
     groupBytes += bytes;
     firstAt = Math.min(firstAt, entry.loggedAt);
   }
 
   close();
 
-  return { chunks, oversized };
+  return { chunks, lines, oversized };
 };
 
 /** Builds the writer for `settings`; it lives, and flushes a last time, until the scope closes. */
@@ -410,7 +413,7 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
           ]
         : queued;
 
-    const { chunks, oversized } = chunksOf(entries, capBytes);
+    const { chunks, lines, oversized } = chunksOf(entries, capBytes);
 
     counters.dropped += oversized;
 
@@ -446,10 +449,9 @@ export const make = Effect.fn("RetainedLogs.make")(function* (settings: Settings
         ),
       ),
     );
-    yield* PubSub.publishAll(
-      published,
-      entries.map((entry) => entry.line),
-    );
+    // A follow shows what the service logs even while the folder is failing, but never a line
+    // no file could hold, which no later read would find.
+    yield* PubSub.publishAll(published, lines);
   });
 
   const flushLocked = Effect.gen(function* () {

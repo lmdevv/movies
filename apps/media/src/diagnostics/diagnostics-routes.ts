@@ -54,16 +54,19 @@ export const layer: Layer.Layer<
     const allowRead = (viewer: Viewer) =>
       Clock.currentTimeMillis.pipe(
         Effect.flatMap((now) =>
-          Option.match(isAdmin(viewer) ? Option.none() : take(viewer.user.id, READ_BUDGET, now), {
-            onNone: () => Effect.void,
-            onSome: (seconds) =>
-              Effect.fail(
-                new RateLimited({
-                  message: `Too many diagnostics reads: try again in ${String(seconds)} s`,
-                  retryAfterSeconds: seconds,
-                }),
-              ),
-          }),
+          Option.match(
+            isAdmin(viewer) ? Option.none() : take([[viewer.user.id, READ_BUDGET]], now),
+            {
+              onNone: () => Effect.void,
+              onSome: (seconds) =>
+                Effect.fail(
+                  new RateLimited({
+                    message: `Too many diagnostics reads: try again in ${String(seconds)} s`,
+                    retryAfterSeconds: seconds,
+                  }),
+                ),
+            },
+          ),
         ),
       );
 

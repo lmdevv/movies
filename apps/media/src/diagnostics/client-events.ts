@@ -139,9 +139,13 @@ const make = Effect.gen(function* () {
     const receivedAt = yield* Clock.currentTimeMillis;
     const cost = request.events.length;
 
-    const wait = Option.orElse(
-      take(`session\u0000${grant.sessionId}`, SESSION_BUDGET, receivedAt, cost),
-      () => take(`user\u0000${grant.userId}`, USER_BUDGET, receivedAt, cost),
+    const wait = take(
+      [
+        [`session\u0000${grant.sessionId}`, SESSION_BUDGET],
+        [`user\u0000${grant.userId}`, USER_BUDGET],
+      ],
+      receivedAt,
+      cost,
     );
 
     if (Option.isSome(wait)) {

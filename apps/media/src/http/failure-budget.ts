@@ -41,12 +41,15 @@ export const makeFailureBudget = (): FailureBudget => {
 
   return {
     allow: ({ sessionId, userId }, now) => {
-      if (
-        Option.isNone(take(`session\u0000${sessionId}`, SESSION_BUDGET, now)) &&
-        Option.isNone(take(`user\u0000${userId}`, USER_BUDGET, now))
-      ) {
-        return true;
-      }
+      const wait = take(
+        [
+          [`session\u0000${sessionId}`, SESSION_BUDGET],
+          [`user\u0000${userId}`, USER_BUDGET],
+        ],
+        now,
+      );
+
+      if (Option.isNone(wait)) return true;
 
       const count = (suppressed.get(sessionId)?.count ?? 0) + 1;
 

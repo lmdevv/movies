@@ -518,4 +518,19 @@ layer(NodeServices.layer)("retained log writer", (it) => {
       assert.strictEqual(Option.getOrThrow(orderOf(files[1]?.name ?? "")).startsAt, midnight + 50);
     }).pipe(Effect.scoped),
   );
+
+  it.effect("never hands a follower a line too large for any file", () =>
+    Effect.gen(function* () {
+      const { logs } = yield* writerIn(MIN_LOG_BYTES);
+      const snapshot = yield* logs.snapshot;
+
+      yield* appendNow(logs, "x".repeat(fileCapBytes(MIN_LOG_BYTES) + 1));
+      yield* appendNow(logs, '{"n":1}');
+      yield* logs.flush;
+
+      const live = yield* PubSub.takeAll(snapshot.live);
+
+      assert.deepStrictEqual(live, ['{"n":1}']);
+    }).pipe(Effect.scoped),
+  );
 });

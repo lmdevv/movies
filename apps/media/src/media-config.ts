@@ -14,6 +14,8 @@ import {
   Schema,
 } from "effect";
 
+import { MIN_LOG_BYTES } from "./logging/log-files.ts";
+
 /** How the service may use the GPU for video transcoding. */
 type HardwareAccelerationMode = "auto" | "qsv" | "vaapi" | "none";
 
@@ -139,10 +141,13 @@ const LOG_LEVELS = {
 } as const satisfies Record<string, LogLevel.LogLevel>;
 
 /**
- * The retained log's size cap in MiB: at least 8, so it holds eight files of 1 MiB, and at most
+ * The retained log's size cap in MiB: at least `MIN_LOG_BYTES` (8), so it holds eight files of
+ * 1 MiB, and at most
  * 1 TiB.
  */
-const LogMaxMb = Schema.Int.check(Schema.isBetween({ minimum: 8, maximum: 1_048_576 }));
+const LogMaxMb = Schema.Int.check(
+  Schema.isBetween({ minimum: MIN_LOG_BYTES / MEBIBYTE, maximum: 1_048_576 }),
+);
 
 /** One thumbnail a second at most, one every ten minutes at least. */
 const TrickplayIntervalSeconds = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 600 }));

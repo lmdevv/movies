@@ -42,33 +42,43 @@ export const makeLimiter = (maxBuckets = MAX_BUCKETS) => {
   const buckets = new Map<string, Bucket>();
 
   /**
-   * Takes `cost` tokens for `key`, or none when fewer are left; returns the seconds to wait then.
+   * Takes `cost` tokens from every one of `keyed` buckets, or from none when any has fewer left,
+   * as a session's and its account's: a request one bucket refuses costs the others nothing.
+   * Returns the seconds to wait when refused.
    */
-  return (key: string, budget: Budget, now: number, cost = 1): Option.Option<number> => {
-    const previous = buckets.get(key) ?? { tokens: budget.burst, updatedAt: now };
+  return (
+    keyed: ReadonlyArray<readonly [key: string, budget: Budget]>,
+    now: number,
+    cost = 1,
+  ): Option.Option<number> => {
+    const refilled = keyed.map(([key, budget]) => {
+      const previous = buckets.get(key) ?? { tokens: budget.burst, updatedAt: now };
 
-    buckets.delete(key);
+      buckets.delete(key);
 
-    if (buckets.size >= maxBuckets) {
-      const oldest = buckets.keys().next();
+      if (buckets.size >= maxBuckets) {
+        const oldest = buckets.keys().next();
 
-      if (oldest.done !== true) buckets.delete(oldest.value);
-    }
+        if (oldest.done !== true) buckets.delete(oldest.value);
+      }
 
-    const tokens = Math.min(
-      budget.burst,
-      previous.tokens + ((now - previous.updatedAt) / 1000) * budget.perSecond,
+      const tokens = Math.min(
+        budget.burst,
+        previous.tokens + ((now - previous.updatedAt) / 1000) * budget.perSecond,
+      );
+
+      return { key, budget, tokens };
+    });
+
+    const waits = refilled.flatMap(({ budget, tokens }) =>
+      tokens < cost ? [Math.ceil((cost - tokens) / budget.perSecond)] : [],
     );
 
-    if (tokens < cost) {
-      buckets.set(key, { tokens, updatedAt: now });
-
-      return Option.some(Math.ceil((cost - tokens) / budget.perSecond));
+    for (const { key, tokens } of refilled) {
+      buckets.set(key, { tokens: waits.length === 0 ? tokens - cost : tokens, updatedAt: now });
     }
 
-    buckets.set(key, { tokens: tokens - cost, updatedAt: now });
-
-    return Option.none();
+    return waits.length === 0 ? Option.none() : Option.some(Math.max(...waits));
   };
 };
 
@@ -94,7 +104,11 @@ export const layer: Layer.Layer<never, never, HttpRouter.HttpRouter> = Layer.unw
           if (limited === undefined) return yield* httpEffect;
           const [prefix, budget] = limited;
           const address = Option.getOrElse(request.remoteAddress, () => "unknown");
-          const wait = take(`${prefix}\u0000${address}`, budget, yield* Clock.currentTimeMillis);
+
+          const wait = take(
+            [[`${prefix}\u0000${address}`, budget]],
+            yield* Clock.currentTimeMillis,
+          );
 
           return Option.isSome(wait)
             ? retryAfter(

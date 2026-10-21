@@ -221,7 +221,7 @@ export const shortcuts: ReadonlyArray<Shortcut> = [
   {
     path: "logs",
     synopsis:
-      "logs [--follow] [--since <duration|time>] [--until <duration|time>] [--level debug|info|warn|error] [--session-id <id>] [--stream-id <id>] [--slow <duration>] [--grep <text>] [--limit <int>] [--json|--human]",
+      "logs [--follow] [--since <duration|time>] [--until <duration|time>] [--level trace|debug|info|warn|error|fatal] [--session-id <id>] [--stream-id <id>] [--slow <duration>] [--grep <text>] [--limit <int>] [--json|--human]",
     summary:
       "Read the media service's retained log, newest last (admin sessions only); --follow keeps printing new records, --since 15m or a time starts there, --slow 1s keeps timed requests at least that long, --json prints the NDJSON records; a followed log the service ends fails as unavailable",
     section: "Troubleshooting",

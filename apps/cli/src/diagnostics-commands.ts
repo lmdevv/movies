@@ -183,7 +183,10 @@ const logQuery = Effect.fn("Logs.query")(function* (invocation: Invocation) {
       Option.match(parseLevel(raw), {
         onNone: () =>
           Effect.fail(
-            usage(invocation, `--level must be debug, info, warn, or error, got "${raw}"`),
+            usage(
+              invocation,
+              `--level must be trace, debug, info, warn, error, or fatal, got "${raw}"`,
+            ),
           ),
         onSome: Effect.succeedSome,
       }),
