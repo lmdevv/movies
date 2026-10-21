@@ -14,15 +14,31 @@ Skip this when `movies --version` already works. Each server release ships the C
 version.
 
 - **On the server:** a Compose install has it in the image (`docker compose exec movies movies ...`,
-  already pointed at that stack). A NixOS install puts it on every user's `PATH` with
-  `MOVIES_CONVEX_URL` and `MOVIES_MEDIA_URL` set.
+  already pointed at that stack; it runs as root and keeps its login root-only in `/data/config`).
+  A NixOS install puts it on every user's `PATH` with `MOVIES_CONVEX_URL` and `MOVIES_MEDIA_URL`
+  set.
 - **Node 22 or newer:** `npm install -g @movies/cli`, or once with `npx @movies/cli --help`.
-- **No Node:** the `movies-linux-x64`, `movies-linux-arm64`, or `movies-darwin-arm64` binary from
-  https://github.com/lmdevv/movies/releases/latest, checked against `SHA256SUMS` from the same
-  release, made executable, and put on the `PATH` as `movies`.
+- **No Node:** download the binary with `curl`, check it, and install it (`movies-linux-arm64` or
+  `movies-darwin-arm64` likewise; `shasum -a 256 -c` on macOS):
+
+  ```sh
+  curl -fLO https://github.com/lmdevv/movies/releases/latest/download/movies-linux-x64
+  curl -fLO https://github.com/lmdevv/movies/releases/latest/download/SHA256SUMS
+  grep movies-linux-x64 SHA256SUMS | sha256sum -c
+  mkdir -p ~/.local/bin && install -m 755 movies-linux-x64 ~/.local/bin/movies
+  ```
+
+  The macOS binary is signed ad hoc: a copy downloaded in a browser is quarantined and Gatekeeper
+  blocks it; `xattr -d com.apple.quarantine movies-darwin-arm64` clears it.
+
 - **Nix:** `nix run github:lmdevv/movies -- <command>`. NixOS (`nixosModules.cli`) and Home Manager
   (`homeManagerModules.movies`) set `programs.movies = { enable = true; convexUrl = "..."; mediaUrl
-  = "..."; }`.
+  = "..."; }`. Home Manager's variables reach only shells it configures (on macOS, enable its
+  `programs.zsh`).
+
+`MOVIES_CONVEX_URL` beats a stored login: while it names another server, a profile saved for a
+different one stays unused, even with `--profile`. Run `MOVIES_CONVEX_URL= MOVIES_MEDIA_URL= movies
+...` to use that profile.
 
 No install holds a credential; sign in as below.
 

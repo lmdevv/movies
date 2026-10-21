@@ -102,7 +102,9 @@ Releases are git tags `vX.Y.Z`. Each one publishes the image as `X.Y.Z`, `X.Y`, 
 and every build also gets `sha-<commit>`. The NixOS module follows whatever revision the flake
 input points at. A release also publishes the `movies` CLI at the same version: `@movies/cli` on
 npm and standalone binaries on the tag's GitHub Release. Upgrade a CLI installed that way with
-`npm install -g @movies/cli@X.Y.Z` or the release's binary; the image and the Nix modules carry
+`npm install -g @movies/cli@X.Y.Z` or the release's binary, fetched with `curl` as in the
+[README](../README.md#cli) (macOS quarantines a browser download, and Gatekeeper then blocks the
+ad hoc signed binary until `xattr -d com.apple.quarantine`); the image and the Nix modules carry
 their own.
 
 | Track     | Compose `MOVIES_IMAGE`                              | NixOS flake input             |
@@ -158,7 +160,9 @@ upgrades ride along with [movies] releases; never change its image on your own.
 
 For maintainers. One version covers the image, the Nix packages, `@movies/cli` on npm, and the
 CLI binaries. `scripts/check-version.sh`, run by CI and the pre-commit hook, fails while any
-workspace package carries another version.
+workspace package carries another version. The iOS app's store version (`expo.version` in
+`apps/mobile/app.json`) is not part of it: the App Store build ships through review on its own
+schedule, so a server release does not bump it.
 
 1. On `main`, set every package's version, then commit and merge it:
 
@@ -176,14 +180,21 @@ workspace package carries another version.
 The tag runs two workflows, and each refuses a tag that does not name the package version:
 
 - `image.yml` runs the packaged-stack smoke test and publishes the multi-arch image.
-- `release.yml` publishes `@movies/cli` to npm through trusted publishing, with a provenance
-  attestation. It builds the standalone binaries on their own runners (`linux-x64`,
-  `linux-arm64`, and `darwin-arm64`, signed ad hoc) and checks each one's `--version`. Then it
-  creates the GitHub Release with the binaries, `SHA256SUMS`, and generated notes.
+- `release.yml` builds the standalone binaries on their own runners (`linux-x64`, `linux-arm64`,
+  and `darwin-arm64`, signed ad hoc, from a pinned Node version) and checks each one's
+  `--version`. It then waits for the tag's `image.yml` run. Only once that run has published the
+  image does it publish `@movies/cli` to npm through trusted publishing, with a provenance
+  attestation, and create the GitHub Release with the binaries, `SHA256SUMS`, the third-party
+  licenses (Node.js's among them), install notes, and generated notes.
 
-Every job can run again: npm skips a version it already has, and the release replaces its assets.
-A pre-release tag such as `v0.2.0-rc.1` publishes to npm under the `next` dist-tag and makes a
-GitHub pre-release.
+If the image fails, nothing reaches npm or the Release: fix the cause, rerun `image.yml`, then
+rerun `release.yml`. Every job can run again: npm skips a version it already has, and the release
+replaces its assets and publishes a release an earlier run left as a draft.
+
+`scripts/release-channel.sh` decides what a version becomes. The highest stable version among the
+`v*` tags is npm's `latest` and the latest GitHub Release. A backport to an older line, such as
+`v0.2.5` after `v0.3.0`, publishes under the npm dist-tag `release-0.2` and is not marked latest.
+A pre-release such as `v0.3.0-rc.1` publishes under `next` and makes a GitHub pre-release.
 
 npm only lets a trusted publisher be set on a package that exists, so the first version is
 published by hand, before its tag is pushed. Run it from an npm account in the `movies` org:

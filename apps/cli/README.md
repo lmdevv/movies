@@ -15,13 +15,18 @@ movies --help
 ```
 
 The server URL is the install's Convex URL (port 3210) and the media URL its web address (port
-8080). `MOVIES_CONVEX_URL`, `MOVIES_MEDIA_URL`, `MOVIES_API_KEY`, and `MOVIES_PROFILE` override the
-stored configuration. `movies login` without `--email` prints a code to approve in the web app;
+8080). The CLI sends `media` commands and playback requests to the media URL; the stream URL
+`movies play` prints is the server's public one. `MOVIES_CONVEX_URL`, `MOVIES_MEDIA_URL`,
+`MOVIES_API_KEY`, and `MOVIES_PROFILE` override the stored configuration. While
+`MOVIES_CONVEX_URL` names another server, a profile saved for a different one stays unused, even
+with `--profile`; clear the variables for the command (`MOVIES_CONVEX_URL= MOVIES_MEDIA_URL= movies
+whoami`) to use it. `movies login` without `--email` prints a code to approve in the web app;
 agents use an API key from Settings → API keys (`movies login --api-key`, or `MOVIES_API_KEY`).
 
 The agent skill ships in the package at `skills/movies/SKILL.md`. The CLI's version matches the
-server release it belongs to. Other ways to install it, including standalone binaries, Nix, and
-the server's own copy, are in the
+server release it belongs to. Other ways to install it, including standalone binaries (download
+them with `curl`: macOS quarantines browser downloads, and Gatekeeper blocks the ad hoc signed
+binary), Nix, and the server's own copy, are in the
 [project README](https://github.com/lmdevv/movies#cli).
 
 ## Development

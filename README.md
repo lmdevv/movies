@@ -186,19 +186,30 @@ movies libraries list --human
 ```
 
 The release binaries cover Linux on x64 and arm64 and macOS on Apple silicon. Download one with
-`curl`, since macOS quarantines browser downloads, check it, and put it on your `PATH`:
+`curl`, check it, and put it on your `PATH` (`movies-darwin-arm64` and `shasum -a 256 -c` on a
+Mac):
 
 ```sh
 curl -fLO https://github.com/lmdevv/movies/releases/latest/download/movies-linux-x64
 curl -fLO https://github.com/lmdevv/movies/releases/latest/download/SHA256SUMS
-grep movies-linux-x64 SHA256SUMS | sha256sum -c    # shasum -a 256 -c on macOS
-install -m 755 movies-linux-x64 ~/.local/bin/movies
+grep movies-linux-x64 SHA256SUMS | sha256sum -c
+mkdir -p ~/.local/bin && install -m 755 movies-linux-x64 ~/.local/bin/movies
 ```
 
-In the Compose image, `MOVIES_CONVEX_URL` and `MOVIES_MEDIA_URL` point at that stack, and the
-login stays in the `movies-data` volume. On NixOS, `services.movies` sets both for every user, so
-`movies login` needs no `--server`; `programs.movies.enable = false` leaves the CLI out. Another
-NixOS machine, or Home Manager on Linux or macOS, sets the two URLs itself:
+The macOS binary is signed ad hoc, not notarized. macOS quarantines a file downloaded in a
+browser, and Gatekeeper then refuses to run it; `curl` does not quarantine, or clear it with
+`xattr -d com.apple.quarantine movies-darwin-arm64`.
+
+`MOVIES_MEDIA_URL` (or `login --media-url`) is where the CLI reaches the media service, for its
+`media` commands and for playback. The stream URL `movies play` prints is always the server's
+public one (`MOVIES_PUBLIC_URL`), so a player on another machine can open it.
+
+In the Compose image, `MOVIES_CONVEX_URL` and `MOVIES_MEDIA_URL` point at that stack from inside
+the container. `docker compose exec movies movies` runs as root, so its login in the `movies-data`
+volume (`/data/config`) is readable by root only, and stays across upgrades. On NixOS,
+`services.movies` sets both variables for every user, so `movies login` needs no `--server`;
+`programs.movies.enable = false` leaves the CLI out. Another NixOS machine, or Home Manager on
+Linux or macOS, sets the two URLs itself:
 
 ```nix
 # NixOS: inputs.movies.nixosModules.cli in the system's modules.
@@ -211,6 +222,13 @@ programs.movies = {
   # package = inputs.movies.packages.${pkgs.stdenv.hostPlatform.system}.cli;
 };
 ```
+
+The variables win over a login's stored server: while `MOVIES_CONVEX_URL` names another server, a
+profile saved for a different one stays unused, whatever `--profile` says. To use that profile,
+clear both for the command: `MOVIES_CONVEX_URL= MOVIES_MEDIA_URL= movies whoami`. The NixOS
+modules set them for every user on the machine. Home Manager sets them in `home.sessionVariables`,
+which only shells Home Manager configures load: on macOS, enable `programs.zsh` (or your shell) in
+Home Manager, or pass `--server` and `--media-url` to `movies login` instead.
 
 No install stores a credential: each user runs `movies login` once, or sets `MOVIES_API_KEY`.
 Output is JSON by default. Agents get an API key from Settings → API keys and follow
