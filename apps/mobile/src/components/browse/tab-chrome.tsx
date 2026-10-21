@@ -19,22 +19,14 @@ import { useThemeColor } from "@/lib/theme-color";
 const COLLAPSE_AT = 48;
 
 /**
- * C02's top fade: the page's color through the status bar and title, then Paper's scrim, then
- * clear. Light fades the same way through white.
+ * C02's top fade, hung below the bar: the page's color, then Paper's scrim, then clear. Light fades
+ * the same way through white. The bar itself stays the page's color, so the compact title never
+ * sits over half-faded artwork or the hero's Play button.
  */
-/**
- * How far the top fade reaches past the title row, in points. Paper's C02 fades from 50% of a
- * 140pt band, which leaves the compact title over half-faded content; bright artwork or the hero's
- * Play button then shows through it, so the band stays solid through the title and fades below.
- */
-const TOP_FADE_TAIL = 40;
+const TOP_FADE_LOCATIONS = [0, 0.45, 1] as const;
 
-/** The band's stops: solid through the status bar and the title row, then out over the tail. */
-const topFadeLocations = (height: number) => {
-  const solid = Math.max(0, (height - TOP_FADE_TAIL) / Math.max(height, 1));
-
-  return [0, solid, solid + (1 - solid) * 0.45, 1] as const;
-};
+/** How far the top fade reaches past the title row, in points (Paper's 140 less 126). */
+const TOP_FADE_TAIL = 14;
 
 /** Whether the large title has scrolled away, and the scroll handler that tracks it. */
 export interface Collapse {
@@ -102,8 +94,6 @@ export function CompactBar({
   const page = useThemeColor("--color-bg");
   const fade = useThemeColor("--color-bg-fade");
   const clear = useThemeColor("--color-bg-clear");
-  // The status bar, the 64pt title row, and the tail.
-  const height = insets.top + 64 + TOP_FADE_TAIL;
 
   return (
     // The sticky header takes this style, so `pointerEvents` lives here: touches outside the
@@ -119,11 +109,14 @@ export function CompactBar({
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         >
-          <LinearGradient
-            colors={[page, page, fade, clear]}
-            locations={topFadeLocations(height)}
-            style={StyleSheet.absoluteFill}
-          />
+          <View className="absolute inset-0 bg-bg" />
+          <View className="absolute inset-x-0 top-full h-10">
+            <LinearGradient
+              colors={[page, fade, clear]}
+              locations={TOP_FADE_LOCATIONS}
+              style={StyleSheet.absoluteFill}
+            />
+          </View>
         </Animated.View>
       ) : null}
       <View className="h-16 flex-row items-center gap-3 px-5" pointerEvents="box-none">
