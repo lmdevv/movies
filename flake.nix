@@ -79,9 +79,16 @@
         movies-cli = final.callPackage ./nix/cli.nix { };
       };
 
+      # `cli` is a path, like the server module's own import of it, so a system can import both.
       nixosModules = {
         movies = import ./nix/module.nix;
         default = self.nixosModules.movies;
+        cli = ./nix/cli-module.nix;
+      };
+
+      homeManagerModules = {
+        movies = ./nix/home-module.nix;
+        default = self.homeManagerModules.movies;
       };
 
       # Builds the package, evaluates the module in minimal systems (catching option and type
@@ -146,16 +153,15 @@
             libraryWatch = "poll";
             libraryPollSeconds = 120;
           };
-          # programs.movies: on with the server and pointed at it, alone on a machine without one,
-          # and off when asked.
+          # programs.movies: on with the server and pointed at it, alone on a client machine
+          # (nixosModules.cli), next to the server module without a conflict, and off when asked.
           cli-module =
             let
               system =
-                settings:
+                modules: settings:
                 (nixpkgs.lib.nixosSystem {
                   inherit (pkgs.stdenv.hostPlatform) system;
-                  modules = [
-                    self.nixosModules.default
+                  modules = modules ++ [
                     {
                       boot.isContainer = true;
                       system.stateVersion = "26.05";
@@ -169,25 +175,34 @@
                 mediaUrl = config.environment.sessionVariables.MOVIES_MEDIA_URL or null;
                 server = config.systemd.services ? movies;
               };
+              serverSettings.services.movies = {
+                enable = true;
+                publicUrl = "http://nas:8080";
+                convexPublicUrl = "http://nas:3210";
+              };
               actual = {
-                server = summary (system {
-                  services.movies = {
-                    enable = true;
-                    publicUrl = "http://nas:8080";
-                    convexPublicUrl = "http://nas:3210";
-                  };
-                });
-                cliOnly = summary (system {
-                  programs.movies = {
-                    enable = true;
-                    convexUrl = "http://nas:3210";
-                    mediaUrl = "http://nas:8080";
-                  };
-                });
-                withoutCli = summary (system {
-                  services.movies.enable = true;
-                  programs.movies.enable = false;
-                });
+                server = summary (system [ self.nixosModules.default ] serverSettings);
+                cliOnly = summary (
+                  system [ self.nixosModules.cli ] {
+                    programs.movies = {
+                      enable = true;
+                      convexUrl = "http://nas:3210";
+                      mediaUrl = "http://nas:8080";
+                    };
+                  }
+                );
+                both = summary (
+                  system [
+                    self.nixosModules.default
+                    self.nixosModules.cli
+                  ] serverSettings
+                );
+                withoutCli = summary (
+                  system [ self.nixosModules.default ] {
+                    services.movies.enable = true;
+                    programs.movies.enable = false;
+                  }
+                );
               };
               expected = {
                 server = {
@@ -202,6 +217,7 @@
                   mediaUrl = "http://nas:8080";
                   server = false;
                 };
+                both = expected.server;
                 withoutCli = {
                   cli = false;
                   convexUrl = null;
@@ -214,6 +230,77 @@
               actual == expected
             ) "programs.movies: expected ${builtins.toJSON expected}, got ${builtins.toJSON actual}";
             pkgs.writeText "movies-cli-module-check" (builtins.toJSON actual);
+          # homeManagerModules.movies against stand-ins for the two Home Manager options it sets,
+          # typed like Home Manager's own, so the flake needs no home-manager input.
+          home-module =
+            let
+              inherit (nixpkgs) lib;
+              home =
+                settings:
+                (lib.evalModules {
+                  modules = [
+                    self.homeManagerModules.movies
+                    {
+                      options.home = {
+                        packages = lib.mkOption {
+                          type = lib.types.listOf lib.types.package;
+                          default = [ ];
+                        };
+                        sessionVariables = lib.mkOption {
+                          type = lib.types.lazyAttrsOf (
+                            lib.types.oneOf [
+                              lib.types.str
+                              lib.types.path
+                              lib.types.int
+                              lib.types.float
+                            ]
+                          );
+                          default = { };
+                        };
+                      };
+                      config._module.args.pkgs = pkgs;
+                    }
+                    settings
+                  ];
+                }).config;
+              summary = config: {
+                cli = builtins.any (package: package.pname or "" == "movies-cli") config.home.packages;
+                inherit (config.home) sessionVariables;
+              };
+              actual = {
+                configured = summary (home {
+                  programs.movies = {
+                    enable = true;
+                    convexUrl = "http://nas:3210";
+                    mediaUrl = "http://nas:8080";
+                  };
+                });
+                packageOnly = summary (home {
+                  programs.movies.enable = true;
+                });
+                off = summary (home { });
+              };
+              expected = {
+                configured = {
+                  cli = true;
+                  sessionVariables = {
+                    MOVIES_CONVEX_URL = "http://nas:3210";
+                    MOVIES_MEDIA_URL = "http://nas:8080";
+                  };
+                };
+                packageOnly = {
+                  cli = true;
+                  sessionVariables = { };
+                };
+                off = {
+                  cli = false;
+                  sessionVariables = { };
+                };
+              };
+            in
+            assert lib.assertMsg (actual == expected)
+              "Home Manager programs.movies: expected ${builtins.toJSON expected}, got ${builtins.toJSON actual}";
+            pkgs.writeText "movies-home-module-check" (builtins.toJSON actual);
           vm = pkgs.callPackage ./nix/vm-test.nix { module = self.nixosModules.movies; };
         }
       );

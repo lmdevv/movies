@@ -1,5 +1,6 @@
 # NixOS module for the `movies` CLI. A host that runs services.movies gets it already pointed at
-# that server; any other machine that talks to the same server can install just the CLI:
+# that server. Any other machine that talks to the same server imports just this module
+# (`movies.nixosModules.cli`) and sets:
 #
 #   programs.movies = {
 #     enable = true;
@@ -19,6 +20,9 @@ let
   cfg = config.programs.movies;
 
   service = config.services.movies;
+
+  # Imported alone (nixosModules.cli), the server's options do not exist.
+  serving = config.services.movies.enable or false;
 in
 {
   options.programs.movies = {
@@ -61,7 +65,7 @@ in
       };
     })
 
-    (lib.mkIf service.enable {
+    (lib.mkIf serving {
       programs.movies = {
         enable = lib.mkDefault true;
         convexUrl = lib.mkDefault service.convexPublicUrl;
