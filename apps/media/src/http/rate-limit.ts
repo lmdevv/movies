@@ -41,8 +41,10 @@ export const makeLimiter = (maxBuckets = MAX_BUCKETS) => {
   // Kept in order of last use: every take moves its key to the end.
   const buckets = new Map<string, Bucket>();
 
-  /** Takes a token for `key`; returns the seconds to wait when none is left. */
-  return (key: string, budget: Budget, now: number): Option.Option<number> => {
+  /**
+   * Takes `cost` tokens for `key`, or none when fewer are left; returns the seconds to wait then.
+   */
+  return (key: string, budget: Budget, now: number, cost = 1): Option.Option<number> => {
     const previous = buckets.get(key) ?? { tokens: budget.burst, updatedAt: now };
 
     buckets.delete(key);
@@ -58,13 +60,13 @@ export const makeLimiter = (maxBuckets = MAX_BUCKETS) => {
       previous.tokens + ((now - previous.updatedAt) / 1000) * budget.perSecond,
     );
 
-    if (tokens < 1) {
+    if (tokens < cost) {
       buckets.set(key, { tokens, updatedAt: now });
 
-      return Option.some(Math.ceil((1 - tokens) / budget.perSecond));
+      return Option.some(Math.ceil((cost - tokens) / budget.perSecond));
     }
 
-    buckets.set(key, { tokens: tokens - 1, updatedAt: now });
+    buckets.set(key, { tokens: tokens - cost, updatedAt: now });
 
     return Option.none();
   };

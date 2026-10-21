@@ -1,7 +1,7 @@
 /**
- * `PlaybackReporter` over Convex: the mode each playback session runs in (and any later change,
- * such as a QSV failure falling back to software) is recorded with
- * `mediaService:recordPlaybackMode`; stream endings are logged. Events go through a queue that a
+ * `PlaybackReporter` over Convex: every event is logged at once, and the mode each playback
+ * session runs in (and any later change, such as a QSV failure falling back to software) is
+ * recorded with `mediaService:recordPlaybackMode`. Convex writes go through a queue that a
  * background fiber drains, so negotiation never waits on Convex; a failed write is logged and
  * dropped, because the next negotiation records the mode again.
  */
@@ -32,8 +32,7 @@ export const layer: Layer.Layer<PlaybackReporter.Service, never, MediaBackend.Se
             backend
               .call("mediaService.recordPlaybackMode", { sessionId, mode: to })
               .pipe(Effect.asVoid),
-          StreamEnded: (ended): Effect.Effect<void, CallError> =>
-            Effect.logInfo("PlaybackReporter.stream_ended", ended),
+          StreamEnded: (): Effect.Effect<void, CallError> => Effect.void,
         }).pipe(
           Effect.catch((error) =>
             Effect.logWarning("PlaybackReporter.write_failed", error).pipe(
@@ -45,7 +44,11 @@ export const layer: Layer.Layer<PlaybackReporter.Service, never, MediaBackend.Se
       yield* Stream.fromQueue(queue).pipe(Stream.runForEach(write), Effect.forkScoped);
 
       return PlaybackReporter.Service.of({
-        report: (event) => Queue.offer(queue, event).pipe(Effect.asVoid),
+        report: (event) =>
+          Effect.andThen(
+            PlaybackReporter.logEvent(event),
+            Queue.offer(queue, event).pipe(Effect.asVoid),
+          ),
       });
     }),
   );

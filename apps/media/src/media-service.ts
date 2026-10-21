@@ -8,6 +8,7 @@ import { Layer } from "effect";
 
 import * as ArtworkKeys from "./artwork/artwork-keys.ts";
 import * as ArtworkStore from "./artwork/artwork-store.ts";
+import * as ClientDiagnostics from "./diagnostics/client-events.ts";
 import * as DiskCache from "./disk-cache.ts";
 import * as Downloads from "./downloads/downloads.ts";
 import * as LibraryScanner from "./library/library-scanner.ts";
@@ -25,12 +26,16 @@ import * as TranscodeSpace from "./playback/transcode-space.ts";
 import * as SubtitleConverter from "./subtitles/subtitle-tracks.ts";
 import * as TrickplayStore from "./trickplay/trickplay-store.ts";
 
-/** Scanning, metadata, negotiation, streaming, downloads, and subtitles over the integration seams. */
+/**
+ * Scanning, metadata, negotiation, streaming, players' diagnostics, downloads, and subtitles over
+ * the integration seams.
+ */
 export const servicesLayer = Layer.mergeAll(
   PlaybackNegotiator.layer,
   Downloads.layer,
   LibraryScanner.layer,
   SubtitleConverter.layer,
+  ClientDiagnostics.layer,
 ).pipe(
   Layer.provideMerge(StreamSessions.layer),
   Layer.provideMerge(TranscodeSpace.layer),

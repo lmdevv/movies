@@ -52,7 +52,8 @@ const failureOf = Match.type<CallError>().pipe(
   }),
 );
 
-const failureResponse = (error: CallError): HttpServerResponse.HttpServerResponse => {
+/** The `{ code, message }` answer of a failed command or authenticated route. */
+export const failureResponse = (error: CallError): HttpServerResponse.HttpServerResponse => {
   const { code, status, message } = failureOf(error);
 
   return HttpServerResponse.jsonUnsafe(
@@ -63,7 +64,8 @@ const failureResponse = (error: CallError): HttpServerResponse.HttpServerRespons
 
 const BEARER = /^Bearer\s+(\S+)$/iu;
 
-const bearerOf = (request: HttpServerRequest.HttpServerRequest) => {
+/** The caller's Convex auth token from the `Authorization` header. */
+export const bearerOf = (request: HttpServerRequest.HttpServerRequest) => {
   const match = BEARER.exec(request.headers["authorization"] ?? "");
   const token = match?.[1];
 
@@ -74,7 +76,8 @@ const bearerOf = (request: HttpServerRequest.HttpServerRequest) => {
     : Effect.succeed(Redacted.make(token));
 };
 
-const issueText = (issue: SchemaIssue.Issue): string =>
+/** A schema issue on one line, for `InvalidArgs` messages. */
+export const issueText = (issue: SchemaIssue.Issue): string =>
   SchemaIssue.makeFormatterDefault()(issue).replaceAll("\n", " ");
 
 /** Registers `handler` at the route of the media command `name`. */

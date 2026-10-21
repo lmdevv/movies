@@ -45,8 +45,9 @@ import {
   Semaphore,
 } from "effect";
 
-import type { MediaFileId, PlaybackSessionId } from "@movies/contracts/ids";
+import type { MediaFileId, PlaybackSessionId, UserId } from "@movies/contracts/ids";
 import { StreamId } from "@movies/contracts/media-playback";
+import { LogEvent } from "../diagnostics/log-events.ts";
 import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import type { ResolvedMediaFile } from "./file-resolver.ts";
@@ -194,6 +195,8 @@ interface Generation {
 interface Session {
   readonly streamId: StreamId;
   readonly sessionId: PlaybackSessionId;
+  /** The account whose token started the stream, for log records. */
+  readonly userId: UserId;
   readonly fileId: MediaFileId;
   readonly file: ResolvedMediaFile;
   readonly client: ClientCapabilities;
@@ -285,6 +288,7 @@ const make = Effect.gen(function* () {
       yield* reporter.report(
         PlaybackReporter.PlaybackEvent.cases.StreamEnded.make({
           sessionId: session.sessionId,
+          userId: session.userId,
           fileId: session.fileId,
           streamId: session.streamId,
           reason,
@@ -433,6 +437,19 @@ const make = Effect.gen(function* () {
     // A seek starts here; the encoder may run ahead of this point until the player asks further.
     yield* Ref.set(session.requested, startSegment);
 
+    if (number > 1) {
+      yield* Effect.logInfo(LogEvent.streamMoved).pipe(
+        Effect.annotateLogs({
+          sessionId: session.sessionId,
+          userId: session.userId,
+          streamId: session.streamId,
+          generation: number,
+          segment: startSegment,
+          fromSeconds: from,
+        }),
+      );
+    }
+
     const previous = yield* Ref.getAndSet(session.generation, generation);
 
     if (previous.number !== number) yield* Scope.close(previous.scope, Exit.void);
@@ -475,6 +492,7 @@ const make = Effect.gen(function* () {
     yield* reporter.report(
       PlaybackReporter.PlaybackEvent.cases.ModeChanged.make({
         sessionId: session.sessionId,
+        userId: session.userId,
         fileId: session.fileId,
         streamId: session.streamId,
         from,
@@ -511,8 +529,14 @@ const make = Effect.gen(function* () {
           mode,
           segmentIndex: index,
         });
-        yield* Effect.logWarning("StreamSessions.encoder_failed", detail).pipe(
-          Effect.annotateLogs({ streamId: session.streamId, mode, generation: generation.number }),
+        yield* Effect.logWarning(LogEvent.encoderFailed, detail).pipe(
+          Effect.annotateLogs({
+            sessionId: session.sessionId,
+            userId: session.userId,
+            streamId: session.streamId,
+            mode,
+            generation: generation.number,
+          }),
         );
 
         const encoder = hardwareOf(mode);
@@ -831,6 +855,7 @@ const make = Effect.gen(function* () {
     const session: Session = {
       streamId,
       sessionId: grant.sessionId,
+      userId: grant.userId,
       fileId: grant.fileId,
       file,
       client: request.client,
@@ -876,6 +901,7 @@ const make = Effect.gen(function* () {
       yield* reporter.report(
         PlaybackReporter.PlaybackEvent.cases.StreamEnded.make({
           sessionId: previous.sessionId,
+          userId: previous.userId,
           fileId: previous.fileId,
           streamId: previous.streamId,
           reason: "replaced",
@@ -897,6 +923,7 @@ const make = Effect.gen(function* () {
     yield* reporter.report(
       PlaybackReporter.PlaybackEvent.cases.ModeChosen.make({
         sessionId: grant.sessionId,
+        userId: grant.userId,
         fileId: grant.fileId,
         streamId,
         mode,

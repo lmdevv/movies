@@ -1,13 +1,17 @@
 /**
  * Playback events the media service reports outward: the mode each per-device session started
- * in, mode changes such as a QSV failure falling back to software, and stream endings. The
- * integration milestone forwards them to Convex; standalone mode logs them, and tests record them.
+ * in, mode changes such as a QSV failure falling back to software, and stream endings. Every
+ * reporter also logs each event (`Stream.started`, `Stream.mode_changed`, `Stream.ended`) with its
+ * session, for the retained log that playback diagnostics read. The Convex reporter forwards modes
+ * to Convex; standalone mode only logs them, and tests record them.
  */
 import { PlaybackMode } from "@movies/contracts/models/playback";
 import { Context, Effect, Layer, Ref, Schema } from "effect";
 
-import { MediaFileId, PlaybackSessionId } from "@movies/contracts/ids";
+import { MediaFileId, PlaybackSessionId, UserId } from "@movies/contracts/ids";
 import { StreamId } from "@movies/contracts/media-playback";
+
+import { LogEvent } from "../diagnostics/log-events.ts";
 
 /**
  * Why an HLS stream closed. `session-ended` follows the playback session ending in Convex;
@@ -31,6 +35,7 @@ export const PlaybackEvent = Schema.TaggedUnion({
   /** Negotiation chose a mode. HLS sessions carry their stream ID. */
   ModeChosen: {
     sessionId: PlaybackSessionId,
+    userId: UserId,
     fileId: MediaFileId,
     streamId: Schema.optional(StreamId),
     mode: PlaybackMode,
@@ -38,6 +43,7 @@ export const PlaybackEvent = Schema.TaggedUnion({
   /** A running session switched modes, for example from QSV to software. */
   ModeChanged: {
     sessionId: PlaybackSessionId,
+    userId: UserId,
     fileId: MediaFileId,
     streamId: StreamId,
     from: PlaybackMode,
@@ -47,6 +53,7 @@ export const PlaybackEvent = Schema.TaggedUnion({
   /** An HLS session closed and its temporary segments were deleted. */
   StreamEnded: {
     sessionId: PlaybackSessionId,
+    userId: UserId,
     fileId: MediaFileId,
     streamId: StreamId,
     reason: StreamEndReason,
@@ -66,12 +73,23 @@ export class Service extends Context.Service<Service, Interface>()(
   "@movies/media/PlaybackReporter",
 ) {}
 
-/** Logs events; used until the Convex integration forwards them. */
+/** Logs `event` at `INFO` under its playback event name, with its fields as annotations. */
+export const logEvent = (event: PlaybackEvent): Effect.Effect<void> => {
+  const { _tag, ...fields } = event;
+
+  return Effect.logInfo(
+    PlaybackEvent.match(event, {
+      ModeChosen: () => LogEvent.streamStarted,
+      ModeChanged: () => LogEvent.modeChanged,
+      StreamEnded: () => LogEvent.streamEnded,
+    }),
+  ).pipe(Effect.annotateLogs(fields));
+};
+
+/** Only logs events, for standalone mode. */
 export const layerLog: Layer.Layer<Service> = Layer.succeed(
   Service,
-  Service.of({
-    report: (event) => Effect.logInfo("PlaybackReporter.event", event),
-  }),
+  Service.of({ report: logEvent }),
 );
 
 /** Inspection of a recording reporter. */
@@ -92,7 +110,13 @@ export const layerRecording: Layer.Layer<Service | Recording> = Layer.effectCont
     return Context.empty().pipe(
       Context.add(
         Service,
-        Service.of({ report: (event) => Ref.update(events, (seen) => [...seen, event]) }),
+        Service.of({
+          report: (event) =>
+            Effect.andThen(
+              logEvent(event),
+              Ref.update(events, (seen) => [...seen, event]),
+            ),
+        }),
       ),
       Context.add(Recording, Recording.of({ events: Ref.get(events) })),
     );

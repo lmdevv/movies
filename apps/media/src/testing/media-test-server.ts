@@ -1,19 +1,23 @@
 /**
  * The real media service on an ephemeral port for end-to-end tests: fixture library, in-memory
  * store (scanned at startup), recording playback reporter, and the production routes and
- * services. Configuration goes through the real environment decoding.
+ * services. Configuration goes through the real environment decoding, `LOG_LEVEL` included, and
+ * every log entry at that level and above is kept for the test to read.
  */
 import { createServer } from "node:http";
 
 import { NodeHttpServer, NodeServices } from "@effect/platform-node";
-import { Context, Effect, Layer, Path } from "effect";
+import { Context, Effect, Layer, Logger, Option, Path, References } from "effect";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
 
 import * as BackendHealth from "../backend-health.ts";
 import { routesLayer, tokenSafeTracing } from "../http/http-server.ts";
+import type { LogRecord } from "@movies/contracts/diagnostics";
 import { type MediaFileId, LibraryId } from "@movies/contracts/ids";
 import * as LibraryScanner from "../library/library-scanner.ts";
+import { decodeRecord } from "../logging/log-query.ts";
 import * as MemoryLibrary from "../library/memory-library.ts";
+import * as MediaConfig from "../media-config.ts";
 import { servicesLayer } from "../media-service.ts";
 import * as PlaybackReporter from "../playback/playback-reporter.ts";
 import * as FixtureWorkspace from "./fixture-workspace.ts";
@@ -21,6 +25,8 @@ import { testConfigLayer } from "./test-config.ts";
 
 /** Where the test server listens and how to find fixture files in its store. */
 export interface Interface {
+  /** Every log entry so far, oldest first. */
+  readonly logged: () => ReadonlyArray<LogRecord>;
   /** Base URL of the running server, such as `http://127.0.0.1:41234`. */
   readonly baseUrl: string;
   readonly transcodeDir: string;
@@ -56,6 +62,24 @@ export const layer = (overrides: Readonly<Record<string, string>> = {}) =>
         ...overrides,
       });
 
+      const logged: Array<LogRecord> = [];
+
+      // Each entry as the retained log would read it back.
+      const logging = Layer.mergeAll(
+        Logger.layer(
+          [
+            Logger.map(Logger.formatJson, (line) => {
+              logged.push(...Option.toArray(decodeRecord(line)));
+            }),
+          ],
+          { mergeWithExisting: true },
+        ),
+        Layer.effect(
+          References.MinimumLogLevel,
+          Effect.map(MediaConfig.Service, (settings) => settings.logs.level),
+        ).pipe(Layer.provide(config)),
+      );
+
       const services = servicesLayer.pipe(
         Layer.provideMerge(
           Layer.mergeAll(
@@ -90,6 +114,7 @@ export const layer = (overrides: Readonly<Record<string, string>> = {}) =>
           return yield* HttpServer.addressFormattedWith((baseUrl) =>
             Effect.succeed(
               Service.of({
+                logged: () => logged,
                 baseUrl,
                 transcodeDir,
                 fileId: (name, relativePath) =>
@@ -100,7 +125,11 @@ export const layer = (overrides: Readonly<Record<string, string>> = {}) =>
         }),
       );
 
-      return ready.pipe(Layer.provideMerge(server), Layer.provideMerge(services));
+      return ready.pipe(
+        Layer.provideMerge(server),
+        Layer.provideMerge(services),
+        Layer.provide(logging),
+      );
     }),
   ).pipe(
     Layer.provideMerge(FixtureWorkspace.layer),

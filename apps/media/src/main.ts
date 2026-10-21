@@ -26,6 +26,7 @@ import * as ConvexFileResolver from "./convex/convex-file-resolver.ts";
 import * as ConvexLibrarySink from "./convex/convex-library-sink.ts";
 import * as ConvexPlaybackReporter from "./convex/convex-playback-reporter.ts";
 import * as EndedSessionWatcher from "./convex/ended-session-watcher.ts";
+import * as DiagnosticsRoutes from "./diagnostics/diagnostics-routes.ts";
 import * as LibrarySync from "./convex/library-sync.ts";
 import * as MediaBackend from "./convex/media-backend.ts";
 import * as ViewerAuth from "./convex/viewer-auth.ts";
@@ -38,6 +39,7 @@ import * as PersonJob from "./jobs/person-job.ts";
 import * as ScanJob from "./jobs/scan-job.ts";
 import * as FolderRoutes from "./library/folder-routes.ts";
 import * as LibraryMonitor from "./library/library-monitor.ts";
+import * as LogsRoutes from "./logging/logs-routes.ts";
 import * as MemoryLibrary from "./library/memory-library.ts";
 import * as MediaConfig from "./media-config.ts";
 import { servicesLayer } from "./media-service.ts";
@@ -72,12 +74,14 @@ const jobHandlers = Effect.all([
   TrickplayJob.handlers,
 ]).pipe(Effect.map(([always, trickplay]) => [...always, ...trickplay]));
 
-/** Route groups of registry `media` commands. Add a group's layer here. */
+/** Route groups of registry `media` commands and the log route, which need Convex sign-in. */
 const commandRoutes = Layer.mergeAll(
   MetadataRoutes.layer,
   MigrationRoutes.layer,
   BackupRoutes.layer,
   FolderRoutes.layer,
+  LogsRoutes.layer,
+  DiagnosticsRoutes.layer,
 );
 
 /** Signed in to Convex: Convex libraries, scan jobs, ended sessions, and file records. */

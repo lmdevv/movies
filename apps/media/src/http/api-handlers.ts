@@ -4,6 +4,7 @@ import { Effect, Layer, Option } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 
 import * as BackendHealth from "../backend-health.ts";
+import * as ClientDiagnostics from "../diagnostics/client-events.ts";
 import * as Downloads from "../downloads/downloads.ts";
 import * as MediaConfig from "../media-config.ts";
 import * as HardwareAcceleration from "../playback/hardware-acceleration.ts";
@@ -21,6 +22,7 @@ const playbackHandlers = HttpApiBuilder.group(
     const negotiator = yield* PlaybackNegotiator.Service;
     const verifier = yield* PlaybackToken.Service;
     const sessions = yield* StreamSessions.Service;
+    const diagnostics = yield* ClientDiagnostics.Service;
 
     return handlers.handleAll({
       negotiate: ({ payload }) => negotiator.negotiate(payload),
@@ -41,6 +43,7 @@ const playbackHandlers = HttpApiBuilder.group(
         const grant = yield* verifier.verify(payload.token, PlaybackToken.PLAY);
         yield* sessions.stop(payload.streamId, grant);
       }),
+      diagnostics: ({ payload }) => diagnostics.record(payload),
     });
   }),
 );

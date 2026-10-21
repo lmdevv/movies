@@ -5,6 +5,11 @@
  * token, never from the URL path alone. HLS takes only playback tokens and download MP4s only
  * download tokens. Expected failures become JSON bodies encoded with their error schema and
  * status.
+ *
+ * Every answer with a 4xx or 5xx status logs `MediaRoutes.request_failed` at `WARN`, with the
+ * session once the token is verified. Every HLS segment logs how long it took, split into waiting
+ * for the encoder, reading the disk, and writing to the network: at `WARN` from one second
+ * (`MediaRoutes.slow_segment`), at `DEBUG` below.
  */
 import type { MediaFileId } from "@movies/contracts/ids";
 import {
@@ -22,7 +27,21 @@ import {
   UnsupportedPlayback,
 } from "@movies/contracts/media-playback";
 import { PlaybackTokenInvalid } from "@movies/contracts/playback-token";
-import { Effect, FileSystem, Layer, Match, Option, Path, Redacted, Schema, Stream } from "effect";
+import {
+  Clock,
+  Duration,
+  Effect,
+  Exit,
+  FileSystem,
+  Layer,
+  Match,
+  Option,
+  Path,
+  Redacted,
+  Ref,
+  Schema,
+  Stream,
+} from "effect";
 import {
   HttpEffect,
   HttpPlatform,
@@ -31,6 +50,7 @@ import {
   HttpServerResponse,
 } from "effect/http";
 
+import { grantAnnotations, LogEvent, SLOW_MS } from "../diagnostics/log-events.ts";
 import * as Downloads from "../downloads/downloads.ts";
 import * as MediaConfig from "../media-config.ts";
 import { modifiedAtMs } from "../platform/file-info.ts";
@@ -139,11 +159,13 @@ const SEGMENT_CACHE = "private, max-age=3600";
 /** How much of a segment part is read at a time. */
 const READ_CHUNK = 256 * 1024;
 
-/** The first `size` bytes of an open file, in chunks. */
-const readWhole = (handle: FileSystem.File, size: number) =>
+/** The first `size` bytes of an open file, in chunks, adding the time spent reading to `readMs`. */
+const readWhole = (handle: FileSystem.File, size: number, readMs: Ref.Ref<number>) =>
   Stream.paginate(0, (position: number) =>
     handle.readAlloc(Math.min(READ_CHUNK, size - position), { position: BigInt(position) }).pipe(
-      Effect.map((chunk) => {
+      Effect.timed,
+      Effect.tap(([elapsed]) => Ref.update(readMs, (total) => total + Duration.toMillis(elapsed))),
+      Effect.map(([, chunk]) => {
         const bytes = Option.getOrElse(chunk, () => new Uint8Array(0));
         const next = position + bytes.length;
 
@@ -154,6 +176,59 @@ const readWhole = (handle: FileSystem.File, size: number) =>
       }),
     ),
   );
+
+/** What a media route answered, and the message of the failure it answered with, if any. */
+interface Answer {
+  readonly response: HttpServerResponse.HttpServerResponse;
+  readonly error: Option.Option<string>;
+}
+
+/** Records the grant of a request's token once it is verified, for its log records. */
+type Remember = (grant: PlaybackToken.PlaybackGrant) => Effect.Effect<void>;
+
+/**
+ * Runs a media route: failures become their error responses, and any answer with a 4xx or 5xx
+ * status logs `MediaRoutes.request_failed` with the route, the stream in the path, and the
+ * session of the verified token.
+ */
+const observed = <R>(
+  route: string,
+  handler: (
+    remember: Remember,
+  ) => Effect.Effect<HttpServerResponse.HttpServerResponse, RouteError, R>,
+) =>
+  Effect.gen(function* () {
+    const started = yield* Clock.currentTimeMillis;
+    const verified = yield* Ref.make(Option.none<PlaybackToken.PlaybackGrant>());
+    const params = yield* HttpRouter.params;
+
+    const answer = yield* handler((grant) => Ref.set(verified, Option.some(grant))).pipe(
+      Effect.map((response): Answer => ({ response, error: Option.none() })),
+      Effect.catch((error) =>
+        errorResponse(error).pipe(
+          Effect.map((response): Answer => ({ response, error: Option.some(error.message) })),
+        ),
+      ),
+    );
+
+    if (answer.response.status >= 400) {
+      const grant = yield* Ref.get(verified);
+
+      yield* Effect.logWarning(LogEvent.requestFailed).pipe(
+        Effect.annotateLogs({
+          route,
+          status: answer.response.status,
+          error: Option.getOrNull(answer.error),
+          elapsedMs: (yield* Clock.currentTimeMillis) - started,
+          streamId: params["streamId"] ?? null,
+          file: params["file"] ?? null,
+          ...Option.match(grant, { onNone: () => ({}), onSome: grantAnnotations }),
+        }),
+      );
+    }
+
+    return answer.response;
+  });
 
 const matchesEtag = (header: string, etag: string): boolean =>
   header.trim() === "*" ||
@@ -253,40 +328,48 @@ export const layer: Layer.Layer<
       Effect.mapError(() => new MediaFileUnreadable()),
     );
 
-    const direct = Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest;
+    const direct = observed("direct", (remember) =>
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
 
-      if (request.method !== "GET" && request.method !== "HEAD") {
-        return HttpServerResponse.empty({ status: 405, headers: { allow: "GET, HEAD" } });
-      }
+        if (request.method !== "GET" && request.method !== "HEAD") {
+          return HttpServerResponse.empty({ status: 405, headers: { allow: "GET, HEAD" } });
+        }
 
-      const { fileId = "" } = yield* HttpRouter.params;
-      const grant = yield* grantFor(request, PlaybackToken.PLAY_OR_DOWNLOAD);
+        const { fileId = "" } = yield* HttpRouter.params;
+        const grant = yield* grantFor(request, PlaybackToken.PLAY_OR_DOWNLOAD);
 
-      if (grant.fileId !== fileId) return yield* new MediaAccessDenied();
-      const file = yield* resolve(grant.fileId, { sidecars: false });
+        yield* remember(grant);
 
-      return yield* fileResponse(request, file.path, CONTENT_TYPES[file.probe.container]);
-    }).pipe(Effect.catch(errorResponse), Effect.withSpan("MediaRoutes.direct"));
+        if (grant.fileId !== fileId) return yield* new MediaAccessDenied();
+        const file = yield* resolve(grant.fileId, { sidecars: false });
 
-    const download = Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest;
+        return yield* fileResponse(request, file.path, CONTENT_TYPES[file.probe.container]);
+      }),
+    ).pipe(Effect.withSpan("MediaRoutes.direct"));
 
-      if (request.method !== "GET" && request.method !== "HEAD") {
-        return HttpServerResponse.empty({ status: 405, headers: { allow: "GET, HEAD" } });
-      }
+    const download = observed("download", (remember) =>
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
 
-      const { fileId = "", name = "" } = yield* HttpRouter.params;
-      const grant = yield* grantFor(request, PlaybackToken.DOWNLOAD);
+        if (request.method !== "GET" && request.method !== "HEAD") {
+          return HttpServerResponse.empty({ status: 405, headers: { allow: "GET, HEAD" } });
+        }
 
-      if (grant.fileId !== fileId) return yield* new MediaAccessDenied();
-      // Gone after a restart or six idle hours: preparing the download again writes it again.
-      const output = yield* downloads.output(grant.fileId, name);
+        const { fileId = "", name = "" } = yield* HttpRouter.params;
+        const grant = yield* grantFor(request, PlaybackToken.DOWNLOAD);
 
-      if (Option.isNone(output)) return yield* new MediaFileNotFound({ fileId: grant.fileId });
+        yield* remember(grant);
 
-      return yield* fileResponse(request, output.value, CONTENT_TYPES.mp4);
-    }).pipe(Effect.catch(errorResponse), Effect.withSpan("MediaRoutes.download"));
+        if (grant.fileId !== fileId) return yield* new MediaAccessDenied();
+        // Gone after a restart or six idle hours: preparing the download again writes it again.
+        const output = yield* downloads.output(grant.fileId, name);
+
+        if (Option.isNone(output)) return yield* new MediaFileNotFound({ fileId: grant.fileId });
+
+        return yield* fileResponse(request, output.value, CONTENT_TYPES.mp4);
+      }),
+    ).pipe(Effect.withSpan("MediaRoutes.download"));
 
     const streamParams = Effect.gen(function* () {
       const params = yield* HttpRouter.params;
@@ -304,81 +387,129 @@ export const layer: Layer.Layer<
       };
     });
 
-    const playlist = Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      const { streamId, generation } = yield* streamParams;
-      const token = yield* tokenOf(request);
-      const grant = yield* verifier.verify(token, PlaybackToken.PLAY);
-      const view = yield* sessions.playlist(streamId, generation, grant);
-      const query = `?token=${encodeURIComponent(Redacted.value(token))}`;
+    const playlist = observed("playlist", (remember) =>
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const { streamId, generation } = yield* streamParams;
+        const token = yield* tokenOf(request);
+        const grant = yield* verifier.verify(token, PlaybackToken.PLAY);
 
-      const body = renderPlaylist(view.plan, {
-        init: `init.mp4${query}`,
-        segment: (index) => `${index}.m4s${query}`,
-      });
+        yield* remember(grant);
+        const view = yield* sessions.playlist(streamId, generation, grant);
+        const query = `?token=${encodeURIComponent(Redacted.value(token))}`;
 
-      return HttpServerResponse.text(body, {
-        contentType: "application/vnd.apple.mpegurl",
-        headers: { "cache-control": "no-store" },
-      });
-    }).pipe(Effect.catch(errorResponse), Effect.withSpan("MediaRoutes.playlist"));
+        const body = renderPlaylist(view.plan, {
+          init: `init.mp4${query}`,
+          segment: (index) => `${index}.m4s${query}`,
+        });
 
-    const hlsFile = Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      const { streamId, generation, file } = yield* streamParams;
-      const grant = yield* grantFor(request, PlaybackToken.PLAY);
-      const segmentMatch = /^(\d+)\.m4s$/.exec(file);
+        return HttpServerResponse.text(body, {
+          contentType: "application/vnd.apple.mpegurl",
+          headers: { "cache-control": "no-store" },
+        });
+      }),
+    ).pipe(Effect.withSpan("MediaRoutes.playlist"));
 
-      if (file !== "init.mp4" && segmentMatch === null)
-        return yield* new SegmentNotFound({ index: -1 });
-      const segmentIndex = segmentMatch === null ? -1 : Number(segmentMatch[1]);
+    const hlsFile = observed("hls", (remember) =>
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const { streamId, generation, file } = yield* streamParams;
+        const grant = yield* grantFor(request, PlaybackToken.PLAY);
 
-      const parts =
-        segmentMatch === null
-          ? yield* sessions.init(streamId, generation, grant)
-          : yield* sessions.segment(streamId, generation, segmentIndex, grant);
+        yield* remember(grant);
+        const segmentMatch = /^(\d+)\.m4s$/.exec(file);
 
-      // Open every part before answering: a seek may delete this generation's folder at any
-      // moment, and a body cut short under its promised length breaks the player's parser. An open
-      // file stays readable after it is deleted; the request's scope closes the handles once the
-      // body is sent.
-      const opened = yield* Effect.forEach(parts.paths, (part) =>
-        fs
-          .open(part)
-          .pipe(
-            Effect.flatMap((handle) =>
-              handle.stat.pipe(Effect.map((info) => ({ handle, size: Number(info.size) }))),
+        if (file !== "init.mp4" && segmentMatch === null)
+          return yield* new SegmentNotFound({ index: -1 });
+        const segmentIndex = segmentMatch === null ? -1 : Number(segmentMatch[1]);
+        const started = yield* Clock.currentTimeMillis;
+
+        const parts =
+          segmentMatch === null
+            ? yield* sessions.init(streamId, generation, grant)
+            : yield* sessions.segment(streamId, generation, segmentIndex, grant);
+
+        const produced = yield* Clock.currentTimeMillis;
+        const readMs = yield* Ref.make(0);
+
+        // Open every part before answering: a seek may delete this generation's folder at any
+        // moment, and a body cut short under its promised length breaks the player's parser. An
+        // open file stays readable after it is deleted; the request's scope closes the handles
+        // once the body is sent.
+        const opened = yield* Effect.forEach(parts.paths, (part) =>
+          fs
+            .open(part)
+            .pipe(
+              Effect.flatMap((handle) =>
+                handle.stat.pipe(Effect.map((info) => ({ handle, size: Number(info.size) }))),
+              ),
             ),
-          ),
-      ).pipe(Effect.mapError(() => new SegmentNotReady({ index: segmentIndex })));
+        ).pipe(Effect.mapError(() => new SegmentNotReady({ index: segmentIndex })));
 
-      const body = Stream.fromIterable(opened).pipe(
-        Stream.flatMap(({ handle, size }) => readWhole(handle, size)),
-      );
+        const answered = yield* Clock.currentTimeMillis;
+        const contentLength = opened.reduce((total, part) => total + part.size, 0);
 
-      return HttpEffect.scopeTransferToStream(
-        HttpServerResponse.stream(body, {
-          contentType: "video/mp4",
-          contentLength: opened.reduce((total, part) => total + part.size, 0),
+        // The request's scope closes once the body is sent or the player hangs up.
+        yield* Effect.addFinalizer((exit) =>
+          Effect.gen(function* () {
+            const finished = yield* Clock.currentTimeMillis;
+            const bodyReadMs = yield* Ref.get(readMs);
+            const elapsedMs = finished - started;
+
+            const timing = {
+              route: "hls",
+              streamId,
+              generation,
+              segment: segmentMatch === null ? "init" : segmentIndex,
+              elapsedMs,
+              encoderWaitMs: produced - started,
+              diskReadMs: answered - produced + bodyReadMs,
+              networkWriteMs: Math.max(0, finished - answered - bodyReadMs),
+              bytes: contentLength,
+              completed: Exit.isSuccess(exit),
+              ...grantAnnotations(grant),
+            };
+
+            yield* (
+              elapsedMs >= SLOW_MS
+                ? Effect.logWarning(LogEvent.slowSegment)
+                : Effect.logDebug(LogEvent.segmentServed)
+            ).pipe(Effect.annotateLogs(timing));
+          }),
+        );
+
+        const body = Stream.fromIterable(opened).pipe(
+          Stream.flatMap(({ handle, size }) => readWhole(handle, size, readMs)),
+        );
+
+        return HttpEffect.scopeTransferToStream(
+          HttpServerResponse.stream(body, {
+            contentType: "video/mp4",
+            contentLength,
+            headers: { "cache-control": SEGMENT_CACHE },
+          }),
+        );
+      }),
+    ).pipe(Effect.withSpan("MediaRoutes.hls"));
+
+    const subtitle = observed("subtitle", (remember) =>
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const { fileId = "", track = "" } = yield* HttpRouter.params;
+        const grant = yield* grantFor(request, PlaybackToken.PLAY_OR_DOWNLOAD);
+
+        yield* remember(grant);
+
+        if (grant.fileId !== fileId) return yield* new MediaAccessDenied();
+        const file = yield* resolve(grant.fileId, { sidecars: true });
+        const vtt = yield* subtitles.toWebVtt(file, track.replace(/\.vtt$/, ""));
+
+        return HttpServerResponse.text(vtt, {
+          contentType: "text/vtt; charset=utf-8",
           headers: { "cache-control": SEGMENT_CACHE },
-        }),
-      );
-    }).pipe(Effect.catch(errorResponse), Effect.withSpan("MediaRoutes.hls"));
-
-    const subtitle = Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      const { fileId = "", track = "" } = yield* HttpRouter.params;
-      const grant = yield* grantFor(request, PlaybackToken.PLAY_OR_DOWNLOAD);
-
-      if (grant.fileId !== fileId) return yield* new MediaAccessDenied();
-      const file = yield* resolve(grant.fileId, { sidecars: true });
-      const vtt = yield* subtitles.toWebVtt(file, track.replace(/\.vtt$/, ""));
-
-      return HttpServerResponse.text(vtt, {
-        contentType: "text/vtt; charset=utf-8",
-        headers: { "cache-control": SEGMENT_CACHE },
-      });
-    }).pipe(Effect.catch(errorResponse), Effect.withSpan("MediaRoutes.subtitle"));
+        });
+      }),
+    ).pipe(Effect.withSpan("MediaRoutes.subtitle"));
 
     yield* router.add("*", "/media/direct/:fileId", direct);
     yield* router.add("*", "/media/downloads/:fileId/:name", download);

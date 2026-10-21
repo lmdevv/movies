@@ -214,6 +214,7 @@ const make = Effect.gen(function* () {
       yield* reporter.report(
         PlaybackReporter.PlaybackEvent.cases.ModeChosen.make({
           sessionId: grant.sessionId,
+          userId: grant.userId,
           fileId: grant.fileId,
           mode: "direct",
         }),

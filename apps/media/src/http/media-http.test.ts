@@ -79,6 +79,13 @@ interface RequestBody {
   readonly positionSeconds?: number;
 }
 
+/** A diagnostics batch as a player sends it, or a malformed one. */
+interface WireBatch {
+  readonly token: string;
+  readonly platform: string;
+  readonly events: ReadonlyArray<Readonly<Record<string, string | number>>>;
+}
+
 /** Decodes a negotiation body the way an HttpApi client does. */
 const decodeNegotiation = Schema.decodeUnknownEffect(Schema.toCodecJson(NegotiateResponse));
 
@@ -688,6 +695,38 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           ),
         );
 
+        // The player comes back after the idle close: the refusal is logged with its session.
+        const gone = yield* get(local(server.baseUrl, first.url));
+
+        assert.strictEqual(gone.status, 404);
+
+        const logged = server.logged();
+
+        assert.isTrue(
+          logged.some(
+            (entry) =>
+              entry.message === "Stream.ended" &&
+              entry.annotations["reason"] === "idle" &&
+              entry.annotations["sessionId"] === "one",
+          ),
+        );
+
+        assert.deepInclude(
+          logged.find((entry) => entry.message === "MediaRoutes.request_failed")?.annotations,
+          {
+            route: "playlist",
+            status: 404,
+            error: "Stream not found: renegotiate playback",
+            streamId: first.streamId,
+            sessionId: "one",
+            userId: "user_test",
+          },
+        );
+        assert.strictEqual(
+          logged.find((entry) => entry.message === "MediaRoutes.request_failed")?.level,
+          "WARN",
+        );
+
         const retry = yield* negotiated({
           token: signTestToken({ fid: fileId, sid: "two" }),
           capabilities: smallScreen,
@@ -739,6 +778,97 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const status = yield* decodeHealth(yield* json(health)).pipe(Effect.orDie);
 
         assert.strictEqual(status.hardwareAcceleration, "none");
+      }),
+    );
+  });
+
+  layer(MediaTestServer.layer({ LOG_LEVEL: "debug" }), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })("with debug logs", (it) => {
+    it.effect("times every segment: encoder wait, disk read, and network write", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const { library } = yield* FixtureWorkspace.Service;
+
+        const stream = yield* negotiated({
+          token: signTestToken({ fid: server.fileId("movies", library.remuxMovie), sid: "timed" }),
+          capabilities: browser,
+        });
+
+        const { segment } = yield* fetchSegment(local(server.baseUrl, stream.url), 0);
+        const body = yield* bytes(segment);
+
+        // The timing is logged once the body is sent, as the request's scope closes.
+        yield* Effect.sleep("200 millis");
+
+        const timed = server
+          .logged()
+          .find(
+            (entry) =>
+              entry.message === "MediaRoutes.segment" && entry.annotations["segment"] === 0,
+          );
+
+        assert.deepInclude(timed?.annotations, {
+          route: "hls",
+          streamId: stream.streamId,
+          sessionId: "timed",
+          bytes: body.length,
+          completed: true,
+        });
+
+        for (const part of ["elapsedMs", "encoderWaitMs", "diskReadMs", "networkWriteMs"]) {
+          assert.isAtLeast(Number(timed?.annotations[part]), 0, part);
+        }
+      }),
+    );
+
+    it.effect("takes a player's events, and refuses batches outside the limits", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const token = signTestToken({ fid: "file_1", sid: "reported" });
+
+        const stall = {
+          _tag: "BufferingStarted",
+          ageMs: 0,
+          positionSeconds: 1,
+          bufferedAheadSeconds: 0,
+        };
+
+        const send = (body: WireBatch) =>
+          HttpClient.execute(
+            HttpClientRequest.post(`${server.baseUrl}/api/playback/diagnostics`).pipe(
+              HttpClientRequest.bodyJsonUnsafe(body),
+            ),
+          ).pipe(Effect.orDie);
+
+        assert.strictEqual((yield* send({ token, platform: "web", events: [stall] })).status, 204);
+        assert.isTrue(
+          server
+            .logged()
+            .some(
+              (entry) =>
+                entry.message === "Player.buffering_started" &&
+                entry.annotations["sessionId"] === "reported",
+            ),
+        );
+
+        const tooMany = Array.from({ length: 101 }, () => stall);
+
+        assert.strictEqual((yield* send({ token, platform: "web", events: tooMany })).status, 400);
+        assert.strictEqual(
+          (yield* send({ token, platform: "web", events: [{ ...stall, _tag: "Unknown" }] })).status,
+          400,
+        );
+        assert.strictEqual(
+          (yield* send({ token, platform: "web", events: [{ ...stall, ageMs: 3_600_000 }] }))
+            .status,
+          400,
+        );
+        assert.strictEqual(
+          (yield* send({ token: "v1.forged.token", platform: "web", events: [stall] })).status,
+          401,
+        );
       }),
     );
   });
