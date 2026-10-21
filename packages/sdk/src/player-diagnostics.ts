@@ -1,8 +1,9 @@
 /**
  * What a player saw while it played, sent to the media service for its retained log, where
- * `movies diagnostics playback` reads it: stalls (from the player's `waiting` and `playing`
- * events), dropped frames (sampled where the platform counts them), and whatever the platform
- * records itself, such as hls.js segment loads, decoder errors, and recoveries.
+ * `movies diagnostics playback` reads it: how long each playback session took to start and its
+ * stalls after that (from the player's `waiting` and `playing` events), dropped frames (sampled
+ * where the platform counts them), and whatever the platform records itself, such as hls.js
+ * segment loads, decoder errors, and recoveries.
  *
  * Events are batched and sent every few seconds with the playback token, never with the session's
  * Convex token, and the last batch is sent as the scope closes. Sending is best effort: a batch
@@ -17,6 +18,7 @@ import {
   PlayerObservation,
   type RecoveryAction,
 } from "@movies/contracts/diagnostics";
+import type { PlaybackSessionId } from "@movies/contracts/ids";
 import {
   Array as Arr,
   Clock,
@@ -92,6 +94,15 @@ interface Pending {
   readonly playback: Playback;
 }
 
+/**
+ * A wait for data while the viewer wants playback: the playback session's startup, before it first
+ * played, or a stall after that.
+ */
+interface Wait {
+  readonly kind: "startup" | "stall";
+  readonly since: number;
+}
+
 /** `pending` as the events of a batch sent at `now`, leaving out those too old to send. */
 const toEvents = (
   pending: ReadonlyArray<Pending>,
@@ -149,8 +160,9 @@ const send = (
   );
 
 /**
- * Records `player`'s stalls and the platform's own events until the scope closes, sending them
- * in batches with the playback `options.playback` names.
+ * Records how long each of `player`'s playback sessions takes to start, its stalls after that, and
+ * the platform's own events until the scope closes, sending them in batches with the playback
+ * `options.playback` names.
  */
 export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function* (
   player: PlayerPort,
@@ -160,15 +172,24 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   const queue = yield* Queue.sliding<Pending>(MAX_PENDING);
   const counted = yield* Ref.make<FrameCounts>({ dropped: 0, decoded: 0 });
   const oneBatchAtATime = yield* Semaphore.make(1);
+
   /**
-   * When the current stall began, none while playing; and the playback that played last. Player
-   * events and records change them as they happen.
+   * The wait in progress, none while playing; the playback that played last; and the playback
+   * session that reached `playing`, after which its waits are stalls. Player events and records
+   * change them as they happen.
    */
-  const state = { stalledSince: Option.none<number>(), lastPlayback: Option.none<Playback>() };
+  const state = {
+    waiting: Option.none<Wait>(),
+    lastPlayback: Option.none<Playback>(),
+    played: Option.none<PlaybackSessionId>(),
+  };
+
+  const playbackNow = (): Option.Option<Playback> =>
+    Option.orElse(options.playback(), () => state.lastPlayback);
 
   /** Keeps `observation` for the next batch; before any playback there is no one to tell. */
   const note = (observation: PlayerObservation): void => {
-    const playback = Option.orElse(options.playback(), () => state.lastPlayback);
+    const playback = playbackNow();
 
     if (Option.isNone(playback)) return;
     state.lastPlayback = playback;
@@ -179,28 +200,51 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
     });
   };
 
-  /** Ends the current stall, if there is one, as `endedBy` says. */
-  const endStall = (endedBy: "playing" | "paused" | "closed"): void => {
-    if (Option.isNone(state.stalledSince)) return;
-    const durationMs = Math.round(clock.currentTimeMillisUnsafe() - state.stalledSince.value);
-
-    state.stalledSince = Option.none();
-    note(PlayerObservation.cases.BufferingEnded.make({ ...where(), durationMs, endedBy }));
-  };
+  const positionSeconds = () => Math.max(0, player.positionMs() / 1000);
 
   const where = () => ({
-    positionSeconds: Math.max(0, player.positionMs() / 1000),
+    positionSeconds: positionSeconds(),
     bufferedAheadSeconds: Math.max(0, options.bufferedAheadSeconds()),
   });
 
-  const onPlayerEvent = (event: PlayerEvent): void => {
-    const viewerWaits = !player.isPaused();
+  const startWait = (): void => {
+    const session = Option.map(playbackNow(), (playback) => playback.started.sessionId);
 
-    if (event === "waiting" && Option.isNone(state.stalledSince) && viewerWaits) {
-      state.stalledSince = Option.some(clock.currentTimeMillisUnsafe());
-      note(PlayerObservation.cases.BufferingStarted.make(where()));
-    } else if (event === "playing" || event === "paused") {
-      endStall(event);
+    const kind = Option.exists(session, (id) => Option.contains(state.played, id))
+      ? "stall"
+      : "startup";
+
+    state.waiting = Option.some({ kind, since: clock.currentTimeMillisUnsafe() });
+
+    if (kind === "stall") note(PlayerObservation.cases.BufferingStarted.make(where()));
+  };
+
+  /** Ends the wait in progress, if there is one, as `endedBy` says. */
+  const endWait = (endedBy: "playing" | "paused" | "closed"): void => {
+    if (Option.isNone(state.waiting)) return;
+    const { kind, since } = state.waiting.value;
+    const durationMs = Math.round(clock.currentTimeMillisUnsafe() - since);
+
+    state.waiting = Option.none();
+    note(
+      kind === "stall"
+        ? PlayerObservation.cases.BufferingEnded.make({ ...where(), durationMs, endedBy })
+        : PlayerObservation.cases.StartupEnded.make({
+            positionSeconds: positionSeconds(),
+            durationMs,
+            endedBy,
+          }),
+    );
+  };
+
+  const onPlayerEvent = (event: PlayerEvent): void => {
+    if (event === "waiting" && Option.isNone(state.waiting) && !player.isPaused()) {
+      startWait();
+    } else if (event === "playing") {
+      endWait(event);
+      state.played = Option.map(playbackNow(), (playback) => playback.started.sessionId);
+    } else if (event === "paused") {
+      endWait(event);
     }
   };
 
@@ -238,7 +282,7 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   );
   yield* Effect.forkScoped(Effect.repeat(Effect.delay(flush, FLUSH_INTERVAL), Schedule.forever));
   yield* Effect.addFinalizer(() =>
-    Effect.sync(() => endStall("closed")).pipe(
+    Effect.sync(() => endWait("closed")).pipe(
       Effect.andThen(flush),
       Effect.timeout(FINAL_FLUSH_TIMEOUT),
       Effect.ignore,

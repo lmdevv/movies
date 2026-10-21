@@ -65,6 +65,15 @@ const stall: ClientDiagnosticEvent = {
   }),
 };
 
+const startup = (durationMs: number): ClientDiagnosticEvent => ({
+  ageMs: 0,
+  observation: PlayerObservation.cases.StartupEnded.make({
+    positionSeconds: 0,
+    durationMs,
+    endedBy: "playing",
+  }),
+});
+
 describe("client diagnostics", () => {
   it.live("logs each event under its player name with the verified session and account", () =>
     Effect.gen(function* () {
@@ -130,6 +139,30 @@ describe("client diagnostics", () => {
 
       assert.isAtLeast(occurred, before - 2000);
       assert.isAtMost(occurred, Date.now() - 2000);
+    }),
+  );
+
+  it.live("logs a startup as no stall, and a slow one as a warning", () =>
+    Effect.gen(function* () {
+      const { logged } = yield* recording(
+        Effect.flatMap(ClientDiagnostics.Service, (recorder) =>
+          recorder.record(batch([startup(300), startup(12_000)])),
+        ),
+      );
+
+      assert.deepStrictEqual(
+        logged.map((entry) => [
+          entry.message,
+          entry.level,
+          entry.annotations["startupMs"],
+          entry.annotations["endedBy"],
+          entry.annotations["stalledMs"],
+        ]),
+        [
+          [LogEvent.startupEnded, "INFO", 300, "playing", undefined],
+          [LogEvent.startupEnded, "WARN", 12_000, "playing", undefined],
+        ],
+      );
     }),
   );
 

@@ -17,6 +17,7 @@ export const LogEvent = {
   requestFailed: "MediaRoutes.request_failed",
   requestFailuresSuppressed: "MediaRoutes.request_failures_suppressed",
   playerAttached: "Player.attached",
+  startupEnded: "Player.startup_ended",
   bufferingStarted: "Player.buffering_started",
   bufferingEnded: "Player.buffering_ended",
   playerError: "Player.error",
@@ -30,6 +31,9 @@ export type LogEvent = (typeof LogEvent)[keyof typeof LogEvent];
 
 /** A request, segment load, or stall at least this long is slow and logs at `WARN`. */
 export const SLOW_MS = 1000;
+
+/** A wait at least this long for a playback session to start playing logs at `WARN`. */
+export const SLOW_STARTUP_MS = 5000;
 
 /** The session fields of a verified playback grant, for a record's annotations. */
 export const grantAnnotations = (grant: Pick<PlaybackGrant, "sessionId" | "userId">) => ({

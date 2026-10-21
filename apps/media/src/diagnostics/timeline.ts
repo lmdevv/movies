@@ -63,6 +63,11 @@ const STALL_ENDINGS = new Map([
   ["closed", "the player closed"],
 ]);
 
+const STARTUP_ENDINGS = new Map([
+  ["paused", "the viewer paused"],
+  ["closed", "the player closed"],
+]);
+
 const STREAM_END_REASONS = new Map([
   ["idle", "no requests for STREAM_IDLE_SECONDS, so the service closed it"],
   ["replaced", "a newer negotiation on the same device replaced it"],
@@ -150,6 +155,20 @@ const RULES = new Map<string, Rule>([
       source: "player",
       summary: (fields) =>
         `Player attached: ${text(fields["engine"])} on ${text(fields["platform"])}, ${text(fields["mode"])}`,
+    },
+  ],
+  [
+    LogEvent.startupEnded,
+    {
+      kind: "startup",
+      source: "player",
+      summary: (fields) => {
+        const ending = STARTUP_ENDINGS.get(text(fields["endedBy"]));
+
+        return ending === undefined
+          ? `Started playing after ${duration(fields["startupMs"])}`
+          : `Waited ${duration(fields["startupMs"])} to start, then ${ending}`;
+      },
     },
   ],
   [

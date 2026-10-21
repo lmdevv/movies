@@ -169,6 +169,42 @@ describe("playback timeline", () => {
     assert.isTrue(serverOnly.missing.some((gap) => gap.includes("latest records")));
   });
 
+  it("tells how long the player took to start, and never counts that as a stall", () => {
+    const started = Option.getOrThrow(
+      timelineOf(
+        SESSION,
+        [
+          record(LogEvent.streamStarted, 0, { streamId: "s1", mode: "remux" }),
+          player(
+            LogEvent.startupEnded,
+            15_000,
+            12_000,
+            { streamId: "s1", positionSeconds: 0, startupMs: 12_000, endedBy: "paused" },
+            "WARN",
+          ),
+          player(LogEvent.startupEnded, 20_000, 18_000, {
+            streamId: "s1",
+            positionSeconds: 0,
+            startupMs: 300,
+            endedBy: "playing",
+          }),
+        ],
+        false,
+      ),
+    );
+
+    assert.deepStrictEqual(
+      started.entries.map((entry) => [entry.kind, entry.source, entry.summary]),
+      [
+        ["stream-started", "server", "HLS stream started (remux)"],
+        ["startup", "player", "Waited 12.0 s to start, then the viewer paused"],
+        ["startup", "player", "Started playing after 300 ms"],
+      ],
+    );
+    assert.strictEqual(started.counts.stalls, 0);
+    assert.strictEqual(started.counts.stalledMs, 0);
+  });
+
   it("is none for records without playback events", () => {
     assert.isTrue(Option.isNone(timelineOf(SESSION, [record("Sent HTTP response", 0, {})], false)));
   });

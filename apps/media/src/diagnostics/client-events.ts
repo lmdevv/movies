@@ -20,7 +20,7 @@ import { makeLimiter } from "../http/rate-limit.ts";
 import type { PlaybackGrant } from "../playback/playback-token.ts";
 import * as PlaybackToken from "../playback/playback-token.ts";
 import * as StreamOwners from "../playback/stream-owners.ts";
-import { grantAnnotations, LogEvent, SLOW_MS } from "./log-events.ts";
+import { grantAnnotations, LogEvent, SLOW_MS, SLOW_STARTUP_MS } from "./log-events.ts";
 
 /** Records players' events. */
 export interface Interface {
@@ -73,6 +73,11 @@ const logObservation = (observation: PlayerObservation, fields: ReturnType<typeo
       Effect.logInfo(LogEvent.playerAttached).pipe(
         Effect.annotateLogs({ ...fields, mode, engine }),
       ),
+    StartupEnded: ({ positionSeconds, durationMs, endedBy }) =>
+      (durationMs >= SLOW_STARTUP_MS
+        ? Effect.logWarning(LogEvent.startupEnded)
+        : Effect.logInfo(LogEvent.startupEnded)
+      ).pipe(Effect.annotateLogs({ ...fields, positionSeconds, startupMs: durationMs, endedBy })),
     BufferingStarted: ({ positionSeconds, bufferedAheadSeconds }) =>
       Effect.logInfo(LogEvent.bufferingStarted).pipe(
         Effect.annotateLogs({ ...fields, positionSeconds, bufferedAheadSeconds }),

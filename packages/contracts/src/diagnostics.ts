@@ -117,18 +117,29 @@ export const RecoveryAction = Schema.Literals([
 /** What a player did to get playing again. */
 export type RecoveryAction = typeof RecoveryAction.Type;
 
+/** What ended a wait for data: playback went on, the viewer paused, or the player closed. */
+const WaitEndedBy = Schema.Literals(["playing", "paused", "closed"]);
+
 /** Something a player saw. */
 export const PlayerObservation = Schema.TaggedUnion({
   /** A stream was attached to the player. */
   Attached: { mode: PlaybackMode, engine: PlayerEngine },
-  /** Playback stopped to wait for data while the viewer wanted it to play. */
+  /**
+   * The player waited `durationMs` for the playback session's stream to play for the first time,
+   * then it played, the viewer paused, or the player closed. Never a stall.
+   */
+  StartupEnded: { positionSeconds: Seconds, durationMs: Count, endedBy: WaitEndedBy },
+  /**
+   * Playback stopped to wait for data while the viewer wanted it to play, after the playback
+   * session had played.
+   */
   BufferingStarted: { positionSeconds: Seconds, bufferedAheadSeconds: Seconds },
   /** Playback went on after a stall, the viewer paused instead, or the player closed during it. */
   BufferingEnded: {
     positionSeconds: Seconds,
     bufferedAheadSeconds: Seconds,
     durationMs: Count,
-    endedBy: Schema.Literals(["playing", "paused", "closed"]),
+    endedBy: WaitEndedBy,
   },
   /** A media, decoder, or network error the player reported. */
   PlayerError: {
@@ -206,6 +217,7 @@ export const TimelineKind = Schema.Literals([
   "slow-segment",
   "request-failed",
   "player-attached",
+  "startup",
   "buffering-started",
   "buffering-ended",
   "player-error",

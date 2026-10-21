@@ -55,9 +55,13 @@ beforeEach(() => {
 });
 
 /** A playback of an HLS stream served by the test server. */
-const playbackAt = (mediaBaseUrl: string, token = "v1.payload.signature"): Playback => ({
+const playbackAt = (
+  mediaBaseUrl: string,
+  token = "v1.payload.signature",
+  sessionId = "session-1",
+): Playback => ({
   started: Schema.decodeSync(StartedPlayback)({
-    sessionId: "session-1",
+    sessionId,
     titleId: "title-1",
     episodeId: null,
     episode: null,
@@ -127,6 +131,40 @@ const recovery = (reason: string) =>
 
 /** Every event received, in order. */
 const received = () => batches.flatMap((batch) => batch.events);
+
+/**
+ * A player the test drives event by event, as a `<video>` element reports them: unlike the fake
+ * player, it can wait for data before it has ever played.
+ */
+const makeElement = () => {
+  const listeners = new Set<(event: PlayerEvent) => void>();
+
+  const element = {
+    paused: true,
+    positionMs: 0,
+    emit: (event: PlayerEvent) => {
+      for (const listener of listeners) listener(event);
+    },
+  };
+
+  const player: PlayerPort = {
+    positionMs: () => element.positionMs,
+    isPaused: () => element.paused,
+    isBuffering: () => false,
+    playbackRate: () => 1,
+    setPlaybackRate: () => undefined,
+    seek: () => undefined,
+    play: () => Promise.resolve(),
+    pause: () => undefined,
+    subscribe: (listener) => {
+      listeners.add(listener);
+
+      return () => listeners.delete(listener);
+    },
+  };
+
+  return { element, player };
+};
 
 describe("playback diagnostics", () => {
   it("reports a stall with its length, and what the platform recorded", () =>
@@ -269,29 +307,7 @@ describe("playback diagnostics", () => {
       Effect.gen(function* () {
         const scope = yield* Scope.make();
         const playback = playbackAt(base);
-        const listeners = new Set<(event: PlayerEvent) => void>();
-        let paused = true;
-
-        // A paused element that runs out of data, as a scrub outside the buffer leaves it.
-        const player: PlayerPort = {
-          positionMs: () => 0,
-          isPaused: () => paused,
-          isBuffering: () => false,
-          playbackRate: () => 1,
-          setPlaybackRate: () => undefined,
-          seek: () => undefined,
-          play: () => Promise.resolve(),
-          pause: () => undefined,
-          subscribe: (listener) => {
-            listeners.add(listener);
-
-            return () => listeners.delete(listener);
-          },
-        };
-
-        const emit = (event: PlayerEvent) => {
-          for (const listener of listeners) listener(event);
-        };
+        const { element, player } = makeElement();
 
         yield* reportDiagnostics(player, {
           platform: "web",
@@ -300,14 +316,121 @@ describe("playback diagnostics", () => {
           frames: () => Option.none(),
         }).pipe(Scope.provide(scope));
 
-        emit("waiting");
-        emit("seeked");
+        // A paused element that runs out of data, as a scrub outside the buffer leaves it.
+        element.emit("waiting");
+        element.emit("seeked");
         yield* TestClock.adjust(600_000);
-        paused = false;
-        emit("playing");
+        element.paused = false;
+        element.emit("playing");
         yield* Scope.close(scope, Exit.void);
 
         expect(received()).toStrictEqual([]);
+      }),
+    ));
+
+  it("reports the wait before a session first plays as its startup, never as a stall", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const scope = yield* Scope.make();
+        const first = playbackAt(base, "v1.first.session", "session-1");
+        const renegotiated = playbackAt(base, "v1.first.session", "session-1");
+        const next = playbackAt(base, "v1.next.session", "session-2");
+        const { element, player } = makeElement();
+        let playing = Option.some(first);
+
+        yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => playing,
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        element.paused = false;
+        element.emit("waiting");
+        yield* TestClock.adjust(300);
+        element.emit("playing");
+
+        playing = Option.some(renegotiated);
+        element.positionMs = 30_000;
+        element.emit("waiting");
+        yield* TestClock.adjust(2_000);
+        element.emit("playing");
+
+        playing = Option.some(next);
+        element.positionMs = 0;
+        element.emit("waiting");
+        yield* TestClock.adjust(12_000);
+        element.paused = true;
+        element.emit("paused");
+        yield* Scope.close(scope, Exit.void);
+
+        expect(
+          batches.map((batch) => [
+            Redacted.value(batch.token),
+            batch.events.map((event) => event.observation),
+          ]),
+        ).toStrictEqual([
+          [
+            "v1.first.session",
+            [
+              PlayerObservation.cases.StartupEnded.make({
+                positionSeconds: 0,
+                durationMs: 300,
+                endedBy: "playing",
+              }),
+              PlayerObservation.cases.BufferingStarted.make({
+                positionSeconds: 30,
+                bufferedAheadSeconds: 0,
+              }),
+              PlayerObservation.cases.BufferingEnded.make({
+                positionSeconds: 30,
+                bufferedAheadSeconds: 0,
+                durationMs: 2_000,
+                endedBy: "playing",
+              }),
+            ],
+          ],
+          [
+            "v1.next.session",
+            [
+              PlayerObservation.cases.StartupEnded.make({
+                positionSeconds: 0,
+                durationMs: 12_000,
+                endedBy: "paused",
+              }),
+            ],
+          ],
+        ]);
+      }),
+    ));
+
+  it("ends a startup the viewer gave up on when the player closes", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const scope = yield* Scope.make();
+        const playback = playbackAt(base);
+        const { element, player } = makeElement();
+
+        yield* reportDiagnostics(player, {
+          platform: "ios",
+          playback: () => Option.some(playback),
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        element.paused = false;
+        element.positionMs = 1_200_000;
+        element.emit("waiting");
+        yield* TestClock.adjust(9_000);
+        yield* Scope.close(scope, Exit.void);
+
+        expect(received().map((event) => event.observation)).toStrictEqual([
+          PlayerObservation.cases.StartupEnded.make({
+            positionSeconds: 1_200,
+            durationMs: 9_000,
+            endedBy: "closed",
+          }),
+        ]);
       }),
     ));
 
