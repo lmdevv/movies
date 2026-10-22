@@ -28,7 +28,6 @@ const privateIpv6 = (host: string): boolean => {
   return /^f[cd][0-9a-f]{2}:/u.test(bare) || /^fe[89ab][0-9a-f]:/u.test(bare);
 };
 
-/** The host of an `http(s)://host[:port]/…` address, lowercased. */
 const hostOf = (url: string): string | null => {
   const match = /^[a-z][a-z\d+.-]*:\/\/(?<host>\[[^\]]+\]|[^/:?#]+)/iu.exec(url.trim());
 

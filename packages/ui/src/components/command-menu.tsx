@@ -146,8 +146,6 @@ export function CommandMenu({
   const [state, dispatch] = useReducer(commandMenuReducer, initialCommandMenuState);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  // Opening is the one place the menu resets: it starts from the root list, even when it opens
-  // again before its closing animation has ended.
   const [wasOpen, setWasOpen] = useState(open);
 
   if (open !== wasOpen) {
@@ -156,8 +154,6 @@ export function CommandMenu({
     if (open) dispatch({ type: "reset" });
   }
 
-  // Counts openings, so a command that settles after the menu opened again leaves that one open.
-  // Its spinner (`busyId`) stays across openings, so it cannot run twice at once.
   const openings = useRef(0);
 
   useEffect(() => {
@@ -179,7 +175,6 @@ export function CommandMenu({
       document.getElementById(activeId)?.scrollIntoView({ block: "nearest" });
   }, [activeId]);
 
-  // Opening on a submenu reads the root of that moment; later rebuilds keep the opened options.
   const findStart = useEffectEvent((id: string) =>
     root.groups.flatMap((group) => group.items).find((candidate) => candidate.id === id),
   );
@@ -229,7 +224,6 @@ export function CommandMenu({
 
     if (result instanceof Promise) {
       setBusyId(item.id);
-      // A rejected command keeps the menu open; the command reports its own failure.
       void result.then(
         () => settle(true),
         () => settle(false),
@@ -305,7 +299,6 @@ export function CommandMenu({
               value={frame.query}
               onChange={(event) => setQuery(event.target.value, page)}
               onKeyDown={onKeyDown}
-              // The caret is the focus indicator Paper draws for this borderless field.
               className="h-6 min-w-0 flex-1 bg-transparent text-command/6 tracking-tight text-text caret-accent outline-none placeholder:text-text-muted"
             />
           </div>

@@ -1,9 +1,3 @@
-/**
- * A watch room's next-episode card: the shared countdown, ticking on this device's estimate of the
- * server's clock so every member shows the same seconds. The host's card acts for the room
- * (Watch Credits, Play Next); a guest's, and one saying the next episode cannot play, only close.
- * The card ticks by itself, so the player around it does not re-render with every tick.
- */
 import type { ClockOffset } from "@movies/contracts/clock";
 import type { Room } from "@movies/contracts/models/rooms";
 import { RoomSync } from "@movies/sdk/effect";

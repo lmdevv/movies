@@ -1,9 +1,3 @@
-/**
- * Shared-timeline math for watch rooms. Convex stores an anchored clock; every client computes the
- * live position locally from the server time it estimates, then corrects its player toward it.
- *
- * The thresholds and cadences here are tuning defaults, not guarantees.
- */
 import type { RoomClock } from "./models/rooms";
 import { EpochMillis, Milliseconds } from "./units";
 

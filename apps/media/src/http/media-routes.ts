@@ -1,17 +1,3 @@
-/**
- * Byte routes for players: direct files with single byte ranges, HLS playlists, init segments
- * and media segments, the MP4s written for downloads (byte ranges too), and WebVTT subtitles.
- * Every request carries a playback token in the `token` query parameter; the file comes from the
- * token, never from the URL path alone. HLS takes only playback tokens and download MP4s only
- * download tokens. Expected failures become JSON bodies encoded with their error schema and
- * status.
- *
- * Every answer with a 4xx or 5xx status logs `MediaRoutes.request_failed`: at `WARN` with the
- * session once the token is verified, within a per-session and per-account budget
- * (`failure-budget.ts`), and at `DEBUG` otherwise. Every HLS segment logs how long it took, split
- * into waiting for the encoder, reading the disk, and writing to the network: at `WARN` from one
- * second (`MediaRoutes.slow_segment`), at `DEBUG` below.
- */
 import type { MediaFileId } from "@movies/contracts/ids";
 import {
   type Container,
@@ -72,7 +58,6 @@ import { ByteRange, parseByteRange } from "./byte-range.ts";
 import { type FailureBudget, makeFailureBudget } from "./failure-budget.ts";
 import { playbackTokenOf as tokenOf } from "./playback-token-param.ts";
 
-/** The token is valid but for another file. */
 class MediaAccessDenied extends Schema.TaggedError<MediaAccessDenied>()(
   "MediaAccessDenied",
   {},
@@ -83,7 +68,6 @@ class MediaAccessDenied extends Schema.TaggedError<MediaAccessDenied>()(
   }
 }
 
-/** The resolved file could not be read from disk. */
 class MediaFileUnreadable extends Schema.TaggedError<MediaFileUnreadable>()(
   "MediaFileUnreadable",
   {},
@@ -94,7 +78,6 @@ class MediaFileUnreadable extends Schema.TaggedError<MediaFileUnreadable>()(
   }
 }
 
-/** Every failure a media route can answer with. */
 const RouteError = Schema.Union([
   PlaybackTokenInvalid,
   PlaybackSessionEnded,
@@ -160,10 +143,8 @@ const CONTENT_TYPES: Readonly<Record<Container, string>> = {
 
 const SEGMENT_CACHE = "private, max-age=3600";
 
-/** How much of a segment part is read at a time. */
 const READ_CHUNK = 256 * 1024;
 
-/** The first `size` bytes of an open file, in chunks, adding the time spent reading to `readMs`. */
 const readWhole = (handle: FileSystem.File, size: number, readMs: Ref.Ref<number>) =>
   Stream.paginate(0, (position: number) =>
     handle.readAlloc(Math.min(READ_CHUNK, size - position), { position: BigInt(position) }).pipe(
@@ -181,22 +162,17 @@ const readWhole = (handle: FileSystem.File, size: number, readMs: Ref.Ref<number
     ),
   );
 
-/** What a media route answered, and the message of the failure it answered with, if any. */
 interface Answer {
   readonly response: HttpServerResponse.HttpServerResponse;
   readonly error: Option.Option<string>;
 }
 
-/** Records the grant of a request's token once it is verified, for its log records. */
 type Remember = (grant: PlaybackToken.PlaybackGrant) => Effect.Effect<void>;
 
-/** The longest path parameter a failure record keeps: a stream ID or file name is far shorter. */
 const MAX_LOGGED_PARAM = 64;
 
-/** How often the failures past a session's budget are logged as counts. */
 const SUPPRESSED_REPORT_INTERVAL = Duration.seconds(30);
 
-/** A path parameter as a failure record keeps it: cut to `MAX_LOGGED_PARAM` characters. */
 const loggedParam = (value: string | undefined): string | null =>
   value === undefined
     ? null
@@ -204,20 +180,11 @@ const loggedParam = (value: string | undefined): string | null =>
       ? `${value.slice(0, MAX_LOGGED_PARAM)}…`
       : value;
 
-/** How failed requests are logged: within a budget, and with the streams they may name. */
 interface FailureLog {
   readonly budget: FailureBudget;
   readonly owners: StreamOwners.Interface;
 }
 
-/**
- * Runs a media route: failures become their error responses, and any answer with a 4xx or 5xx
- * status logs `MediaRoutes.request_failed` with the route, the stream in the path, and the
- * session of the verified token. It logs at `WARN` while the session's budget allows, and at
- * `DEBUG` when no token was verified or the budget is spent; the budget counts those instead. The
- * path's stream is filed as `streamId` only when it is the verified session's own, and as
- * `claimedStreamId` otherwise, so no request can put records under another session's stream.
- */
 const observed = <R>(
   failures: FailureLog,
   route: string,
@@ -249,8 +216,6 @@ const observed = <R>(
         (Option.isSome(grant) &&
           (yield* failures.owners.belongsTo(params["streamId"] ?? "", grant.value.sessionId)));
 
-      // Anyone can send a bad token, and a member any number of bad requests: only a player's own
-      // failures, within its budget, may fill the retained log.
       yield* (
         Option.exists(grant, (verifiedGrant) => failures.budget.allow(verifiedGrant, now))
           ? Effect.logWarning(LogEvent.requestFailed)
@@ -336,7 +301,6 @@ export const layer: Layer.Layer<
       return yield* verifier.verify(yield* tokenOf(request), purposes);
     });
 
-    /** Serves `file` with validators and a single byte range. */
     const fileResponse = Effect.fnUntraced(
       function* (request: HttpServerRequest.HttpServerRequest, file: string, contentType: string) {
         const info = yield* fs.stat(file);
@@ -422,7 +386,6 @@ export const layer: Layer.Layer<
         yield* remember(grant);
 
         if (grant.fileId !== fileId) return yield* new MediaAccessDenied();
-        // Gone after a restart or six idle hours: preparing the download again writes it again.
         const output = yield* downloads.output(grant.fileId, name);
 
         if (Option.isNone(output)) return yield* new MediaFileNotFound({ fileId: grant.fileId });
@@ -509,7 +472,6 @@ export const layer: Layer.Layer<
         const answered = yield* Clock.currentTimeMillis;
         const contentLength = opened.reduce((total, part) => total + part.size, 0);
 
-        // The request's scope closes once the body is sent or the player hangs up.
         yield* Effect.addFinalizer((exit) =>
           Effect.gen(function* () {
             const finished = yield* Clock.currentTimeMillis;

@@ -1,10 +1,3 @@
-/**
- * Subtitle timing, as the web player has it: a delay this phone applies to the text subtitles it
- * draws, for a file whose subtitles run early or late. A positive delay shows each cue later than
- * its file says, a negative one earlier. It belongs to the text track it was set for and never
- * reaches the media service or Convex.
- */
-
 /** The delay's range and steps, in milliseconds. */
 export const SUBTITLE_DELAY = {
   /** What Earlier and Later move it by. */

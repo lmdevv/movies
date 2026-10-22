@@ -1,8 +1,3 @@
-/**
- * The player's subtitle delay: the control under the subtitle choices, the G and H keys, and the
- * notice a key press shows. The playback controller holds the delay and moves the cues; this
- * decides whether it can apply to what shows and turns presses into steps.
- */
 import type { NegotiateResponse } from "@movies/contracts/media-playback";
 import { SubtitleDelay } from "@movies/ui/components/subtitle-delay";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -20,7 +15,6 @@ import type { SubtitleTiming } from "@/playback/subtitle-timing";
 
 const NO_KEYS: ReadonlyArray<string> = [];
 
-/** How long the notice of a key press stays. */
 const NOTICE_MS = 1_500;
 
 /** The subtitle delay as the player screen uses it. */
@@ -39,7 +33,6 @@ export interface PlayerSubtitleDelay {
   readonly notice: string | null;
 }
 
-/** What a step's notice says: the delay it set, or why it could not set one (`reason`). */
 const noticeFor = (delayMs: number | null, reason: string | null): string | null =>
   delayMs === null ? reason : `${formatSubtitleDelay(delayMs)} s`;
 
@@ -80,7 +73,6 @@ export const useSubtitleDelay = ({
 
   useEffect(() => () => clearTimeout(noticeTimer.current), []);
 
-  // From the controller's delay now rather than the last render's, so quick presses add up.
   const step = useCallback(
     (direction: -1 | 0 | 1): number | null => {
       if (controller === null || !adjustable) return null;
@@ -115,7 +107,6 @@ export const useSubtitleDelay = ({
     [controller, adjustable],
   );
 
-  // Where the delay cannot apply, nothing is shifted for this viewer: 0 shows until it can again.
   const shownMs = adjustable ? delayMs : 0;
 
   const control = (

@@ -38,7 +38,6 @@ const READ_TOKEN = "eyJhbGciOiJIUzI1NiJ9.test-read-token";
 
 const OMDB_KEY = "omdb-test-key";
 
-/** OMDb answers by IMDb ID; OMDb shares the fixture server, at its root. */
 const OMDB: ReadonlyMap<string, string> = new Map([["tt5000001", JSON.stringify(omdbRemux)]]);
 
 const FIXTURES: ReadonlyMap<string, string> = new Map([
@@ -53,7 +52,6 @@ const FIXTURES: ReadonlyMap<string, string> = new Map([
   ["/3/person/9001", JSON.stringify(person)],
 ]);
 
-/** A local stand-in for api.themoviedb.org that records requests and can answer 429 once. */
 class FixtureServer extends Context.Service<
   FixtureServer,
   {
@@ -100,7 +98,6 @@ const fixtureServer = Layer.unwrap(
         });
       }
 
-      // A TMDB that accepted the connection and never answers.
       if (url.pathname.endsWith("/stalled")) yield* Effect.sleep(Duration.seconds(30));
       const body = FIXTURES.get(url.pathname);
 
@@ -133,7 +130,6 @@ const tmdbOptions = (baseUrl: string, apiKey: string): Tmdb.TmdbOptions => ({
   requestTimeout: Duration.millis(500),
 });
 
-/** The plugin under test, pointed at the fixture server, with its cache in a temporary folder. */
 const pluginLayer = (apiKey: string) =>
   Layer.unwrap(
     Effect.gen(function* () {
@@ -148,7 +144,6 @@ const pluginLayer = (apiKey: string) =>
     }).pipe(Effect.orDie),
   );
 
-/** OMDb pointed at the fixture server's root, with its cache in a temporary folder. */
 const omdbLayer = Layer.unwrap(
   Effect.gen(function* () {
     const server = yield* FixtureServer;
@@ -162,7 +157,6 @@ const omdbLayer = Layer.unwrap(
   }).pipe(Effect.orDie),
 );
 
-/** OMDb with a key it refuses, as when the daily limit is reached. */
 const refusedOmdbLayer = Layer.unwrap(
   Effect.gen(function* () {
     const server = yield* FixtureServer;
@@ -176,7 +170,6 @@ const refusedOmdbLayer = Layer.unwrap(
   }).pipe(Effect.orDie),
 );
 
-/** NFO metadata that states nothing but `fields`. */
 const nfo = (kind: LocalMetadata["kind"], fields: Partial<LocalMetadata> = {}): LocalMetadata => ({
   kind,
   ratings: {},
@@ -481,8 +474,6 @@ describe("TMDB plugin", () => {
               name: "Official Trailer",
             });
 
-            // The NFO's cast wins, filled in from TMDB's credit of the same person; TMDB's crew
-            // stays because the NFO lists none.
             assert.deepStrictEqual(
               metadata.credits.map((credit) => [
                 credit.name,

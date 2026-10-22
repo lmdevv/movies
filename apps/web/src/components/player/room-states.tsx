@@ -1,8 +1,3 @@
-/**
- * Join watching, as Paper's 08 page draws it: starting a room, the live chip, what guests see while
- * they catch up, while the host's connection holds everyone, and after the host left, and the
- * pages a room link shows when it cannot be joined.
- */
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Button } from "@movies/ui/components/button";
 import { buttonVariants } from "@movies/ui/lib/button-variants";
@@ -129,7 +124,6 @@ export function RoomChip({
   );
 }
 
-/** A layer over the video frame. */
 function Layer({
   className,
   children,

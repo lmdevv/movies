@@ -14,16 +14,12 @@ import type { ErrorCode } from "@movies/contracts/errors";
 import { Data, Effect, Option, Predicate, Schema } from "effect";
 import type { Scope } from "effect";
 
-/** How a recorded call ran, from the endpoint it reached. */
 type CallKind = "query" | "mutation" | "action";
 
-/** One function call the fake received. */
 interface RecordedRequest {
   readonly kind: CallKind;
-  /** The Convex function path, such as `auth:signIn`. */
   readonly path: string;
   readonly args: Schema.Json;
-  /** The raw `Authorization` header, such as `Bearer <jwt>`; undefined when signed out. */
   readonly authorization: string | undefined;
 }
 
@@ -44,7 +40,6 @@ export type Reply = Data.TaggedEnum<{
 /** Constructors for `Reply`. */
 export const Reply = Data.taggedEnum<Reply>();
 
-/** Answers one call; it may wait on test-controlled signals before answering. */
 type Handler = (request: RecordedRequest) => Effect.Effect<Reply>;
 
 /** The fake deployment and its test controls. */
@@ -67,7 +62,6 @@ const RequestBody = Schema.fromJsonString(
 
 const decodeBody = Schema.decodeUnknownOption(RequestBody);
 
-/** The call kind an endpoint serves; undefined for any other URL. */
 const kindOf = (url: string | undefined): CallKind | undefined => {
   if (url === "/api/query") return "query";
 

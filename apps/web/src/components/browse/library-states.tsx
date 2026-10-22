@@ -1,7 +1,3 @@
-/**
- * What browse pages show without titles: no library yet (05 Browse · 06 Empty library), a first
- * scan still running (07 Scanning), or a library with nothing this profile can see.
- */
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import { buttonVariants } from "@movies/ui/lib/button-variants";
 import { CalmState } from "@movies/ui/components/calm-state";
@@ -14,7 +10,6 @@ import { formatCount } from "@/lib/format";
 import { HeroSkeleton, RowSkeleton } from "./skeletons";
 import { TitlePosterCard } from "./title-cards";
 
-/** Poster slots in the arriving row while a scan runs. */
 const ARRIVING_SLOTS = 8;
 
 /** No library yet. People who manage libraries get the way to add one. */

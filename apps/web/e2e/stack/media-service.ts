@@ -1,9 +1,3 @@
-/**
- * The real media service for the stack suite: the bundle `apps/media` ships, signed in to the
- * worktree's dev stack with its service key, scanning the suite's fixture folders and serving
- * their artwork on the stack's media port. Stop a media service started with `pnpm dev` first.
- * Set `E2E_MEDIA_LOG` to a file path to keep what the service logs.
- */
 import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -15,7 +9,6 @@ import type { StackEnv } from "./stack-env";
 
 const mediaDir = fileURLToPath(new URL("../../../media", import.meta.url));
 
-/** How long the service may take to sign in to Convex. */
 const START_TIMEOUT_MS = 30_000;
 
 /** Bundles the media service into `apps/media/dist/main.js`. */

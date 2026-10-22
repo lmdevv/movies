@@ -1,9 +1,3 @@
-/**
- * The operating system's media controls (lock screen, notification, keyboard media keys,
- * headphones) through the Media Session API: what plays, with its artwork, where it is, and
- * handlers that act on the session's output, so they also drive a cast device. Previous and next
- * track move between episodes.
- */
 import { useEffect, useLayoutEffect, useRef } from "react";
 
 /** What the system shows and what its buttons do. */
@@ -26,7 +20,6 @@ export interface MediaSessionInput {
   readonly next: (() => void) | null;
 }
 
-/** How far the system's skip buttons move when they do not say. */
 const SKIP_SECONDS = 10;
 
 const mediaSession = (): MediaSession | null =>
@@ -97,25 +90,20 @@ export const useMediaSession = (input: MediaSessionInput | null): void => {
       // Browsers throw for actions they do not know; those simply stay unhandled.
       try {
         session.setActionHandler(action, handler);
-      } catch {
-        // Unsupported action.
-      }
+      } catch {}
     }
 
     return () => {
       for (const [action] of handlers) {
         try {
           session.setActionHandler(action, null);
-        } catch {
-          // Unsupported action.
-        }
+        } catch {}
       }
     };
   }, [hasPrevious, hasNext]);
 
   const paused = input?.paused ?? true;
   const duration = input?.durationSeconds ?? 0;
-  // Whole seconds, so the system's position updates once a second, not with every frame.
   const second = Math.floor(input?.positionSeconds ?? 0);
 
   const open = input !== null;

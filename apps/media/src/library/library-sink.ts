@@ -1,7 +1,3 @@
-/**
- * Where scan results go. The integration milestone implements this over Convex mutations; the
- * in-memory implementation in `memory-library.ts` backs tests and standalone mode.
- */
 import { Context, type Effect, Schema } from "effect";
 
 import type { LibraryId } from "@movies/contracts/ids";
@@ -17,17 +13,13 @@ export interface LibraryFolder {
   readonly root: string;
 }
 
-/** What the store already knows about a file; unchanged files are skipped. */
 const IndexedFile = Schema.Struct({
-  /** Path relative to the library root, with `/` separators. */
   relativePath: Schema.String,
   sizeBytes: Schema.Int,
   modifiedAtMs: Schema.Finite,
-  /** Digest of the file's companions when last scanned; absent before it was recorded. */
   sidecarDigest: Schema.optional(Schema.String),
 });
 
-/** What the store already knows about a file. */
 interface IndexedFile extends Schema.Schema.Type<typeof IndexedFile> {}
 
 /** One new or changed media file with everything the scan learned about it. */

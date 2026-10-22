@@ -1,8 +1,3 @@
-/**
- * I13 · Server: the media service this app is connected to and whether it answers, the streams it
- * is playing, its hardware acceleration, and the nightly backups. Health is read every 10 seconds
- * while the screen is open.
- */
 import type { HealthResponse } from "@movies/contracts/media-playback";
 import { Option } from "effect";
 import { router } from "expo-router";
@@ -30,7 +25,6 @@ const ACCELERATION = {
   none: "Software",
 } as const satisfies Record<HealthResponse["hardwareAcceleration"], string>;
 
-/** The media service's health, read now and every 10 seconds. */
 const useHealth = (mediaUrl: string): Health => {
   const [health, setHealth] = useState<Health>({ status: "loading" });
 

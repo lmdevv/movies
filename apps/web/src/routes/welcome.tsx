@@ -1,3 +1,4 @@
+import { PASSWORD_MIN_LENGTH } from "@movies/contracts/models/account";
 import { useAuth, useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { FieldError, TextField } from "@movies/ui/components/text-field";
@@ -7,7 +8,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 
 import { AuthPage, PageTitle, PasswordField, SetupSteps } from "@/components/auth/auth-page";
-import { MIN_PASSWORD_LENGTH, passwordHint } from "@/lib/password";
+import { passwordHint } from "@/lib/password";
 import { describeFailure } from "@/lib/failure";
 import { BlankPage, Redirect } from "@/session/redirect";
 
@@ -16,7 +17,6 @@ export const Route = createFileRoute("/welcome")({
   component: WelcomePage,
 });
 
-/** First run, step 1: create the owner account. Once an owner exists this page moves on. */
 function WelcomePage() {
   const { status } = useAuth();
   const setup = useCommandQuery("setup.status", {});
@@ -57,8 +57,8 @@ function OwnerForm({
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
 
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(`Use at least ${MIN_PASSWORD_LENGTH} characters for the password.`);
+    if (password.length < PASSWORD_MIN_LENGTH) {
+      setError(`Use at least ${PASSWORD_MIN_LENGTH} characters for the password.`);
 
       return;
     }

@@ -1,11 +1,3 @@
-/**
- * Authorization, auth flows, and playback against a real self-hosted Convex backend:
- *
- *   scripts/dev-stack.sh up && pnpm --filter @movies/backend test:stack
- *
- * Skipped unless `MOVIES_STACK_TESTS=1` (the `test:stack` script sets it). On an empty backend the
- * first test races two sign-ups for the owner account; later runs sign in as whichever won.
- */
 import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -70,17 +62,14 @@ const OWNER_RACERS = ["owner-a@movies.test", "owner-b@movies.test"] as const;
 
 const id = runId();
 
-/** Every title name carries this token, so search finds this run's catalog only. */
 const TOKEN = `run${id}`;
 
 const decodeItem = Schema.decodeUnknownSync(ScannedItem);
 
-/** Generated arguments are always an object; this checks it and gives Convex its argument type. */
 const toArgs = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown));
 
 const ms = (value: number): Milliseconds => Milliseconds.make(value);
 
-/** Calls a function directly, past the contract's encoding, as any client could. */
 const direct = (
   session: Session,
   kind: "query" | "mutation" | "action",
@@ -100,13 +89,10 @@ const direct = (
     Match.exhaustive,
   );
 
-/** Where the next-episode room tests' serial keeps episode `code`, such as `s01e02`. */
 const serialPath = (code: string): string => `/stack-${id}/open/serial/${code}.mp4`;
 
-/** A string of `length` characters. */
 const long = (length: number): string => "x".repeat(length);
 
-/** SHA-256 of a secret, hex, as the backend stores keys, invites, and device codes. */
 const sha256 = (secret: string): string => createHash("sha256").update(secret).digest("hex");
 
 const decodeRow = Schema.decodeUnknownSync(
@@ -117,22 +103,18 @@ const decodeId = Schema.decodeUnknownSync(
   Schema.fromJsonString(Schema.Struct({ _id: Schema.String })),
 );
 
-/** A room row's status and whether its host is away, from a line of `tableLines`. */
 const decodeHostPresence = Schema.decodeUnknownSync(
   Schema.fromJsonString(Schema.Struct({ status: Schema.String, hostAway: Schema.Boolean })),
 );
 
-/** A room member row's presence and when its player last reported, from `tableLines`. */
 const decodeWatchedAt = Schema.decodeUnknownSync(
   Schema.fromJsonString(
     Schema.Struct({ presence: Schema.optionalKey(Schema.String), watchedAt: Schema.Finite }),
   ),
 );
 
-/** The `_id` of a row printed as JSON by `tableLines`. */
 const idOf = (line: string): string => decodeId(line)._id;
 
-/** The status of the first row of `table` whose JSON contains `needle`, read as an admin. */
 const rowOf = (table: string, needle: string) =>
   decodeRow(tableLines(table).find((line) => line.includes(needle)) ?? "{}");
 
@@ -142,10 +124,8 @@ const DURATION_MS = 600_000;
 
 type Encoded<Item> = Item extends { readonly Encoded: infer E } ? E : never;
 
-/** Rich fields a rescan adds to a fixture title or episode, and the file's size. */
 interface ScanExtras {
   readonly sizeBytes?: number;
-  /** The file's version label and its primary video stream, for files of one title. */
   readonly version?: {
     readonly name: string;
     readonly codec: string;
@@ -157,7 +137,6 @@ interface ScanExtras {
   readonly episode?: Partial<Encoded<typeof ScannedEpisodeSchema>>;
 }
 
-/** A scanned file as the media service would report it, through the contract's parser. */
 const scanned = (
   path: string,
   title: {
@@ -245,7 +224,6 @@ interface Fixture {
   readonly member: Session;
   readonly memberEmail: string;
   readonly mediaService: Session;
-  /** An API key session of the owner's that holds `read` only. */
   readonly readKey: Session;
   readonly memberProfile: ProfileId;
   readonly ownerProfile: ProfileId;
@@ -420,7 +398,6 @@ const setUp = async (): Promise<Fixture> => {
   };
 };
 
-/** A stored migration plan as the media service sends it; the credentials are opaque to Convex. */
 const plan = (
   serverId: string,
   users: ReadonlyArray<{ readonly sourceUserId: string; readonly profileId: ProfileId }>,
@@ -433,7 +410,6 @@ const plan = (
   pathMappings: [],
 });
 
-/** Queues a migration for `serverId` and claims it. */
 const claimMigration = async (
   fixture: Fixture,
   owner: UserId,
@@ -457,7 +433,6 @@ const claimMigration = async (
   return { jobId, worker };
 };
 
-/** Every catalog file, read page by page like the media service does. */
 const catalogFiles = async (session: Session): Promise<ReadonlyArray<CatalogFile>> => {
   const read = async (
     cursor: string | null,
@@ -474,11 +449,9 @@ const catalogFiles = async (session: Session): Promise<ReadonlyArray<CatalogFile
 
 const at = (offset: number) => EpochMillis.make(1_760_000_000_000 + offset);
 
-/** The room a row of `tableLines("rooms")` names `hostDeviceId` in. */
 const roomOf = (hostDeviceId: string): RoomId =>
   RoomIdSchema.make(idOf(tableLines("rooms").find((line) => line.includes(hostDeviceId)) ?? "{}"));
 
-/** The room's member on `deviceId`, as the owner, the rooms' host, reads the room. */
 const memberOn = async (fixture: Fixture, roomId: RoomId, deviceId: DeviceId) => {
   const { members } = await run(fixture.owner, "rooms.get", { roomId });
   const found = members.find((each) => each.deviceId === deviceId);
@@ -505,13 +478,11 @@ const progressOf = async (fixture: Fixture, titleId: TitleId, episodeId: string 
   return page.items.find((row) => row.titleId === titleId && row.episodeId === episodeId);
 };
 
-/** A member and the profile they use. */
 interface Member {
   readonly session: Session;
   readonly profile: ProfileId;
 }
 
-/** A person as the media service reports them, named for this run. */
 const creditedPerson = (name: string, tmdb: string | null) => ({
   name: `${name} ${TOKEN}`,
   externalIds: { tmdb: tmdb === null ? null : `${tmdb}${id}`, imdb: null, tvdb: null },
@@ -525,7 +496,6 @@ const actor = (name: string, tmdb: string | null, order: number) => ({
   order,
 });
 
-/** Rescans a fixture movie with genres, studios, scores, a trailer, and provider IDs. */
 const rescan = async (
   mediaService: Session,
   library: LibraryId,
@@ -539,7 +509,6 @@ const rescan = async (
   });
 };
 
-/** People of this run whose names match `name`. */
 const searchPeople = async (
   session: Session,
   profileId: ProfileId,
@@ -549,7 +518,6 @@ const searchPeople = async (
     (found) => found.id,
   );
 
-/** The person of this run named `name`, as `profileId` sees them. */
 const findPerson = async (
   session: Session,
   profileId: ProfileId,
@@ -562,13 +530,11 @@ const findPerson = async (
   return found;
 };
 
-/** The metadata filters of `titles.list`. */
 type ListFilters = Pick<
   CommandArgs<"titles.list">,
   "genre" | "yearFrom" | "yearTo" | "studio" | "minRating"
 >;
 
-/** Every page of a profile's movies under `filters`, two at a time, as title names. */
 const filteredPages = async (
   session: Session,
   profileId: ProfileId,
@@ -589,11 +555,9 @@ const filteredPages = async (
   return read(null, []);
 };
 
-/** Where the versions tests put the file of their film's `edition`. */
 const filmPath = (edition: string): string =>
   `/stack-${id}/open/versions/Versions {edition-${edition}}.mkv`;
 
-/** The names the genre paging test gives its movies, by letter. */
 const genreNames = (...letters: ReadonlyArray<string>): ReadonlyArray<string> =>
   letters.map((letter) => `Genre ${letter} ${TOKEN}`);
 
@@ -981,7 +945,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         progress: { done: 3 },
       });
 
-      // A library's scans come by library, however many other jobs are newer.
       const scans = await run(fixture.owner, "jobs.list", {
         libraryId: fixture.openLibrary,
         limit: 5,
@@ -1095,7 +1058,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       if (jobId === undefined) throw new Error("No trickplay job was queued");
 
-      // The worker is shown the ten oldest thumbnail jobs; earlier runs on this stack leave theirs.
       const stray = await run(fixture.owner, "jobs.list", {
         kind: "trickplay",
         status: "pending",
@@ -1112,7 +1074,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         (await service(fixture.mediaService, "mediaService.pendingJobs", {})).map((job) => job.id),
       ).toContain(jobId);
 
-      // An unchanged rescan queues nothing more.
       await upsert(original);
       expect(await queuedFor()).toStrictEqual([jobId]);
 
@@ -1156,14 +1117,12 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       await upsert(original);
       expect(await queuedFor()).toStrictEqual([]);
 
-      // A changed file is queued again, and its old thumbnails stop showing.
       await upsert(changed);
       const [again] = await queuedFor();
 
       if (again === undefined) throw new Error("The changed file was not queued again");
       expect((await fileOf())?.trickplay).toBeNull();
 
-      // A failed job is not retried by scans, only when an admin asks.
       await service(fixture.mediaService, "mediaService.claimJob", {
         jobId: again,
         workerId: worker,
@@ -1181,7 +1140,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       await run(fixture.owner, "libraries.generateTrickplay", { libraryId: library.libraryId });
       await expect.poll(queuedFor, { timeout: 10_000 }).toHaveLength(1);
 
-      // Missing files forget their thumbnails, and libraries can opt out.
       await service(fixture.mediaService, "mediaService.markMissing", {
         libraryId: library.libraryId,
         paths: [original.file.path],
@@ -1252,20 +1210,17 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           .filter((job) => job.payload.kind === "trickplay" && job.payload.fileId === fileId)
           .map((job) => job.status);
 
-      // A file that changes while its job waits gets a new job; the old one is cancelled.
       const changing = await upsert(item("Changing"));
 
       await upsert(item("Changing", 2_000_000));
       expect((await jobsOf(changing)).toSorted()).toStrictEqual(["cancelled", "pending"]);
 
-      // A file that goes missing cancels its job.
       await service(fixture.mediaService, "mediaService.markMissing", {
         libraryId: library.libraryId,
         paths: [item("Changing").file.path],
       });
       expect(await jobsOf(changing)).toStrictEqual(["cancelled", "cancelled"]);
 
-      // Turning thumbnails off cancels the library's queued jobs.
       const queued = await upsert(item("Queued"));
 
       await run(fixture.owner, "libraries.update", {
@@ -1274,7 +1229,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       });
       await expect.poll(() => jobsOf(queued), { timeout: 10_000 }).toStrictEqual(["cancelled"]);
 
-      // A job that made thumbnails of other contents than the catalog has records nothing.
       await run(fixture.owner, "libraries.update", {
         libraryId: library.libraryId,
         trickplay: true,
@@ -1320,7 +1274,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         workerId: worker,
       });
 
-      // Thumbnails of a file's old contents never show, even where nothing queues new ones.
       const redone = await upsert(item("Raced"));
 
       const redoneJob = (
@@ -1362,7 +1315,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         }),
       ).toStrictEqual([{ fileId: redone, version: null }]);
 
-      // Removing the library cancels the jobs of its files.
       await run(fixture.owner, "libraries.update", {
         libraryId: library.libraryId,
         trickplay: true,
@@ -1558,7 +1510,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         }),
       ).toStrictEqual({ imported: 0 });
 
-      // A source value past a bound is dropped; the rest of that title's overrides still land.
       const unboundedYear = 2001.5;
 
       await direct(fixture.mediaService, "mutation", "migrationService:importOverrides", {
@@ -1693,11 +1644,9 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         kids: true,
       });
 
-      // Without a PIN on the adult profile, anyone could pick it, so nothing is withheld.
       expect((await run(parent, "account.viewer", {})).scopes).toContain("account");
       await run(parent, "profiles.setPin", { profileId: adult, pin: "2468" });
 
-      // The session that set the PIN stays unlocked; a new browser session starts locked.
       expect((await run(parent, "account.viewer", {})).scopes).toContain("account");
       const shared = await signIn(url, password(email, "signIn"));
 
@@ -1826,7 +1775,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
     });
 
     it("keeps an account to eight playing devices, ending the quietest", async () => {
-      // Earlier tests may leave this account playing somewhere; start from none.
       await Promise.all(
         (await run(fixture.member, "playback.active", {})).map((session) =>
           run(fixture.member, "playback.endSession", { sessionId: session.id, positionMs: ms(0) }),
@@ -1835,7 +1783,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       const devices = Array.from({ length: 9 }, (_, index) => device(`wall-${index}`));
 
-      // One after another, so the first device is the quietest.
       const started = await devices.reduce<
         Promise<ReadonlyArray<{ sessionId: PlaybackSessionId }>>
       >(
@@ -2004,7 +1951,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           (session) => session.status,
         );
 
-      // Downloading leaves the device's playback alone; the same file again replaces its download.
       expect(await status(playing.sessionId)).toBe("active");
       expect(await status(first.sessionId)).toBe("ended");
       expect(await status(again.sessionId)).toBe("active");
@@ -2012,7 +1958,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         again.sessionId,
       );
 
-      // A download reports no progress, and renewing its token keeps it going.
       expect(
         await run(phone, "playback.reportProgress", {
           sessionId: again.sessionId,
@@ -2033,7 +1978,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         seasonNumber: 1,
       });
 
-      // One after another, so the earlier download is the quietest when a fifth starts.
       const unrated = await run(phone, "downloads.start", {
         ...base,
         titleId: fixture.titles.unrated,
@@ -2063,7 +2007,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
     it("signs download tokens for downloading and keeps eight downloads on the account", async () => {
       const devices = Array.from({ length: 9 }, (_, index) => device(`fleet-${index}`));
 
-      // One after another, so the first device's download is the quietest when the ninth starts.
       const started = await devices.reduce<
         Promise<Array<{ readonly sessionId: PlaybackSessionId; readonly token: string }>>
       >(
@@ -2132,7 +2075,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         DURATION_MS * 0.5,
       );
 
-      // Watched an hour ago, offline: the later play wins.
       expect(
         await run(fixture.member, "downloads.recordProgress", {
           ...offline,
@@ -2150,7 +2092,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         }),
       ).toStrictEqual({ applied: true, watched: true });
 
-      // A device two hours fast played an hour ago: corrected, the later play still wins.
       const hour = 60 * 60 * 1000;
 
       expect(
@@ -2233,7 +2174,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
   });
 
   describe("versions", () => {
-    /** A film with three versions, one of them gone from disk, in the open library. */
     const film = { kind: "movie" as const, name: `Versions ${TOKEN}`, ageRating: 0 };
 
     const scanFilm = async () => {
@@ -2281,8 +2221,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       if (best === undefined || theatrical === undefined) return;
 
-      // Without a choice or a device the best quality plays; a chosen version plays and is
-      // remembered.
       expect(
         (
           await run(fixture.member, "playback.createSession", {
@@ -2292,7 +2230,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         ).file.id,
       ).toBe(best.id);
 
-      // A device that takes only 8-bit H.264 gets the version it plays directly.
       expect(
         (
           await run(fixture.member, "playback.createSession", {
@@ -2330,7 +2267,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         remembered.filter((version) => version.lastPlayed).map((version) => version.id),
       ).toEqual([theatrical.id]);
 
-      // Another device resumes the same title in the remembered version, at the title's position.
       const resumed = await run(fixture.member, "playback.createSession", {
         ...base,
         deviceId: device("versions-phone"),
@@ -2339,7 +2275,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       expect(resumed.file.id).toBe(theatrical.id);
       expect(resumed.resumePositionMs).toBe(90_000);
 
-      // Switching versions keeps the position, which belongs to the title.
       const switched = await run(fixture.member, "playback.createSession", {
         ...base,
         deviceId: device("versions-phone"),
@@ -2348,7 +2283,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       expect(switched.resumePositionMs).toBe(90_000);
 
-      // The choice is the member's profile's own.
       expect(
         (
           await run(fixture.owner, "titles.versions", {
@@ -2414,7 +2348,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       ]);
       expect(await outcome(run(fixture.member, "titles.versions", episode))).toBe("invalid_args");
 
-      // A kids profile may not see an adult film's versions; nobody sees a library they lack.
       expect(
         await outcome(
           run(fixture.member, "titles.versions", {
@@ -2552,11 +2485,9 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           revision: playing.revision,
         });
 
-      // Read at the anchor and arriving well after it: on the clock, not drift.
       await sleep(300);
       expect(await beat(5_000, playing.anchorServerTime)).toStrictEqual(playing);
 
-      // Read 200 ms behind the clock: the clock moves back to where the host plays.
       const anchored = await beat(5_000, playing.anchorServerTime + 200);
 
       expect(anchored.revision).toBe(playing.revision + 1);
@@ -2564,7 +2495,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         5_000 + anchored.anchorServerTime - playing.anchorServerTime - 200,
       );
 
-      // Without a time, travel time counts as drift, so 100 ms off is tolerated.
       const live = anchored.positionAtAnchorMs + Date.now() - anchored.anchorServerTime;
 
       expect(
@@ -2585,7 +2515,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       const owner = await run(fixture.owner, "account.viewer", {});
       const member = await run(fixture.member, "account.viewer", {});
       const longAgo = Date.now() - 2 * 60_000;
-      // Inside the one-minute member timeout, so the backend's own sweep keeps them for now.
       const lastHeard = Date.now() - 45_000;
 
       const room = await run(fixture.owner, "rooms.create", {
@@ -2602,7 +2531,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         positionMs: ms(5_000),
       });
 
-      // Two guests the server last heard from 45 seconds ago.
       const guestRow = (deviceId: DeviceId) =>
         JSON.stringify({
           roomId: room.id,
@@ -2618,7 +2546,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       importDocuments("roomMembers", [guestRow(awayGuest), guestRow(silentGuest)]);
 
-      // A host that went quiet past the host timeout, in a room still playing.
       importDocuments("rooms", [
         JSON.stringify({
           titleId: fixture.titles.allAges,
@@ -2646,8 +2573,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           presence: "away",
         });
 
-      // Just after the host's player reported (here, creating the room), an away heartbeat, as
-      // from another tab, only keeps the place: the host is still watching.
       expect(await hostAway()).toStrictEqual(playing);
       expect((await memberOn(fixture, room.id, hostDevice)).presence).toBe("watching");
       await run(fixture.member, "rooms.heartbeat", {
@@ -2656,16 +2581,11 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         driftMs: 9_000,
         presence: "away",
       });
-      // Its row predates `watchedAt`: going away keeps when its player last reported, so the room
-      // still ends once nobody has played it for half an hour.
       expect(
         decodeWatchedAt(tableLines("roomMembers").find((line) => line.includes(awayGuest)) ?? "{}"),
       ).toStrictEqual({ presence: "away", watchedAt: lastHeard });
 
-      // Past the member timeout for the guest that sent nothing.
       await sleep(Math.max(0, lastHeard + 61_000 - Date.now()));
-      // The host's player has long been silent: browsing, with a position far from the clock,
-      // which an away host's heartbeat does not read.
       expect(await hostAway()).toStrictEqual(playing);
       runInternal("maintenance:sweepRooms");
 
@@ -2681,14 +2601,12 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         [awayGuest, "guest", "away", null],
         [hostDevice, "host", "away", null],
       ]);
-      // The quiet host's room, with no heartbeat at all, paused as before.
       expect(
         decodeHostPresence(
           tableLines("rooms").find((line) => line.includes(`quiet-host-${id}`)) ?? "{}",
         ),
       ).toStrictEqual({ status: "paused", hostAway: true });
 
-      // Back in the player: joining makes the guest a watching member again.
       const rejoined = await run(fixture.member, "rooms.join", {
         roomId: room.id,
         profileId: fixture.memberProfile,
@@ -2699,7 +2617,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         "watching",
       );
 
-      // An away heartbeat that left just before the player opened changes nothing.
       await run(fixture.member, "rooms.heartbeat", {
         roomId: room.id,
         deviceId: awayGuest,
@@ -2722,7 +2639,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         positionMs: ms(0),
       });
 
-      // A row from before `watchedAt`, whose player reported two seconds ago.
       importDocuments("roomMembers", [
         JSON.stringify({
           roomId: room.id,
@@ -2735,8 +2651,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         }),
       ]);
 
-      // Away heartbeats inside the silence only keep the place, and pin when the player last
-      // reported, so they cannot keep pushing it forward.
       const away = () =>
         run(fixture.member, "rooms.heartbeat", {
           roomId: room.id,
@@ -2802,7 +2716,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       });
       expect((await run(fixture.owner, "rooms.get", { roomId })).hostAway).toBe(true);
 
-      // The host's player back: a watching heartbeat clears the mark.
       await run(fixture.owner, "rooms.heartbeat", { roomId, deviceId: hostDevice });
       expect((await run(fixture.owner, "rooms.get", { roomId })).hostAway).toBe(false);
       await run(fixture.owner, "rooms.end", { roomId, deviceId: hostDevice });
@@ -2833,7 +2746,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         positionMs: ms(30_000),
       });
 
-      // While the host's player still reports (another tab browsing), the stall holds.
       expect(await away(stalled.revision)).toStrictEqual(stalled);
       await sleep(PLAYER_SILENCE_MS);
       expect(await away(stalled.revision)).toMatchObject({
@@ -2842,7 +2754,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         revision: stalled.revision + 1,
       });
 
-      // Playing from just before the end of the file, with no player to pause at the end.
       const ending = await run(fixture.owner, "rooms.play", {
         roomId: room.id,
         deviceId: hostDevice,
@@ -2867,7 +2778,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       const idle = `idle-host-${id}`;
       const played = `played-host-${id}`;
 
-      // Both hosts send away heartbeats; only one has played the room lately.
       importDocuments(
         "rooms",
         [idle, played].map((hostDeviceId) =>
@@ -2923,7 +2833,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       let episodes: ReadonlyArray<{ readonly id: string; readonly code: string }> = [];
       let serialId: TitleId;
 
-      /** The serial's episode `code`, such as `s02e01`. */
       const episodeId = (code: string) => {
         const found = episodes.find((episode) => episode.code === code);
 
@@ -2933,7 +2842,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       };
 
       beforeAll(async () => {
-        // Two seasons; the last episode's file is gone from disk.
         await service(fixture.mediaService, "mediaService.upsertScanned", {
           libraryId: fixture.openLibrary,
           items: [
@@ -2965,7 +2873,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         }));
       });
 
-      /** A room on the serial's `code` hosted on `hostDevice`, with the member as a guest. */
       const roomOn = async (code: string, hostDevice: DeviceId, guestDevice: DeviceId) => {
         const room = await run(fixture.owner, "rooms.create", {
           profileId: fixture.ownerProfile,
@@ -3000,7 +2907,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
         expect(room.next).toBeNull();
 
-        // Guests and the host's other devices cannot start, cancel, or skip the countdown.
         const refused = await Promise.all(
           (["rooms.startNextCountdown", "rooms.cancelNextCountdown"] as const).flatMap((name) => [
             outcome(run(fixture.member, name, onGuest)),
@@ -3012,7 +2918,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
         expect(await outcome(run(fixture.member, "rooms.playNext", onGuest))).toBe("forbidden");
 
-        // A countdown names the next episode and a server time; starting it again keeps it.
         const before = Date.now();
         const counting = await run(fixture.owner, "rooms.startNextCountdown", fromFirst);
 
@@ -3026,7 +2931,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           (await run(fixture.owner, "rooms.startNextCountdown", fromFirst)).next,
         ).toStrictEqual(counting.next);
 
-        // Play next racing itself moves the room on once, paused at the start of the next episode.
         const revision = counting.clock.revision;
 
         const raced = await Promise.all([
@@ -3045,14 +2949,12 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         });
         expect(moved.next).toBeNull();
 
-        // A stale Play next, countdown, or cancel from the episode before changes nothing.
         expect((await run(fixture.owner, "rooms.playNext", fromFirst)).clock.revision).toBe(
           revision + 1,
         );
         expect((await run(fixture.owner, "rooms.startNextCountdown", fromFirst)).next).toBeNull();
         expect((await run(fixture.owner, "rooms.cancelNextCountdown", fromFirst)).next).toBeNull();
 
-        // The guest's stream plays the room's new file, with a session of the guest's own.
         const guestStream = await run(fixture.member, "playback.createSession", {
           profileId: fixture.memberProfile,
           deviceId: guestDevice,
@@ -3063,7 +2965,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         expect(guestStream.episode?.id).toBe(episodeId("s01e02"));
         expect(guestStream.file.id).toBe(moved.fileId);
 
-        // The last episode of a season moves on to the first of the next.
         const nextSeason = await run(fixture.owner, "rooms.playNext", {
           ...onHost,
           fromEpisodeId: episodeId("s01e02"),
@@ -3071,7 +2972,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
         expect(nextSeason.episode?.id).toBe(episodeId("s02e01"));
 
-        // An episode whose next one lost its file cannot move on, nor count down to it.
         const fromLast = { ...onHost, fromEpisodeId: episodeId("s02e01") };
 
         expect(await outcome(run(fixture.owner, "rooms.startNextCountdown", fromLast))).toBe(
@@ -3088,7 +2988,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         expect((await run(fixture.owner, "rooms.get", { roomId: room.id })).next).toBeNull();
         await run(fixture.owner, "rooms.end", onHost);
 
-        // After the room ends nothing moves it on.
         expect(await outcome(run(fixture.owner, "rooms.startNextCountdown", fromLast))).toBe(
           "conflict",
         );
@@ -3152,7 +3051,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           ),
         );
 
-        // Watch credits cancels for everyone, and a later start keeps it cancelled.
         const watching = await run(fixture.owner, "rooms.cancelNextCountdown", {
           ...onCancelled,
           ...fromFirst,
@@ -3167,10 +3065,8 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
             .next,
         ).toStrictEqual({ status: "cancelled" });
 
-        // The host picks another episode during the countdown, which ends it.
         const room = await run(fixture.owner, "rooms.get", { roomId: picked.id });
 
-        // It names the file to switch to, which is not the one playing.
         const pick = await run(fixture.owner, "rooms.setMedia", {
           ...onPicked,
           revision: room.clock.revision,
@@ -3182,7 +3078,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         expect(pick).toMatchObject({ status: "paused", positionAtAnchorMs: 0 });
         expect((await run(fixture.owner, "rooms.get", { roomId: picked.id })).next).toBeNull();
 
-        // No host heartbeats: the hosts have gone quiet, and the countdown still ends on time.
         const nextAt = Math.max(
           ...counting.map((each) => (each.next?.status === "pending" ? each.next.nextAt : 0)),
         );
@@ -3203,7 +3098,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         expect(afterPicked.episode?.id).toBe(episodeId("s02e01"));
         expect(afterPicked.clock.revision).toBe(pick.revision);
 
-        // The host can still play the next episode after cancelling.
         const skipped = await run(fixture.owner, "rooms.playNext", {
           ...onCancelled,
           fromEpisodeId: episodeId("s01e01"),
@@ -3225,7 +3119,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           fromEpisodeId: episodeId("s01e01"),
         };
 
-        /** A host control at the room's current revision. */
         const control = async (name: "rooms.pause" | "rooms.seek", positionMs: number) => {
           const { clock } = await run(fixture.owner, "rooms.get", { roomId: room.id });
 
@@ -3240,20 +3133,17 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         const nextOf = async () =>
           (await run(fixture.owner, "rooms.get", { roomId: room.id })).next;
 
-        // The host's player pausing itself at the end, or the host pausing the credits, keeps it.
         await run(fixture.owner, "rooms.startNextCountdown", fromFirst);
         await control("rooms.pause", DURATION_MS);
         await control("rooms.pause", DURATION_MS - 5_000);
         expect(await nextOf()).toMatchObject({ status: "pending" });
 
-        // Seeking or pausing back before the credits stops it; the host's player starts another.
         await control("rooms.seek", 120_000);
         expect(await nextOf()).toBeNull();
         await run(fixture.owner, "rooms.startNextCountdown", fromFirst);
         await control("rooms.pause", DURATION_MS / 2);
         expect(await nextOf()).toBeNull();
 
-        // A cancelled countdown stays cancelled.
         await run(fixture.owner, "rooms.cancelNextCountdown", fromFirst);
         await control("rooms.seek", 60_000);
         expect(await nextOf()).toStrictEqual({ status: "cancelled" });
@@ -3307,8 +3197,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           revision: change.revision + 1,
         });
 
-        // The kids profile cannot see the new film: the room reads as missing for it, but its place
-        // stays, and comes back when the room plays something it may watch again.
         expect(await outcome(run(fixture.member, "rooms.get", { roomId: room.id }))).toBe(
           "not_found",
         );
@@ -3330,7 +3218,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         expect(back.episode?.id).toBe(episodeId("s01e02"));
         expect(back.members.some((member) => member.deviceId === kidDevice)).toBe(true);
 
-        // Ended while out of the kids profile's reach, the room says only that it ended.
         await run(fixture.owner, "rooms.setMedia", {
           ...change,
           revision: back.clock.revision,
@@ -3440,7 +3327,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         ),
       );
 
-      // Someone credited only on the adult title.
       await service(fixture.mediaService, "mediaService.applyCredits", {
         titleId: fixture.titles.adult,
         episodeId: null,
@@ -3520,7 +3406,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       await service(fixture.mediaService, "mediaService.completeJob", { jobId, workerId: worker });
 
-      // The scan knows no IDs for the file; the imported one stays.
       await service(fixture.mediaService, "mediaService.upsertScanned", {
         libraryId: fixture.openLibrary,
         items: [
@@ -3571,7 +3456,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         hash: "twice-v2",
       });
 
-      // Search matches any word, so only this name counts.
       const found = (
         await run(fixture.owner, "people.search", {
           profileId: fixture.ownerProfile,
@@ -3597,7 +3481,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
     });
 
     it("keeps stored scores and provider IDs that a rescan cannot fetch", async () => {
-      // OMDb was unreachable this time: only TMDB's score came back, and no IDs.
       await rescan(
         fixture.mediaService,
         fixture.openLibrary,
@@ -3652,7 +3535,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         lease,
       });
 
-      // The scan's credits stay; the people already credited come back for their details.
       expect(refreshed.written).toBe(false);
       expect(refreshed.people.map((person) => person.tmdbId)).toContain(`1${id}`);
 
@@ -3719,7 +3601,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         personId: lead,
       });
 
-      // The member was granted the restricted library; the kids profile still never sees R.
       expect(forKids.credits.map((entry) => entry.title.id).toSorted()).toStrictEqual(
         [fixture.titles.allAges, fixture.titles.hidden].toSorted(),
       );
@@ -3729,7 +3610,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           run(fixture.member, "people.get", { profileId: fixture.kidsProfile, personId: grown }),
         ),
       ).toBe("not_found");
-      // Search matches any word, so other people of this run show up; never a hidden one.
       expect(await searchPeople(fixture.member, fixture.kidsProfile, "Grown")).not.toContain(grown);
       expect((await searchPeople(stranger.session, stranger.profile, "Grown"))[0]).toBe(grown);
     });
@@ -3763,7 +3643,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       expect(target.externalIds.tmdb).toBe(`1${id}`);
 
-      // A person job's lease covers its own person only.
       expect(
         await outcome(
           service(fixture.mediaService, "mediaService.applyPerson", {
@@ -3837,7 +3716,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         kind: "movie",
       });
 
-      // All ages and the granted restricted title; the adult one is not the kids profile's.
       expect(genres.find((genre) => genre.name === `Genre ${id}`)?.count).toBe(2);
     });
 
@@ -3847,7 +3725,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           (title) => title.id,
         );
 
-      // The restricted title is recommended, but this member was never granted its library.
       expect((await similar(stranger.session, stranger.profile))[0]).toBe(fixture.titles.adult);
       expect(await similar(stranger.session, stranger.profile)).not.toContain(
         fixture.titles.hidden,
@@ -3874,8 +3751,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         roots: [`/stack-${id}/copies`],
       });
 
-      // A second copy of the adult title, and a copy of the title being viewed, both as TMDB has
-      // them, and alike in every way the top-up ranks by.
       await service(fixture.mediaService, "mediaService.upsertScanned", {
         libraryId: copies.libraryId,
         items: [
@@ -4015,7 +3890,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       const prolific = await findPerson(fixture.owner, fixture.ownerProfile, "Prolific");
 
-      // Search matches any word, so other people of this run show up; never a hidden one.
       expect(await searchPeople(stranger.session, stranger.profile, "Prolific")).not.toContain(
         prolific,
       );
@@ -4151,7 +4025,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         titleId: fixture.titles.show,
       });
 
-      // More backup jobs, all newer than the metadata job, than one batch read used to reach.
       importDocuments(
         "jobs",
         Array.from({ length: 520 }, () =>
@@ -4302,7 +4175,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
             { sourceUserId: "source-owner", profileId: fixture.ownerProfile },
             { sourceUserId: "source-member", profileId: fixture.memberProfile },
           ]),
-          // Access comes from the stored plan; `migrated-unknown` is not in it.
           libraries: [
             {
               name: "migrated-all",
@@ -4363,7 +4235,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         (await run(fixture.member, "libraries.list", {})).map((library) => library.id),
       ).not.toContain(unknown.id);
 
-      // A folder holding other libraries' folders reuses them instead of nesting a new library.
       expect(
         await service(fixture.mediaService, "migrationService.ensureLibrary", {
           jobId,
@@ -4438,7 +4309,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         positionMs: ms(0),
       });
 
-      // A room the spare profile started, whose host device has since rejoined as another profile.
       const switchedHost = device("spare-switched-host");
 
       const switched = await run(single, "rooms.create", {
@@ -4460,7 +4330,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       ]);
       expect(await outcome(run(single, "titles.home", { profileId: spare.id }))).toBe("not_found");
 
-      // Its playback and the rooms it hosted end, so a device still playing records nothing more.
       expect(
         await run(single, "playback.reportProgress", {
           sessionId: playing.sessionId,
@@ -4551,7 +4420,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       expect(Object.entries(codes).filter(([, code]) => code !== "invalid_args")).toStrictEqual([]);
 
-      // A NaN page size, which no contract client sends, gets the default page.
       expect(
         await outcome(
           direct(fixture.member, "query", "titles:list", {
@@ -4561,7 +4429,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         ),
       ).toBe("succeeded");
 
-      // A blank folder is refused as one, not taken for `/`, which an empty server would accept.
       await expect(
         direct(fixture.owner, "mutation", "libraries:create", {
           name: `Bounds ${id}`,
@@ -4599,7 +4466,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       const titleId = (await titleNamed(fixture.owner, fixture.ownerProfile, name)).id;
 
-      // Each job writes what a provider would return, as the media service's metadata job does.
       const runMetadataJob = async (jobId: JobId) => {
         const workerId = `metadata-${id}`;
 
@@ -4652,7 +4518,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       });
       expect((await moviesByName())[0]).toBe(fixture.titles.unrated);
 
-      // A name override alone keeps the scanned order: fixing a typo does not move a title.
       await run(fixture.owner, "metadata.edit", {
         titleId: fixture.titles.unrated,
         set: { name: `!Renamed ${TOKEN}` },
@@ -4682,7 +4547,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       expect(await outcome(run(fixture.member, "rooms.get", { roomId: room.id }))).toBe(
         "not_found",
       );
-      // Another account's profile answers as a missing room does, not with its own error.
       expect(
         await outcome(
           run(fixture.member, "rooms.get", { roomId: room.id, profileId: fixture.ownerProfile }),
@@ -4706,7 +4570,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       });
       expect((await run(fixture.member, "rooms.get", { roomId: room.id })).members).toHaveLength(2);
 
-      // The host switches to a title the guest's kids profile may not see: the room disappears.
       await run(fixture.owner, "rooms.setMedia", {
         roomId: room.id,
         deviceId: hostDevice,
@@ -4763,7 +4626,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       );
       expect((await run(fixture.owner, "rooms.get", { roomId: first.id })).members).toHaveLength(1);
 
-      // A host that joins another room ends the one it hosted, as hosting a new one does.
       await run(fixture.owner, "rooms.join", {
         roomId: second.id,
         profileId: fixture.ownerProfile,
@@ -4896,7 +4758,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       const genre = `Paging${id}`;
 
-      // Letter, age rating, in the genre, year, studio, score.
       const movies = [
         ["A", 0, true, 1990, "One", 8],
         ["B", 17, true, 1991, "One", 7],
@@ -4933,8 +4794,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         ),
       });
 
-      // The kids profile sees five of the genre's seven; every page but the last is full, in
-      // every order, and no title repeats.
       expect(
         await filteredPages(fixture.member, fixture.kidsProfile, "name", {
           genre: genre.toUpperCase(),
@@ -4956,7 +4815,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       expect((orders[1] ?? []).flat()).toStrictEqual(genreNames("I", "H", "F", "D", "A"));
 
-      // Years, studio, and score narrow the genre's titles, and the library scope keeps to it.
       const narrowed = {
         genre,
         yearFrom: 1991,
@@ -4970,7 +4828,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         await filteredPages(fixture.owner, fixture.ownerProfile, "name", narrowed),
       ).toStrictEqual([genreNames("E", "F"), genreNames("H")]);
 
-      // Without a genre the same filters page through the library's own index.
       expect(
         (
           await filteredPages(fixture.owner, fixture.ownerProfile, "year", {
@@ -5043,7 +4900,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       await run(fixture.owner, "libraries.remove", { libraryId: created.libraryId });
 
-      // The scheduled purge ends them, batch by batch, as it deletes the library's files.
       await expect
         .poll(
           () =>
@@ -5268,7 +5124,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
   });
 
   describe("every public function", () => {
-    /** Convex Auth's own entry points; they sign in, sign out, and report a boolean. */
     const CONVEX_AUTH: ReadonlySet<string> = new Set([
       "auth:signIn",
       "auth:signOut",
@@ -5286,7 +5141,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
     let ids: ReadonlyMap<string, string>;
 
     beforeAll(async () => {
-      // Every table an argument names needs one document; a fresh stack has no backups yet.
       if ((await run(fixture.owner, "backups.list", {})).length === 0) {
         await service(fixture.mediaService, "mediaService.syncBackups", {
           archives: [
@@ -5304,7 +5158,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       ids = sampleIds(functions.flatMap((fn) => tablesIn(fn.args)));
     });
 
-    /** Calls the function with generated arguments; only how the call ends matters here. */
     const call = async (session: Session, fn: PublicFunction): Promise<void> => {
       const args = fn.args === null ? {} : toArgs(sampleValue(fn.args, ids));
 
@@ -5322,7 +5175,6 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       );
     };
 
-    /** The functions a session must be refused, with the code each call actually ended with. */
     const outcomesFor = async (session: Session, refused: (access: CommandAccess) => boolean) =>
       Promise.all(
         functions.flatMap((fn) => {

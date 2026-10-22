@@ -1,4 +1,3 @@
-/** The profile avatar at the top right of Home (C01): opens You. */
 import { router } from "expo-router";
 import { UserRound } from "lucide-react-native";
 

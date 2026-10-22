@@ -1,8 +1,3 @@
-/**
- * Finding the server this app talks to: the media service people type in (it also serves the web
- * app and artwork) and the Convex deployment accounts live on. Typing only the media address is
- * enough; the media service answers with the Convex URL at `/api/client-config`.
- */
 import {
   ClientConfigResponse,
   HealthResponse,
@@ -58,10 +53,6 @@ export const normalizeServerUrl = (text: string): string | null => {
 
 const TIMEOUT_MS = 5000;
 
-/**
- * Fetches `url` and decodes its JSON body with `schema`'s JSON codec, as the media service encodes
- * it; none when the request fails, times out, or the body does not decode.
- */
 const getDecoded = async <A>(
   url: string,
   schema: Schema.Codec<A, unknown>,
@@ -82,7 +73,6 @@ export type ConnectResult =
   | { readonly ok: true; readonly connection: ServerConnection }
   | { readonly ok: false; readonly failure: ConnectFailure };
 
-/** Whether a Convex deployment answers at `convexUrl`. */
 const convexAnswers = async (convexUrl: string): Promise<boolean> => {
   try {
     const response = await fetch(`${convexUrl}/version`, {
@@ -99,14 +89,9 @@ const convexAnswers = async (convexUrl: string): Promise<boolean> => {
 export const readHealth = (mediaUrl: string): Promise<Option.Option<HealthResponse>> =>
   getDecoded(`${mediaUrl}${MEDIA_ROUTES.health}`, HealthResponse);
 
-/** Whether a [movies] media service answers its health check at `mediaUrl`. */
 const mediaAnswers = async (mediaUrl: string): Promise<boolean> =>
   Option.isSome(await readHealth(mediaUrl));
 
-/**
- * The base URLs to try for typed text: as typed when it names a scheme, else `https://` and then
- * `http://`, the way home servers often run. Null when the text is not an address.
- */
 const candidatesFor = (text: string): ReadonlyArray<string> | null => {
   const normalized = normalizeServerUrl(text);
 
@@ -117,11 +102,6 @@ const candidatesFor = (text: string): ReadonlyArray<string> | null => {
     : [normalized, normalized.replace(/^https:/u, "http:")];
 };
 
-/**
- * The first candidate, in order, for which `answers` holds. Candidates are probed at once, so an
- * address whose https port silently drops packets costs one timeout, not two, and a preferred
- * candidate that answers wins without waiting for the others.
- */
 const firstAnswering = async (
   candidates: ReadonlyArray<string>,
   answers: (url: string) => Promise<boolean>,
@@ -169,7 +149,6 @@ export const discoverServer = async (text: string): Promise<ConnectResult> => {
 
   if (candidates === null) return { ok: false, failure: "invalid" };
 
-  // Each candidate's client config is asked for alongside its health check.
   const configs = candidates.map((url) =>
     getDecoded(`${url}${MEDIA_ROUTES.clientConfig}`, ClientConfigResponse),
   );

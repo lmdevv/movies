@@ -1,8 +1,3 @@
-/**
- * D01–D04 · A movie's or show's page, live: the artwork header, Play or Resume, My List, the
- * overview, a show's season and episodes, About, Cast & Crew, a movie's versions, and More Like
- * This. D08 replaces it while none of the title's files is on disk.
- */
 import type { ProfileId, TitleId } from "@movies/contracts/ids";
 import type { SeasonEpisode, TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
@@ -34,7 +29,6 @@ import { useActiveProfile } from "@/session/active-profile";
 
 const NO_EPISODES: ReadonlyArray<SeasonEpisode> = [];
 
-/** The season heading; with several seasons it opens the season picker (D05). */
 function SeasonHeading({
   title,
   seasonNumber,
@@ -66,7 +60,6 @@ function SeasonHeading({
   );
 }
 
-/** The live page of an available title. */
 function TitleDetailView({
   title,
   profileId,
@@ -143,12 +136,10 @@ function TitleDetailView({
   );
 }
 
-/** The 16pt gap between episode rows. */
 function EpisodeGap() {
   return <View className="h-4" />;
 }
 
-/** A title, loaded live, with its loading and failure states. */
 function TitleLoader({ titleId }: { readonly titleId: TitleId }) {
   const { profile } = useActiveProfile();
   const title = useCommandQuery("titles.get", { profileId: profile.id, titleId });

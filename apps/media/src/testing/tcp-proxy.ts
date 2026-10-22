@@ -1,12 +1,5 @@
-/**
- * A TCP proxy in front of a real service, for tests of what happens when the network misbehaves:
- * `refuse` closes every new connection at once (the service is down), `blackhole` accepts and
- * forwards nothing (a hung server or a dead route), and `drop` cuts every open connection (a
- * restart or a network blip). Effect-free, like the other process helpers.
- */
 import { createServer, type Server, type Socket, connect } from "node:net";
 
-/** How the proxy treats new connections. */
 type ProxyMode = "open" | "refuse" | "blackhole";
 
 /** A running proxy. */

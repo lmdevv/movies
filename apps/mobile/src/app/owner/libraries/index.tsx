@@ -1,4 +1,3 @@
-/** I02 · Libraries: every library with its size, Add Library, and the way into each one. */
 import type { LibraryDetail } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { router } from "expo-router";
@@ -10,7 +9,6 @@ import { IconButton } from "@/components/ui/icon-button";
 import { ListRow } from "@/components/ui/list-row";
 import { countOf } from "@/lib/owner-format";
 
-/** `186 Titles`, `42 Shows`, or Scanning while a scan runs. */
 const sizeOf = (library: LibraryDetail): string => {
   if (library.scanning) return "Scanning";
 

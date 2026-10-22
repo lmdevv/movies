@@ -7,7 +7,6 @@ import { cacheDirectories, prune } from "./cache-pruner.ts";
 import * as DiskCache from "./disk-cache.ts";
 import { testConfigLayer } from "./testing/test-config.ts";
 
-/** A data folder of its own for each test. */
 const withDataDir = <A, E, R>(use: (dataDir: string) => Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -16,7 +15,6 @@ const withDataDir = <A, E, R>(use: (dataDir: string) => Effect.Effect<A, E, R>) 
     return yield* use(dataDir);
   });
 
-/** A cache under `dataDir`, open for the rest of the test. */
 const cacheIn = (dataDir: string) =>
   Layer.build(DiskCache.layer.pipe(Layer.provide(testConfigLayer({ DATA_DIR: dataDir })))).pipe(
     Effect.map((context) => Context.get(context, DiskCache.Service)),
@@ -77,7 +75,6 @@ describe("disk cache", () => {
         Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem;
           const path = yield* Path.Path;
-          // Only file names mark abandoned writes, not a folder that happens to contain ".part".
           const root = path.join(dataDir, "movies.parts");
           const roots = cacheDirectories(root, path);
           const hour = 60 * 60;
@@ -85,7 +82,6 @@ describe("disk cache", () => {
 
           yield* TestClock.setTime(now * 1000);
 
-          /** Writes `kilobytes` of data last used `hoursAgo` hours before now. */
           const file = Effect.fnUntraced(function* (
             relative: string,
             kilobytes: number,
@@ -118,7 +114,6 @@ describe("disk cache", () => {
           assert.strictEqual(summary.removedFiles, 3);
           assert.strictEqual(summary.keptBytes, 81 * 1024);
 
-          // A cache that already fits is left alone.
           assert.strictEqual((yield* prune(roots, 90 * 1024)).removedFiles, 0);
         }),
       ),
@@ -130,8 +125,6 @@ describe("disk cache", () => {
           const cache = yield* cacheIn(dataDir);
           const path = yield* Path.Path;
 
-          // Files get their modification time from the real clock; the mark on read uses this one,
-          // and marks a file only when its last mark is a day old.
           yield* TestClock.setTime(Date.now());
           yield* cache.write("tmdb", "first", "x".repeat(10_000));
           yield* TestClock.adjust(Duration.days(2));

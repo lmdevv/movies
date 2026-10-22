@@ -1,8 +1,3 @@
-/**
- * B05 Enter PIN, B06 its wrong-PIN state, and B07 Profile Locked: unlocks a PIN profile for this
- * session. Five wrong PINs in a row lock the profile for five minutes; the screen then counts down
- * and offers another profile instead of the keypad.
- */
 import type { Profile } from "@movies/contracts/models/profiles";
 import { useCommand } from "@movies/sdk/react";
 import * as Haptics from "expo-haptics";
@@ -36,7 +31,6 @@ type Entry =
 
 const TICK_MS = 15_000;
 
-/** The current time, refreshed every `TICK_MS` while `active`. */
 const useNow = (active: boolean): number => {
   const [now, setNow] = useState(Date.now);
 
@@ -57,7 +51,6 @@ export function UnlockProfile({ profile, onUnlocked, onSwitchProfile }: UnlockPr
   const [pin, setPin] = useState("");
   const [entry, setEntry] = useState<Entry>({ kind: "entry", message: null });
   const [checking, setChecking] = useState(false);
-  // Guards against a second submit before `checking` renders.
   const inFlight = useRef(false);
   const now = useNow(entry.kind === "lockedOut");
   const lockedOut = entry.kind === "lockedOut" && entry.retryAt > now;

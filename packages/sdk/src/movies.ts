@@ -1,7 +1,3 @@
-/**
- * The SDK assembled: the Convex connection, auth, and the command client in one layer. Clients
- * supply where tokens are stored; everything else comes from the options.
- */
 import type { Option } from "effect";
 import { Layer } from "effect";
 

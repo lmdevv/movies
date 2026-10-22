@@ -1,8 +1,3 @@
-/**
- * The destructive confirmations of You and settings (H14 Revoke Key, H15 Sign Out, H23 Device ·
- * Sign Out), in the shared form sheet: the question, one muted line, the outlined danger action,
- * and Cancel. A failure shows as the sheet's short danger line and keeps it open.
- */
 import * as Haptics from "expo-haptics";
 import type { LucideIcon } from "lucide-react-native";
 import { useState } from "react";

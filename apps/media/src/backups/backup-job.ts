@@ -1,10 +1,3 @@
-/**
- * Backup jobs: the nightly cron (`maintenance:requestNightlyBackup`, 03:00 UTC) or an admin
- * (`backups.run`) queued one. The job exports the deployment into a new archive, records it on
- * the job's lease, and only then prunes archives past the retention. A failed export returns the
- * job to the queue; a missing admin key or backend package fails it for good. Running a job
- * again after a lost lease takes another archive, which retention removes in time.
- */
 import { Effect, Match } from "effect";
 
 import * as MediaBackend from "../convex/media-backend.ts";
@@ -54,8 +47,6 @@ export const handler: Effect.Effect<JobHandler, never, Backups.Service | MediaBa
 
         yield* reportProgress({ done: 2, total: STEPS, message: "Pruning" });
 
-        // The new archive is safe on disk and recorded; a failed prune keeps old archives a day
-        // longer and does not fail the backup.
         const pruned = yield* backups.prune(archive.fileName).pipe(
           Effect.map((removed) => `removed ${String(removed.length)} past retention`),
           Effect.catch((error) =>

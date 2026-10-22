@@ -1,7 +1,3 @@
-/**
- * Every title of a kind, genre, or library, a page at a time: each loaded page stays a live
- * subscription, and the grid asks for the next page as its end comes near.
- */
 import type { ProfileId } from "@movies/contracts/ids";
 import type { TitleCard, TitleKind } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
@@ -11,16 +7,13 @@ import type { ReactNode } from "react";
 import { listArgs } from "@/lib/browse";
 import type { BrowseFilters } from "@/lib/browse";
 
-/** Titles per page. */
 const PAGE_SIZE = 60;
 
-/** One page: what it held and the cursor after it. */
 interface LoadedPage {
   readonly items: ReadonlyArray<TitleCard>;
   readonly nextCursor: string | null;
 }
 
-/** Subscribes to one page and reports it. */
 function PageSubscription({
   query,
   profileId,
@@ -70,14 +63,11 @@ export interface TitlePages {
   readonly retry: () => void;
 }
 
-/** The paging of one query: its pages so far, the cursors asked for, and the first failure. */
 interface Paging {
-  /** The profile, kind, and filters these pages belong to. */
   readonly query: string;
   readonly pages: ReadonlyArray<LoadedPage | undefined>;
   readonly cursors: ReadonlyArray<string | null>;
   readonly failure: { readonly cause: unknown } | null;
-  /** Counts up on Try Again, so every page subscribes anew. */
   readonly attempt: number;
 }
 

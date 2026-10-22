@@ -1,13 +1,3 @@
-/**
- * Subtitle timing: a delay this browser applies to the text subtitles it shows, for a file whose
- * subtitles run early or late. A positive delay shows each cue later than its file says, a negative
- * one earlier. The delay moves the cues of the element's text tracks themselves, which every way
- * the element plays shares: text subtitles are `<track>` elements beside the stream (`<video
- * src>` for direct files and native HLS, hls.js through Media Source), so neither a new stream for
- * another quality nor an HLS playlist reload touches them. The delay is this viewer's alone: it
- * never reaches the media service, Convex, or a watch room's clock.
- */
-
 /** The delay's range and steps, in milliseconds. */
 export const SUBTITLE_DELAY = {
   /** What Earlier and Later (and their keys) move it by. */
@@ -38,7 +28,6 @@ export const formatSubtitleDelay = (ms: number): string => {
   return `${ms > 0 ? "+" : "−"}${seconds}`;
 };
 
-/** Seconds with an optional sign and fraction; a comma also separates the fraction. */
 const SECONDS = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/u;
 
 /**
@@ -99,7 +88,6 @@ export interface TextTrackLike {
   readonly cues: Iterable<CueLike> | null;
 }
 
-/** The kinds of text track the delay moves; metadata and chapters keep their times. */
 const DELAYED_KINDS: ReadonlySet<string> = new Set(["subtitles", "captions"]);
 
 /**
@@ -110,7 +98,6 @@ export interface RetimedElement extends EventTarget {
   readonly textTracks: EventTarget & Iterable<TextTrackLike>;
 }
 
-/** Where a cue's file put it, in seconds. */
 interface FileTiming {
   readonly start: number;
   readonly end: number;
@@ -148,7 +135,6 @@ export class SubtitleRetimer {
     this.#element.textTracks.removeEventListener("addtrack", this.#apply);
   }
 
-  /** Moves the cues of every track that has them; a disabled track is moved when it shows. */
   readonly #apply = (): void => {
     for (const track of this.#element.textTracks) {
       if (!DELAYED_KINDS.has(track.kind)) continue;
@@ -167,7 +153,6 @@ export class SubtitleRetimer {
       this.#fileTimings.set(cue, timing);
     }
 
-    // Nothing shows before the film starts: a cue moved past the start is cut there.
     const start = Math.max(0, timing.start + this.#delaySeconds);
     const end = Math.max(0, timing.end + this.#delaySeconds);
 

@@ -1,8 +1,3 @@
-/**
- * The player's Watch Together popups (F15, F17, F18, F21–F24): a 400pt card on the raised dark
- * surface over the dimmed player, with a 22pt heading, a close button, what the choice is about,
- * and two pill actions side by side.
- */
 import type { LucideIcon } from "lucide-react-native";
 import { Check, Link2, X } from "lucide-react-native";
 import type { ReactNode } from "react";
@@ -13,10 +8,8 @@ import { Icon } from "@/components/ui/icon";
 import { Image } from "@/components/ui/image";
 import { Text } from "@/components/ui/text";
 
-/** One of a popup's two actions. */
 interface PopupAction {
   readonly label: string;
-  /** `primary` is the red action, `secondary` the translucent one, `destructive` outlined. */
   readonly kind: "primary" | "secondary" | "destructive";
   readonly icon?: LucideIcon;
   readonly iconFilled?: boolean;
@@ -30,7 +23,6 @@ const ACTION_BOX = {
   destructive: "border border-dark-danger active:opacity-70",
 } as const;
 
-/** A pill action, 44pt tall, sharing the row with the other. */
 function ActionButton({ action }: { readonly action: PopupAction }) {
   const tone = action.kind === "destructive" ? "darkDanger" : "onMedia";
 

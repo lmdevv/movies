@@ -1,8 +1,3 @@
-/**
- * `MediaBackend` for tests of the modules built on it (job worker, ended-session watcher): each
- * test answers the functions it cares about, and calls to others die, so a test never passes by
- * accident. The real connection is covered by the stack suite against a real Convex.
- */
 import type { CallError } from "@movies/sdk/effect";
 import { Effect, Layer, Stream } from "effect";
 

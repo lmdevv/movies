@@ -1,15 +1,9 @@
-/**
- * Reading the server clock to estimate how far this device's clock is from it, NTP style. The
- * engine keeps a window of recent readings and trusts the one with the shortest round trip
- * (`estimateClockOffset` in the contracts), assuming the server read its clock halfway through.
- */
 import type { ClockSample } from "@movies/contracts/clock";
 import { Clock, Effect, Option } from "effect";
 
 import { MoviesClient } from "../movies-client";
 import type { CallError } from "../sdk-errors";
 
-/** One round trip to the server clock, timed with this device's clock. */
 const sampleServerClock: Effect.Effect<ClockSample, CallError, MoviesClient> = Effect.gen(
   function* () {
     const client = yield* MoviesClient;

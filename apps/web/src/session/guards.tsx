@@ -1,8 +1,3 @@
-/**
- * Route guards for signed-in screens. `RequireSignedIn` sends people without a session to the
- * first-run welcome or to sign-in; `RequireProfile` also requires a chosen, unlocked profile and
- * provides it to everything below through `useActiveProfile`.
- */
 import type { Profile } from "@movies/contracts/models/profiles";
 import { Button } from "@movies/ui/components/button";
 import { CalmState } from "@movies/ui/components/calm-state";
@@ -16,7 +11,6 @@ import { describeFailure, isFailure } from "@/lib/failure";
 import { useProfileChoice } from "./profile-choice";
 import { BlankPage, Redirect } from "./redirect";
 
-/** `/sign-in?redirect=…` back to `href`, the current location. */
 const signInHref = (href: string): string =>
   href === "/" ? "/sign-in" : `/sign-in?redirect=${encodeURIComponent(href)}`;
 
@@ -34,8 +28,6 @@ export function RequireSignedIn({ children }: { readonly children: ReactNode }) 
 
   if (status === "signedIn") return children;
 
-  // Signing out navigates to sign-in itself, and this guard stays on screen until that navigation
-  // lands. Redirecting now would race it and send people "back" to the sign-in page.
   if (pathname === "/sign-in" || setup.status === "loading") return <BlankPage />;
 
   if (setup.status === "success" && !setup.data.hasOwner) return <Redirect href="/welcome" />;
@@ -91,7 +83,6 @@ export function RequireProfile({ children }: { readonly children: ReactNode }) {
   if (profiles.status === "loading") return <BlankPage />;
 
   if (profiles.status === "error") {
-    // A revoked session flips the auth status next; the outer guard then redirects.
     return isFailure(profiles.error, "Unauthenticated") ? (
       <BlankPage />
     ) : (

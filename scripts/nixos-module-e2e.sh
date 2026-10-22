@@ -49,8 +49,6 @@ sudo chown "$(id -u):$(id -g)" "$base/library"
 node "$root/apps/media/scripts/generate-fixtures.ts" "$base/library" >/dev/null
 chmod -R a+rX "$base/library"
 
-# The module evaluated for this host: the Docker backend, scratch folders, and `nobody` as the
-# service user, so nothing is added to the host's users.
 evaluated="$(
   nix eval --json --impure --expr "
     let
@@ -104,7 +102,6 @@ while IFS= read -r pair; do env_args+=(-e "$pair"); done < <(
 docker run -d --name "$container" -p "$(field ports)" -v "$(field volumes)" "${env_args[@]}" \
   "$(field image)" >/dev/null
 
-# The module's unit, minus its dependency on the oci-containers unit this host does not have.
 sed '/^\(Requires\|After\)=.*docker-movies-convex.service/d' "$unit_file" |
   sudo tee "/run/systemd/system/$unit.service" >/dev/null
 sudo systemctl daemon-reload

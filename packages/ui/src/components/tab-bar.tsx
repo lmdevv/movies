@@ -4,7 +4,6 @@ import { cn } from "@movies/ui/lib/utils";
 import { SearchIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 
-/** The frosted capsule surface Paper draws as a translucent fill; code adds the blur behind it. */
 const glassClassName =
   "on-media rounded-pill border border-text/10 bg-glass shadow-glass backdrop-blur-xl backdrop-saturate-180";
 

@@ -1,7 +1,3 @@
-/**
- * The `titleGenres` index rows: one per title and genre, carrying the title's sort fields, so
- * `titles.list` can page through one genre without reading every title.
- */
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 

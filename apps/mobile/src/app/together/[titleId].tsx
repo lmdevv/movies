@@ -1,8 +1,3 @@
-/**
- * G01 · Watch Together, from a title's page: what the room will play, then Start Room, which opens
- * the room (G02) to invite people before anyone presses play. A movie starts where the profile
- * stopped; a show at its next episode, or at the episode its actions (D07) were opened on.
- */
 import type { TitleId } from "@movies/contracts/ids";
 import type { Episode, TitleDetail } from "@movies/contracts/models/catalog";
 import { Milliseconds } from "@movies/contracts/units";
@@ -29,7 +24,6 @@ import { roomStart } from "@/lib/rooms/room-start";
 import { useActiveProfile } from "@/session/active-profile";
 import { useServer } from "@/session/connection";
 
-/** The start screen for a loaded title, playing `chosen` when an episode was picked. */
 function StartRoom({
   title,
   chosen,
@@ -100,10 +94,6 @@ function StartRoom({
   );
 }
 
-/**
- * The episode picked on D07: none when the link names no episode, and missing when it names one
- * that is malformed or not in its season, so a room never starts on another episode by mistake.
- */
 const useChosenEpisode = (
   titleId: TitleId | null,
   rawEpisode: string | undefined,

@@ -27,10 +27,8 @@ export const Route = createFileRoute("/profiles/")({
   ),
 });
 
-/** Most profiles one account may have; the server enforces it too. */
 const MAX_PROFILES = 10;
 
-/** "Who's watching?": the signed-in account's profiles, a way to add one, and profile editing. */
 function WhosWatchingPage() {
   const { redirect } = Route.useSearch();
   const profiles = useCommandQuery("profiles.list", {});

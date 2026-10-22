@@ -1,4 +1,3 @@
-/** B13 · Confirm PIN: the same four digits again; a match goes back to the form with the PIN set. */
 import { router } from "expo-router";
 import { useState } from "react";
 import { View } from "react-native";

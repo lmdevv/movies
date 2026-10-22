@@ -1,8 +1,3 @@
-/**
- * D08 · Title · File Unavailable: none of the title's files is on disk, so instead of Play the page
- * shows the artwork and a calm state. People who manage the server get Try Again, which rescans the
- * library; the page turns playable by itself once the files are back.
- */
 import type { TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { router } from "expo-router";
@@ -22,7 +17,6 @@ import { useServer } from "@/session/connection";
 import { AboutRow } from "./title-sections";
 import { useRunner } from "./use-title-actions";
 
-/** Whether this session may rescan libraries. */
 const useCanManage = (): boolean => {
   const viewer = useCommandQuery("account.viewer", {});
 

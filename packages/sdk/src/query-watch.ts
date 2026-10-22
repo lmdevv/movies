@@ -1,9 +1,3 @@
-/**
- * A live query outside React, for `useCommandQuery`: its latest state, change notifications for
- * `useSyncExternalStore`, and a retry. Failures that may pass by themselves (the network, rate
- * limiting) retry with backoff before the query reports them; the rest, such as not found,
- * forbidden or a crashed function, report at once. A failed query stays failed until `retry` runs.
- */
 import type { CommandArgs, CommandResult } from "@movies/contracts/commands";
 import type { Duration, ManagedRuntime } from "effect";
 import { Effect, Fiber, Schedule, Stream } from "effect";
@@ -43,11 +37,6 @@ export const skipped: QueryWatch<never> = {
   getSnapshot: () => LOADING,
 };
 
-/**
- * Four retries about 0.5, 1, 2 and 4 seconds apart, for transient failures only; the rest, such
- * as a crashed function, report at once for Try again. The count starts over once a result
- * arrives, so a long-lived query survives occasional drops.
- */
 const retryTransient: Schedule.Schedule<Duration.Duration, CallError> = Schedule.exponential(
   "500 millis",
 ).pipe(
@@ -104,7 +93,6 @@ export const make = <Name extends QueryName>(
     subscribe: (onChange) => {
       listeners.add(onChange);
 
-      // Coming back after everyone left subscribes afresh; an old failure would offer a stale retry.
       if (listeners.size === 1) {
         if (state.status === "error") publish(LOADING);
         start();

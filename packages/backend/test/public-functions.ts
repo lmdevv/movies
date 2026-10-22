@@ -1,9 +1,3 @@
-/**
- * Every public Convex function, found the way Convex finds them: the modules `convex/_generated/api`
- * lists, and each export the runtime registered as public. The access suite calls each one with
- * sessions that must be refused, so a function added without an `authorize` call fails it even if
- * nobody remembers to add a test.
- */
 import type { Value } from "convex/values";
 import { Match, Predicate } from "effect";
 
@@ -18,7 +12,6 @@ export interface PublicFunction {
   readonly args: ValidatorJson | null;
 }
 
-/** A module export the Convex runtime registered: a callable object with `isPublic` and kind flags. */
 interface Registered {
   readonly isPublic: unknown;
 }
@@ -28,7 +21,6 @@ const flag = (
   name: "isQuery" | "isMutation" | "isAction" | "isPublic",
 ): boolean => Predicate.hasProperty(value, name) && value[name] === true;
 
-/** The Convex runtime's `exportArgs`; `parseExportedValidator` checks what it returns. */
 const isExporter = (value: unknown): value is () => string => Predicate.isFunction(value);
 
 const exportedArgs = (value: Registered): ValidatorJson | null =>
@@ -57,7 +49,6 @@ export const publicFunctions = async (): Promise<ReadonlyArray<PublicFunction>> 
   return modules.flatMap(({ name, loaded }) =>
     Predicate.isObject(loaded)
       ? Object.entries(loaded).flatMap(([exportName, value]): ReadonlyArray<PublicFunction> => {
-          // Registered functions are callable objects, so look for the runtime's flag directly.
           if (!Predicate.hasProperty(value, "isPublic") || value.isPublic !== true) return [];
           const kind = kindOf(value);
 

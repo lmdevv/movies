@@ -1,8 +1,3 @@
-/**
- * H01 · You: the profile on screen with Switch Profile, then My List, Watch History, Account, App
- * Settings, Devices, Approve a Device, and Owner Settings for sessions that may manage the server.
- * Signing out lives in Account.
- */
 import { useCommandQuery } from "@movies/sdk/react";
 import { router } from "expo-router";
 import {
@@ -32,8 +27,6 @@ export default function You() {
   const list = useCommandQuery("myList.list", { profileId: profile.id });
   const viewer = useCommandQuery("account.viewer", {});
 
-  // Devices and device approval need the account scope, which a session signed in with a code may
-  // lack; owner settings need a session that may manage the server or its accounts.
   const accountSettings = viewer.status === "success" && viewer.data.scopes.includes("account");
   const ownerSettings = viewer.status === "success" && mayOpenOwnerSettings(viewer.data);
 

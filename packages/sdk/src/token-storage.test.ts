@@ -21,7 +21,6 @@ const memoryStore = (): KeyValueStore & { readonly items: Map<string, string> } 
 
 const session = { token: Redacted.make("jwt"), refreshToken: Redacted.make("refresh") };
 
-/** The storage service over `store`. */
 const storageOver = (store: KeyValueStore) =>
   Effect.scoped(Layer.build(layerKeyValue(store, "s"))).pipe(
     Effect.map((context) => Context.get(context, TokenStorage)),

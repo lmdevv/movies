@@ -45,10 +45,8 @@ export const COLLECTION_BATCH_LIMIT = 10;
 /** Most members, across all collections, one `importCollections` call may carry. */
 export const COLLECTION_MEMBER_BATCH_LIMIT = 2000;
 
-/** Highest age rating; `AgeRating` runs from 0 to 21. */
 const AGE_RATING_MAX = 21;
 
-/** Trims `value` and requires 1 to `max` characters; `what` names the field in plural. */
 const checkText = (value: string, what: string, max: number): string => {
   const trimmed = value.trim();
 
@@ -87,7 +85,6 @@ export const checkAgeRating = (age: number | null): number | null =>
 
 type MetadataOverrides = Infer<typeof metadataOverrides>;
 
-/** Why each override field would break its contract bound, checked in field order. */
 const OVERRIDE_BOUNDS: ReadonlyArray<{
   readonly field: keyof MetadataOverrides;
   readonly broken: (overrides: MetadataOverrides) => boolean;

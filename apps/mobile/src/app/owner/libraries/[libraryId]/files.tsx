@@ -1,7 +1,3 @@
-/**
- * The files of a library that need attention, from I04's Unmatched Files and Missing Files rows:
- * each file with the title it was guessed as. An unmatched file opens Fix Match (I07).
- */
 import { LibraryId } from "@movies/contracts/ids";
 import type { LibraryFile } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";

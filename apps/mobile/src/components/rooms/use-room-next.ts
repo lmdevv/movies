@@ -1,9 +1,3 @@
-/**
- * Moving a watch room on to its next episode from the player, as the web player does: the host's
- * player starts the room's countdown when the credits begin, every member sees the same card, the
- * host's Play Next, Watch Credits, and Episodes act through the room, and whatever the room plays
- * next opens on every member's player, in the room.
- */
 import type { DeviceId, EpisodeId, TitleId } from "@movies/contracts/ids";
 import type { Room } from "@movies/contracts/models/rooms";
 import { useCommand } from "@movies/sdk/react";
@@ -17,10 +11,8 @@ import { closedKey, roomNextCard, shouldStartCountdown } from "@/lib/rooms/room-
 import type { CountdownProblem, RoomNextCard, RoomNextInput } from "@/lib/rooms/room-next";
 import { watchHref } from "@/lib/routes";
 
-/** Refusals that stand: trying the countdown again would only meet them again. */
 const REFUSALS = ["Conflict", "NotFound", "Forbidden", "InvalidArgs"] as const;
 
-/** How long the host's player waits before starting the countdown again after a failure. */
 const RETRY_MS = 2_000;
 
 /** What the hook needs from the player. */
@@ -107,7 +99,6 @@ export const useRoomNext = (options: RoomNextOptions): RoomNext => {
     };
   }, [start, roomId, episodeId, deviceId, startCountdown, attempt]);
 
-  // Whatever the room plays is what this player opens, in the room.
   const roomTitle = room?.title.id ?? null;
   const roomEpisode = room?.episode?.id;
 
@@ -125,16 +116,12 @@ export const useRoomNext = (options: RoomNextOptions): RoomNext => {
   const moveOn = useCallback(() => {
     if (roomId === null || episodeId === null) return;
 
-    // From the episode this player shows: a room that already moved on stays where it is. A
-    // failure shows on the card, in place of the countdown.
     setProblem(null);
     playNext({ roomId, deviceId, fromEpisodeId: episodeId }).catch((cause: unknown) => {
       setProblem({ from: episodeId, reason: describeFailure(cause) });
     });
   }, [roomId, episodeId, deviceId, playNext]);
 
-  // The card shows what the room holds, so a cancel that fails leaves it counting down, saying
-  // why; one failure that may pass is tried again at once.
   const cancel = useCallback(() => {
     if (roomId === null || episodeId === null) return;
     const args = { roomId, deviceId, fromEpisodeId: episodeId };
@@ -162,8 +149,6 @@ export const useRoomNext = (options: RoomNextOptions): RoomNext => {
           episodeId: picked,
         });
 
-      // A heartbeat may move the revision on between reading and switching: read it, retry once.
-      // The picker has closed by now, so a failure says why in an alert.
       switchTo(current.clock.revision)
         .catch((cause: unknown) =>
           Predicate.isTagged(cause, "StaleRevision")

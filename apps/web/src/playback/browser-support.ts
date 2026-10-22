@@ -1,7 +1,3 @@
-/**
- * What this browser reports about media, read once: the input `detectCapabilities` needs, and
- * whether the page may set the volume (iPhones keep it with the hardware buttons).
- */
 import type { MediaSupport } from "./capabilities";
 
 /** This browser's media checks. */

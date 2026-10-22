@@ -1,7 +1,3 @@
-/**
- * Open an Invite (from A01): paste the invite link someone sent, connect to its server, and go on
- * to Join Household. Paper has no artboard for this step; it follows A02's form.
- */
 import { router } from "expo-router";
 import { useState } from "react";
 

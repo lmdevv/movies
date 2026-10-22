@@ -1,9 +1,3 @@
-/**
- * What only the web app's migration screens hold: the Importing screen's phase labels and the
- * Connect form. How a source failure reads, which profile each source user's history goes to, how
- * far an import has come, and folder mappings are shared with the iOS app
- * (`@movies/contracts/migration-plan`).
- */
 import type { MigrationSource } from "@movies/contracts/models/jobs";
 import type { MigrationPhase } from "@movies/contracts/models/migration";
 

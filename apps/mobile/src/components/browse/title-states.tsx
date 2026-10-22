@@ -1,8 +1,3 @@
-/**
- * The profile's relationship to every title on a browse screen: whether it is on My List and
- * whether history says it was watched, plus the actions that change them. Posters read these for
- * their context menus, so one subscription serves every poster in the app.
- */
 import type { ProfileId, TitleId } from "@movies/contracts/ids";
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
@@ -16,10 +11,8 @@ import type { WatchState } from "@/lib/browse";
 import { describeFailure } from "@/lib/failure";
 import { ActiveProfileContext } from "@/session/active-profile";
 
-/** History entries read for watch states; older ones only matter for the oldest titles. */
 const HISTORY_WINDOW = 100;
 
-/** How long Undo stays offered after removing a title from My List. */
 const UNDO_MS = 8000;
 
 /** My List membership, watch states, and the actions that change them. */
@@ -38,7 +31,6 @@ export interface TitleStates {
 
 const TitleStatesContext = createContext<TitleStates | null>(null);
 
-/** Runs a change, with a success tap on completion and an alert that says why it failed. */
 const settle = async (change: Promise<unknown>): Promise<boolean> => {
   try {
     await change;
@@ -71,7 +63,6 @@ export function TitleStatesProvider({ children }: { readonly children: ReactNode
   const watched = useCommand("history.markWatched");
   const unwatched = useCommand("history.markUnwatched");
 
-  // The removal Undo offers belongs to the profile that made it.
   const [removal, setRemoval] = useState<{
     readonly profileId: ProfileId;
     readonly title: TitleCard;

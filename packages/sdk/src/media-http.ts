@@ -1,16 +1,3 @@
-/**
- * JSON requests to the media service. Effect's HttpClient is an unstable module, which the repo's
- * lint rejects in the SDK, so this boundary uses the platform's `fetch`, available in browsers,
- * Node, and React Native alike. It owns status classification, body decoding, and failure
- * translation for both kinds of media service routes:
- *
- * - registry `media` commands answer failures with the same `{ code, message }` body as Convex
- *   (`requestJson`);
- * - the playback API answers with the tagged errors of `@movies/contracts/media-playback`
- *   (`requestPlayback`), so clients can tell a stale playlist from an expired token;
- * - the retained log answers with NDJSON lines as they come (`requestLines`), and failures like
- *   registry commands.
- */
 import { CommandFailure, commandError } from "@movies/contracts/errors";
 import type { CommandError, ErrorCode } from "@movies/contracts/errors";
 import { PlaybackApiError } from "@movies/contracts/media-playback";
@@ -53,7 +40,6 @@ export const encodeJson = <A, I>(
 ): Effect.Effect<Schema.Json> =>
   Schema.encodeEffect(Schema.toCodecJson(schema))(value).pipe(
     Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)),
-    // The request schemas only hold JSON values; failing to encode one is a defect.
     Effect.orDie,
   );
 
@@ -85,7 +71,6 @@ export interface MediaRequest {
   readonly bearer: Option.Option<Redacted.Redacted>;
 }
 
-/** A failure body that carries a tag but no command code: the tag, read into `tag`. */
 const TaggedFailure = Schema.Struct({ tag: Schema.String }).pipe(
   Schema.encodeKeys({ tag: "_tag" }),
 );
@@ -98,7 +83,6 @@ const decodePlaybackFailure = Schema.decodeUnknownOption(Schema.toCodecJson(Play
 
 const decodeJsonText = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Json));
 
-/** The command error code closest to an HTTP status without a `{ code, message }` body. */
 const STATUS_CODES: ReadonlyMap<number, ErrorCode> = new Map([
   [400, "invalid_args"],
   [401, "unauthenticated"],
@@ -112,10 +96,8 @@ const STATUS_CODES: ReadonlyMap<number, ErrorCode> = new Map([
   [507, "rate_limited"],
 ]);
 
-/** Statuses a reverse proxy answers when the media service itself is down. */
 const GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 504]);
 
-/** An answered request: its status and decoded JSON body (null when empty). */
 interface MediaResponse {
   readonly status: number;
   readonly ok: boolean;
@@ -151,10 +133,6 @@ const readJson = (
     ),
   );
 
-/**
- * Sends `request`, accepting `accept`, and answers with the response once its headers arrive.
- * Network failures and gateway answers become `TransportError`.
- */
 const fetchResponse = (
   request: MediaRequest,
   accept: string,
@@ -198,7 +176,6 @@ const fetchResponse = (
     return response;
   });
 
-/** Sends `request` and reads its JSON body. Network failures become `TransportError`. */
 const send = (
   request: MediaRequest,
 ): Effect.Effect<MediaResponse, TransportError | ProtocolError> =>
@@ -208,7 +185,6 @@ const send = (
     return { status: response.status, ok: response.ok, body: yield* readJson(request, response) };
   });
 
-/** Classifies a failed command response from its status and decoded body. */
 const commandFailureOf = (request: MediaRequest, response: MediaResponse): CommandError => {
   const known = decodeCommandFailure(response.body);
 
@@ -309,7 +285,6 @@ export const requestPlayback = <A>(
   Effect.gen(function* () {
     const response = yield* send(request);
 
-    // The playback API encodes with each schema's JSON codec (absent optional fields as null).
     if (response.ok)
       return yield* decodeSuccess(request, Schema.toCodecJson(result), response.body);
 

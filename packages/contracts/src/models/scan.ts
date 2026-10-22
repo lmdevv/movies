@@ -1,4 +1,3 @@
-/** What the media service reports to Convex while scanning folders and importing history. */
 import { Schema } from "effect";
 
 import { AgeRating } from "../content-rating";

@@ -11,10 +11,8 @@ import { job, jobKind, jobStatus, ok } from "./lib/validators";
 import { authorize } from "./lib/viewer";
 import type { Viewer } from "./lib/viewer";
 
-/** Job kinds of admin features (backups and migrations); `manage` alone cannot see or cancel them. */
 const ADMIN_JOB_KINDS: ReadonlySet<Doc<"jobs">["kind"]> = new Set(["backup", "migration"]);
 
-/** Jobs `jobs.list` reads per batch while filtering, and at most in all. */
 const JOBS_BATCH = 100;
 
 const JOBS_READ_LIMIT = 2000;
@@ -22,7 +20,6 @@ const JOBS_READ_LIMIT = 2000;
 const mayHandle = (viewer: Viewer, kind: Doc<"jobs">["kind"]): boolean =>
   viewer.scopes.has("admin") || !ADMIN_JOB_KINDS.has(kind);
 
-/** Loads a job the viewer may handle; an admin job without `admin` is refused. */
 const loadJob = async (ctx: QueryCtx, viewer: Viewer, jobId: Id<"jobs">): Promise<Doc<"jobs">> => {
   const doc = await ctx.db.get(jobId);
 
@@ -72,7 +69,6 @@ export const list = query({
       (status === undefined || libraryId === undefined || doc.status === status) &&
       mayHandle(viewer, doc.kind);
 
-    /** The jobs to read newest first, older than `before`: a library's, by status, or all. */
     const indexed = (before: number | null) => {
       if (libraryId !== undefined && status !== undefined) {
         return jobs.withIndex("by_library_status", (q) =>
@@ -101,11 +97,9 @@ export const list = query({
           );
     };
 
-    // Newest first, older than `before`; filtered in memory by kind and by what the viewer may see.
     const olderThan = (before: number | null, take: number) =>
       indexed(before).order("desc").take(take);
 
-    /** Reads batches until `count` jobs match, the jobs run out, or `JOBS_READ_LIMIT` is read. */
     const collect = async (
       before: number | null,
       found: ReadonlyArray<Doc<"jobs">>,

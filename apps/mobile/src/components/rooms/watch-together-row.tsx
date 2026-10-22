@@ -1,4 +1,3 @@
-/** D01's Watch Together row on a title's page: it opens G01 to start a room for the title. */
 import type { TitleId } from "@movies/contracts/ids";
 import { router } from "expo-router";
 import { UsersRound } from "lucide-react-native";

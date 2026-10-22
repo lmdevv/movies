@@ -23,7 +23,6 @@ export const Route = createFileRoute("/profiles/$profileId/edit")({
   ),
 });
 
-/** Edits one of the account's profiles. A PIN profile is unlocked first. */
 function EditProfilePage() {
   const { profileId } = Route.useParams();
   const profiles = useCommandQuery("profiles.list", {});

@@ -1,29 +1,3 @@
-/**
- * The room engine: keeps one device's player on a watch room's shared timeline.
- *
- * - **Clock offset.** Reads the server clock several times at start and again periodically, and
- *   computes every target in server time from the best round trip.
- * - **Followers** (guests, and a host reverting) apply committed clocks in revision order and
- *   correct drift: a gentle rate nudge for small drift, a seek for large drift. A guest that
- *   stalls buffers locally and catches up when it plays again; a guest who pauses their own
- *   player is left alone until they play again. Guest player events never become room commands.
- * - **The host's** player is compared with the committed clock after each player event; a
- *   difference becomes `rooms.play`, `pause`, `seek`, or `buffering` at the revision the host last
- *   saw. A stall freezes the room, and recovery publishes a fresh playing anchor. Only a command
- *   rejected as stale, or a reconnect, moves the host's player onto the committed clock, apart
- *   from a host starting far from a playing room's live position, which catches up with it first.
- * - **Next episode.** The room's countdown is part of its record (`room.next`), due at a server
- *   time; `nextEpisodeCountdownMs` reads it with this device's clock offset. The server moves the
- *   room on, and each player opens the new media itself. An engine whose player is on a file the
- *   room moved on from goes `moved`: it applies no more clocks and sends no host commands, which
- *   also name their file, so the old player can never move the new media's clock.
- * - **Presence.** Heartbeats every few seconds; the host's carry its position so the server can
- *   re-anchor drift, and a following guest's carry its measured drift so the room can show it. An unanswered heartbeat marks the connection lost and disables host controls
- *   until the room has been read again.
- *
- * Host commands, heartbeats, and corrections run one at a time, so every command carries the
- * newest revision this device has applied.
- */
 import type { ClockOffset, ClockSample } from "@movies/contracts/clock";
 import type { CommandArgs } from "@movies/contracts/commands";
 import {
@@ -139,7 +113,6 @@ export interface RoomSync {
   readonly current: Effect.Effect<RoomSyncState>;
 }
 
-/** The platform refused to start playback, usually until the user interacts with the page. */
 class PlaybackBlocked extends Schema.TaggedError<PlaybackBlocked>()("PlaybackBlocked", {
   cause: Schema.Defect(),
 }) {}
@@ -157,25 +130,10 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
   const window = Math.max(1, tunables.offsetSamples * 2);
   const samples = yield* Ref.make<ReadonlyArray<ClockSample>>([]);
   const lastSeekAt = yield* Ref.make(Option.none<number>());
-  /**
-   * The clock revision the follower last acted on, if any. Joining and every clock change give it a
-   * fresh target, which `follow` settles onto from `settleMs`; keyed by revision, a clock applied
-   * while a decision was made for an older one still counts as fresh.
-   */
   const settledOn = yield* Ref.make<number | null>(null);
   const pauseEchoes = yield* Ref.make(0);
-  /**
-   * When a starting host began catching up with a playing room it was far from (`joinLiveClock`),
-   * while it still is. Meanwhile the host follows the clock as a guest does and publishes nothing.
-   */
   const catchingUpSince = yield* Ref.make(Option.none<number>());
-  /**
-   * Where the engine seeked the catching-up host's player, until a `seeked` lands there. A
-   * `seeked` landing on one is the engine's; one landing elsewhere is the host's own, even when it
-   * replaced an engine seek before that one finished.
-   */
   const catchUpSeeks = yield* Ref.make<ReadonlyArray<number>>([]);
-  /** Whether the catch-up nudged the player's rate, which ending it then puts back. */
   const catchUpNudged = yield* Ref.make(false);
   const serial = yield* Semaphore.make(1);
 
@@ -259,7 +217,6 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
         ),
     });
 
-  /** Moves the player toward the committed clock. Callers hold `serial`. */
   const align = Effect.fn("RoomSync.align")(function* () {
     const current = yield* SubscriptionRef.get(state);
     const now = yield* serverNow;
@@ -298,7 +255,6 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     yield* Effect.forEach(decision.commands, execute, { discard: true });
   });
 
-  /** Ends the host's catch-up, putting back the room's rate if a nudge changed it. */
   const endCatchUp = Effect.gen(function* () {
     yield* Ref.set(catchingUpSince, Option.none<number>());
     yield* Ref.set(catchUpSeeks, []);
@@ -307,7 +263,6 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     if (yield* Ref.getAndSet(catchUpNudged, false)) player.setPlaybackRate(clock.playbackRate);
   });
 
-  /** Whether the host is catching up, for no longer than `hostCatchUpMs`. */
   const isCatchingUp: Effect.Effect<boolean> = Effect.gen(function* () {
     const since = yield* Ref.get(catchingUpSince);
 
@@ -316,20 +271,10 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     return (yield* Clock.currentTimeMillis) - since.value < tunables.hostCatchUpMs;
   });
 
-  /**
-   * Clears a catch-up whose time ran out but that no correction has ended yet, putting the rate
-   * back before the host publishes or reports its position again. Callers hold `serial`.
-   */
   const settleExpiredCatchUp = Effect.gen(function* () {
     if (Option.isSome(yield* Ref.get(catchingUpSince))) yield* endCatchUp;
   });
 
-  /**
-   * A catching-up host's correction. It ends once the host is in step with a playing clock, the
-   * platform refuses to play, or `hostCatchUpMs` passes; the host then publishes its player's
-   * state, which the catch-up held back. A clock that stopped playing (the server paused the room)
-   * ends it too, and the player follows that clock rather than undo it. Callers hold `serial`.
-   */
   const catchUp = Effect.fn("RoomSync.catchUp")(function* (current: RoomSyncState) {
     if (Option.isNone(yield* Ref.get(catchingUpSince))) return;
 
@@ -351,8 +296,6 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     const { driftMs, follow: following } = yield* SubscriptionRef.get(state);
     const settled = (yield* Ref.get(settledOn)) === current.clock.revision;
 
-    // A player the platform will not start without a gesture cannot catch up: the room pauses
-    // with it, as for any host whose player is paused, until the host plays.
     if (following === "blocked") {
       yield* update((latest) => ({ ...latest, follow: "following" }));
       yield* endCatchUp;
@@ -367,18 +310,12 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     }
   });
 
-  /**
-   * A guest's drift correction, skipped while it is detached, blocked, or the room is over; for
-   * the host, its catch-up.
-   */
   const correct = serial.withPermits(1)(
     Effect.gen(function* () {
       const current = yield* SubscriptionRef.get(state);
 
-      // The room moved on from this player's file: nothing here to correct.
       if (current.follow === "moved") return;
 
-      // Before the ended check: a host's catch-up ends with the room too.
       if (current.role === "host") {
         yield* catchUp(current);
 
@@ -395,10 +332,6 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     }),
   );
 
-  /**
-   * Applies `clock` when it is newer than the applied one. Reports whether it was. A player the
-   * room moved on from applies no clock: the newer ones are the new media's.
-   */
   const applyClock = (clock: RoomClock): Effect.Effect<boolean> =>
     SubscriptionRef.modify(state, (current) => {
       if (current.follow === "moved" || !isNewerRevision(clock, current.clock)) {
@@ -415,14 +348,9 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
       return [true, { ...current, clock, follow: followState }];
     });
 
-  /**
-   * Takes in a room record: its clock when the room still plays this player's file, or the news
-   * that it moved on, after which this player is left alone. Reports whether the clock was newer.
-   */
   const adopt = (room: Room): Effect.Effect<boolean> =>
     room.fileId === fileId
       ? Effect.andThen(
-          // Back on this player's file before the app opened the other: follow it again.
           update((current) => ({
             ...current,
             room,
@@ -439,7 +367,6 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
           false,
         );
 
-  /** Reads the committed room and moves the player onto it. */
   const resync = serial.withPermits(1)(
     Effect.gen(function* () {
       const room = yield* client.query("rooms.get", { roomId });
@@ -467,17 +394,12 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     yield* applyClock(result);
   });
 
-  /**
-   * Publishes the host player's state as a room command when it differs from the clock. Callers
-   * hold `serial`; `publish` takes it.
-   */
   function publishNow(seeked: boolean): Effect.Effect<void> {
     return Effect.gen(function* () {
       const current = yield* SubscriptionRef.get(state);
 
       if (current.role !== "host" || current.connection !== "connected") return;
 
-      // A player the room moved on from never moves the new media's clock.
       if (current.follow === "moved") return;
 
       if (yield* isCatchingUp) return;
@@ -493,7 +415,6 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
         Effect.catchTag("TransportError", () => markReconnecting),
         Effect.catch((error: CallError) =>
           Effect.gen(function* () {
-            // Stale revision, or the room moved on: revert to the committed clock.
             yield* Effect.logInfo("RoomSync.hostCommandRejected", error).pipe(
               Effect.annotateLogs({ roomId, command: intent.value.command }),
             );
@@ -509,19 +430,9 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     });
   }
 
-  /** `publishNow`, holding `serial`. */
   const publish = (seeked: boolean): Effect.Effect<void> =>
     serial.withPermits(1)(publishNow(seeked));
 
-  /**
-   * Starts a host whose player is further than `hostSeekMs` from a playing room's live position
-   * catching up with it. The host's stream starts wherever it was negotiated, seconds before frames
-   * show; publishing from there, or reporting that position, would pull the room back for every
-   * guest, and the stall a catch-up seek may cause would freeze it. So the host follows the clock
-   * as a guest does, publishing nothing and reporting no position, until it is in step, it pauses
-   * or seeks its own player, or `hostCatchUpMs` passes. A host coming back to the room, or reloading, joins
-   * the time its guests are watching.
-   */
   const joinLiveClock = serial.withPermits(1)(
     Effect.gen(function* () {
       const { clock } = yield* SubscriptionRef.get(state);
@@ -529,7 +440,6 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
 
       if (clock.status !== "playing") return;
 
-      // Without a clock offset yet the distance is unknown: catch up once the offset arrives.
       if (
         Option.isSome(now) &&
         Math.abs(player.positionMs() - targetPosition(clock, now.value)) <= tunables.hostSeekMs
@@ -546,7 +456,6 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     Effect.gen(function* () {
       const current = yield* SubscriptionRef.get(state);
 
-      // A player the room moved on from is the app's to replace; its events mean nothing here.
       if (current.follow === "moved") return;
 
       if (current.role === "host") {
@@ -561,8 +470,6 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
             count > 0 ? [true, count - 1] : [false, 0],
           );
 
-          // The host paused their own player: the catch-up ends, and the room pauses with them.
-          // Under `serial`, so no correction is midway through a nudge as it ends.
           if (!echo) yield* serial.withPermits(1)(Effect.andThen(endCatchUp, publishNow(false)));
 
           return;
@@ -572,28 +479,19 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
           const landed = player.positionMs();
           const now = yield* serverNow;
 
-          // The engine seeks to the live position, so its seek lands on it, or on the target as
-          // the clock stood then; this event may be handled a while after it landed. Without a
-          // clock offset there is no telling, and nothing could be published anyway.
           const onClock = Option.match(now, {
             onNone: () => true,
             onSome: (at) => Math.abs(landed - targetPosition(current.clock, at)) <= tunables.seekMs,
           });
 
           const echo = yield* Ref.modify(catchUpSeeks, (targets) => {
-            const at = targets.findIndex(
-              // A stream may land a little off its target, on a keyframe.
-              (target) => Math.abs(landed - target) <= tunables.seekMs,
-            );
+            const at = targets.findIndex((target) => Math.abs(landed - target) <= tunables.seekMs);
 
-            // Earlier targets were replaced by this one, or already landed.
             if (at !== -1) return [true, targets.slice(at + 1)];
 
-            // Landing on the room's time is no change of the host's, whoever seeked.
             return [onClock, onClock ? targets.slice(1) : targets];
           });
 
-          // The host seeked their own player: the catch-up ends, and the room seeks with them.
           if (!echo) {
             yield* serial.withPermits(1)(Effect.andThen(endCatchUp, publishNow(true)));
 
@@ -633,17 +531,11 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
       if (event === "playing" || event === "seeked") yield* correct;
     });
 
-  /**
-   * The host reports its position and when it read it, by the server clock as it estimates it,
-   * except while it catches up; a following guest reports its drift.
-   */
   const heartbeatArgs = (
     current: RoomSyncState,
     now: Option.Option<EpochMillis>,
     catching: boolean,
   ): CommandArgs<"rooms.heartbeat"> => {
-    // A player the room moved on from plays nothing of the room's: it keeps the place, away, so it
-    // never counts as the host watching the new media.
     if (current.follow === "moved") return { roomId, deviceId, presence: "away" };
 
     if (current.role === "host" && catching) return { roomId, deviceId };
@@ -666,18 +558,12 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     return { roomId, deviceId };
   };
 
-  /**
-   * Sends one heartbeat, reading the state only once it holds `serial`: a host command that held
-   * it may have moved the revision meanwhile. The answer is applied before the permit goes, so a
-   * host command that waited for it never sends the revision a re-anchor just replaced.
-   */
   const beat = serial.withPermits(1)(
     Effect.gen(function* () {
       const current = yield* SubscriptionRef.get(state);
       const now = yield* serverNow;
       const catching = yield* isCatchingUp;
 
-      // A catch-up that ran out ends here first, publishing what it held back.
       if (!catching && Option.isSome(yield* Ref.get(catchingUpSince))) {
         yield* endCatchUp;
         yield* publishNow(false);
@@ -730,8 +616,6 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
       Effect.gen(function* () {
         const newer = yield* adopt(room);
 
-        // The host reverts only on a rejected command or a reconnect: its own commands reach the
-        // subscription before their results do, and aligning to them would echo them back.
         if (newer) yield* correct;
       }),
     ),
@@ -758,7 +642,6 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
     }),
   );
 
-  // Before the heartbeat and the player's events run, so neither reports the stream's start.
   if (role === "host") yield* joinLiveClock;
 
   yield* Effect.forkScoped(Stream.runForEach(events, onPlayerEvent));
@@ -778,7 +661,6 @@ export const run = Effect.fn("RoomSync.run")(function* (options: RoomSyncOptions
   if (role === "guest") {
     yield* Effect.forkScoped(correct.pipe(Effect.repeat(correcting)));
   } else {
-    // The host corrects only while it catches up.
     yield* Effect.forkScoped(
       correct.pipe(
         Effect.andThen(Effect.map(Ref.get(catchingUpSince), Option.isSome)),

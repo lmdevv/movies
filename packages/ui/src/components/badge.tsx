@@ -8,9 +8,7 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        /** Mono outline for technical facts: `4K HDR`, `ATMOS`. Takes the surrounding text color. */
         outline: "border border-current/40 font-mono",
-        /** Red label on artwork: `NEW`, `NEW EPISODE`. */
         accent: "bg-accent font-sans font-bold tracking-caps text-on-accent uppercase",
       },
     },

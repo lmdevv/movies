@@ -27,7 +27,6 @@ export interface EpisodeOption<Id extends string = string> {
   readonly available: boolean;
 }
 
-/** The parts the popover and the list share. */
 interface EpisodeBrowser<Id extends string> {
   /** Every season of the show; the chips to switch between them show only when there are several. */
   readonly seasons: ReadonlyArray<SeasonOption>;
@@ -41,14 +40,8 @@ interface EpisodeBrowser<Id extends string> {
   readonly onSelect: (episode: EpisodeOption<Id>) => void;
 }
 
-/** Placeholder rows while a season loads. */
 const LOADING_ROWS = [0, 1, 2] as const;
 
-/**
- * Where `key` moves focus among `items`, from the one at `at` (-1 for none): Up and Down step
- * through episode rows and Home and End jump to their ends, Left and Right step through season
- * chips. Undefined for any other key.
- */
 const focusTarget = (
   items: ReadonlyArray<HTMLElement>,
   at: number,
@@ -76,11 +69,6 @@ const focusTarget = (
   }
 };
 
-/**
- * Moves focus through the list from the keyboard, keeping the keys it uses (and Space, which
- * activates the focused row or chip) from the player's shortcuts behind it: arrows would seek or
- * change the volume, and Space would pause.
- */
 const onListKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
   const target = event.target;
 
@@ -102,15 +90,6 @@ const onListKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
   next.scrollIntoView({ block: "nearest" });
 };
 
-/**
- * A show's episodes as the player lists them: season chips when there are several, then each
- * episode's number, still, title, and detail. The episode playing is marked; one with no file on
- * disk cannot be chosen. Arrow keys move between episodes (and between season chips), Home and End
- * jump to the ends, and none of them reach the player's shortcuts.
- *
- * @param currentRef - Gets the current episode's row, for focusing it when the list opens.
- * @param listRef - Gets the list itself, which takes focus (and its keys) while a season loads.
- */
 function EpisodeList<Id extends string>({
   seasons,
   seasonNumber,
@@ -171,7 +150,6 @@ function EpisodeList<Id extends string>({
           </span>
         )}
       </div>
-      {/* The heading and season chips stay put while the episodes under them scroll. */}
       <ol className="flex min-h-0 scroll-py-1 flex-col gap-0.5 overflow-y-auto overscroll-y-contain px-3 pt-1 pb-3">
         {episodes === null
           ? LOADING_ROWS.map((row) => (
@@ -191,7 +169,6 @@ function EpisodeList<Id extends string>({
                     type="button"
                     data-slot="episode-row"
                     aria-current={current || undefined}
-                    // The episode playing stays focusable, even if its file went missing meanwhile.
                     disabled={!episode.available && !current}
                     onClick={() => onSelect(episode)}
                     className="group/episode flex w-full cursor-pointer items-center gap-3 rounded-bar p-2 text-left font-sans text-body/label text-text-muted transition-colors outline-none hover:bg-text/8 hover:text-text focus-visible:bg-text/8 focus-visible:text-text disabled:cursor-default disabled:opacity-(--opacity-muted) disabled:hover:bg-transparent aria-current:bg-text/8 aria-current:text-text"
@@ -260,8 +237,6 @@ export function EpisodePopover<Id extends string>({
   const currentRow = useRef<HTMLButtonElement | null>(null);
   const list = useRef<HTMLDivElement | null>(null);
 
-  // The season may load after the panel opened, focused on the list: focus then moves to the
-  // episode playing as it shows, unless the viewer has already moved it.
   const currentRef = useCallback((row: HTMLButtonElement | null): void => {
     currentRow.current = row;
 
@@ -286,7 +261,6 @@ export function EpisodePopover<Id extends string>({
           sideOffset={76}
           alignOffset={-32}
           collisionPadding={16}
-          // Always above the controls, as the track menu: a short window shortens the panel instead.
           collisionAvoidance={{ side: "none", align: "shift" }}
           className="z-50"
         >

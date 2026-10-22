@@ -1,7 +1,3 @@
-/**
- * What a download does after a failed call (H19 · Interrupted): renew the token, start a new
- * session, or stop with the short danger line H19 shows. Pure, over the SDK's tagged failures.
- */
 import type { CallError, PlaybackCallError } from "@movies/sdk/effect";
 import { Data, Predicate } from "effect";
 
@@ -23,7 +19,6 @@ export const DownloadStep = Data.taggedEnum<DownloadStep>();
 /** The line for a server that cannot be reached, as H19 shows it. */
 export const SERVER_UNAVAILABLE = "Your server is unavailable.";
 
-/** H19's line for each failure the viewer can only retry, by its tag. */
 const LINES = [
   { tag: "TransportError", line: SERVER_UNAVAILABLE },
   { tag: "FileResolverUnavailable", line: SERVER_UNAVAILABLE },
@@ -50,7 +45,6 @@ export const afterDownloadFailure = (cause: CallError | PlaybackCallError): Down
 
   if (known !== undefined) return DownloadStep.Interrupt({ message: known.line });
 
-  // Server failures (a profile that lost access) carry their own wording.
   return DownloadStep.Interrupt({
     message: cause.message === "" ? "Download stopped. Try again." : cause.message,
   });

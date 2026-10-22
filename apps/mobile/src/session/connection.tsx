@@ -1,7 +1,3 @@
-/**
- * The server connection for the whole app. Screens before connecting read and change it here;
- * once set, the app opens the SDK on it.
- */
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -34,7 +30,6 @@ export function ConnectionProvider({ children }: { readonly children: ReactNode 
   const disconnect = useCallback(() => {
     saveConnection(null);
 
-    // Leaving a server signs out of it, and its profile choice must not carry over to another.
     if (connection !== null) writeValue(sessionKeyFor(connection.convexUrl), null);
 
     saveProfileChoice(null);

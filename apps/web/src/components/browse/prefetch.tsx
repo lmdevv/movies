@@ -8,10 +8,8 @@ import { useCommandQuery } from "@movies/sdk/react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-/** How long a prefetched title stays subscribed after the pointer or focus left it. */
 const KEEP_MS = 30_000;
 
-/** Most titles kept warm at once; the oldest goes first. */
 const MAX_WARM = 8;
 
 const PrefetchContext = createContext<(titleId: TitleId) => void>(() => undefined);

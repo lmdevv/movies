@@ -1,22 +1,7 @@
-/**
- * The retained log folder as data: file names, when the writer starts a new file, and which files
- * retention deletes. Every decision here is a pure function of the listing, so running it again
- * after a crash, or twice in a row, reaches the same folder.
- *
- * A file is named after its place in the log and a time none of its records is earlier than,
- * `media-000000000042-20261021T140503123Z.ndjson`. The place is a sequence number the writer never
- * reuses, so names list in the order the files were written, and reading and retention follow it
- * whatever the clock did. The time lets a reader skip a file by its name alone: the file holds
- * records from that time up to its modification time. Files that match neither this pattern nor
- * the earlier one (`legacyOrderOf`) are never touched.
- */
 import { Option } from "effect";
 
-/** Where a file stands among the others, from its name. */
 interface FileOrder {
-  /** Its place in the log: a later file has a larger one. */
   readonly sequence: number;
-  /** No record in the file is earlier than this. */
   readonly startsAt: number;
 }
 
@@ -48,14 +33,12 @@ const SEQUENCE_DIGITS = 12;
 
 const NAME = /^media-(\d{12,})-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\d{3})Z\.ndjson$/u;
 
-/** Names written before files carried a sequence: a start time, then `-1`, `-2`, … on a tie. */
 const LEGACY_NAME =
   /^media-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\d{3})Z(?:-([1-9]\d*))?\.ndjson$/u;
 
 const compactTime = (time: number): string =>
   new Date(time).toISOString().replaceAll(/[-:.]/gu, "");
 
-/** The time `parts` (year, month, day, hours, minutes, seconds, milliseconds) name; none if invalid. */
 const timeOf = (parts: ReadonlyArray<string | undefined>): Option.Option<number> => {
   const [year, month, day, hours, minutes, seconds, millis] = parts.map(Number);
   const time = Date.UTC(year ?? 0, (month ?? 1) - 1, day, hours, minutes, seconds, millis);
@@ -79,7 +62,6 @@ export const orderOf = (name: string): Option.Option<FileOrder> => {
   }));
 };
 
-/** A file under the earlier naming, in the order that naming gave it. */
 interface LegacyFile {
   readonly name: string;
   readonly startsAt: number;

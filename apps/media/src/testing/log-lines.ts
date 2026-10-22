@@ -1,4 +1,3 @@
-/** Writing logger records into a retained log the way the console logger does. */
 import { Option } from "effect";
 
 import { decodeRecord } from "../logging/log-query.ts";

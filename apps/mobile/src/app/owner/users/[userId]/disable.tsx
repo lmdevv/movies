@@ -1,4 +1,3 @@
-/** Disable Account, from I10: the sheet that confirms signing a person out everywhere. */
 import { UserId } from "@movies/contracts/ids";
 import { useCommand } from "@movies/sdk/react";
 import { Schema } from "effect";

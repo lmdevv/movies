@@ -9,7 +9,6 @@ import { prepare } from "./downloads";
 
 const received: Array<{ readonly url: string; readonly body: string }> = [];
 
-/** What the media service answers, one per request in order. */
 const answers: Array<readonly [number, unknown]> = [];
 
 const server = createServer((request: IncomingMessage, response: ServerResponse) => {

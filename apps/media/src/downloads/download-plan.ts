@@ -1,11 +1,3 @@
-/**
- * What a download of a file becomes, by the playback ladder (`decidePlayback`) for a client that
- * opens local MP4 and QuickTime files: the original file when the device plays it as it is within
- * the chosen quality, else an MP4 with the video copied (a remux, or only the audio converted),
- * else one with the video encoded to H.264 in software. Unlike playback, the quality is a limit: a
- * source this host cannot bring within it is not downloaded at that quality. Pure: it reads a
- * probe, what the client decodes, and what this ffmpeg can do.
- */
 import type {
   ClientCapabilities,
   DownloadQuality,
@@ -25,26 +17,15 @@ import {
   type VideoPlan as VideoPlanType,
 } from "../playback/playback-decision.ts";
 
-/**
- * The cap of each download quality: the players' 720p and 1080p presets, so `standard` is the
- * stream a 720p choice plays.
- */
 const DOWNLOAD_CAPS: Readonly<Record<DownloadQuality, PlaybackQuality>> = {
   standard: { maxHeight: 720, maxBitrate: 4_000_000 },
   high: { maxHeight: 1080, maxBitrate: 10_000_000 },
 };
 
-/** Containers a device opens as local files; anything else becomes an MP4. */
 const FILE_CONTAINERS: ReadonlySet<string> = new Set(["mp4", "mov"]);
 
-/** Bits per second of the stereo AAC an encode writes (`AudioPlan.Aac`). */
 const AAC_BITRATE = 192_000;
 
-/**
- * Bits per second a copied audio track is counted at beside an encoded video, as the probe has no
- * per-track rate: E-AC-3 tops out at about 1.5 Mb/s, and lossless tracks rarely go past it in
- * stereo or 5.1.
- */
 const COPIED_AUDIO_BITRATE = 1_600_000;
 
 /** What a download is. */
@@ -87,7 +68,6 @@ export const decideDownload = (
   quality: DownloadQuality,
   options: DownloadOptions,
 ): DownloadPlan => {
-  // The quality is a size limit: a source that cannot be brought within it is not downloaded.
   const plan = decideWithin(
     probe,
     {
@@ -96,7 +76,6 @@ export const decideDownload = (
       audioCodecs: client.audioCodecs,
       maxWidth: client.maxWidth,
       maxHeight: client.maxHeight,
-      // Anything not played as it is goes through the ladder's HLS rungs, written here as an MP4.
       hls: true,
       mse: false,
     },
@@ -119,7 +98,6 @@ export const decideDownload = (
       });
 
       const estimatedBytes = VideoPlan.$match(video, {
-        // A copy holds the source's streams; converted audio adds at most its own rate.
         Copy: () =>
           options.sizeBytes +
           (AudioPlan.$is("Aac")(audio) ? (AAC_BITRATE * probe.durationSeconds) / 8 : 0),

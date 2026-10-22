@@ -1,14 +1,3 @@
-/**
- * How long playback takes to start, per path, against the real media service: negotiation
- * latency and time to the first media segment for direct play, remux (Matroska, with a Cues
- * index; MPEG-TS, which needs a packet scan), and a software transcode, each cold (no keyframe
- * cache) and warm. Not a CI gate and no thresholds: it prints a table to compare before and after
- * a change.
- *
- *   pnpm --filter @movies/media timing
- *
- * Skipped unless `MOVIES_TIMING=1`. Generates two minutes of 1080p video per file first.
- */
 import { assert, describe, layer } from "@effect/vitest";
 import { Duration, Effect, FileSystem, Path, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
@@ -30,7 +19,6 @@ const TIMING = LibraryId.make("timing");
 
 const SECONDS = 120;
 
-/** Chromium on a 1080p screen: plays H.264/AAC MP4 directly, AC-3 only through HLS. */
 const browser: ClientCapabilities = {
   containers: ["mp4", "webm"],
   videoCodecs: [{ codec: "h264", maxBitDepth: 8 }],
@@ -41,7 +29,6 @@ const browser: ClientCapabilities = {
   mse: true,
 };
 
-/** The same browser on a 720p screen, so 1080p sources transcode. */
 const small: ClientCapabilities = {
   containers: browser.containers,
   videoCodecs: browser.videoCodecs,
@@ -52,7 +39,6 @@ const small: ClientCapabilities = {
   mse: true,
 };
 
-/** One file per path, encoded like a typical release: 1080p H.264, a keyframe every 2 seconds. */
 const FILES = {
   direct: { name: "Direct (2020)/Direct (2020).mp4", audio: ["-c:a", "aac"] },
   remuxMkv: { name: "Remux (2020)/Remux (2020).mkv", audio: ["-c:a", "ac3"] },
@@ -108,7 +94,6 @@ const makeLibrary = Effect.gen(function* () {
   yield* scanner.scan({ libraryId: TIMING, root, mode: "incremental" });
 });
 
-/** Milliseconds `effect` took, with its result. */
 const timed = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
     const started = performance.now();
@@ -117,7 +102,6 @@ const timed = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     return { value, ms: Math.round(performance.now() - started) };
   });
 
-/** Negotiates `relativePath` for `capabilities`, then fetches its first media bytes. */
 const startPlayback = Effect.fn(function* (
   relativePath: string,
   capabilities: ClientCapabilities,
@@ -156,7 +140,6 @@ const startPlayback = Effect.fn(function* (
     ),
   );
 
-  // Stop it, so its encoder does not compete with the next measurement.
   if (negotiation.value.streamId !== undefined) {
     yield* HttpClient.execute(
       HttpClientRequest.post(`${server.baseUrl}/api/playback/stop`).pipe(

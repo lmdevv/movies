@@ -1,7 +1,3 @@
-/**
- * I08 · Users & Invites: the household's accounts with their roles, the invites still waiting to
- * be used, and Invite Someone. Each account opens its page (I10); a pending invite can be revoked.
- */
 import type { Invite } from "@movies/contracts/models/account";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { router } from "expo-router";

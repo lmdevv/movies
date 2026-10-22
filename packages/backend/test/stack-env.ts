@@ -1,8 +1,3 @@
-/**
- * Finds the local stack the integration suite runs against. `scripts/dev-stack.sh up` writes the
- * Convex URL and admin key to `packages/backend/.env.local` and the media service's credentials to
- * `apps/media/.env.local`; environment variables of the same names override them.
- */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -91,7 +86,6 @@ export const importDocuments = (table: string, documents: ReadonlyArray<string>)
   }
 };
 
-/** Modules that hold no Convex functions of ours: helpers, the cron table, and the HTTP router. */
 const isFunctionModule = (name: string): boolean =>
   !name.startsWith("lib_") && name !== "crons" && name !== "http";
 

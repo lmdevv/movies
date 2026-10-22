@@ -12,14 +12,12 @@ import * as PlaybackReporter from "./playback-reporter.ts";
 
 const hasFfmpeg = await ffmpegAvailable();
 
-/** Holds the removal of one stream's folder until the test lets it go. */
 const gate = {
   folder: "",
   entered: Promise.withResolvers<void>(),
   released: Promise.withResolvers<void>(),
 };
 
-/** The real file system, except that removing the gated folder waits for the gate. */
 const holdingRemoval = (real: FileSystem.FileSystem): FileSystem.FileSystem =>
   FileSystem.FileSystem.of({
     ...real,
@@ -84,12 +82,10 @@ describe.skipIf(!hasFfmpeg)("stream replacement", () => {
           assert.isString(replaced);
           gate.folder = replaced ?? "";
 
-          // The second negotiation replaces the first stream and waits while its folder goes.
           const second = yield* Effect.forkChild(negotiate);
 
           yield* Effect.promise(() => gate.entered.promise);
           yield* Fiber.interrupt(second);
-          // Long enough for the service to see the connection close.
           yield* Effect.sleep(Duration.millis(300));
           gate.released.resolve();
 

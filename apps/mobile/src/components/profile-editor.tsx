@@ -1,8 +1,3 @@
-/**
- * The profile editor's state, shared by its screens: the form (B03, B09, B11) and the screens it
- * opens for the avatar (B04), the maximum rating (B10), and the PIN (B12, B13). The draft saves
- * only from the form's check or Create Profile.
- */
 import type { Profile } from "@movies/contracts/models/profiles";
 import { useCommand } from "@movies/sdk/react";
 import { router } from "expo-router";
@@ -27,7 +22,6 @@ export interface ProfileEditor {
   readonly open: (screen: EditorScreen) => void;
 }
 
-/** The screens the form opens. */
 type EditorScreen = "avatar" | "rating" | "pin" | "confirm-pin";
 
 const ProfileEditorContext = createContext<ProfileEditor | null>(null);

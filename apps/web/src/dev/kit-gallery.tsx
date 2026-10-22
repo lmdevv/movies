@@ -119,7 +119,6 @@ function Section({
   );
 }
 
-/** The Paper hero's DUNE / PART TWO title art, drawn as text for the gallery. */
 function DuneTitleArt() {
   return (
     <div className="flex flex-col gap-5">

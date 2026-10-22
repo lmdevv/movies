@@ -1,9 +1,3 @@
-/**
- * Device sign-in. A device asks for a code pair, shows the short user code (and a QR link to the
- * approval page), and watches `status` with its secret device code. A signed-in account approves
- * the user code with chosen scopes; the device then signs in once with provider `device`. Codes
- * expire after ten minutes and work once.
- */
 import { v } from "convex/values";
 import type { Infer } from "convex/values";
 
@@ -25,13 +19,11 @@ import {
 } from "./lib/validators";
 import { authorize } from "./lib/viewer";
 
-/** How long a device code stays usable. */
 const DEVICE_CODE_TTL_MS = 10 * 60 * 1000;
 
 /** Device sessions last as long as Convex Auth's default sessions. */
 const DEVICE_SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** Most unexpired codes waiting at once, so anonymous requests cannot flood the table. */
 const MAX_PENDING_CODES = 50;
 
 const stateOf = (doc: Doc<"deviceCodes">, now: number): Doc<"deviceCodes">["status"] =>

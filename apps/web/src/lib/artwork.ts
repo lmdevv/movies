@@ -3,10 +3,6 @@ import type { ArtworkWidth } from "@movies/contracts/artwork";
 
 import { MEDIA_BASE_URL } from "@/env";
 
-/**
- * The width the media service resizes artwork to for each use, enough for 2x screens: menu and scan
- * thumbnails, poster cards, landscape cards, stills, and logos, and full-bleed backdrops.
- */
 const WIDTHS = {
   thumb: 185,
   poster: 500,

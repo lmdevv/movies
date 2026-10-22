@@ -1,8 +1,3 @@
-/**
- * J01 · Import Library from Jellyfin, J06 from Plex, and J05 when the source could not be used:
- * the source, its address, and its key, then Connect, which reads the source and previews the
- * import (J02). An import already running opens its progress instead (J03).
- */
 import { SOURCE_NAMES, failureLine } from "@movies/contracts/migration-plan";
 import type { MigrationSource } from "@movies/contracts/models/jobs";
 import type { MigrationSourceFailure } from "@movies/contracts/models/migration";
@@ -29,7 +24,6 @@ const PLACEHOLDERS: Readonly<Record<MigrationSource, string>> = {
   plex: "http://plex.local:32400",
 };
 
-/** The address as typed, with `http://` in front when no scheme was given. */
 const withScheme = (url: string): string => {
   const trimmed = url.trim();
 
@@ -44,7 +38,6 @@ export default function ImportLibrary() {
   const active = runs.status === "success" ? runs.data.find((run) => isActive(run.job)) : undefined;
   const activeId = active?.job.id;
 
-  // An import already under way is shown rather than started again.
   useEffect(() => {
     if (activeId !== undefined) {
       router.replace({ pathname: "/owner/import/progress", params: { jobId: activeId } });

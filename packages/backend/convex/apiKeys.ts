@@ -12,7 +12,6 @@ import { apiKey, apiKeyScope, createdApiKey, ok } from "./lib/validators";
 import { authorize, endAuthSession } from "./lib/viewer";
 import type { ReadCtx, Viewer } from "./lib/viewer";
 
-/** How long one sign-in session of a key lasts; the next sign-in after it opens a new one. */
 const KEY_SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -96,10 +95,6 @@ export const create = action({
   },
 });
 
-/**
- * Whether the viewer may see and revoke `owner`'s keys: their own, or as an admin another account's
- * except the owner's, which `users.ts` protects from other admins the same way.
- */
 const managesKeysOf = async (
   ctx: ReadCtx,
   viewer: Viewer,
@@ -205,7 +200,6 @@ export const redeem = internalMutation({
 
     const sessionId = await ctx.db.insert("authSessions", {
       userId: found.userId,
-      // A key's session ends with the key, so a refresh token cannot carry it past its expiry.
       expirationTime: Math.min(now + KEY_SESSION_MS, found.expiresAt ?? Number.POSITIVE_INFINITY),
       grant: {
         kind: "apikey",

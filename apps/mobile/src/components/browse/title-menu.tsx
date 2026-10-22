@@ -1,8 +1,3 @@
-/**
- * The actions a long press on a title offers (C16): play, add to or remove from My List, mark
- * watched or unwatched, and go to the title. iOS draws them as the native context menu under the
- * title's preview.
- */
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import { Link, router } from "expo-router";
 import type { ReactElement } from "react";

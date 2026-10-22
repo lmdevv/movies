@@ -68,7 +68,6 @@ export const list = query({
   },
 });
 
-/** The movie, the one episode, or every episode of a show a watched mark applies to. */
 const markTargets = async (
   ctx: MutationCtx,
   audience: Audience,

@@ -1,7 +1,3 @@
-/**
- * B08 · Switch Profile: the sheet over Your Profile that switches to another profile, asking for
- * its PIN first, or opens Manage Profiles.
- */
 import type { Profile } from "@movies/contracts/models/profiles";
 import { router } from "expo-router";
 import { Pencil, X } from "lucide-react-native";

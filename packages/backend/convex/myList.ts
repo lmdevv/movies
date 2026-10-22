@@ -6,7 +6,6 @@ import { presentTitleCard } from "./lib/present";
 import { ok, titleCard } from "./lib/validators";
 import { authorize } from "./lib/viewer";
 
-/** Most titles a profile's list shows. */
 const LIST_LIMIT = 500;
 
 /**

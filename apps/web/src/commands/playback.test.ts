@@ -6,7 +6,6 @@ import { playbackCommands } from "./playback";
 
 const noop = (): void => undefined;
 
-/** A player with two audio tracks and a subtitle track that records what the menu chooses. */
 const recordingPlayer = (overrides: Partial<PlayerCommands> = {}) => {
   const chosen: Array<string> = [];
 
@@ -70,7 +69,6 @@ const submenu = (player: PlayerCommands, id: string): CommandPage => {
   return item.page;
 };
 
-/** The subtitle delay's commands, with their keycaps. */
 const delayCommands = (player: PlayerCommands) =>
   items(player)
     .filter((item) => item.id.startsWith("player:subtitles-"))

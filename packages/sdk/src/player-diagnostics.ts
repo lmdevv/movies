@@ -1,14 +1,3 @@
-/**
- * What a player saw while it played, sent to the media service for its retained log, where
- * `movies diagnostics playback` reads it: how long each playback session took to start and its
- * stalls after that (from the player's `waiting` and `playing` events), dropped frames (sampled
- * where the platform counts them), and whatever the platform records itself, such as hls.js
- * segment loads, decoder errors, and recoveries.
- *
- * Events are batched and sent every few seconds with the playback token, never with the session's
- * Convex token, and the last batch is sent as the scope closes. Sending is best effort: a batch
- * the service refuses or cannot take is dropped, and playback never waits on it.
- */
 import {
   type ClientDiagnosticEvent,
   ClientDiagnosticsRequest,
@@ -37,7 +26,6 @@ import { encodeJson, mediaUrl, requestPlayback } from "./media-http";
 import type { Playback } from "./playback";
 import type { PlayerEvent, PlayerPort } from "./room-sync/player-port";
 
-/** The longest recovery reason the service takes. */
 const MAX_REASON_LENGTH = 120;
 
 /** A recovery the player took after a failure `reason` describes, cut to what the service takes. */
@@ -80,35 +68,25 @@ export interface Options {
   readonly frames: () => Option.Option<FrameCounts>;
 }
 
-/** How often events are sent. */
 const FLUSH_INTERVAL = Duration.seconds(5);
 
-/** How long the last batch may take as the scope closes. */
 const FINAL_FLUSH_TIMEOUT = Duration.seconds(2);
 
-/** Events kept while none can be sent; beyond this the oldest go. */
 const MAX_PENDING = 500;
 
-/** The service refuses events older than this. */
 const MAX_AGE_MS = 600_000;
 
-/** An observation waiting to be sent: what happened, when, and during which playback. */
 interface Pending {
   readonly observation: PlayerObservation;
   readonly at: number;
   readonly playback: Playback;
 }
 
-/**
- * A wait for data while the viewer wants playback: the playback session's startup, before it first
- * played, or a stall after that.
- */
 interface Wait {
   readonly kind: "startup" | "stall";
   readonly since: number;
 }
 
-/** `pending` as the events of a batch sent at `now`, leaving out those too old to send. */
 const toEvents = (
   pending: ReadonlyArray<Pending>,
   now: number,
@@ -131,7 +109,6 @@ const batches = <A>(events: ReadonlyArray<A>): ReadonlyArray<ReadonlyArray<A>> =
     events.slice(index * MAX_CLIENT_EVENTS, (index + 1) * MAX_CLIENT_EVENTS),
   );
 
-/** Sends `events` for `playback`'s session; a refused or lost batch is logged and dropped. */
 const send = (
   playback: Playback,
   platform: ClientPlatform,
@@ -177,12 +154,6 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   const queue = yield* Queue.sliding<Pending>(MAX_PENDING);
   const oneBatchAtATime = yield* Semaphore.make(1);
 
-  /**
-   * The wait in progress, none while playing; the playback that played last; the playback session
-   * that reached `playing`, after which its waits are stalls; the frame counts sampled last; and
-   * whether the recorder closed, after which it reads nothing from the player. Player events and
-   * records change them as they happen.
-   */
   const state = {
     waiting: Option.none<Wait>(),
     lastPlayback: Option.none<Playback>(),
@@ -194,7 +165,6 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   const playbackNow = (): Option.Option<Playback> =>
     Option.orElse(options.playback(), () => state.lastPlayback);
 
-  /** Keeps `observation` for the next batch; before any playback there is no one to tell. */
   const note = (observation: PlayerObservation): void => {
     const playback = playbackNow();
 
@@ -226,11 +196,9 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
     if (kind === "stall") note(PlayerObservation.cases.BufferingStarted.make(where()));
   };
 
-  /** Ends the wait in progress, if there is one, as `endedBy` says. */
   const endWait = (endedBy: "playing" | "paused" | "closed"): void => {
     if (Option.isNone(state.waiting)) return;
     const { kind, since } = state.waiting.value;
-    // A clock set back during the wait would make it negative, which no observation may carry.
     const durationMs = Math.max(0, Math.round(clock.currentTimeMillisUnsafe() - since));
 
     state.waiting = Option.none();
@@ -268,7 +236,6 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
 
     state.counted = counts.value;
 
-    // A new element counts from zero again, which reads as fewer frames and is skipped.
     if (dropped > 0 && decoded >= 0)
       note(PlayerObservation.cases.DroppedFrames.make({ dropped, decoded }));
   };

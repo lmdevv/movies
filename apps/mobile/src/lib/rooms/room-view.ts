@@ -1,8 +1,3 @@
-/**
- * Watch rooms as the iPhone shows them: the invite link, the people in a room and how each stands,
- * the line under a room's heading, and where this device stands with a room it opened. The server
- * decides who may join and who controls the timeline; these only turn its answers into views.
- */
 import { DRIFT_THRESHOLDS } from "@movies/contracts/clock";
 import type { DeviceId, ProfileId, RoomId } from "@movies/contracts/ids";
 import type { Room, RoomMember } from "@movies/contracts/models/rooms";
@@ -77,7 +72,6 @@ export const memberRows = (
     detail: "Host · Left",
   };
 
-  // This device, when listed, stays first.
   const [first, ...rest] = rows;
 
   return first?.id === deviceId ? [first, left, ...rest] : [left, ...rows];

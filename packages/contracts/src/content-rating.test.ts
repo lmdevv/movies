@@ -16,7 +16,6 @@ describe("ageRatingFromCertification", () => {
     ["15", 15],
     ["FSK 16", 16],
     ["16+", 16],
-    // As NFO writers and other servers prefix them.
     ["Rated PG-13", 13],
     ["Rated R", 17],
     ["US:PG-13", 13],

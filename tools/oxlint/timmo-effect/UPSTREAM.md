@@ -18,3 +18,5 @@
   `c44ef22ca116d0ba62a3ff663a0bd13a3f3fa40b`, and the files are identical.
 - Tests are not vendored; they depend on Bun and `oxlint/plugins-dev`.
 - The npm package is not installed because it pins Oxlint 1.86.0.
+- `effect/rules/no-raw-gh.ts` has its private helper comments removed and a notice saying so at its
+  top, as section 4(b) of the license requires. Its code is unchanged.

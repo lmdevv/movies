@@ -1,7 +1,3 @@
-/**
- * Failures the SDK adds to the command errors in `@movies/contracts/errors`: the server could not
- * be reached, or it answered with something the contracts do not describe.
- */
 import type { CommandError } from "@movies/contracts/errors";
 import { Predicate, Schema } from "effect";
 

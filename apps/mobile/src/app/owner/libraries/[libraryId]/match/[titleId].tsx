@@ -1,7 +1,3 @@
-/**
- * I07 · Fix Match: the file, a title and year to search TMDB with, the matches it finds, and Use
- * This Match. Matching queues a metadata job; the title updates once it runs.
- */
 import { LibraryId, TitleId } from "@movies/contracts/ids";
 import type { LibraryFile, MetadataCandidate } from "@movies/contracts/models/catalog";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
@@ -25,21 +21,18 @@ const decodeLibraryId = Schema.decodeUnknownSync(LibraryId);
 
 const decodeTitleId = Schema.decodeUnknownSync(TitleId);
 
-/** Where the TMDB search stands. */
 type Results =
   | { readonly status: "idle" }
   | { readonly status: "searching" }
   | { readonly status: "done"; readonly candidates: ReadonlyArray<MetadataCandidate> }
   | { readonly status: "failed"; readonly message: string };
 
-/** A year from the field, or null when it is empty or not a plausible year. */
 const parseYear = (text: string): number | null => {
   const year = Number(text.trim());
 
   return text.trim() !== "" && Number.isInteger(year) && year >= 1870 && year <= 2200 ? year : null;
 };
 
-/** How a failed search reads: a server without a metadata provider cannot search at all. */
 const searchFailure = (cause: unknown): string => {
   if (isFailure(cause, "RateLimited")) return "TMDB is busy. Try again in a moment.";
 
@@ -131,7 +124,6 @@ function MatchEditor({ file }: { readonly file: LibraryFile }) {
     }
   };
 
-  // Search once with the file's current guess, as the screen opens.
   const searched = useRef(false);
 
   useEffect(() => {

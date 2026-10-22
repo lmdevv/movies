@@ -1,9 +1,3 @@
-/**
- * What the web player decides without side effects: whether to offer resuming, and what to do
- * about each way playback can fail, over the SDK's tagged errors and the stream failures
- * `stream-attachment` reports, so the controller only carries them out. Media service failures
- * follow `Playback.recoveryFor`; a file that is gone shows its own calm state.
- */
 import { PlaybackApiError } from "@movies/contracts/media-playback";
 import type { CallError, PlaybackCallError } from "@movies/sdk/effect";
 import { Playback } from "@movies/sdk/effect";
@@ -11,7 +5,6 @@ import { Data, Match, Schema } from "effect";
 
 import type { StreamFailure } from "./stream-attachment";
 
-/** Saved positions shorter than this start from the beginning instead of asking to resume. */
 const MIN_RESUME_MS = 10_000;
 
 /**
@@ -105,7 +98,6 @@ export const afterPlaybackFailure = (error: PlaybackCallError | CallError): Play
     );
   }
 
-  // Renewing the token fails with `Conflict` or `NotFound` once the session ended elsewhere.
   return Match.value(error).pipe(
     Match.tags({
       TransportError: recoveryStep,

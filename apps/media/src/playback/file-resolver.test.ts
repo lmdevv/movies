@@ -21,14 +21,6 @@ const probe = {
 const sidecar = (path: string) =>
   ({ path, format: "srt", forced: false, hearingImpaired: false, default: false }) as const;
 
-/**
- * A library folder approved beside a root that does not exist (an unmounted share), a folder
- * outside both, and a catalog whose records point into them:
- * - `film`: a film with a subtitle, a subtitle linking to it, a subtitle linking outside, and a
- *   subtitle that is gone;
- * - `linked`: a film linking outside the library;
- * - `outside`: a film stored outside the library.
- */
 const testLayer = Layer.unwrap(
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -119,8 +111,6 @@ describe("resolveInsideRoots", () => {
           sidecars: true,
         });
 
-        // A link to another sidecar is still its own track, so a link swapped later cannot
-        // redirect a read and two links to one file cannot share a track ID.
         assert.deepStrictEqual(
           new Set(resolved.subtitles.map((track) => sidecarTrackId(track.path))).size,
           2,

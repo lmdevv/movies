@@ -16,7 +16,6 @@ export const randomUuid = (): string => {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 };
 
-/** The browser refused to copy, so the caller should let the user copy by hand. */
 class CopyFailed extends Error {
   override readonly name = "CopyFailed";
 }

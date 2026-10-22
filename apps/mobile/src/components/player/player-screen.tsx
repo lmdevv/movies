@@ -1,11 +1,3 @@
-/**
- * The player (F01–F14): the video full screen in landscape with its controls, sheets, and states.
- * `usePlaybackSession` starts the session and reports progress through the controller's port, so
- * closing the player ends the session and Continue Watching shows where it stopped. A session that
- * ended elsewhere, or could not start, starts again at the same position with a new key. In a
- * watch room (F15–F24, `player-room.tsx`) the room is joined first, the stream starts at its live
- * position, and the room's engine keeps the port on the shared timeline.
- */
 import { targetPosition } from "@movies/contracts/clock";
 import type { EpisodeId } from "@movies/contracts/ids";
 import type { SeasonEpisode } from "@movies/contracts/models/catalog";
@@ -76,21 +68,15 @@ import {
 import { Spinner } from "./spinner";
 import { SubtitleOverlay } from "./subtitle-overlay";
 
-/** How long the controls stay up without a touch while playing. */
 const CONTROLS_HIDE_MS = 4_000;
 
-/** How long Unlock Controls shows after a touch on locked controls. */
 const UNLOCK_HINT_MS = 3_000;
 
-/** A sheet over the player. */
 type Panel = "audio" | "quality" | "speed" | "episodes" | "chapters";
 
-/** One try at a session and where it starts. */
 interface Attempt {
   readonly key: number;
-  /** Where to start; none for the saved progress. */
   readonly startAtMs: number | null;
-  /** Tries in a row that failed to start. */
   readonly failures: number;
 }
 
@@ -114,7 +100,6 @@ const IDLE_STATE: VideoState = {
 
 const subscribeNothing = (): (() => void) => () => undefined;
 
-/** The screen's brightness, starting from the system's and put back on leaving. */
 const useBrightness = (): readonly [number, (value: number) => void] => {
   const [level, setLevel] = useState(0.5);
 
@@ -127,9 +112,7 @@ const useBrightness = (): readonly [number, (value: number) => void] => {
 
         original = value;
         setLevel(value);
-      } catch {
-        // Without a reading the slider starts halfway; setting it still works.
-      }
+      } catch {}
     };
 
     void read();
@@ -147,10 +130,6 @@ const useBrightness = (): readonly [number, (value: number) => void] => {
   return [level, set] as const;
 };
 
-/**
- * What a session starts with: the quality, and the tracks the viewer picked in a session that
- * ended elsewhere. Without those tracks, a session starts on App Settings' audio and subtitles.
- */
 interface StartChoices {
   readonly quality: QualityChoice;
   readonly tracks: {
@@ -159,33 +138,19 @@ interface StartChoices {
   } | null;
 }
 
-/**
- * Why a new session starts: the same request again (after a start that failed, `failed` counting
- * toward the retry limit), or at a position playback reached before its session ended elsewhere,
- * keeping what the viewer had chosen.
- */
 type Restart =
   | { readonly kind: "again"; readonly failed: boolean }
   | { readonly kind: "at"; readonly positionMs: number; readonly choices: StartChoices };
 
-/** Props for `PlayerSession`. */
 interface PlayerSessionProps {
   readonly params: WatchParams;
   readonly attempt: Attempt;
   readonly onRestart: (restart: Restart) => void;
-  /** The watch room the screen opened with, joined. */
   readonly gate: RoomGate;
-  /** What the session starts with: App Settings' choices, or the viewer's from an ended session. */
   readonly choices: StartChoices;
-  /** The service could not start a stream at the chosen quality; start again without the cap. */
   readonly onQualityRefused: () => void;
 }
 
-/**
- * The room this session plays in and where it starts: the room's live position when it began, by
- * the gate's estimate of the server's clock. Read once, so the session never restarts as the
- * room's clock moves.
- */
 const useSessionStart = (gate: RoomGate) =>
   useState(() => ({
     roomId: gate.opened,
@@ -195,7 +160,6 @@ const useSessionStart = (gate: RoomGate) =>
         : targetPosition(gate.joined.clock, EpochMillis.make(Math.round(gate.serverNow()))),
   }))[0];
 
-/** One playback session in the player. */
 function PlayerSession({
   params,
   attempt,
@@ -210,7 +174,6 @@ function PlayerSession({
   const { profile } = useActiveProfile();
   const { mediaUrl } = useServer();
   const preferences = usePreferences();
-  // App Settings as the session started, so changing them mid-session does not restart it.
   const [startPreferences] = useState(preferences);
   const [controller, setController] = useState<PlayerController | null>(null);
   const restart = useRef(onRestart);
@@ -259,7 +222,6 @@ function PlayerSession({
         Milliseconds.make(ms),
       ),
       audioStreamIndex: Option.fromNullishOr(startTracks?.audioStreamIndex),
-      // Without the viewer's own track, the first stream plays App Settings' audio language.
       chooseAudio: (file) =>
         Option.fromNullishOr(
           preferredTracks(startPreferences, file.probe.audio, []).audioStreamIndex,
@@ -277,7 +239,6 @@ function PlayerSession({
     ],
   );
 
-  // A kept download plays its local file (`useDownloadSession`) instead of a server session.
   const download = params.download ?? null;
 
   const online = usePlaybackSession(
@@ -294,15 +255,12 @@ function PlayerSession({
     }
   }, [controller, session, download]);
 
-  // A session that could not start tries the same request again after the pause its failure calls
-  // for, keeping where it was asked to start.
   const startStep = useMemo(
     () =>
       session !== null && Result.isFailure(session) ? afterStartFailure(session.failure) : null,
     [session],
   );
 
-  // A start the service refused at the chosen quality starts over without the cap instead.
   const qualityRefused =
     startQuality !== "auto" &&
     session !== null &&
@@ -386,8 +344,6 @@ function PlayerSession({
     if (holding !== undefined) setHeld(holding);
   }, []);
 
-  // Playing, the controls step away after a few seconds without a touch, counted from the first
-  // frame.
   const shown = PlayerPhase.$is("Playing")(snapshot.phase);
 
   const room = useSessionRoom({
@@ -411,7 +367,6 @@ function PlayerSession({
 
   const inRoom = room.room !== null;
   const guest = room.role === "guest";
-  // Paused, in a sheet, beside the room's pane, or under a popup, the controls stay up.
   const holding = held || panel !== null || room.pane || room.popup !== null;
 
   useEffect(() => {
@@ -436,8 +391,6 @@ function PlayerSession({
   const failedStart = startStep !== null && !retryable && !qualityRefused && stop === null;
   const playing = PlayerPhase.$is("Playing")(snapshot.phase);
 
-  // Each new session shows App Settings' subtitles once it plays (its audio came with the first
-  // stream), or the subtitles the viewer had when it replaces one that ended elsewhere.
   const subtitlesFor = useRef<string | null>(null);
 
   useEffect(() => {
@@ -467,7 +420,6 @@ function PlayerSession({
       ended: media.ended,
     });
 
-  // Alone, the player counts down itself; a room moves on together (`useRoomNext`).
   const solo = gate.roomId === null;
 
   const showNext =
@@ -492,13 +444,11 @@ function PlayerSession({
   const roomCardShown = roomNext.card !== null;
   const { setPane } = room;
 
-  // The next-episode card takes the screen's corner the pane would cover: the pane steps away.
   useEffect(() => {
     if (roomCardShown) setPane(false);
   }, [roomCardShown, setPane]);
   const [countdownStart, setCountdownStart] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  // Without autoplay (App Settings), the card offers the next episode without counting down.
   const autoplay = preferences.autoplayNext;
 
   useEffect(() => {
@@ -522,9 +472,6 @@ function PlayerSession({
       : NEXT_COUNTDOWN.totalMs - (now - countdownStart);
 
   const playEpisode = useCallback((episodeId: EpisodeId) => {
-    // The same screen with another episode, from the next-episode card or the Episodes panel: its
-    // key changes, so a new session starts, resuming where the profile stopped without asking, as
-    // on the web. A version or a starting position chosen for this episode does not carry over.
     router.setParams({ episodeId, fileId: undefined, start: "resume", at: undefined });
   }, []);
 
@@ -540,7 +487,6 @@ function PlayerSession({
 
   const chapters = useMemo(() => chapterRows(started?.file.probe.chapters ?? []), [started]);
 
-  // A room plays one episode for everyone: the host's pick moves the room, and guests get none.
   const pickEpisode = roomNext.pick ?? playEpisode;
 
   const more: ReadonlyArray<MoreItem> = [
@@ -562,7 +508,6 @@ function PlayerSession({
             onPress: () => setPanel("chapters"),
           } as const,
         ]),
-    // A download plays the quality it was kept at.
     ...(download === null
       ? [
           {
@@ -906,7 +851,6 @@ function PlayerSession({
   );
 }
 
-/** F09 and F13 for the way playback stopped. */
 function StoppedPanel({
   stop,
   onRetry,
@@ -915,7 +859,6 @@ function StoppedPanel({
 }: {
   readonly stop: PlaybackStop | null;
   readonly onRetry: () => void;
-  /** Tries again below the quality that played; null before any stream played. */
   readonly onLowerQuality: (() => void) | null;
   readonly onClose: () => void;
 }) {
@@ -956,7 +899,6 @@ function StoppedPanel({
   });
 }
 
-/** The network as the player needs to know it, from the system's network state. */
 const connectionOf = (state: Network.NetworkState): Connection => {
   if (state.type === Network.NetworkStateType.CELLULAR) return "cellular";
 
@@ -967,14 +909,9 @@ const connectionOf = (state: Network.NetworkState): Connection => {
 
 interface MobileDataGate {
   readonly step: MobileDataStep | "checking";
-  /** Lets playback start, after Ask First was answered. */
   readonly allow: () => void;
 }
 
-/**
- * App Settings' Mobile Data before the first stream: `checking` while the network is read, then
- * the step for it. The network is read once, when the player opens.
- */
 const useMobileDataGate = (): MobileDataGate => {
   const { mobileData } = usePreferences();
   const [preference] = useState(mobileData);
@@ -983,7 +920,6 @@ const useMobileDataGate = (): MobileDataGate => {
   useEffect(() => {
     let live = true;
 
-    // A network the system can't report counts as unknown, which plays.
     const read = async (): Promise<Connection> => {
       try {
         return connectionOf(await Network.getNetworkStateAsync());
@@ -1006,16 +942,13 @@ const useMobileDataGate = (): MobileDataGate => {
   return { step, allow: () => setStep("play") };
 };
 
-/** Leaves the player. */
 const closePlayer = (): void => router.back();
 
-/** Before streaming on mobile data: Ask First's question, or Wi-Fi Only's stop. */
 function MobileDataPanel({
   step,
   onPlay,
 }: {
   readonly step: Exclude<MobileDataStep, "play"> | "checking";
-  /** Plays, at `quality` to save data or at the chosen quality with null. */
   readonly onPlay: (quality: QualityChoice | null) => void;
 }) {
   if (step === "checking") {
@@ -1061,14 +994,11 @@ export function PlayerScreen({ params }: { readonly params: WatchParams }) {
   const gate = useRoomGate(params);
   const preferences = usePreferences();
 
-  // App Settings' quality is where playback starts; the player's own menu changes it from there.
   const [choices, setChoices] = useState<StartChoices>({
     quality: preferences.quality,
     tracks: null,
   });
 
-  // A room plays from its own position, never from the profile's saved one; `at` (a room's
-  // position, for a guest going on alone) starts there.
   const [attempt, setAttempt] = useState<Attempt>(() => {
     const own = params.room === undefined;
     const at = own ? (params.at ?? (params.start === "beginning" ? 0 : null)) : null;
@@ -1099,7 +1029,6 @@ export function PlayerScreen({ params }: { readonly params: WatchParams }) {
 
   // The player's own safe area: the modal turns to landscape, where the app's provider would still
   // report the portrait insets.
-  // A kept download plays from this iPhone and uses no data.
   if (data.step !== "play" && params.download === undefined) {
     return (
       <SafeAreaProvider>

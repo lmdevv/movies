@@ -23,30 +23,19 @@ export interface Match {
   readonly record: LogRecord;
 }
 
-/** What a query found. */
 interface Found {
-  /** Matching records, oldest first. */
   readonly matches: ReadonlyArray<Match>;
-  /** Older records may match too: `limit` was reached before the oldest file was read. */
   readonly truncated: boolean;
-  /** Matching lines written after the query started; empty unless it follows. */
   readonly live: Stream.Stream<string>;
-  /** Since when the log could not be written or read; none while it works. */
   readonly unavailableSince: Option.Option<number>;
 }
 
-/** How much earlier than its last record a file's modification time may read. */
 const MODIFIED_AT_SLACK_MS = 2000;
 
 const overlaps = (file: LogFile, query: LogQuery): boolean =>
   (query.since === undefined || file.modifiedAt + MODIFIED_AT_SLACK_MS >= query.since) &&
   (query.until === undefined || file.startsAt < query.until);
 
-/**
- * The match on `line`, if it is one. Filters that redaction cannot change run on the line as
- * written, so most lines are decoded once and never redacted; `grep` and the record handed on
- * see the redacted line.
- */
 const matchLine = (query: LogQuery, line: string): Option.Option<Match> => {
   if (
     !mayMatch(query, line) ||
@@ -65,7 +54,6 @@ const matchLine = (query: LogQuery, line: string): Option.Option<Match> => {
   );
 };
 
-/** What a file that retention deleted after the snapshot holds. */
 const nothingFound = () => ({ kept: Array.of<Match>(), total: 0 });
 
 /** Reads the retained log for `query`; following lasts as long as the scope. */
@@ -77,7 +65,6 @@ export const read = Effect.fn("LogReader.read")(function* (query: LogQuery) {
   const snapshot = yield* retained.snapshot;
   const files = snapshot.files.filter((file) => overlaps(file, query)).toReversed();
 
-  /** The last `limit` matches in `file`, and how many it holds, read no further than its size. */
   const lastMatches = (file: LogFile) =>
     fs.stream(path.join(snapshot.directory, file.name), { bytesToRead: file.sizeBytes }).pipe(
       Stream.decodeText(),

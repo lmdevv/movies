@@ -17,7 +17,6 @@ import { signTestToken } from "../testing/test-config.ts";
 
 const hasFfmpeg = await ffmpegAvailable();
 
-/** What the iOS app sends: MP4 and QuickTime files, H.264 and HEVC, Dolby audio. */
 const iphone: ClientCapabilities = {
   containers: ["mp4", "mov"],
   videoCodecs: [{ codec: "h264", maxLevel: 52, maxBitDepth: 8 }, { codec: "hevc" }],
@@ -28,7 +27,6 @@ const iphone: ClientCapabilities = {
   mse: false,
 };
 
-/** A screen too small for the fixtures, so even H.264 sources are encoded down. */
 const tinyScreen: ClientCapabilities = {
   containers: iphone.containers,
   videoCodecs: iphone.videoCodecs,
@@ -39,14 +37,12 @@ const tinyScreen: ClientCapabilities = {
   mse: false,
 };
 
-/** The reason in a refused token's JSON body. */
 const decodeRefusal = Schema.decodeUnknownEffect(Schema.Struct({ reason: Schema.String }));
 
 const byName = (left: string, right: string) => left.localeCompare(right);
 
 const decodePrepared = Schema.decodeUnknownEffect(Schema.toCodecJson(PrepareDownloadResponse));
 
-/** The path and query of a URL the service built with its public base URL. */
 const local = (baseUrl: string, url: string): string => {
   const parsed = new URL(url);
 
@@ -62,7 +58,6 @@ const bytes = (response: HttpClientResponse.HttpClientResponse) =>
     Effect.orDie,
   );
 
-/** Posts one prepare request; answers the status and the JSON body. */
 const prepare = Effect.fn(function* (body: {
   readonly token: string;
   readonly capabilities: ClientCapabilities;
@@ -88,13 +83,11 @@ const prepared = Effect.fn(function* (body: Parameters<typeof prepare>[0]) {
   return yield* decodePrepared(result.body).pipe(Effect.orDie);
 });
 
-/** The answer when it is `Ready`; anything else fails the test. */
 const readyOf = (answer: PrepareDownloadResponse) =>
   Predicate.isTagged(answer, "Ready")
     ? Effect.succeed(answer)
     : Effect.die(new Error(`Expected a ready download, got ${JSON.stringify(answer)}`));
 
-/** Prepares until the download is ready, as an app polls; every answer before it is `Preparing`. */
 const untilReady = Effect.fn(function* (body: Parameters<typeof prepare>[0]) {
   const answers: Array<PrepareDownloadResponse> = [];
 
@@ -110,7 +103,6 @@ const untilReady = Effect.fn(function* (body: Parameters<typeof prepare>[0]) {
   return { ready: yield* readyOf(ready), answers };
 });
 
-/** Probes bytes with ffprobe after writing them to a temporary file. */
 const probeBytes = Effect.fn(function* (data: Uint8Array) {
   const fs = yield* FileSystem.FileSystem;
   const tools = yield* MediaTools.Service;
@@ -186,7 +178,6 @@ describe.skipIf(!hasFfmpeg)("downloads over HTTP", () => {
           ready.url,
           new RegExp(`/media/downloads/${fileId}/[a-f0-9]{24}\\.mp4\\?token=`),
         );
-        // The embedded SRT and both sidecars; every one with its WebVTT URL.
         assert.strictEqual(ready.subtitles.length, 3);
 
         for (const subtitle of ready.subtitles) {
@@ -215,7 +206,6 @@ describe.skipIf(!hasFfmpeg)("downloads over HTTP", () => {
         );
         assert.approximately(probe.durationSeconds, 12, 0.5);
 
-        // Another device downloading the same file gets the same MP4 at once.
         const again = yield* readyOf(
           yield* prepared({
             token: signTestToken({ fid: fileId, sid: "download-remux-2", pur: "download" }),
@@ -287,7 +277,6 @@ describe.skipIf(!hasFfmpeg)("downloads over HTTP", () => {
 
         assert.isTrue(Predicate.isTagged(first, "Preparing"));
 
-        // The same session asks for another version while the first is written.
         const { ready } = yield* untilReady({
           token,
           capabilities: tinyScreen,

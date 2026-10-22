@@ -1,4 +1,3 @@
-/** Reading Effect `FileSystem` stat results the way every cache key and validator here does. */
 import { type FileSystem, Option, type PlatformError, Predicate } from "effect";
 
 /**

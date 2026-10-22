@@ -1,9 +1,3 @@
-/**
- * `GET /artwork/:key?w=`: artwork images by the opaque keys titles carry (see
- * `@movies/contracts/artwork`). No token: `<img>` tags cannot send one, artwork is low
- * sensitivity, and a key can only name an image the service sealed itself. Unknown keys answer
- * 404, widths outside `ARTWORK_WIDTHS` 400, and images that cannot be fetched or resized 503.
- */
 import { ArtworkWidth } from "@movies/contracts/artwork";
 import { Effect, Layer, Option, Schema } from "effect";
 import { HttpPlatform, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
@@ -14,7 +8,6 @@ const decodeWidth = Schema.decodeUnknownOption(
   Schema.FiniteFromString.pipe(Schema.decodeTo(ArtworkWidth)),
 );
 
-/** Clients may cache an image for a day; a replaced local image gets a new ETag. */
 const CACHE_CONTROL = "public, max-age=86400";
 
 /** Adds the artwork route. */

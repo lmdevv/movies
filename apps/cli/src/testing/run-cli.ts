@@ -1,7 +1,3 @@
-/**
- * Runs the CLI in-process with a recording `Output` and an explicit environment, so tests see
- * exactly what a user would without spawning a process or touching the real environment.
- */
 import { ConfigProvider, Effect } from "effect";
 
 import { runCli } from "../cli";

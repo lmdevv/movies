@@ -24,7 +24,6 @@ export const Route = createFileRoute("/_app/title/$titleId")({
   component: TitlePage,
 });
 
-/** A movie's or show's page, live. Titles hidden from a kids profile read as not found. */
 function TitlePage() {
   const { titleId } = Route.useParams();
   const { profile } = useActiveProfile();

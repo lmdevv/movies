@@ -44,7 +44,6 @@ const current = new Map(
     }),
 );
 
-/** Sets a variable unless it already has a value and `keep` asks to keep it; returns the value. */
 const ensure = (name: string, value: () => string, keep: boolean): string => {
   const existing = current.get(name);
 
@@ -73,7 +72,6 @@ if (!current.has("JWT_PRIVATE_KEY") || !current.has("JWKS")) {
   log("kept JWT_PRIVATE_KEY and JWKS");
 }
 
-/** A URL flag replaces the stored value; without it the stored value stays, or the default is set. */
 const ensureUrl = (name: string, flag: string | undefined, fallback: string): void => {
   ensure(name, () => flag ?? fallback, flag === undefined);
 };
@@ -105,8 +103,6 @@ const ensured = convex([
 
 log(`media service key: ${ensured.includes("true") ? "registered" : "already registered"}`);
 
-// Sort keys and genre rows for titles stored before they followed overrides or existed; a no-op
-// once every title is in step.
 convex(["run", "maintenance:backfillTitleIndexes", "{}"]);
 
 process.stdout.write(

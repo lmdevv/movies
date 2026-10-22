@@ -1,4 +1,3 @@
-/** Viewing profiles. Each belongs to one account; watch history and my list are per profile. */
 import { Schema } from "effect";
 
 import { AgeRating } from "../content-rating";

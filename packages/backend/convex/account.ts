@@ -104,7 +104,6 @@ export const changePassword = action({
       return fail("invalid_args", `Use at least ${PASSWORD_MIN} characters for the password`);
     }
 
-    // Convex Auth answers with the account, or a reason it refused the secret.
     const checked: unknown = await ctx.runMutation(internal.auth.store, {
       args: {
         type: "retrieveAccountWithCredentials",
@@ -117,7 +116,6 @@ export const changePassword = action({
       return fail("rate_limited", "Too many wrong passwords; wait a few minutes and try again");
     }
 
-    // Only an answer carrying the account accepts the password; every other answer refuses it.
     if (!(checked instanceof Object && Object.hasOwn(checked, "account"))) {
       return fail("forbidden", "The current password is wrong");
     }

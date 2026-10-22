@@ -26,30 +26,20 @@ import * as PlaybackReporter from "./playback-reporter.ts";
 
 const hasFfmpeg = await ffmpegAvailable();
 
-/** Quick Sync runs write six seconds (segments 0 and 1 of the 12-second clip), then fail. */
 const failingQsv = await writeFakeFfmpeg({
   qsvFailsAfterSeconds: 6,
 });
 
-/** Every HLS run takes ten seconds to start. */
 const slowStart = await writeFakeFfmpeg({ hlsDelayMs: 10_000 });
 
-/** A Quick Sync run that takes three seconds to fail, as a missing device does here. */
 const slowQsv = await writeFakeFfmpeg({ hlsDelayMs: 3000, qsvFailsAfterSeconds: 0 });
 
-/** Every HLS run fails before writing anything. */
 const brokenStart = await writeFakeFfmpeg({ hlsFailsAtStart: true });
 
-/**
- * HLS runs that start at 6 s or later fail before writing anything; runs from the start write
- * one second, so a seek to 8 s is beyond what a request may wait for and needs a run of its own.
- */
 const damagedEnd = await writeFakeFfmpeg({ hlsFailsFromSeconds: 6, hlsFromStartSeconds: 1 });
 
-/** Keyframe scans take twelve seconds, as for a large file on a slow share. */
 const slowScan = await writeSlowFfprobe(12_000);
 
-/** A library holding the direct fixture as MPEG-TS, which has no keyframe index of its own. */
 const TS_LIBRARY = LibraryId.make("transport-streams");
 
 const TS_FILE = "Transport (2020)/Transport (2020).ts";
@@ -82,7 +72,6 @@ const addTransportStream = Effect.gen(function* () {
   return MemoryLibrary.fileIdOf(TS_LIBRARY, TS_FILE);
 });
 
-/** A small screen forces a transcode of the H.264 fixture. */
 const smallScreen: ClientCapabilities = {
   containers: [],
   videoCodecs: [{ codec: "h264", maxBitDepth: 8 }],
@@ -102,14 +91,12 @@ const negotiateRequest = (baseUrl: string, token: string) =>
     ),
   );
 
-/** The path and query of a URL the service built with its public base URL. */
 const local = (baseUrl: string, url: string): string => {
   const parsed = new URL(url);
 
   return `${baseUrl}${parsed.pathname}${parsed.search}`;
 };
 
-/** Folders under `TRANSCODE_DIR`, one per open stream. */
 const streamFolders = Effect.fn(function* () {
   const server = yield* MediaTestServer.Service;
   const fs = yield* FileSystem.FileSystem;
@@ -117,7 +104,6 @@ const streamFolders = Effect.fn(function* () {
   return yield* fs.readDirectory(server.transcodeDir).pipe(Effect.orElseSucceed(() => []));
 });
 
-/** Waits until no stream is open; fails the test after `within`. */
 const awaitNoStreams = (within: Duration.Input) =>
   Effect.gen(function* () {
     for (;;) {
@@ -157,7 +143,6 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
           const fs = yield* FileSystem.FileSystem;
           const runList = join(server.transcodeDir, negotiated.streamId ?? "", "1", "ffmpeg.m3u8");
 
-          // Wait for the run to end, so the requests below wait on its failure rather than seek.
           yield* fs.readFileString(runList).pipe(
             Effect.filterOrFail((text) => text.includes("#EXT-X-ENDLIST")),
             Effect.retry(Schedule.spaced("50 millis")),
@@ -165,8 +150,6 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
             Effect.orDie,
           );
 
-          // The plan starts 0, 1, 2, 4, 6, and 8 s; segment 5 lies past what the run wrote before it
-          // died, and every request waits on that run.
           const answers = yield* Effect.forEach(
             [5, 5, 5],
             (index) =>
@@ -204,7 +187,6 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
   });
 
   layer(
-    // Only a hardware encoder's negotiation waits for the first segment, as it may fall back.
     MediaTestServer.layer({
       FFMPEG_PATH: slowQsv,
       HARDWARE_ACCELERATION: "qsv",
@@ -229,7 +211,6 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
 
           assert.isTrue(Result.isFailure(abandoned));
 
-          // Well before the encoder would have started, and far before the idle sweep.
           yield* awaitNoStreams(Duration.seconds(2));
 
           const ended = (yield* recording.events).filter(
@@ -241,7 +222,6 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
             ["abandoned"],
           );
 
-          // The only transcode slot came back: the next viewer starts.
           const next = yield* negotiateRequest(
             server.baseUrl,
             signTestToken({ fid: fileId, sid: "next" }),
@@ -329,13 +309,11 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
               Effect.timed,
             );
 
-          // The video could be copied, but its keyframes are not known yet: encode now.
           const [took, first] = yield* negotiate("first");
 
           assert.strictEqual(first.mode, "transcode-software");
           assert.isBelow(Duration.toMillis(took), 10_000);
 
-          // The scan finishes in the background; a later negotiation copies.
           yield* Effect.sleep(Duration.seconds(12));
 
           const [, later] = yield* negotiate("later");
@@ -367,7 +345,6 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
 
           const [took, negotiated] = negotiation;
 
-          // The encoder takes ten seconds to start; negotiation does not wait for it.
           assert.strictEqual(negotiated.mode, "transcode-software");
           assert.isBelow(Duration.toMillis(took), 8000);
 
@@ -408,7 +385,6 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
           };
 
           for (let round = 0; round < 8; round += 1) {
-            // Start at the last segment, so a seek to the beginning replaces the generation.
             const started = yield* HttpClient.execute(
               HttpClientRequest.post(`${server.baseUrl}/api/playback/negotiate`).pipe(
                 HttpClientRequest.bodyJsonUnsafe({ token, capabilities: remux, startSeconds: 9 }),
@@ -478,7 +454,6 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
               signTestToken({ fid: fileId, sid }),
             ).pipe(Effect.orDie);
 
-            // Refused for space every time, never for capacity: a refusal frees its slot.
             assert.strictEqual(response.status, 507);
             assert.deepInclude(yield* response.json.pipe(Effect.orDie), {
               _tag: "InsufficientTranscodeSpace",
@@ -519,7 +494,6 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
               Effect.orDie,
             );
 
-          // The only transcode slot is the viewer's; a new stream for the same viewer takes it over.
           assert.strictEqual(yield* status(viewer, 0), 200);
           assert.strictEqual(yield* status(viewer, 5), 200);
           assert.strictEqual(yield* status(signTestToken({ fid: fileId, sid: "other" }), 0), 503);
@@ -568,7 +542,6 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
             Option.some(["Encoder failed in transcode-software"]),
           );
 
-          // The only transcode slot is free again for another viewer.
           assert.strictEqual((yield* negotiate("next")).mode, "transcode-software");
         }),
       60_000,
@@ -587,7 +560,6 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
           const { library } = yield* FixtureWorkspace.Service;
           const fileId = yield* addTransportStream.pipe(Effect.orDie);
 
-          // Another viewer holds the only transcode slot.
           const busy = yield* negotiateRequest(
             server.baseUrl,
             signTestToken({ fid: server.fileId("movies", library.directMovie), sid: "busy" }),
@@ -667,12 +639,10 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
 
           assert.strictEqual(yield* segment(negotiated.generation ?? 1, 0), 200);
 
-          // Segment 5 starts at 8 s, in the part this ffmpeg cannot read.
           const broken = yield* seek(8);
 
           assert.strictEqual(yield* segment(broken.generation, 5), 500);
 
-          // The stream is still there: a seek back starts a run that works.
           const back = yield* seek(0);
 
           assert.strictEqual(yield* segment(back.generation, 0), 200);

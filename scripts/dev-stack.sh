@@ -16,8 +16,6 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-# The Convex backend every install runs, pinned by digest in one place (scripts/check-deploy.sh
-# checks compose.yaml, the Dockerfile, and the NixOS module against it).
 image="${CONVEX_BACKEND_IMAGE:-$(<"${root}/deploy/convex-backend.image")}"
 
 raw_name="${MOVIES_STACK:-$(basename "$root")}"
@@ -26,7 +24,6 @@ name="$(printf '%s' "$raw_name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '
 if [[ -n "${MOVIES_PORT_BASE:-}" ]]; then
   base="$MOVIES_PORT_BASE"
 else
-  # 40 slots of 10 ports between 13200 and 13599, picked by a stable hash of the name.
   slot=$(($(printf '%s' "$name" | cksum | cut -d' ' -f1) % 40))
   base=$((13200 + slot * 10))
 fi
@@ -40,7 +37,6 @@ state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/movies-dev/${name}"
 data_dir="${state_dir}/data"
 transcode_dir="${TMPDIR:-/tmp}/movies-dev-${name}/transcode"
 backup_dir="${state_dir}/backups"
-# Libraries must lie inside LIBRARY_ROOTS; MOVIES_LIBRARY_ROOTS (comma-separated) overrides it.
 library_roots="${MOVIES_LIBRARY_ROOTS:-${state_dir}/library}"
 
 print_env() {
@@ -127,8 +123,6 @@ ENV
 cd "${root}/packages/backend"
 pnpm exec convex deploy --yes >/dev/null
 
-# The backend package owns deployment configuration: auth keys, the playback token secret, URLs,
-# and the media service credential. It prints KEY=value lines for the media service.
 media_env=""
 if [[ -f scripts/configure.ts ]]; then
   media_env="$(node scripts/configure.ts --site-url "http://localhost:${web_port}" \

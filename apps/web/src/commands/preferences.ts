@@ -7,7 +7,6 @@ import { useSignOut } from "@/session/viewer";
 
 import type { CommandContribution } from "./contribution";
 
-/** The color themes the menu switches between. */
 type ThemeChoice = "dark" | "light" | "system";
 
 const THEMES: ReadonlyArray<{ readonly id: ThemeChoice; readonly title: string }> = [

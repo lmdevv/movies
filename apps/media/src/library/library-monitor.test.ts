@@ -26,7 +26,6 @@ class Watched extends Context.Service<Watched, { readonly root: string }>()(
   "test/WatchedLibrary",
 ) {}
 
-/** Takes the store down: while `down` is set, it refuses scans, counting them in `refused`. */
 class StoreOutage extends Context.Service<
   StoreOutage,
   { readonly down: Ref.Ref<boolean>; readonly refused: Ref.Ref<number> }
@@ -39,7 +38,6 @@ const storeOutageLayer = Layer.effect(
   }),
 );
 
-/** The in-memory store's sink, refusing to list a folder while the store is down. */
 const outageSinkLayer = Layer.effect(
   LibrarySink.Service,
   Effect.gen(function* () {
@@ -67,7 +65,6 @@ const outageSinkLayer = Layer.effect(
   }),
 );
 
-/** The monitor over a fresh copy of the fixture movies, with extra environment `overrides`. */
 const monitorLayer = (overrides: Readonly<Record<string, string>> = {}) =>
   Layer.unwrap(
     Effect.gen(function* () {
@@ -108,7 +105,6 @@ const monitorLayer = (overrides: Readonly<Record<string, string>> = {}) =>
     Layer.provideMerge(Layer.mergeAll(NodeServices.layer, FetchHttpClient.layer)),
   );
 
-/** Polls the store until `check` holds, for up to fifteen seconds. */
 const eventually = (check: (files: ReadonlyMap<string, MemoryLibrary.StoredFile>) => boolean) =>
   Effect.gen(function* () {
     const library = yield* MemoryLibrary.Service;
@@ -174,8 +170,6 @@ describe.skipIf(!hasFfmpeg)("LibraryMonitor", () => {
 
           yield* eventually((files) => files.has("New Movie (2024)/New Movie (2024).mkv"));
 
-          // An unmounted share: the watched folder disappears, then a new one with a new film
-          // appears in its place.
           yield* fs.copy(root, parked);
           yield* fs.remove(root, { recursive: true });
           yield* Effect.sleep(Duration.millis(500));
@@ -235,7 +229,6 @@ describe.skipIf(!hasFfmpeg)("LibraryMonitor", () => {
             path.join(root, "Retried (2024)", "Retried (2024).mkv"),
           );
 
-          // The poll saw the change and its scan was refused; the store comes back afterwards.
           yield* Ref.get(refused).pipe(
             Effect.repeat({ until: (count) => count > 0, schedule: Schedule.spaced("100 millis") }),
             Effect.timeout("15 seconds"),
@@ -255,7 +248,6 @@ describe("watch restarts", () => {
     const delays: Array<number> = [];
     let failures = 0;
 
-    // Six quick failures back off to 32 s; then a watch that ran for an hour fails.
     for (const ranMillis of [10, 10, 10, 10, 10, 10, 3_600_000, 10]) {
       failures = LibraryMonitor.failuresAfter(failures, ranMillis);
       delays.push(Duration.toSeconds(LibraryMonitor.restartDelay(failures)));

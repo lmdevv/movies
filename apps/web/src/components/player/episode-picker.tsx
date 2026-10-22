@@ -1,8 +1,3 @@
-/**
- * The player's Episodes panel: the show's seasons and episodes over the video, opening on the
- * episode playing. Choosing another episode plays it in the player; the seasons and episodes are
- * the ones the title page lists, so they are only those the profile may see.
- */
 import type { EpisodeId, ProfileId, TitleId } from "@movies/contracts/ids";
 import type { SeasonEpisode, TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
@@ -15,7 +10,6 @@ import { artworkUrl } from "@/lib/artwork";
 import { episodeRuntimeFacts, progressFraction } from "@/lib/format";
 import { listOrLoading } from "@/lib/query-state";
 
-/** `24m · 12m left` or `24m · File missing`; undefined when there is nothing to say. */
 const episodeDetail = (episode: SeasonEpisode): string | undefined => {
   const parts = episodeRuntimeFacts(episode);
 
@@ -63,7 +57,6 @@ export function EpisodePicker({
   readonly currentSeason: ReadonlyArray<SeasonEpisode> | null;
   readonly onPlay: (episodeId: EpisodeId) => void;
 }) {
-  // The season browsed to, until the panel has closed; it opens on the current episode's again.
   const [browsing, setBrowsing] = useState<number | null>(null);
   const seasonNumber = browsing ?? current.seasonNumber;
 

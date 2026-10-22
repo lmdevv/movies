@@ -9,8 +9,6 @@
 # collector with `--profile telemetry`. Upgrades: docs/operations.md.
 name: movies
 
-# The Convex backend this release runs. Must equal deploy/convex-backend.image
-# (scripts/check-deploy.sh).
 x-convex-image: &convex-image ghcr.io/convex/convex-backend:5c7cb5bc7db457290f1769f95f1d1340912f7fd7@sha256:d715e9ec088784407ca4ba2d3db592702cd328d02c76cdca3852c0018f2a76b4
 
 services:
@@ -49,7 +47,6 @@ services:
     # The service ends open responses 3 s into a stop, then closes its streams and writes its last
     # log lines; Docker's default of 10 s could cut that short on a busy server.
     stop_grace_period: 30s
-    # The health check is the image's (GET /api/health; see the Dockerfile).
     depends_on:
       convex:
         condition: service_healthy
@@ -57,15 +54,13 @@ services:
       MOVIES_PUBLIC_URL: ${MOVIES_PUBLIC_URL:-http://localhost:8080}
       CONVEX_PUBLIC_URL: ${CONVEX_PUBLIC_URL:-http://localhost:3210}
       CONVEX_URL: http://convex:3210
-      # The entrypoint warns when the image was built for another Convex backend.
       CONVEX_BACKEND_IMAGE: *convex-image
       # User and group the media service runs as; they must be able to read the library.
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       TZ: ${TZ:-UTC}
       # Media service settings, set in .env. Empty means the service's default (README.md,
-      # Configuration). The entrypoint passes exactly these on; scripts/check-deploy.sh keeps this
-      # list, the entrypoint's, and .env.example in step.
+      # Configuration).
       LIBRARY_ROOTS: ${LIBRARY_ROOTS:-}
       TMDB_API_KEY: ${TMDB_API_KEY:-}
       OMDB_API_KEY: ${OMDB_API_KEY:-}

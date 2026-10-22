@@ -30,7 +30,6 @@ import { isVersionAtLeast } from "./versions.ts";
 
 const MINIMUM_VERSION = "10.8.0";
 
-/** Items per `/Items` page. */
 const PAGE_SIZE = 500;
 
 /** One Jellyfin tick is 100 nanoseconds. */
@@ -171,7 +170,6 @@ type JellyfinUser = (typeof Users.Type)[number];
 /** Jellyfin writes folder IDs with dashes in policies and without them on virtual folders. */
 const folderKey = (id: string): string => id.replaceAll("-", "").toLowerCase();
 
-/** Whether a user's policy lets them see a library; null when the policy does not say. */
 const userSees = (user: JellyfinUser, libraryId: string): boolean | null => {
   const policy = user.policy;
 
@@ -182,11 +180,9 @@ const userSees = (user: JellyfinUser, libraryId: string): boolean | null => {
   return (policy.enabledFolders ?? []).some((folder) => folderKey(folder) === folderKey(libraryId));
 };
 
-/** Who among the active users can see a library, from their policies. */
 const accessOf = (users: ReadonlyArray<JellyfinUser>, libraryId: string): SourceLibraryAccess => {
   const seen = users.map((user) => ({ userId: user.id, sees: userSees(user, libraryId) }));
 
-  // No active users says nothing about who may see it; `every` would call that everyone.
   if (seen.length === 0) return { kind: "unknown" };
 
   if (seen.every(({ sees }) => sees === true)) return { kind: "everyone" };
@@ -270,7 +266,6 @@ const ITEM_FIELDS = "Path,ProviderIds,Settings,SortName,Overview";
 
 const VIDEO_TYPES = "Movie,Series,Episode";
 
-/** Reads every page of an `/Items` query. */
 const itemPages = (
   http: SourceHttp,
   operation: string,
@@ -402,7 +397,6 @@ const openSession = Effect.fnUntraced(function* (target: SourceTarget) {
     ).pipe(Effect.map((perLibrary) => perLibrary.flat())),
   );
 
-  // Played, resumable, and favorite items cover everything worth importing for a user.
   const userStates = (user: SourceUser) =>
     Effect.forEach(["IsPlayed", "IsResumable", "IsFavorite"], (filter) =>
       itemPages(http, "userItems", {

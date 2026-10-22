@@ -1,7 +1,3 @@
-/**
- * A titled horizontal row (C01, C02): a 22pt heading over posters or cards that scroll sideways
- * past the screen edge.
- */
 import { ChevronRight } from "lucide-react-native";
 import type { ReactElement } from "react";
 import { FlatList, Pressable, View } from "react-native";

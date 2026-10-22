@@ -1,7 +1,3 @@
-/**
- * A02 · Connect to Server: type the server's address. When nothing answers, A08 (or A12 for an
- * address on this network) takes over; other failures show under the field.
- */
 import { router } from "expo-router";
 import { Link2 } from "lucide-react-native";
 import { useState } from "react";

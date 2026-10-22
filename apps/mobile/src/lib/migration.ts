@@ -1,9 +1,3 @@
-/**
- * What only the iOS import screens (J01–J06) hold: the credential labels, the Review, Importing,
- * and Import Complete rows, and the user choices' wording, in Paper's title case. How a source
- * failure reads, which profile each source user's history goes to, how far an import has come,
- * and folder mappings are shared with the web app (`@movies/contracts/migration-plan`).
- */
 import type { UserRow } from "@movies/contracts/migration-plan";
 import type { MigrationSource } from "@movies/contracts/models/jobs";
 import type {
@@ -69,7 +63,6 @@ export const doneRows = (run: MigrationRun): ReadonlyArray<CountRow> => {
   return rows.filter((row) => row.key !== "collections" || imported.collections > 0);
 };
 
-/** The phases J03 lists, in the order an import runs them. */
 const PHASES: ReadonlyArray<{ readonly phase: MigrationPhase; readonly title: string }> = [
   { phase: "libraries", title: "Libraries" },
   { phase: "scanning", title: "New Folders" },

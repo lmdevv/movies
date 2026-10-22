@@ -1,10 +1,3 @@
-/**
- * Downloads kept on this iPhone, as data (C19 Downloads, H17, H19, H21): one record per movie or
- * episode a profile downloaded, the state of its transfer, and the progress played offline that
- * waits to reach the server. The store is one JSON document per server and account; `reduce`
- * applies every change to it, and the selectors give the screens their rows and labels. Pure, so
- * the transfer engine (`session/downloads.tsx`) and the tests share it.
- */
 import {
   EpisodeId,
   MediaFileId,
@@ -21,11 +14,6 @@ import { formatRuntime } from "../format";
 import { sortedBy } from "../sorted-by";
 import { formatBytes, formatPercent } from "../owner-format";
 
-/**
- * Where a download stands: waiting its turn, waiting for Wi-Fi (Wi-Fi Only), being prepared by the
- * media service, transferring, ready to play, interrupted (H19), or stopped for lack of space
- * (H21).
- */
 const DownloadPhase = Schema.Literals([
   "queued",
   "waitingForWifi",
@@ -36,10 +24,8 @@ const DownloadPhase = Schema.Literals([
   "noSpace",
 ]);
 
-/** Where a download stands. */
 type DownloadPhase = typeof DownloadPhase.Type;
 
-/** A text subtitle kept beside the video as WebVTT. */
 const KeptSubtitle = Schema.Struct({
   id: Schema.String,
   language: Schema.NullOr(Schema.String),
@@ -49,27 +35,19 @@ const KeptSubtitle = Schema.Struct({
   hearingImpaired: Schema.Boolean,
 });
 
-/** A text subtitle kept beside the video. */
 interface KeptSubtitle extends Schema.Schema.Type<typeof KeptSubtitle> {}
 
-/**
- * What the download session said about the item when it started: the episode and the file, as
- * the player shows them, and the profile's saved position then. Its token is not kept.
- */
 const KeptPlayback = Schema.Struct({
   episode: Schema.NullOr(Episode),
   file: MediaFile,
   resumePositionMs: Milliseconds,
 });
 
-/** What the download session said about the item. */
 interface KeptPlayback extends Schema.Schema.Type<typeof KeptPlayback> {}
 
-/** What the media service delivers for a download, once it is ready there. */
 const Delivery = Schema.Struct({
   fileId: MediaFileId,
   sizeBytes: Schema.Finite,
-  /** `mp4` or `mov`; names the video file. */
   container: Schema.Literals(["mp4", "mov"]),
   durationMs: Schema.Finite,
   videoCodec: Schema.String,
@@ -127,7 +105,6 @@ export const DownloadRecord = Schema.Struct({
 /** One movie or episode downloaded, or being downloaded. */
 export interface DownloadRecord extends Schema.Schema.Type<typeof DownloadRecord> {}
 
-/** Progress made playing a download, waiting to reach the server (`downloads.recordProgress`). */
 const PendingProgress = Schema.Struct({
   profileId: ProfileId,
   titleId: TitleId,
@@ -135,7 +112,6 @@ const PendingProgress = Schema.Struct({
   fileId: MediaFileId,
   positionMs: Schema.Finite,
   durationMs: Schema.Finite,
-  /** When it was played to `positionMs`, in milliseconds since the epoch. */
   playedAt: Schema.Finite,
 });
 
@@ -156,7 +132,6 @@ export const EMPTY_STORE: DownloadStore = { downloads: [], pendingProgress: [] }
 
 const StoredStore = Schema.fromJsonString(DownloadStore);
 
-/** The store's outline, each entry read on its own. */
 const StoredEntries = Schema.fromJsonString(
   Schema.Struct({
     downloads: Schema.Array(Schema.Unknown),
@@ -325,7 +300,6 @@ export const reduce = (store: DownloadStore, event: DownloadEvent): DownloadStor
         Struct.assign(download, {
           phase: "downloading",
           prepared: 1,
-          // Resuming a paused transfer does not deliver again; a delivery starts at the first byte.
           receivedBytes: 0,
           totalBytes: delivery.sizeBytes,
           delivery,
@@ -351,7 +325,6 @@ export const reduce = (store: DownloadStore, event: DownloadEvent): DownloadStor
       ),
     NoSpace: ({ id, totalBytes }) =>
       update(store, id, (download) =>
-        // Nothing received so far carries over: the next delivery starts at the first byte.
         Struct.assign(download, {
           phase: "noSpace",
           totalBytes,
@@ -385,7 +358,6 @@ export const reduce = (store: DownloadStore, event: DownloadEvent): DownloadStor
         downloads: store.downloads.map((download) =>
           download.id === id ? Struct.assign(download, { positionMs }) : download,
         ),
-        // Only the latest position of an item matters.
         pendingProgress: [
           ...store.pendingProgress.filter((entry) => !sameItem(entry, pending)),
           pending,
@@ -394,7 +366,6 @@ export const reduce = (store: DownloadStore, event: DownloadEvent): DownloadStor
     },
     ProgressSent: ({ sent }) => ({
       downloads: store.downloads,
-      // A newer position played while these were sent stays queued.
       pendingProgress: store.pendingProgress.filter(
         (entry) => !sent.some((done) => sameItem(done, entry) && done.playedAt >= entry.playedAt),
       ),
@@ -422,7 +393,6 @@ export const downloadFor = (
 ): DownloadRecord | undefined =>
   store.downloads.find((download) => download.id === id && download.profileId === profileId);
 
-/** The bytes a download takes on this iPhone now. */
 const bytesKept = (download: DownloadRecord): number =>
   download.phase === "ready" ? (download.totalBytes ?? 0) : download.receivedBytes;
 
@@ -528,7 +498,6 @@ export const nextToRun = (
     (left, right) => left.addedAt - right.addedAt,
   )[0] ?? null;
 
-/** Space iOS keeps free beyond a download, so the phone never fills to the last byte. */
 const SPACE_RESERVE_BYTES = 500_000_000;
 
 /** Bytes to free before `neededBytes` more fit beside `freeBytes`, keeping the reserve; 0 when they fit. */

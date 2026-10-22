@@ -1,13 +1,8 @@
-/**
- * Watch History (H04) as rows under day headings: `Today`, `Yesterday`, `Last Week`,
- * `Last Month`, and `Earlier`, each row named and described as Paper writes them.
- */
 import type { HistoryEntry } from "@movies/contracts/models/catalog";
 
 import { daysAgo } from "./dates";
 import { progressLabel } from "./format";
 
-/** A heading of Watch History. */
 type HistorySection = "Today" | "Yesterday" | "Last Week" | "Last Month" | "Earlier";
 
 /** The heading an entry played at `at` sits under. */

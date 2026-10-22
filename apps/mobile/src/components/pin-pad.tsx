@@ -1,7 +1,3 @@
-/**
- * The PIN keypad from B05, B06, B12, and B13: four 14pt dots, an optional line under them, and a
- * 3×4 grid of 72×56 keys. Dots fill as digits arrive and turn danger red after a wrong PIN.
- */
 import * as Haptics from "expo-haptics";
 import { Delete } from "lucide-react-native";
 import { useEffect } from "react";

@@ -23,10 +23,8 @@ import { InShell } from "./route-states";
 import { ScanToast } from "./scan-toast";
 import { SECTIONS, sectionOf } from "./sections";
 
-/** How far the page scrolls before bars switch to their scrolled look. */
 const SCROLL_THRESHOLD_PX = 48;
 
-/** Whether the window is scrolled past `threshold` pixels. */
 function useScrolledPast(threshold: number): boolean {
   const [scrolled, setScrolled] = useState(false);
 
@@ -42,7 +40,6 @@ function useScrolledPast(threshold: number): boolean {
   return scrolled;
 }
 
-/** Where the menu opens: its root list, or straight on one of its submenus. */
 type MenuState = { readonly open: false } | { readonly open: true; readonly start?: string };
 
 /**
@@ -78,7 +75,6 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
 
   const scrolled = useScrolledPast(SCROLL_THRESHOLD_PX);
   const deviceRoom = useCurrentRoom();
-  // The room the pill returns to: this profile's, and live.
   const pillRoom = deviceRoom?.mine === true && deviceRoom.returnable ? deviceRoom : null;
   const current = sectionOf(pathname);
   const art = profileArt(profile);
@@ -135,12 +131,8 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     );
   };
 
-  // A hero page without a phone title of its own floats the pill over its artwork. Where the
-  // compact bar exists it carries the pill once scrolled; on a title's page, which has none, the
-  // pill stays.
   const heroPill = hero && (!phoneTitle || title === "");
 
-  /** The avatar, after the room pill when there is one. */
   const trailing = (size: "xs" | "sm") => (
     <span className="flex items-center gap-3">
       {roomPill(true)}
@@ -197,8 +189,6 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
       ) : null}
 
       {!heroPill || (scrolled && phoneTitle) || pillRoom === null ? null : (
-        // Over the artwork of a hero page without the phone title (a title's page, a collection),
-        // level with a title page's Back button, held in place on glass.
         <div className="on-media fixed top-[max(env(safe-area-inset-top),var(--spacing-12))] right-4 z-40 flex h-10 items-center md:hidden">
           {roomPill(true, "bg-glass backdrop-blur-xl")}
         </div>
@@ -206,7 +196,6 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
 
       <main className={cn("pb-32 md:pb-20", !hero && "md:pt-17")}>
         {phoneTitle && title === "" && !hero && pillRoom !== null ? (
-          // A page without a title of its own (a person, a genre) still offers the way back.
           <div className="flex justify-end px-5 pt-[max(env(safe-area-inset-top),var(--spacing-4))] md:hidden">
             {roomPill(true)}
           </div>

@@ -1,12 +1,3 @@
-/**
- * Players' diagnostic events (`POST /api/playback/diagnostics`). Each batch is authenticated by
- * its playback token, limited per playback session and per account, and written into the retained
- * log as `Player.*` records carrying the session, the account, and the platform from the verified
- * token and request. An event's stream is the player's claim: it is filed under `streamId` only
- * when the stream belongs to the token's session (`StreamOwners`), and kept as `claimedStreamId`
- * otherwise, where no stream filter finds it. An event says how long before its batch it
- * happened, so its time (`occurredAt`) comes from the service's clock, never the device's.
- */
 import {
   type ClientDiagnosticEvent,
   type ClientDiagnosticsRequest,
@@ -39,19 +30,8 @@ export class Service extends Context.Service<Service, Interface>()(
   "@movies/media/ClientDiagnostics",
 ) {}
 
-/**
- * Events one playback session may send at once, and how many more each second after that. A
- * player sends a few per minute; a burst of errors fits, a flood does not.
- */
 const SESSION_BUDGET = { burst: 300, perSecond: 2 };
 
-/**
- * The same for all of one account's sessions together: a second session has some room of its own,
- * but opening more sessions does not multiply what an account may write past this. A family
- * shares one account, and hls.js reports every segment it loads, so the refill lets four screens
- * each send at a session's full rate; a fifth, or a script with the account's tokens, is held
- * to that.
- */
 const USER_BUDGET = { burst: 400, perSecond: 4 * SESSION_BUDGET.perSecond };
 
 const commonFields = (
@@ -69,7 +49,6 @@ const commonFields = (
   claimedStreamId: ownStream ? null : (event.streamId ?? null),
 });
 
-/** Logs one observation under its `Player.*` name with `fields` and its own. */
 const logObservation = (observation: PlayerObservation, fields: ReturnType<typeof commonFields>) =>
   PlayerObservation.match(observation, {
     Attached: ({ mode, engine }) =>

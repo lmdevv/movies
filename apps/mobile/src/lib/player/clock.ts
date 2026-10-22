@@ -1,5 +1,3 @@
-/** Timecodes as the player shows them in Geist Mono: `1:33:18`, `24:18`, `0:07`, `−1:12:44`. */
-
 /** A position such as `1:33:18`, `24:18`, or `0:07`; whole seconds, rounded down. */
 export const formatClock = (seconds: number): string => {
   const total = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;

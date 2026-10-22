@@ -1,8 +1,3 @@
-/**
- * The player's side sliders (F01): brightness on the left, volume on the right. A 22pt glyph over
- * a 4pt track filled from the bottom; dragging anywhere along the track sets the level, and
- * VoiceOver adjusts it in tenths.
- */
 import type { LucideIcon } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { PanResponder, View } from "react-native";
@@ -71,7 +66,6 @@ export function VerticalSlider({ icon, label, value, onChange, onInteract }: Ver
       <Icon icon={icon} tone="onMedia" size="row" />
       <View
         ref={track}
-        // Where the track sits on screen, read ahead of a touch so a tap sets the level at once.
         onLayout={() => {
           track.current?.measureInWindow((_x, y, _width, height) => {
             bounds.current = { top: y, height: Math.max(1, height) };

@@ -1,7 +1,3 @@
-/**
- * A08 · Server Unavailable after Connect to Server, or A12 · Local Network Access when the address
- * is on this network, where iOS refuses connections until local network access is allowed.
- */
 import { router, useLocalSearchParams } from "expo-router";
 import { Wifi } from "lucide-react-native";
 import { Linking } from "react-native";
@@ -19,7 +15,6 @@ import { usePendingInvite } from "@/session/pending-invite";
 const back = () => router.back();
 
 export default function Unreachable() {
-  // `invite` comes from Open an Invite, so connecting on Try Again still opens Join Household.
   const { address = "", invite } = useLocalSearchParams<{ address?: string; invite?: string }>();
   const { busy, run } = useConnectAttempt();
   const { setInvite } = usePendingInvite();

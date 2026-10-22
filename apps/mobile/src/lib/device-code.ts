@@ -1,9 +1,4 @@
 /**
- * Device sign-in on the phone (A05 Sign In with a Code): the server's user code split into the
- * boxes Paper draws, and the countdown under them.
- */
-
-/**
  * The code's characters in groups, one box each. Codes such as `BCDF-GHJK` split at their
  * dashes; a code without one stays a single group.
  */

@@ -14,13 +14,8 @@ export type TrackOption = {
   readonly detail?: string | undefined;
 };
 
-/** Where an option sits in its list's scrolled content, from top to bottom edge. */
 type OptionSpan = { readonly top: number; readonly bottom: number };
 
-/**
- * Where `list`'s checked option sits in its scrolled content, with the list's scroll padding around
- * it (room for the focus ring, as the keyboard leaves when it moves the focus).
- */
 function checkedSpan(list: HTMLElement): OptionSpan | null {
   const checked = list.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]');
 
@@ -37,12 +32,10 @@ function checkedSpan(list: HTMLElement): OptionSpan | null {
   };
 }
 
-/** Whether `list`, `height` tall, shows `span` whole. */
 function shows(list: HTMLElement, span: OptionSpan, height: number): boolean {
   return span.top >= list.scrollTop && span.bottom <= list.scrollTop + height;
 }
 
-/** Scrolls `list` the least that shows `span` whole. */
 function reveal(list: HTMLElement, span: OptionSpan): void {
   if (span.top < list.scrollTop) list.scrollTop = span.top;
   else if (span.bottom > list.scrollTop + list.clientHeight) {
@@ -50,22 +43,15 @@ function reveal(list: HTMLElement, span: OptionSpan): void {
   }
 }
 
-/** Scrolls `list` the least that shows its checked option whole. */
 function revealChecked(list: HTMLElement): void {
   const span = checkedSpan(list);
 
   if (span !== null) reveal(list, span);
 }
 
-/**
- * Shows the checked option of a scrolling list once the list has its size, then keeps it in view
- * while the list changes size (a smaller window, a rotated phone), unless the viewer had scrolled
- * it out of view to browse.
- */
 function keepCheckedInView(list: HTMLElement | null): (() => void) | undefined {
   if (list === null) return undefined;
 
-  // The height the list had at its last resize; none before its first, which always reveals.
   let height: number | undefined;
 
   const observer = new ResizeObserver(() => {
@@ -98,7 +84,6 @@ function TrackColumn({
 
   const list = useRef<HTMLElement | null>(null);
 
-  // One observer for the list's life, which keeps the chosen option in view as the list resizes.
   const attachList = useCallback((element: HTMLElement | null) => {
     list.current = element;
 
@@ -110,17 +95,12 @@ function TrackColumn({
     };
   }, []);
 
-  // A new choice, or a different list of options, shows the chosen one, as when the menu opened.
-  // The ids, not the array, say whether the options changed: the player rebuilds the array with
-  // each new stream.
   const optionIds = options.map((option) => option.id).join("\n");
 
   useLayoutEffect(() => {
     if (list.current !== null) revealChecked(list.current);
   }, [value, optionIds]);
 
-  // The heading, and the footer when there is one, stay put while the options between them
-  // scroll, each column on its own.
   return (
     <div className="flex min-w-50 flex-1 flex-col gap-0.5 pt-5">
       <span
@@ -190,7 +170,6 @@ export type TrackSelection = {
   readonly choices: ReadonlyArray<TrackChoice>;
 };
 
-/** Panel widths by column count: two columns as designed, each further column as wide again. */
 const PANEL_WIDTHS = ["w-60", "w-60", "w-115", "w-170", "w-225"] as const;
 
 /**
@@ -258,8 +237,6 @@ export function TrackPopover({
           sideOffset={76}
           alignOffset={-32}
           collisionPadding={16}
-          // Always above the controls: flipping below or beside the trigger would cover them, or
-          // leave the screen. A short window shortens the panel instead.
           collisionAvoidance={{ side: "none", align: "shift" }}
           className="z-50"
         >
@@ -267,8 +244,6 @@ export function TrackPopover({
             aria-label={label}
             className="origin-(--transform-origin) shadow-overlay transition-[opacity,scale] data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
           >
-            {/* Held to the room above the trigger: each column's options scroll under its heading,
-                and columns wider than the screen scroll sideways. */}
             <TrackPanel
               choices={choices}
               className="max-h-[min(var(--available-height),var(--spacing-track-panel))] max-w-(--available-width) overflow-x-auto overscroll-x-contain"

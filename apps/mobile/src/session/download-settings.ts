@@ -1,7 +1,3 @@
-/**
- * Download Settings on this iPhone (H18), read from the keychain once and shared by every screen
- * and the download engine.
- */
 import { useSyncExternalStore } from "react";
 
 import { parseDownloadSettings, serializeDownloadSettings } from "@/lib/downloads/settings";

@@ -1,4 +1,3 @@
-/** Handlers of the media HttpApi. */
 import { MediaApi } from "@movies/contracts/media-api";
 import { Effect, Layer, Option } from "effect";
 import { HttpEffect } from "effect/http";
@@ -15,7 +14,6 @@ import * as PlaybackToken from "../playback/playback-token.ts";
 import * as StreamSessions from "../playback/stream-sessions.ts";
 import { retryAfter } from "./rate-limit.ts";
 
-/** Playback endpoints. */
 const playbackHandlers = HttpApiBuilder.group(
   MediaApi,
   "playback",
@@ -59,7 +57,6 @@ const playbackHandlers = HttpApiBuilder.group(
   }),
 );
 
-/** Download endpoints. */
 const downloadHandlers = HttpApiBuilder.group(
   MediaApi,
   "downloads",
@@ -72,7 +69,6 @@ const downloadHandlers = HttpApiBuilder.group(
   }),
 );
 
-/** System endpoints. */
 const systemHandlers = HttpApiBuilder.group(
   MediaApi,
   "system",
@@ -93,8 +89,6 @@ const systemHandlers = HttpApiBuilder.group(
       }),
       clientConfig: () =>
         Effect.succeed(
-          // Only the public address: the internal one (a container name, a loopback) is often
-          // unreachable from phones, and apps fall back to Connection Details without it.
           Option.match(config.convexPublicUrl, {
             onNone: () => ({}),
             onSome: (url) => ({ convexUrl: url }),

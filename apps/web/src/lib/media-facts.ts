@@ -1,8 +1,3 @@
-/**
- * Technical badges and track lists for a playable file, from what ffprobe reported: `4K`,
- * `DOLBY VISION`, `HEVC`, `EAC3 5.1`, `CC`, and `English EAC3 5.1, Spanish · English CC`. The
- * facts themselves are named by the SDK's `MediaLabels`.
- */
 import { BITMAP_SUBTITLE_FORMATS, type SubtitleTrack } from "@movies/contracts/media-playback";
 import type { AudioStream, MediaFile } from "@movies/contracts/models/catalog";
 import { MediaLabels } from "@movies/sdk/effect";
@@ -11,7 +6,6 @@ const { channelLabel, codecLabel, hdrLabel, resolutionLabel } = MediaLabels;
 
 const displayNames = new Intl.DisplayNames(["en"], { type: "language" });
 
-/** `English` for `eng` or `en`; null for unknown or undetermined languages. */
 const languageName = (code: string | null): string | null => {
   if (code === null || code === "" || code === "und") return null;
 
@@ -34,7 +28,6 @@ export const audioTrackLabel = (
   return [name, channelLabel(track.channels)].filter((part) => part !== null).join(" ");
 };
 
-/** The format of a picture subtitle, such as `PGS`; null for text. */
 const pictureFormat = (kind: string, codec: string): string | null =>
   kind === "bitmap" || kind === "image" ? (BITMAP_SUBTITLE_FORMATS.get(codec) ?? "image") : null;
 
@@ -60,7 +53,6 @@ export const subtitleTrackLabel = (
   return flags.length === 0 ? base : `${base} (${flags.join(", ")})`;
 };
 
-/** Whether `label` appears more than once in `labels`. */
 const repeated = (labels: ReadonlyArray<string>, label: string): boolean =>
   labels.filter((each) => each === label).length > 1;
 
@@ -87,11 +79,6 @@ export const subtitleTrackLabels = (
   return distinct(titled);
 };
 
-/**
- * `labels` with a repeated label followed by its position, repeated until no two are the same:
- * a suffix can match another track's own title (`English · 1`), so one pass isn't enough. Each
- * round lengthens only the labels that still collide, so it ends.
- */
 const distinct = (labels: ReadonlyArray<string>): ReadonlyArray<string> =>
   labels.some((label) => repeated(labels, label))
     ? distinct(

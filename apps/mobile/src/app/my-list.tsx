@@ -1,8 +1,3 @@
-/**
- * My List, from You (H01): the profile's whole list in a three-column grid, narrowed to movies or
- * shows by the chips, newest first. Removing a title (long press) offers Undo. Home shows the same
- * list as a row (C02); empty, this page offers the way back to Home.
- */
 import { useCommandQuery } from "@movies/sdk/react";
 import { router } from "expo-router";
 import { Bookmark } from "lucide-react-native";

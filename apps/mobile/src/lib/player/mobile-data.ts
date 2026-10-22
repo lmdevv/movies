@@ -1,8 +1,3 @@
-/**
- * Whether playback may start on this network (H27 Mobile Data): on mobile data, Ask First asks
- * (with a data-saving 480p choice), Wi-Fi Only does not stream, and Allow Streaming plays. Off mobile
- * data, or when the network can't be told, playback starts.
- */
 import type { MobileData } from "../preferences";
 
 /** The network as the player needs to know it; `unknown` when the system can't tell. */

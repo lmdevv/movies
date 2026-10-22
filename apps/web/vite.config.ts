@@ -5,8 +5,6 @@ import { defineConfig, loadEnv } from "vite";
 
 const DEFAULT_PORT = 3001;
 
-/** The dev server port: `WEB_PORT` from the environment or `.env.local` (written per worktree by
- * `scripts/dev-stack.sh`), else 3001. */
 const parsePort = (value: string | undefined): number => {
   if (value === undefined || value === "") return DEFAULT_PORT;
 
@@ -25,6 +23,10 @@ export default defineConfig(({ mode }) => {
   return {
     server: { port: parsePort(env["WEB_PORT"]) },
     resolve: { tsconfigPaths: true },
-    plugins: [tailwindcss(), tanstackRouter({ target: "react", autoCodeSplitting: true }), react()],
+    plugins: [
+      tailwindcss(),
+      tanstackRouter({ target: "react", autoCodeSplitting: true, routeTreeFileHeader: [] }),
+      react(),
+    ],
   };
 });

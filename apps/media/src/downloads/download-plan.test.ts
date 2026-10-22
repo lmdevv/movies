@@ -103,7 +103,6 @@ describe("decideDownload", () => {
       mode: "transcode-software",
       video: { _tag: "Encode", encoder: "software", height: 720, bitrate: 4_000_000 },
     });
-    // 4 Mb/s of video and the copied AAC counted at 1.6 Mb/s, for 50 minutes.
     expect(standard).toMatchObject({ estimatedBytes: Math.ceil((5_600_000 * 3000) / 8) });
     expect(decideDownload(film, iphone, "high", options)).toMatchObject({
       _tag: "Mp4",

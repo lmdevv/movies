@@ -3,13 +3,10 @@ import type { PersonCard, TitleCard } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { useEffect, useState } from "react";
 
-/** How long typing must pause before a search runs. */
 const SEARCH_DELAY_MS = 150;
 
-/** Most results one search asks for. */
 const SEARCH_LIMIT = 24;
 
-/** Most people one search asks for. */
 const PEOPLE_LIMIT = 6;
 
 /** Live title results for what someone is typing. */
@@ -24,14 +21,12 @@ export interface TitleSearch {
   readonly loading: boolean;
 }
 
-/** Results that belong to one query. */
 interface Settled {
   readonly query: string;
   readonly results: ReadonlyArray<TitleCard>;
   readonly people: ReadonlyArray<PersonCard>;
 }
 
-// Shared empties keep a failed search's results the same object from render to render.
 const NO_TITLES: ReadonlyArray<TitleCard> = [];
 
 const NO_PEOPLE: ReadonlyArray<PersonCard> = [];
@@ -66,9 +61,6 @@ export const useTitleSearch = (profileId: ProfileId, text: string): TitleSearch 
     query === "" ? "skip" : { profileId, query, limit: PEOPLE_LIMIT },
   );
 
-  // Titles lead: results settle when titles arrive, with whatever people have arrived by then
-  // (people found later join the same query's results). While titles load, the last settled
-  // results stay on screen.
   const found = people.status === "success" ? people.data : NO_PEOPLE;
 
   const current: Settled | null =

@@ -1,7 +1,3 @@
-/**
- * Picture in picture for the player's `<video>`: the standard API where the browser has it, and
- * Safari's presentation modes otherwise.
- */
 import { useCallback, useEffect, useState } from "react";
 
 /** Picture in picture as the player uses it. */

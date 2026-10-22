@@ -1,8 +1,3 @@
-/**
- * The Download row of a title's or an episode's `…` sheet (D10, D07): `Download` queues it at the
- * Video Quality of Download Settings; once queued it reads its state and opens its page, or H21
- * when it did not fit.
- */
 import { Check, Download } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 

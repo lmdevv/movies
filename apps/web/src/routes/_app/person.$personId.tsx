@@ -31,7 +31,6 @@ export const Route = createFileRoute("/_app/person/$personId")({
 
 const today = (): string => new Date().toISOString().slice(0, 10);
 
-/** `Born March 31, 1949 in Lisbon, Portugal` and `Died …, aged 74`. */
 const lifeLines = (person: PersonDetail): ReadonlyArray<string> => {
   const age =
     person.birthDate === null ? null : yearsBetween(person.birthDate, person.deathDate ?? today());
@@ -53,7 +52,6 @@ const lifeLines = (person: PersonDetail): ReadonlyArray<string> => {
   return [born, died].flatMap((line) => (line === null ? [] : [line]));
 };
 
-/** A person: photo, biography, birth and death, and the titles of theirs the profile may see. */
 function PersonPage() {
   const { personId } = Route.useParams();
   const { profile } = useActiveProfile();
@@ -61,8 +59,6 @@ function PersonPage() {
   const requestDetails = useCommand("people.requestDetails");
   const pending = person.status === "success" && person.data.detailsPending;
 
-  // The biography loads in the background the first time anyone opens this person; the query
-  // updates when it lands. The server queues one fetch however often this runs.
   useEffect(() => {
     if (pending) {
       requestDetails({ profileId: profile.id, personId }).catch(() => undefined);
@@ -106,7 +102,6 @@ function PersonPage() {
       <title>{`${data.name} · [movies]`}</title>
       <section className="flex flex-col gap-6 md:flex-row md:gap-12">
         {photo === undefined ? (
-          // No photo: the person's letter in the middle, like their avatar in a cast row.
           <div
             aria-hidden
             className="flex aspect-2/3 w-40 shrink-0 items-center justify-center rounded-poster bg-surface-raised font-sans text-display/display font-heavy tracking-display text-text-muted select-none md:w-64"

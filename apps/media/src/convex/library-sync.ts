@@ -1,8 +1,3 @@
-/**
- * Keeps the library monitor's watch list equal to the libraries in Convex: a library added,
- * removed, or given other folders starts or stops its watchers at once. Folders outside
- * `LIBRARY_ROOTS` are refused by the scanner and not watched.
- */
 import { Effect, Layer, Stream } from "effect";
 
 import * as LibraryMonitor from "../library/library-monitor.ts";

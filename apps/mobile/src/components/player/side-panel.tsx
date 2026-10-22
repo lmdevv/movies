@@ -1,7 +1,3 @@
-/**
- * The player's sheets (F02–F05, F09, F13): a raised panel on the right edge over a scrim that
- * dims the video, with a 22pt bold title and a round close button. Tapping the scrim closes it.
- */
 import { X } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";

@@ -26,7 +26,6 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
       { title: "[movies]" },
       { name: "description", content: "Your movies and shows, streamed from your own library" },
     ],
-    // The SVG mark for browsers that take it, the ICO (16, 32 and 48 px) for the rest.
     links: [
       { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
       { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },

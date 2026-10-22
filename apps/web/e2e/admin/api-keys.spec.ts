@@ -20,7 +20,6 @@ test("an API key is shown once, signs in, appears in the list, and stops working
   await page.goto("/settings/account");
   await expect(page.getByRole("heading", { name: "Account" })).toBeVisible();
 
-  // The command menu opens Create key on the API keys page.
   await page.keyboard.press(process.platform === "darwin" ? "Meta+k" : "Control+k");
   await page.getByRole("combobox").fill("create api key");
   await page.keyboard.press("Enter");
@@ -40,11 +39,9 @@ test("an API key is shown once, signs in, appears in the list, and stops working
   await created.getByRole("button", { name: "Done" }).click();
   await expect(created).toBeHidden();
 
-  // The secret is gone from the page once the dialog closes.
   await expect(page.getByText(secret)).toHaveCount(0);
 
   const row = page.getByRole("row").filter({ hasText: name });
-  // The list shows the key's prefix: `mk_` and eight random characters.
   await expect(row).toContainText(`${secret.slice(0, 11)}…`);
   await expect(row).toContainText("read");
   await expect(row).toContainText("Never");

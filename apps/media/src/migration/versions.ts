@@ -1,6 +1,3 @@
-/** Version comparison for source servers, which report versions such as `10.10.7` or `1.41.3.9314-a0bfb8370`. */
-
-/** The leading numeric components of a version string, such as `[1, 41, 3, 9314]`. */
 const componentsOf = (version: string): ReadonlyArray<number> =>
   (/^\d+(?:\.\d+)*/u.exec(version.trim())?.[0] ?? "").split(".").flatMap((part) => {
     const value = Number.parseInt(part, 10);

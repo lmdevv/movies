@@ -1,8 +1,3 @@
-/**
- * Owner Settings (I01–I18, J01–J06): one stack for server administration, open to sessions that
- * may manage libraries or administer the server. Members never see its entry; anyone who reaches
- * it anyway (a link, a role changed meanwhile) sees why it is closed.
- */
 import { useCommandQuery } from "@movies/sdk/react";
 import { Stack } from "expo-router";
 import { Lock } from "lucide-react-native";

@@ -75,7 +75,6 @@ describe.skipIf(!hasFfmpeg)("KeyframeIndex", () => {
         assert.deepStrictEqual(fromCues, ffprobeKeyframes);
         assert.deepStrictEqual(fromScan.slice(0, 3), [0, 2, 4]);
 
-        // A cached index answers even when the file has gone.
         const fs = yield* FileSystem.FileSystem;
         yield* fs.remove(mp4.path);
 

@@ -1,7 +1,3 @@
-/**
- * Builds the SDK's command client over a test transport, with real auth and memory token storage
- * (signed out), the way production composes them.
- */
 import { Layer, Option } from "effect";
 
 import * as Auth from "../auth";

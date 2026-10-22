@@ -1,7 +1,3 @@
-/**
- * I03 · Add Library, and I17 when the server cannot read the folder: the name, Movies or Shows,
- * and the folder typed or browsed. Add & Scan saves it and follows its first scan (I06).
- */
 import { useCommand } from "@movies/sdk/react";
 import { router } from "expo-router";
 

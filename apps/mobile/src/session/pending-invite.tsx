@@ -1,9 +1,3 @@
-/**
- * The invite being redeemed (A06 Join Household). Opening an invite connects to its server and
- * keeps the invite here, outside the connected part of the app, so the signed-out stack opens on
- * Join Household instead of Sign In. An invite belongs to its server: it shows only while the app
- * is connected there, is forgotten on disconnecting, and is dropped once someone is signed in.
- */
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Alert } from "react-native";
@@ -28,7 +22,6 @@ export function PendingInviteProvider({ children }: { readonly children: ReactNo
   const { connection } = useConnection();
   const [invite, setInvite] = useState<InviteLink | null>(null);
 
-  // Disconnecting (Change Server, Sign In's server row) abandons the invite with its server.
   useEffect(() => {
     if (connection === null) setInvite(null);
   }, [connection]);

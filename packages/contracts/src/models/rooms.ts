@@ -1,4 +1,3 @@
-/** Watch rooms: a shared, host-controlled timeline that members follow on their own streams. */
 import { Schema } from "effect";
 
 import { DeviceId, EpisodeId, MediaFileId, ProfileId, RoomId, TitleId, UserId } from "../ids";

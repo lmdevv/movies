@@ -1,7 +1,3 @@
-/**
- * Profiles belong to one account. A PIN profile must be unlocked on each session before anything
- * reads or changes it; the unlock lives on the session row and ends with it.
- */
 import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
@@ -17,10 +13,8 @@ import { nullable, ok, profile, unlockResult } from "./lib/validators";
 import type { Viewer } from "./lib/viewer";
 import { authorize } from "./lib/viewer";
 
-/** Most profiles one account may have. */
 const MAX_PROFILES = 10;
 
-/** Wrong PINs in a row before the profile locks. */
 const MAX_PIN_FAILURES = 5;
 
 const PIN_LOCKOUT_MS = 5 * 60 * 1000;
@@ -29,16 +23,11 @@ const PIN_PATTERN = /^\d{4,8}$/u;
 
 const checkName = (name: string): string => checkDisplayName(name, "Profile names");
 
-/**
- * The rating limit after an update. A kids profile always has one: turning kids on without a
- * limit applies the default, and clearing the limit requires turning kids off.
- */
 const nextAgeRating = (
   current: Doc<"profiles">,
   kids: boolean | undefined,
   maxAgeRating: number | null | undefined,
 ): number | null => {
-  // Profiles stored before kids profiles always had a limit can still be renamed as they are.
   if (kids === undefined && maxAgeRating === undefined) return current.maxAgeRating;
   const nextKids = kids ?? current.kids;
 
@@ -221,7 +210,6 @@ export const setPin = mutation({
       pinLockedUntil: undefined,
     });
 
-    // The session that set the PIN stays unlocked; every other session must enter it.
     await setUnlocked(ctx, viewer, current, true);
 
     return { ok: true as const };

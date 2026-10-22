@@ -1,10 +1,3 @@
-/**
- * Migration from Jellyfin against the real media service: Connect says why a source could not be
- * used under the field it concerns, and a full import goes through Review (one source user mapped
- * to a profile, the other skipped), Importing, and Done. The source is the recorded Jellyfin
- * server over the generated fixture library, or a real Jellyfin in Docker with
- * `MOVIES_JELLYFIN_DOCKER=1` (see `jellyfin-source.ts`).
- */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,18 +18,14 @@ test.skip(stack === null, NO_STACK);
 
 test.describe.configure({ mode: "serial" });
 
-/** Generating the library, starting the source, and bundling the service take a while. */
 const SETUP_TIMEOUT_MS = 300_000;
 
-/** The import waits for the new libraries' first scans, then writes the watch state. */
 const IMPORT_TIMEOUT_MS = 180_000;
 
 const run = Date.now().toString(36);
 
-/** The profile Jellyfin's `admin` imports into. */
 const PROFILE = `Jellyfin ${run}`;
 
-/** The approved library root, holding the fixture library Jellyfin serves. */
 let workspace = "";
 
 let source: JellyfinSource | undefined;
@@ -98,7 +87,6 @@ test("Couldn't connect shows why under the address or the key", async ({ page })
   await expect(page.getByRole("radio", { name: "Jellyfin" })).toBeChecked();
   await expect(page.getByText("Emby")).toHaveCount(0);
 
-  // Nothing listens on port 1.
   await page.getByLabel("Server URL").fill("http://127.0.0.1:1");
   await page.getByLabel("API key").fill("anything");
   await page.getByRole("button", { name: "Connect" }).click();
@@ -136,7 +124,6 @@ test("an admin connects, reviews, imports, and lands on Done", async ({ page }) 
   await page.getByRole("button", { name: "Connect" }).click();
   await expect(page.getByRole("heading", { name: "Ready to import" })).toBeVisible();
 
-  // No [movies] account matches Jellyfin's users, so neither is imported until one is mapped.
   const admin = page.getByLabel("admin", { exact: true });
   const bob = page.getByLabel("bob", { exact: true });
   await expect(admin).toHaveValue("skip");
@@ -162,7 +149,6 @@ test("an admin connects, reviews, imports, and lands on Done", async ({ page }) 
   });
   await expect(page.getByText("libraries added")).toBeVisible();
 
-  // What Done counted is in [movies]: admin's watched movie, its progress, and its favorite show.
   if (profileId === undefined) throw new Error("No profile");
 
   const myList = await owner.sdk.query("myList.list", { profileId });
@@ -171,7 +157,6 @@ test("an admin connects, reviews, imports, and lands on Done", async ({ page }) 
   const resume = await owner.sdk.query("history.continueWatching", { profileId });
   expect(resume.map((row) => row.title.name)).toContain("Remux Fixture");
 
-  // Reloading keeps Done, as the import is pinned to the URL.
   await page.reload();
   await expect(page.getByRole("heading", { name: "Imported from Jellyfin" })).toBeVisible();
   await page.getByRole("link", { name: "Go to Home" }).click();

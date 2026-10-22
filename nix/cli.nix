@@ -16,9 +16,8 @@
 let
   packageJson = lib.importJSON ../apps/cli/package.json;
 
-  # pnpm checks the lockfile against every workspace's package.json, so all of them come along;
-  # sources only for the CLI and the workspace packages it bundles. The tsconfigs give esbuild the
-  # same compiler settings as the workspace build.
+  # pnpm checks the lockfile against every workspace's package.json, so all of them come along.
+  # The tsconfigs give esbuild the same compiler settings as the workspace build.
   src = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [

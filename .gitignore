@@ -1,9 +1,7 @@
-# Dependencies
 node_modules
 .pnp
 .pnp.js
 
-# Build outputs
 dist
 build
 *.tsbuildinfo
@@ -15,11 +13,9 @@ result-*
 local.db
 local.db-*
 
-# Environment variables
 .env
 .env*.local
 
-# IDEs and editors
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
@@ -31,7 +27,6 @@ local.db-*
 *~
 .DS_Store
 
-# Logs
 logs
 .evlog/
 *.log
@@ -41,32 +36,25 @@ yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
 
-# Turbo
 .turbo
 .nx
 
-# Better-T-Stack
 .alchemy
 .vercel
 
-# Testing
 coverage
 .nyc_output
 
-# Misc
 *.tgz
 .cache
 tmp
 temp
 
-# Read-only upstream references (Effect)
 .repos/
 
-# Playwright
 test-results
 playwright-report
 
-# Claude Code (per-user)
 .claude/settings.local.json
 .claude/worktrees/
 

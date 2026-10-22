@@ -1,8 +1,3 @@
-/**
- * The preference pickers of App Settings: H26 Streaming Quality, H27 Mobile Data, and from H28 the
- * preferred audio language, subtitles (with SDH), and audio description. Choosing saves at once
- * and stays on the screen, so the mark moves to the new choice.
- */
 import { useLocalSearchParams } from "expo-router";
 import type { ReactNode } from "react";
 

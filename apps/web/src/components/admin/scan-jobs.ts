@@ -4,7 +4,6 @@ import { folderTroubleOf } from "@movies/contracts/scan-failure";
 import { useCommandQuery } from "@movies/sdk/react";
 import { useMemo } from "react";
 
-/** How many recent scan jobs are read to find each library's latest one. */
 const RECENT_SCANS = 100;
 
 /** Each library's most recent scan job, live, so rows show progress as the media service reports it. */
@@ -16,7 +15,6 @@ export const useLatestScans = (): ReadonlyMap<LibraryId, Job> => {
 
     if (jobs.status !== "success") return latest;
 
-    // Jobs arrive newest first, so the first one seen for a library is its latest.
     for (const job of jobs.data) {
       if (job.payload.kind === "scan" && !latest.has(job.payload.libraryId)) {
         latest.set(job.payload.libraryId, job);

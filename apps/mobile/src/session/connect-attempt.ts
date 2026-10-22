@@ -1,8 +1,3 @@
-/**
- * One attempt to connect from a form (A02 Connect to Server, A09 Connection Details, A08's Try
- * Again, Open an Invite): ignores submits while one runs or the form is incomplete, remembers the
- * failure until the form changes, and opens the app on the server once it answers.
- */
 import { useCallback, useRef, useState } from "react";
 
 import type { ConnectFailure, ConnectResult, ServerConnection } from "@/lib/discovery";
@@ -33,7 +28,6 @@ export const useConnectAttempt = (): ConnectAttempt => {
   const { connect } = useConnection();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<ConnectFailure | null>(null);
-  // The keyboard's Go key can fire before `busy` renders.
   const running = useRef(false);
 
   const clearFailure = useCallback(() => setFailure(null), []);

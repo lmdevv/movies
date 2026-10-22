@@ -9,20 +9,12 @@ const Bench = import.meta.env.DEV
   : undefined;
 
 const AutoplaySearch = Schema.Struct({
-  /** The still: sample artwork (the default), `none`, or `broken`, an address that fails to load. */
   still: Schema.optionalKey(Schema.Literals(["art", "none", "broken"])),
-  /** `long` names the episode with a title too long for two lines. */
   title: Schema.optionalKey(Schema.Literals(["short", "long"])),
-  /** `none` leaves out the synopsis. */
   overview: Schema.optionalKey(Schema.Literal("none")),
-  /** The seconds the countdown holds at, from `0` to `10`; `10` by default. */
   seconds: Schema.optionalKey(
     Schema.Literals(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]),
   ),
-  /**
-   * `follow` shows a room guest's card, which cannot play the next episode; `unavailable` a card
-   * whose next episode cannot play.
-   */
   role: Schema.optionalKey(Schema.Literals(["advance", "follow", "unavailable"])),
 });
 

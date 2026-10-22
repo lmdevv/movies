@@ -1,7 +1,3 @@
-/**
- * The actions title screens run against the server: My List with an immediate answer, and one-off
- * commands (watched marks, rescans) with a busy state and the line to show when they fail.
- */
 import type { ProfileId, TitleId } from "@movies/contracts/ids";
 import { useCommand } from "@movies/sdk/react";
 import * as Haptics from "expo-haptics";
@@ -35,15 +31,12 @@ export const useMyListToggle = (
   const add = useCommand("myList.add");
   const remove = useCommand("myList.remove");
   const [error, setError] = useState<string | null>(null);
-  // A ref, not state, so a second tap before the next render still sees the first one running.
   const running = useRef(false);
   const [busy, setBusy] = useState(false);
 
   const [optimistic, setOptimistic] = useState<Pending<boolean> | null>(null);
   const { value: inList, spent } = optimisticValue(optimistic, inMyList);
 
-  // Once the server moves past the change, drop it, so a later return to the old value (another
-  // sheet or device undoing it) shows as it is rather than reviving the stale change.
   if (spent) setOptimistic(null);
 
   const toggle = async (): Promise<boolean> => {
@@ -87,7 +80,6 @@ export interface Runner {
 export const useRunner = (): Runner => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // A ref, not state, so a second press before the next render still sees the first one running.
   const running = useRef(false);
 
   const run = async <A>(action: () => Promise<A>): Promise<boolean> => {

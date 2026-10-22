@@ -1,7 +1,6 @@
 import { cn } from "@movies/ui/lib/utils";
 import type { ReactNode } from "react";
 
-/** Title treatment, backdrop and actions shared by the desktop {@link Hero} and the phone {@link HeroCard}. */
 type HeroContent = {
   readonly title: string;
   /** The title treatment, usually the title's logo image. Defaults to the title as heavy text. */

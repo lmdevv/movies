@@ -1,8 +1,3 @@
-/**
- * The screens every route falls back to: an unknown address and a screen that crashed while
- * rendering. Inside the app shell they sit in the page like any other state; elsewhere (sign-in,
- * the player, a crashed shell) they take the sign-in frame with the wordmark.
- */
 import { useAuth, useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { buttonVariants } from "@movies/ui/lib/button-variants";
@@ -25,7 +20,6 @@ export function InShell({ children }: { readonly children: ReactNode }) {
 function StateFrame({ children }: { readonly children: ReactNode }) {
   const inShell = useContext(InShellContext);
 
-  // Billboard routes leave the top bar's height to the page.
   const hero = useMatches({
     select: (matches) => matches.some((match) => match.staticData.hero === true),
   });
@@ -56,7 +50,6 @@ const goHome = (variant: "primary" | "subtle") => (
   </Link>
 );
 
-/** What threw, with its stack when it has one. Anything thrown may reach a route's boundary. */
 const errorText = (cause: unknown): string => {
   if (!(cause instanceof Error)) return String(cause);
 
@@ -80,7 +73,6 @@ export function NotFoundPage() {
 export function RouteErrorPage({ error, reset }: ErrorComponentProps) {
   const router = useRouter();
   const { status } = useAuth();
-  // Only a session can manage the server; signed out, the screen asks the server nothing.
   const viewer = useCommandQuery("account.viewer", status === "signedIn" ? {} : "skip");
   const canManage = viewer.status === "success" && viewer.data.scopes.includes("manage");
 

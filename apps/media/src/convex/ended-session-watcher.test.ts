@@ -23,7 +23,6 @@ describe("ended-session watcher", () => {
     Effect.gen(function* () {
       yield* TestClock.setTime(NOW);
 
-      // Each subscription is one `after`; the test answers it through a queue.
       const asked = yield* Queue.unbounded<number>();
 
       const answers = new Map([

@@ -49,7 +49,6 @@ const hevcHdr = video("hevc", {
 
 const options = { audioIndex: undefined, hardware: undefined, softwareToneMapping: false };
 
-/** The rung a cast device lands on: `direct`, an HLS mode, or why nothing fits. */
 const rung = (file: MediaProbe, modelName: string | undefined): string => {
   return PlaybackPlan.$match(decidePlayback(file, castCapabilities(modelName), options), {
     Direct: () => "direct",
@@ -76,7 +75,6 @@ describe("negotiating for a Chromecast", () => {
         "Chromecast",
       ),
     ).toBe("transcode-software");
-    // Tone mapping needs hardware, which this host does not offer.
     expect(rung(probe("mkv", hevcHdr, audio("aac", 2)), "Chromecast")).toBe(
       "unsupported: hdr-tone-mapping-requires-hardware",
     );

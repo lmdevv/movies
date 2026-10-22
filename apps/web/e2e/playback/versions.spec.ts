@@ -1,11 +1,3 @@
-/**
- * Versions against the real media service: a film with two editions, one an MP4 Chromium plays
- * directly and one a taller MKV it needs remuxed, and an episode with two files. The title page
- * offers a Version select whose choice Play plays; the player switches files in place, keeping the
- * position; and the profile's last choice comes back on the title page and in a plain play. With
- * thirty-two subtitles beside the episode, the track menu stays inside a short full screen window
- * and a phone. Runs after the casting suite on the same stack, signed in as its owner.
- */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -52,7 +44,6 @@ const MOVIE = "Tidewater";
 
 const SHOW = "Ebb Tide";
 
-/** The player's tracks button and its popover. */
 const TRACKS = "Audio, subtitles, and quality";
 
 const SRT = `1
@@ -60,7 +51,6 @@ const SRT = `1
 The tide turns.
 `;
 
-/** Thirty-two languages beside the episode's first file. */
 const SUBTITLE_LANGUAGES = [
   "en",
   "fr",
@@ -112,7 +102,6 @@ let movieId: TitleId;
 
 let showId: TitleId;
 
-/** The film's files by edition. */
 const files = new Map<string, MediaFileId>();
 
 test.beforeAll(async ({ browser }) => {
@@ -127,7 +116,6 @@ test.beforeAll(async ({ browser }) => {
   const season = join(shows, `${SHOW} (2020)`, "Season 01");
 
   await Promise.all([
-    // Chromium plays the MP4 directly; the taller MKV needs a remux.
     encodeClip(join(film, `${MOVIE} (2021) {edition-Standard}.mp4`), {
       seconds: 60,
       video: "h264",
@@ -153,7 +141,6 @@ test.beforeAll(async ({ browser }) => {
       audio: [{ codec: "aac", language: "eng" }],
     }),
     writeText(join(season, `${SHOW} - S01E01.nfo`), episodeNfo(1, 1, "Neap")),
-    // A subtitle in every language the scanner knows, longer than any window shows at once.
     ...SUBTITLE_LANGUAGES.map(async (language) =>
       writeText(join(season, `${SHOW} - S01E01.${language}.srt`), SRT),
     ),
@@ -209,7 +196,6 @@ test.afterAll(async () => {
   await rm(workspace, { recursive: true, force: true });
 });
 
-/** The file this device's playback session of the film plays, as the server recorded it. */
 const sessionFile = async (): Promise<MediaFileId | undefined> => {
   const sessions = await owner.sdk.query("playback.active", {});
 
@@ -218,7 +204,6 @@ const sessionFile = async (): Promise<MediaFileId | undefined> => {
     .toSorted((left, right) => right.startedAt - left.startedAt)[0]?.fileId;
 };
 
-/** The film's file of `edition`. */
 const fileOf = (edition: string): MediaFileId => {
   const id = files.get(edition);
 
@@ -227,7 +212,6 @@ const fileOf = (edition: string): MediaFileId => {
   return id;
 };
 
-/** The show's only episode. */
 const firstEpisode = async (): Promise<string> => {
   const profile = await adultProfile(owner.sdk);
 
@@ -242,7 +226,6 @@ const firstEpisode = async (): Promise<string> => {
   return episode.id;
 };
 
-/** The Version column of the player's tracks popover. */
 const versionGroup = (target: Page) =>
   target.getByRole("dialog", { name: TRACKS }).getByRole("radiogroup", { name: "Version" });
 
@@ -251,7 +234,6 @@ test("a title with two versions offers them beside Play, which plays the chosen 
 
   const select = page.getByRole("button", { name: "Version" });
 
-  // Nothing played yet: the edition this browser plays directly comes first.
   await expect(select).toContainText("Standard");
   await select.click();
   await expect(page.getByRole("menuitemradio")).toHaveCount(2);
@@ -292,13 +274,11 @@ test("the player switches versions in place, keeping the position and the pause"
   await expectPositionNear(page, position, 0.5);
   expect((await videoState(page)).paused).toBe(true);
 
-  // The panel closed while the new file loaded; it names the new version once opened again.
   await revealControls(page);
   await page.getByRole("button", { name: TRACKS }).click();
   await expect(versionGroup(page).getByRole("radio", { name: /^Standard/u })).toBeChecked();
   await page.keyboard.press("Escape");
 
-  // Back to the remaster while playing: it plays on from about where it was.
   await page.getByTestId("player").press("k");
   await expectPlayingPast(page, position + 0.5);
 
@@ -334,7 +314,6 @@ test("a version the service cannot stream gives way to the one that played", asy
 });
 
 test("the profile's last version comes back on the title page and in a plain play", async () => {
-  // Leaving ends the session, which records the version it played.
   await page.goto(`/title/${movieId}`);
   await expect(page.getByRole("button", { name: "Version" })).toContainText("Remastered");
 
@@ -368,14 +347,12 @@ test("four columns and thirty-two subtitles stay inside a short full screen and 
 }) => {
   const episode = await firstEpisode();
 
-  // The shared page goes back to its own size, out of full screen, however this part ends.
   const size = page.viewportSize();
 
   try {
     await page.setViewportSize({ width: 1280, height: 400 });
     await page.goto(`/watch/${showId}?episodeId=${episode}&start=0`);
     await expectPlayingPast(page, 0.5);
-    // Paused, the controls and the trigger stay while the menu is open.
     await page.getByTestId("player").press("k");
     await page.getByTestId("player").press("f");
     await expect.poll(() => page.evaluate(() => document.fullscreenElement !== null)).toBe(true);
@@ -390,7 +367,6 @@ test("four columns and thirty-two subtitles stay inside a short full screen and 
     await expect(
       menu.getByRole("radiogroup", { name: "Subtitles" }).getByRole("radio"),
     ).toHaveCount(33);
-    // In full screen it renders inside the player, above the trigger and inside the screen.
     expect(
       await menu.evaluate((popup) => document.fullscreenElement?.contains(popup) ?? false),
     ).toBe(true);
@@ -402,7 +378,6 @@ test("four columns and thirty-two subtitles stay inside a short full screen and 
       ),
     );
 
-    // The keyboard walks to the last subtitle, which scrolls into view under its heading.
     const subtitles = menu.getByRole("radiogroup", { name: "Subtitles" }).getByRole("radio");
 
     await subtitles.first().focus();
@@ -413,12 +388,10 @@ test("four columns and thirty-two subtitles stay inside a short full screen and 
     await expect(menu.getByText("Subtitles", { exact: true })).toBeInViewport({ ratio: 1 });
     await capture(page, "07-02d-many-subtitles");
 
-    // The subtitles key turns them off with the menu open; the list follows the new choice up.
     await page.keyboard.press("c");
     await expect(subtitles.first()).toBeChecked();
     await expect(subtitles.first()).toBeInViewport({ ratio: 1 });
 
-    // Escape closes the menu alone: the player stays, in full screen, with focus on the trigger.
     await page.keyboard.press("Escape");
     await expect(menu).toBeHidden();
     await expect(trigger).toBeFocused();
@@ -432,7 +405,6 @@ test("four columns and thirty-two subtitles stay inside a short full screen and 
     if (size !== null) await page.setViewportSize(size);
   }
 
-  // A phone's subtitle pill opens the same menu, inside the screen either way up.
   const phone = await browser.newContext({ ...devices["iPhone 13 landscape"] });
   const handset = await phone.newPage();
 
@@ -442,7 +414,6 @@ test("four columns and thirty-two subtitles stay inside a short full screen and 
     await expectPlayingPast(handset, 0.5);
     await handset.getByTestId("player-video").tap();
 
-    // The pill is named after the subtitle playing; its captions glyph marks it.
     const pill = handset
       .getByRole("button")
       .filter({ has: handset.locator("svg.lucide-captions") });

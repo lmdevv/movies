@@ -1,30 +1,17 @@
-/**
- * A per-address token bucket on the routes anyone may call without a token: artwork, health, and
- * client configuration. Artwork resizes run ffmpeg, so an unauthenticated flood could keep the CPU
- * busy; everything else needs a playback or bearer token first. The budget is generous for a
- * person browsing a large library (a poster grid loads hundreds of images at once) and refuses a
- * script hammering the route with `429` and `Retry-After`. Behind a reverse proxy every request
- * shares the proxy's address, so the budget is then shared; forwarded headers are not trusted.
- */
 import { Clock, Effect, Layer, Option } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
-/** A route family's budget. */
 interface Budget {
-  /** Requests a quiet address may send at once. */
   readonly burst: number;
-  /** Requests per second the bucket refills by. */
   readonly perSecond: number;
 }
 
-/** Budgets by path prefix; other paths are not limited here. */
 const BUDGETS: ReadonlyArray<readonly [prefix: string, budget: Budget]> = [
   ["/artwork/", { burst: 600, perSecond: 100 }],
   ["/api/health", { burst: 60, perSecond: 10 }],
   ["/api/client-config", { burst: 60, perSecond: 10 }],
 ];
 
-/** Buckets kept before the least recently used are forgotten. */
 const MAX_BUCKETS = 10_000;
 
 interface Bucket {
@@ -38,14 +25,8 @@ interface Bucket {
  * busy ones.
  */
 export const makeLimiter = (maxBuckets = MAX_BUCKETS) => {
-  // Kept in order of last use: every take moves its key to the end.
   const buckets = new Map<string, Bucket>();
 
-  /**
-   * Takes `cost` tokens from every one of `keyed` buckets, or from none when any has fewer left,
-   * as a session's and its account's: a request one bucket refuses costs the others nothing.
-   * Returns the seconds to wait when refused.
-   */
   return (
     keyed: ReadonlyArray<readonly [key: string, budget: Budget]>,
     now: number,

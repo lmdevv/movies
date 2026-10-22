@@ -1,16 +1,3 @@
-/**
- * Per-device HLS stream sessions and the ffmpeg runs behind them.
- *
- * A session belongs to one playback session (`sid`) and file. Each ffmpeg run is a numbered
- * generation in its own scope and folder. ffmpeg writes one fMP4 fragment per keyframe interval;
- * the session groups fragments into the planned segments by their `sidx` start times. A request
- * outside the produced range starts a new generation at the requested segment and answers the
- * old generation with `StreamGenerationGone`, so output from two runs is never mixed. Closing a
- * generation's scope kills its ffmpeg and deletes its folder; sessions close on stop, on
- * replacement by a newer session for the same device, after `STREAM_IDLE_SECONDS` without
- * requests, on failure, and at shutdown. Stream IDs live only in memory, so a restarted service
- * answers old IDs with `StreamNotFound` and clients renegotiate.
- */
 import {
   type ClientCapabilities,
   type InsufficientTranscodeSpace,
@@ -62,7 +49,6 @@ import * as StreamOwners from "./stream-owners.ts";
 import * as TranscodeSpace from "./transcode-space.ts";
 import { hlsCommandArgs } from "./transcode-command.ts";
 
-/** What negotiation hands to a new session. */
 interface StartRequest {
   readonly grant: PlaybackGrant;
   readonly file: ResolvedMediaFile;
@@ -70,14 +56,11 @@ interface StartRequest {
   readonly client: ClientCapabilities;
   readonly audioIndex: number | undefined;
   readonly startSeconds: number;
-  /** The viewer's quality cap and burned-in subtitle, which a fallback to software keeps. */
   readonly quality: PlaybackQuality | undefined;
   readonly burnSubtitle: number | undefined;
-  /** The file's keyframes, when negotiation already has them; copies index the file otherwise. */
   readonly keyframes: ReadonlyArray<number> | undefined;
 }
 
-/** A started stream. `mode` reflects any fallback that happened while starting. */
 interface StartedStream {
   readonly streamId: StreamId;
   readonly generation: number;
@@ -85,20 +68,17 @@ interface StartedStream {
   readonly segmentIndex: number;
 }
 
-/** The current generation and plan of a stream, for rendering its playlist. */
 interface StreamView {
   readonly streamId: StreamId;
   readonly generation: number;
   readonly plan: SegmentPlan;
 }
 
-/** Files that make up one served part, in order. */
 interface SegmentFiles {
   readonly paths: ReadonlyArray<string>;
   readonly sizeBytes: number;
 }
 
-/** Failures of requests against an existing stream. */
 type StreamRequestError =
   | StreamNotFound
   | StreamAccessDenied
@@ -160,13 +140,10 @@ export class Service extends Context.Service<Service, Interface>()(
   "@movies/media/StreamSessions",
 ) {}
 
-/** Segments past the produced range that a request may still wait for instead of seeking. */
 const LOOKAHEAD_SEGMENTS = 3;
 
-/** How often each stream compares its encoder's progress with its player's. */
 const THROTTLE_INTERVAL = Duration.seconds(1);
 
-/** Tolerance when comparing fragment start times with planned boundaries. */
 const TIME_EPSILON = 0.005;
 
 const POLL_INTERVAL = Duration.millis(50);
@@ -188,7 +165,6 @@ interface Generation {
   readonly scope: Scope.Closeable;
   readonly exit: Deferred.Deferred<void, MediaTools.MediaToolFailed>;
   readonly fragments: Ref.Ref<ReadonlyArray<Fragment>>;
-  /** Pauses or continues this run's ffmpeg; nothing for a run that never started. */
   readonly suspend: (paused: boolean) => Effect.Effect<void>;
   readonly paused: Ref.Ref<boolean>;
 }
@@ -196,7 +172,6 @@ interface Generation {
 interface Session {
   readonly streamId: StreamId;
   readonly sessionId: PlaybackSessionId;
-  /** The account whose token started the stream, for log records. */
   readonly userId: UserId;
   readonly fileId: MediaFileId;
   readonly file: ResolvedMediaFile;
@@ -212,22 +187,17 @@ interface Session {
   readonly generation: Ref.Ref<Generation>;
   readonly lock: Semaphore.Semaphore;
   readonly lastActivity: Ref.Ref<number>;
-  /** The furthest segment the player asked for, which the encoder may run ahead of. */
   readonly requested: Ref.Ref<number>;
-  /** Whether any segment of any generation has been answered. */
   readonly served: Ref.Ref<boolean>;
 }
 
-/** The produced range of a generation, in planned segment indexes. */
 interface Produced {
   readonly members: ReadonlyMap<number, ReadonlyArray<Fragment>>;
-  /** Highest segment with at least one fragment; `startSegment - 1` when none. */
   readonly head: number;
 }
 
 const isEncode = VideoPlan.$is("Encode");
 
-/** The GPU encoder each GPU mode runs on; only these modes can fall back to software. */
 const HARDWARE_MODES: Partial<Record<PlaybackMode, HardwareAcceleration.HardwareEncoder>> = {
   "transcode-qsv": "qsv",
   "transcode-vaapi": "vaapi",
@@ -238,7 +208,6 @@ const hardwareOf = (mode: PlaybackMode): HardwareAcceleration.HardwareEncoder | 
 
 const isClosed = (scope: Scope.Scope): boolean => Predicate.isTagged(scope.state, "Closed");
 
-/** Builds the session manager. */
 const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
   const fs = yield* FileSystem.FileSystem;
@@ -255,7 +224,6 @@ const make = Effect.gen(function* () {
   const copies = yield* Ref.make(0);
   const registry = yield* Semaphore.make(1);
 
-  // Leftovers of a previous process are never served again.
   yield* fs.makeDirectory(config.transcodeDir, { recursive: true }).pipe(Effect.orDie);
 
   for (const name of yield* fs
@@ -272,8 +240,6 @@ const make = Effect.gen(function* () {
   const touch = (session: Session) =>
     Clock.currentTimeMillis.pipe(Effect.flatMap((now) => Ref.set(session.lastActivity, now)));
 
-  // Uninterruptible, so a caller that goes away while the stream closes, such as a stop request
-  // whose connection drops, never leaves it removed but unreported and open in `owners`.
   const closeSession = Effect.fn("StreamSessions.close")(function* (
     session: Session,
     reason: PlaybackReporter.StreamEndReason,
@@ -302,7 +268,6 @@ const make = Effect.gen(function* () {
     }
   }, Effect.uninterruptible);
 
-  /** Indexes fragment files ffmpeg finished since the last look. */
   const refreshFragments = Effect.fnUntraced(function* (generation: Generation) {
     const known = new Set((yield* Ref.get(generation.fragments)).map((fragment) => fragment.path));
 
@@ -378,7 +343,6 @@ const make = Effect.gen(function* () {
     yield* Scope.addFinalizer(scope, fs.remove(directory, { recursive: true }).pipe(Effect.ignore));
     yield* fs.makeDirectory(directory, { recursive: true }).pipe(Effect.orDie);
 
-    // The session may have closed while the folder was made; its finalizers already ran.
     if (isClosed(scope)) {
       yield* fs.remove(directory, { recursive: true }).pipe(Effect.ignore);
 
@@ -439,7 +403,6 @@ const make = Effect.gen(function* () {
       paused: yield* Ref.make(false),
     };
 
-    // A seek starts here; the encoder may run ahead of this point until the player asks further.
     yield* Ref.set(session.requested, startSegment);
 
     if (number > 1) {
@@ -462,10 +425,6 @@ const make = Effect.gen(function* () {
     return generation;
   });
 
-  /**
-   * After a GPU encoder failed, switches the session to software when the ladder allows it,
-   * reports the mode change, and returns the new mode; otherwise fails with the ladder's reason.
-   */
   const fallBackToSoftware = Effect.fn("StreamSessions.fallBackToSoftware")(function* (
     session: Session,
     encoder: HardwareAcceleration.HardwareEncoder,
@@ -473,7 +432,6 @@ const make = Effect.gen(function* () {
   ) {
     yield* hardware.markUnavailable(encoder, detail);
 
-    // The session already encodes on a grid plan; it keeps encoding, now in software.
     const plan = decidePlayback(session.file.probe, session.client, {
       audioIndex: session.audioIndex,
       hardware: undefined,
@@ -509,12 +467,6 @@ const make = Effect.gen(function* () {
     return plan.mode;
   });
 
-  /**
-   * Handles an ffmpeg run that exited before producing segment `index`: a QSV run falls back to
-   * software and restarts there (`StreamGenerationGone`); any other mode fails the stream. Runs
-   * under the session lock and only restarts the generation that failed, so requests waiting on
-   * the same run, or a seek racing the failure, never start two runs with one number.
-   */
   const encoderFailed = Effect.fn("StreamSessions.encoderFailed")(function* (
     session: Session,
     generation: Generation,
@@ -525,7 +477,6 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const current = yield* Ref.get(session.generation);
 
-        // Another request already handled this failure, or a seek replaced the run.
         if (current.number !== generation.number) return current;
         const mode = yield* Ref.get(session.mode);
 
@@ -564,10 +515,6 @@ const make = Effect.gen(function* () {
     });
   });
 
-  /**
-   * Waits until segment `index` of `generation` is complete. A failed QSV run falls back to
-   * software and starts a new generation, reported as `StreamGenerationGone`.
-   */
   const awaitSegment = Effect.fn("StreamSessions.awaitSegment")(function* (
     session: Session,
     generation: Generation,
@@ -577,11 +524,9 @@ const make = Effect.gen(function* () {
     const deadline = (yield* Clock.currentTimeMillis) + Duration.toMillis(maxWait);
 
     for (;;) {
-      // Stopped, replaced, or idle meanwhile: its encoder is gone and nothing will arrive.
       if (isClosed(session.scope)) return yield* new StreamNotFound({ streamId: session.streamId });
       const current = yield* Ref.get(session.generation);
 
-      // A seek replaced this generation while the request waited; its output is gone.
       if (current.number !== generation.number) {
         return yield* new StreamGenerationGone({
           streamId: session.streamId,
@@ -608,9 +553,6 @@ const make = Effect.gen(function* () {
             onFailure: (cause) => String(cause),
           }).slice(-300);
 
-          // A stream whose encoder failed before it ever served a segment cannot start: close it
-          // now, freeing its slot and reporting it failed, rather than holding it until it idles
-          // out. One that played before keeps going; a seek may still work elsewhere in the file.
           const neverServed = !(yield* Ref.get(session.served));
 
           return yield* encoderFailed(session, generation, index, detail).pipe(
@@ -647,12 +589,6 @@ const make = Effect.gen(function* () {
 
   const pauseAhead = Duration.toSeconds(config.streamBufferAhead);
 
-  /**
-   * Pauses the current generation's ffmpeg once its output runs `STREAM_BUFFER_AHEAD_SECONDS` past
-   * the furthest segment the player asked for, and continues it once the player is within half of
-   * that. A remux copies at disk speed, so without this every stream would write most of its file
-   * into `TRANSCODE_DIR` within minutes. A finished run is left alone.
-   */
   const throttle = Effect.fnUntraced(function* (session: Session) {
     const generation = yield* Ref.get(session.generation);
 
@@ -660,7 +596,6 @@ const make = Effect.gen(function* () {
     yield* refreshFragments(generation);
     const produced = producedRange(session, generation, yield* Ref.get(generation.fragments));
 
-    // Nothing written yet: a slow first segment must never be mistaken for a finished file.
     if (produced.head < generation.startSegment) return;
     const requested = yield* Ref.get(session.requested);
     const startOf = (index: number) => session.plan.starts[index] ?? session.plan.end;
@@ -707,7 +642,6 @@ const make = Effect.gen(function* () {
     return current;
   });
 
-  /** Starts a new generation at `index` unless it is already produced or about to be. */
   const ensureCovers = Effect.fn("StreamSessions.ensureCovers")(function* (
     session: Session,
     index: number,
@@ -726,11 +660,6 @@ const make = Effect.gen(function* () {
     );
   });
 
-  /**
-   * Starts the first generation at `segmentIndex` and waits for that segment, so a hardware
-   * encoder that fails falls back to software before the client sees the stream. Returns the
-   * generation serving it.
-   */
   const firstSegment = Effect.fn("StreamSessions.firstSegment")(function* (
     session: Session,
     segmentIndex: number,
@@ -756,12 +685,6 @@ const make = Effect.gen(function* () {
     return generation;
   });
 
-  /**
-   * Takes a slot for `transcoding` (a video encode) or a copy stream, released when `scope` closes.
-   * Taking the slot and registering its release cannot be interrupted apart. `replacing` slots
-   * belong to streams this one replaces as it starts, such as the same viewer's stream before a
-   * quality or subtitle change; they count as free, so a full server still lets a viewer switch.
-   */
   const acquireSlot = (scope: Scope.Scope, transcoding: boolean, replacing: number) => {
     const slots = transcoding ? transcodes : copies;
     const limit = transcoding ? config.maxConcurrentTranscodes : config.maxConcurrentRemuxes;
@@ -789,7 +712,6 @@ const make = Effect.gen(function* () {
     const registered = yield* Ref.make(Option.none<Session>());
 
     return yield* startIn(scope, registered, request).pipe(
-      // A failed start, or a caller that went away before the first segment, leaves nothing behind.
       Effect.onExit((exit) =>
         Exit.isSuccess(exit)
           ? Effect.void
@@ -815,7 +737,6 @@ const make = Effect.gen(function* () {
 
     const transcoding = isEncode(plan.video);
 
-    // This device's current stream is replaced below; one of the same kind frees its slot then.
     const replacing = yield* Effect.filter(
       [...(yield* Ref.get(sessions)).values()].filter(
         (existing) => existing.sessionId === grant.sessionId,
@@ -826,7 +747,6 @@ const make = Effect.gen(function* () {
 
     yield* acquireSlot(scope, transcoding, replacing.length);
 
-    // Space the download MP4 being written has reserved counts as used.
     yield* space.check(0);
 
     const quickStart = file.probe.startSeconds + request.startSeconds;
@@ -885,9 +805,6 @@ const make = Effect.gen(function* () {
       Effect.forkIn(scope),
     );
 
-    // One stream per device session: a newer negotiation replaces the older stream. The swap and
-    // the end of what it replaced run uninterruptibly: a caller that went away between them would
-    // leave the replaced stream running, unreported, and open in `owners`.
     yield* Effect.uninterruptible(
       Effect.gen(function* () {
         const replaced = yield* registry.withPermits(1)(
@@ -904,8 +821,6 @@ const make = Effect.gen(function* () {
             return [previous, next] as const;
           }).pipe(
             Effect.tap(() => Ref.set(registered, Option.some(session))),
-            // Under the registry permit, so a negotiation that replaces this stream closes it
-            // after, and the streams it replaced are closed before any other negotiation looks.
             Effect.tap((previous) =>
               Effect.forEach(previous, (existing) => owners.closed(existing.streamId), {
                 discard: true,
@@ -933,8 +848,6 @@ const make = Effect.gen(function* () {
 
     const segmentIndex = segmentAt(segmentPlan, quickStart);
 
-    // Only a hardware encoder can fail over, and its answer may name another mode; any other
-    // stream answers at once, and the player's first requests overlap the encoder's first segment.
     const generation =
       hardwareOf(plan.mode) !== undefined
         ? yield* firstSegment(session, segmentIndex)
@@ -1049,7 +962,6 @@ const make = Effect.gen(function* () {
     return ended.length;
   });
 
-  // Close idle sessions; the check runs several times per idle period.
   const idleMillis = Duration.toMillis(config.streamIdleTimeout);
 
   yield* Effect.gen(function* () {

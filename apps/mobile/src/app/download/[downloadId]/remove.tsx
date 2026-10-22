@@ -1,4 +1,3 @@
-/** H30 · Remove confirmation: removing a kept download deletes its files from this iPhone. */
 import { useLocalSearchParams } from "expo-router";
 import { Trash2 } from "lucide-react-native";
 

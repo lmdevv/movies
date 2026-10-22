@@ -1,17 +1,9 @@
-/**
- * Playback sessions that ended in Convex (sign-out, key revocation, a newer session on the same
- * device, an idle timeout). Their tokens stay cryptographically valid until they expire, so the
- * token verifier asks this registry and refuses them. Entries older than a token's lifetime are
- * dropped: any token of such a session has expired anyway.
- */
 import type { PlaybackSessionId } from "@movies/contracts/ids";
 import { PLAYBACK_TOKEN_LIFETIME_MS } from "@movies/contracts/playback-token";
 import { Clock, Context, Effect, Layer, Ref } from "effect";
 
-/** A session that ended, and when. */
 interface EndedSession {
   readonly sessionId: PlaybackSessionId;
-  /** Milliseconds since the epoch. */
   readonly endedAt: number;
 }
 

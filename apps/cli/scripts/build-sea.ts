@@ -1,13 +1,3 @@
-/**
- * Builds the standalone `movies` executable for this machine's OS and CPU, a Node single executable
- * application: a copy of the running `node` with the CLI injected, so it runs without Node
- * installed. Writes `dist/sea/movies-<os>-<arch>` (such as `movies-linux-x64`), signed ad hoc on
- * macOS, which Apple silicon requires, and `dist/sea/THIRD_PARTY_LICENSES.md`, Node's license
- * included. The release workflow runs it on each target's runner.
- *
- *   node scripts/build-sea.ts
- *   NODE_LICENSE=path/to/LICENSE node scripts/build-sea.ts   # a node without its LICENSE beside it
- */
 import { execFileSync } from "node:child_process";
 import { chmod, copyFile, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";

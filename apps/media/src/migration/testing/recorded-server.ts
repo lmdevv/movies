@@ -1,14 +1,3 @@
-/**
- * A real local HTTP server that replays recorded source-server responses, for testing the
- * migration plugins without Jellyfin or Plex. Each response is keyed by who asked (a label the
- * caller's token maps to, `-` for anonymous), the method, the path with its sorted query, and for
- * POSTs a hash of the body. Unknown tokens get 401; unrecorded requests get 404. Every request is
- * kept so tests can check the plugin only read.
- *
- * In recording mode it forwards to a live server instead and saves each exchange, replacing the
- * access tokens a sign-in returns with `fixture-token-<user>`; `scripts/record-jellyfin-fixtures.ts`
- * uses that to record the Jellyfin fixtures from a real server.
- */
 import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
@@ -27,7 +16,6 @@ export interface Recording extends Schema.Schema.Type<typeof Recording> {}
 /** Recordings by request key. */
 export type Recordings = Readonly<Record<string, Recording>>;
 
-/** A request the server received. */
 interface ReceivedRequest {
   readonly method: string;
   readonly path: string;
@@ -62,7 +50,6 @@ const readBody = (request: IncomingMessage): Promise<string> =>
     request.on("error", reject);
   });
 
-/** The replay key of a request. */
 const requestKey = (label: string, method: string, url: URL, body: string): string => {
   const query = [...url.searchParams.entries()]
     .map(([key, value]) => `${key.toLowerCase()}=${value}`)
@@ -132,7 +119,6 @@ export const startRecordedServer = async (
   return { url, requests, close: () => closeServer(server) };
 };
 
-/** The JSON in `text`: null when empty, none when it is not JSON. */
 const parseJson = (text: string): Option.Option<Schema.Json> =>
   text === "" ? Option.some(null) : Schema.decodeOption(Schema.fromJsonString(Schema.Json))(text);
 

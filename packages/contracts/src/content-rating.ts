@@ -1,8 +1,3 @@
-/**
- * Content ratings. Titles store the certification as published (`PG-13`, `TV-MA`, `15`) and a
- * minimum viewer age derived from it. A profile with a maximum age sees only titles whose age is
- * known and at most that maximum; unrated titles stay hidden from it.
- */
 import { Schema } from "effect";
 
 /** The minimum viewer age a certification implies, from 0 (all ages) to 21. */
@@ -19,14 +14,12 @@ const makeAgeRating = Schema.decodeSync(AgeRating);
 export const KIDS_DEFAULT_MAX_AGE: AgeRating = makeAgeRating(7);
 
 const CERTIFICATION_AGES: ReadonlyMap<string, number> = new Map([
-  // United States: MPA film ratings.
   ["G", 0],
   ["PG", 7],
   ["PG-13", 13],
   ["PG13", 13],
   ["R", 17],
   ["NC-17", 18],
-  // United States: TV parental guidelines.
   ["TV-Y", 0],
   ["TV-Y7", 7],
   ["TV-Y7-FV", 7],
@@ -34,7 +27,6 @@ const CERTIFICATION_AGES: ReadonlyMap<string, number> = new Map([
   ["TV-PG", 10],
   ["TV-14", 14],
   ["TV-MA", 17],
-  // United Kingdom: BBFC.
   ["U", 0],
   ["12A", 12],
   ["R18", 18],

@@ -1,14 +1,3 @@
-/**
- * Downloads on this iPhone, the imperative shell over `lib/downloads/model`: it keeps one
- * account's store in `downloads/<server>/<account>/index.json` and works through it two downloads
- * at a time. Each download starts a download session in Convex (`downloads.start`), asks the media
- * service to prepare it until it is ready, checks the space it needs (H21), keeps its text
- * subtitles and picture, and transfers the video in a background-capable iOS download task, which
- * pauses (and keeps its resume data) when Wi-Fi Only finds no Wi-Fi. Failures follow
- * `afterDownloadFailure`; the progress played offline goes to the server whenever it is reachable.
- *
- * Every SDK call runs on the app's SDK runtime and comes back as a value; nothing here throws.
- */
 import type { PrepareDownloadResponse } from "@movies/contracts/media-playback";
 import type { StartedPlayback } from "@movies/contracts/models/playback";
 import type { DeviceId } from "@movies/contracts/ids";
@@ -49,10 +38,8 @@ import type {
 import type { DownloadSettings } from "@/lib/downloads/settings";
 import { IOS_CAPABILITIES } from "@/lib/player/capabilities";
 
-/** The app's SDK runtime. */
 type Runtime = ReturnType<typeof useMoviesRuntime>;
 
-/** The media service's answer once a download is ready to fetch. */
 type DownloadReady = Extract<PrepareDownloadResponse, { readonly _tag: "Ready" }>;
 
 /** Everything the screens read. */
@@ -72,37 +59,24 @@ export interface EngineOptions {
   readonly settings: DownloadSettings;
 }
 
-/** How long to wait between asking the media service about a download it prepares. */
 const PREPARE_EVERY_MS = 3_000;
 
-/** How long to wait before asking a busy media service again. */
 const BUSY_RETRY_MS = 10_000;
 
-/** A transfer without progress for this long asks whether its server still answers. */
 const STALL_AFTER_MS = 20_000;
 
-/** How often a transfer's progress is looked at for a stall. */
 const STALL_CHECK_MS = 5_000;
 
-/** How long the media service's health check may take before the server counts as gone. */
 const HEALTH_TIMEOUT_MS = 5_000;
 
-/** Renew the session's token when it expires within this long. */
 const RENEW_BEFORE_MS = 30 * 60 * 1000;
 
-/**
- * Downloads worked on at once: one the media service still prepares (a long encode) does not hold
- * up the next, whose file may be ready to transfer at once.
- */
 const MAX_RUNS = 2;
 
-/** New sessions in a row before a download gives up. */
 const MAX_RESTARTS = 3;
 
-/** How often a transfer's progress is kept on disk. */
 const SAVE_EVERY_MS = 2_000;
 
-/** How often a transfer's progress reaches the screens. */
 const SHOW_EVERY_MS = 500;
 
 const DownloadPauseStateJson = Schema.fromJsonString(
@@ -123,28 +97,21 @@ const sleep = (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
-/** The transfer working on one download. */
 interface Active {
   readonly id: string;
   task: DownloadTask | null;
   sessionId: StartedPlayback["sessionId"] | null;
-  /** Removed or cancelled: stop at the next step and leave nothing behind. */
   cancelled: boolean;
   /** Paused for Wi-Fi Only: the task's own promise resolves with null. */
   pausing: boolean;
 }
 
-/** Where preparing a download stands between its questions to the media service. */
 interface Preparation {
-  /** The session asked with; null before one started, or after it ended. */
   readonly started: StartedPlayback | null;
-  /** The token expired: renew it before asking again. */
   readonly renew: boolean;
-  /** Renewals and new sessions so far. */
   readonly restarts: number;
 }
 
-/** What the media service delivers, as the store keeps it. */
 const deliveryOf = (
   ready: DownloadReady,
   started: StartedPlayback,
@@ -180,11 +147,9 @@ export class DownloadEngine {
   readonly #options: EngineOptions;
   readonly #listeners = new Set<() => void>();
   #snapshot: DownloadsSnapshot;
-  /** The downloads being worked on, by ID. */
   readonly #active = new Map<string, Active>();
   #saveTimer: ReturnType<typeof setTimeout> | undefined;
   #showTimer: ReturnType<typeof setTimeout> | undefined;
-  /** Each download's kept picture, once looked for: its URI, or null when there is none. */
   readonly #artwork = new Map<string, string | null>();
   #sending = false;
   #started = false;
@@ -212,7 +177,6 @@ export class DownloadEngine {
     this.#snapshot = {
       store: settled,
       settings: options.settings,
-      // Unknown until the first report: nothing transfers before it, so not over mobile data.
       network: { connected: false, wifi: false },
     };
   }
@@ -357,7 +321,6 @@ export class DownloadEngine {
     }
   }
 
-  /** Sends `pending` one at a time until the server cannot be reached; returns what it took. */
   async #sendFrom(
     pending: ReadonlyArray<PendingProgress>,
     sent: ReadonlyArray<PendingProgress>,
@@ -375,7 +338,6 @@ export class DownloadEngine {
           positionMs: Milliseconds.make(entry.positionMs),
           durationMs: Milliseconds.make(entry.durationMs),
           playedAt: EpochMillis.make(entry.playedAt),
-          // This clock now, so the server corrects `playedAt` if this iPhone's clock is off.
           sentAt: EpochMillis.make(Date.now()),
           ...Option.match(Option.fromNullishOr(entry.episodeId), {
             onNone: () => ({}),
@@ -385,11 +347,8 @@ export class DownloadEngine {
       ),
     );
 
-    // Unreachable: keep the rest for later.
     if (result === null || (Result.isFailure(result) && isUnreachable(result.failure))) return sent;
 
-    // A refusal for good (the title is gone, the profile lost it) leaves the queue; any other
-    // failure keeps this entry for the next try and goes on with the rest.
     const taken = Result.isSuccess(result) || isFinal(result.failure);
 
     return this.#sendFrom(rest, taken ? [...sent, entry] : sent);
@@ -407,7 +366,6 @@ export class DownloadEngine {
       this.#notify();
       this.#save();
     } else {
-      // Transfer progress arrives many times a second; the screens and the disk take it in turns.
       this.#showTimer ??= setTimeout(() => {
         this.#showTimer = undefined;
         this.#notify();
@@ -433,9 +391,7 @@ export class DownloadEngine {
     try {
       this.#options.folder.create({ intermediates: true, idempotent: true });
       new File(this.#options.folder, STORE_FILE).writeSync(serializeStore(this.#snapshot.store));
-    } catch {
-      // A full disk keeps the store in memory for this launch.
-    }
+    } catch {}
   }
 
   #itemDirectory(id: string): Directory {
@@ -449,9 +405,7 @@ export class DownloadEngine {
       const directory = this.#itemDirectory(id);
 
       if (directory.exists) directory.delete();
-    } catch {
-      // Already gone.
-    }
+    } catch {}
   }
 
   async #runSdk<A, E>(
@@ -472,12 +426,10 @@ export class DownloadEngine {
     );
   }
 
-  /** Pauses the transfers the network no longer allows, or starts the next one now allowed. */
   #reconsider(): void {
     const { network, settings } = this.#snapshot;
 
     if (this.#active.size > 0 && !mayTransfer(network, settings.wifiOnly)) {
-      // Off Wi-Fi under Wi-Fi Only it waits for Wi-Fi; offline it waits for its turn again.
       const wifi = network.connected && settings.wifiOnly;
 
       for (const active of this.#active.values()) void this.#pauseForNetwork(active, wifi);
@@ -495,7 +447,6 @@ export class DownloadEngine {
     active.pausing = true;
 
     if (task === null) {
-      // Still preparing: the run stops at its next step, and the download waits.
       this.#endSession(active.sessionId);
       const waiting = this.#snapshot.store.downloads.find((download) => download.id === active.id);
 
@@ -511,7 +462,6 @@ export class DownloadEngine {
     this.#dispatch(DownloadEvent.Waiting({ id: active.id, wifi, resume }));
   }
 
-  /** Starts the next downloads in line, up to `MAX_RUNS` at once, when the network allows it. */
   #pump(): void {
     if (!this.#started || this.#active.size >= MAX_RUNS || this.#disposed) return;
     const { store, network, settings } = this.#snapshot;
@@ -520,7 +470,6 @@ export class DownloadEngine {
     if (next === null) return;
 
     if (!mayTransfer(network, settings.wifiOnly)) {
-      // On mobile data under Wi-Fi Only, everything in line waits for Wi-Fi.
       if (network.connected && settings.wifiOnly) {
         for (const download of store.downloads) {
           if (download.phase === "queued") {
@@ -543,13 +492,11 @@ export class DownloadEngine {
     };
 
     this.#active.set(next.id, active);
-    // A run that throws (a defect) leaves its download in line; the check below interrupts it.
     void this.#run(next, active)
       .catch(() => undefined)
       .finally(() => {
         if (this.#active.get(next.id) === active) this.#active.delete(next.id);
 
-        // A run always moves its download on; one left in line would start again at once, forever.
         const left = this.#snapshot.store.downloads.find((download) => download.id === next.id);
 
         if (left?.phase === "queued" && !active.cancelled) {
@@ -561,11 +508,9 @@ export class DownloadEngine {
         this.#pump();
       });
 
-    // A second download can transfer while the first is still being prepared by the server.
     this.#pump();
   }
 
-  /** Whether the run should stop here: cancelled, disposed, or paused for Wi-Fi. */
   #stopped(active: Active): boolean {
     return active.cancelled || active.pausing || this.#disposed;
   }
@@ -576,7 +521,6 @@ export class DownloadEngine {
     this.#dispatch(DownloadEvent.Interrupted({ id: active.id, error: message, resume: null }));
   }
 
-  /** Starts the download's session; interrupts the download and answers null when it cannot. */
   async #openSession(download: DownloadRecord, active: Active): Promise<StartedPlayback | null> {
     const opened = await this.#runSdk(
       Downloads.start({
@@ -601,7 +545,6 @@ export class DownloadEngine {
       DownloadEvent.SessionStarted({ id: download.id, sessionId: opened.success.sessionId }),
     );
 
-    // Removed or paused while the session started: nothing else will end it.
     if (this.#stopped(active)) {
       this.#endSession(opened.success.sessionId);
 
@@ -611,17 +554,12 @@ export class DownloadEngine {
     return opened.success;
   }
 
-  /** `started` with a fresh token, or as it was when the renewal failed (the next call says why). */
   async #renewed(started: StartedPlayback): Promise<StartedPlayback> {
     const renewed = await this.#runSdk(Downloads.renew(started));
 
     return renewed !== null && Result.isSuccess(renewed) ? renewed.success : started;
   }
 
-  /**
-   * Asks the media service until the download is ready there, one question every few seconds;
-   * null when the run stopped, the download did not fit, or it was interrupted.
-   */
   async #prepare(
     download: DownloadRecord,
     active: Active,
@@ -700,7 +638,6 @@ export class DownloadEngine {
     return this.#prepare(download, active, { started, renew: false, restarts: state.restarts });
   }
 
-  /** Keeps the text subtitles and the picture beside the video; returns the tracks kept. */
   async #keepCompanions(
     download: DownloadRecord,
     ready: DownloadReady,
@@ -736,8 +673,6 @@ export class DownloadEngine {
   }
 
   async #run(download: DownloadRecord, active: Active): Promise<void> {
-    // A transfer paused for Wi-Fi, or because the server went away, resumes where it stopped, in
-    // the session it ran in: a new session would end the token its saved request carries.
     const saved = download.resume === null ? null : this.#restore(download.id, download.resume);
 
     if (saved !== null && download.sessionId !== null) {
@@ -746,11 +681,9 @@ export class DownloadEngine {
 
       if (resumed !== "failed" || this.#stopped(active)) return;
 
-      // The saved request no longer works (an expired link, a restarted server): start over.
       this.#endSession(download.sessionId);
       this.#dispatch(DownloadEvent.Waiting({ id: download.id, wifi: false, resume: null }));
     } else {
-      // Nothing to resume in it (an app that quit mid-way, a retry): its session ends here.
       this.#endSession(download.sessionId);
     }
 
@@ -786,7 +719,6 @@ export class DownloadEngine {
     this.#artwork.delete(download.id);
 
     if (this.#stopped(active)) {
-      // A later run ends it from the store when this engine is gone.
       if (!this.#disposed) this.#endSession(started.sessionId);
 
       return;
@@ -821,7 +753,6 @@ export class DownloadEngine {
     }
   }
 
-  /** The paused transfer saved in `resume`, or null when it cannot be restored. */
   #restore(id: string, resume: string): DownloadTask | null {
     const state = resumeState(resume);
 
@@ -834,16 +765,11 @@ export class DownloadEngine {
     }
   }
 
-  /** Records a transfer's bytes as they arrive, keeping them on disk every few seconds. */
   #progressOf(id: string): (progress: { readonly bytesWritten: number }) => void {
     return ({ bytesWritten }) =>
       this.#dispatch(DownloadEvent.Received({ id, bytes: bytesWritten }), "soon");
   }
 
-  /**
-   * Runs a transfer to its end: `done` once the video is kept, `stopped` when it was paused or
-   * cancelled, `failed` when the request failed.
-   */
   async #transfer(
     id: string,
     active: Active,
@@ -858,7 +784,6 @@ export class DownloadEngine {
 
       if (this.#stopped(active)) return "stopped";
 
-      // Paused without being asked to (a saved state iOS no longer honours): it did not finish.
       if (file === null) return "failed";
 
       this.#dispatch(DownloadEvent.Finished({ id }));
@@ -871,7 +796,6 @@ export class DownloadEngine {
       unwatch();
       active.task = null;
 
-      // A pause still reads the task's resume data; it releases the task once it has.
       if (!active.pausing) task.release();
     }
   }
@@ -908,7 +832,6 @@ export class DownloadEngine {
     return () => clearInterval(timer);
   }
 
-  /** Whether the media service answers its health check within a few seconds. */
   async #reachable(): Promise<boolean> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
@@ -937,7 +860,6 @@ export class DownloadEngine {
   }
 }
 
-/** Pauses `task` and reads its resume data, then releases it; null when it cannot resume. */
 const pauseKeeping = async (task: DownloadTask): Promise<string | null> => {
   try {
     await task.pauseAsync();
@@ -952,21 +874,17 @@ const pauseKeeping = async (task: DownloadTask): Promise<string | null> => {
   }
 };
 
-/** The saved state of a paused transfer, or null when it cannot be read. */
 const resumeState = (text: string): DownloadPauseState | null =>
   Option.getOrNull(decodePauseState(text));
 
-/** Whether a failed call never reached the server, so the rest waits too. */
 const isUnreachable = (failure: CallError): boolean =>
   Predicate.isTagged(failure, "TransportError");
 
-/** Whether the server refused progress for good: the item or the profile's access is gone. */
 const isFinal = (failure: CallError): boolean =>
   Predicate.isTagged(failure, "NotFound") ||
   Predicate.isTagged(failure, "Forbidden") ||
   Predicate.isTagged(failure, "InvalidArgs");
 
-/** H19's line for a failure. */
 const failureLine = (failure: CallError | PlaybackCallError): string => {
   const step = afterDownloadFailure(failure);
 

@@ -1,7 +1,3 @@
-/**
- * A download's `…` sheet (C19 rows, H17, H19): Play Download and Remove Download once it is kept;
- * Retry Download and Cancel Download once it stopped; Cancel Download while it is on its way.
- */
 import { useLocalSearchParams } from "expo-router";
 import { Play, RotateCw, Trash2, X } from "lucide-react-native";
 

@@ -1,7 +1,3 @@
-/**
- * Who is calling and what their session may do. Every public function starts with `authorize`,
- * except the few anonymous ones (setup status, invite lookup, device sign-in requests).
- */
 import { getAuthSessionId, getAuthUserId } from "@convex-dev/auth/server";
 
 import type { Doc, Id } from "../_generated/dataModel";
@@ -24,19 +20,11 @@ export interface Viewer {
   readonly guardianLocked: boolean;
 }
 
-/** Scopes a shared browser keeps only while an adult's PIN profile is unlocked on it. */
 const GUARDED_SCOPES: ReadonlySet<Scope> = new Set(["account", "manage", "admin"]);
 
 const isRestricted = (profile: Doc<"profiles">): boolean =>
   profile.kids || profile.maxAgeRating !== null;
 
-/**
- * Whether a password session must unlock an adult's PIN profile before it may change the account
- * or the server. That holds when the account has a kids or rated profile and every unrestricted
- * profile has a PIN: only then do PINs keep someone in the limited profile, and only then could
- * that profile otherwise lift its own limits, create an open profile, or re-rate titles. API key
- * and device sessions are exempt: whoever minted them already held these scopes.
- */
 const guardianLocked = async (
   ctx: ReadCtx,
   userId: Id<"users">,
@@ -60,11 +48,6 @@ const guardianLocked = async (
   return !adults.some((adult) => unlocked.has(adult._id));
 };
 
-/**
- * Whether an API key session's key still allows it. Revoking a key also deletes its session, but
- * checking the key here keeps a session from outliving its key however it ended: revoked, deleted,
- * or past its expiry while a token issued before then is still valid.
- */
 const keyAllows = async (
   ctx: ReadCtx,
   session: Doc<"authSessions">,

@@ -1,4 +1,3 @@
-/** A01 · [movies]: the first screen on a fresh install. */
 import { router } from "expo-router";
 import { View } from "react-native";
 

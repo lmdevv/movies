@@ -48,8 +48,7 @@ export default defineConfig({
     "typescript/no-unnecessary-type-assertion": "error",
     "typescript/no-unnecessary-type-arguments": "error",
     "typescript/no-unnecessary-condition": "error",
-    // The effecttsgo preset covers this in Effect projects.
-    "typescript/strict-boolean-expressions": "off",
+    "typescript/strict-boolean-expressions": "error",
     "typescript/switch-exhaustiveness-check": "error",
     "typescript/prefer-nullish-coalescing": "error",
     "typescript/restrict-template-expressions": "error",
@@ -81,8 +80,6 @@ export default defineConfig({
     "anti-slop-effect/no-manual-effect-error-tag": "error",
     "anti-slop-effect/no-manual-tag-comparison": "error",
     "anti-slop-effect/no-manual-tagged-construction": "error",
-    // coding-standards recommends exported makeX constructors, which this rule forbids.
-    "anti-slop-effect/no-service-constructor-imports": "off",
     "anti-slop-effect/prefer-effect-match": "error",
 
     "timmo-effect/no-try-catch-in-effect-generators": "error",

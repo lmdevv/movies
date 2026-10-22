@@ -1,8 +1,3 @@
-/**
- * D06 · Choose Version: the files of a movie, or of an episode with `episodeId`, best first. The
- * chosen one (from `fileId`, else the last played, else the best) shows its technical facts; Play
- * Selected Version plays it.
- */
 import type { MediaFileId } from "@movies/contracts/ids";
 import { MediaLabels, Versions } from "@movies/sdk/effect";
 import { useCommandQuery } from "@movies/sdk/react";

@@ -11,7 +11,6 @@ import { Effect, FileSystem, Option, Path } from "effect";
 import { listEntries } from "../platform/node-directories.ts";
 import { modifiedAtMs } from "../platform/file-info.ts";
 
-/** One folder as last seen. */
 interface FolderState {
   readonly modifiedAt: number;
   readonly folders: ReadonlyArray<string>;
@@ -79,7 +78,6 @@ export const snapshot = Effect.fn("LibraryPoller.snapshot")(function* (
     pending.push(...state.folders);
   }
 
-  // A folder that disappeared without its parent's time moving (a parent replaced wholesale).
   if (!changed && next.size !== previous.size) changed = true;
 
   return { snapshot: next satisfies Snapshot, changed };

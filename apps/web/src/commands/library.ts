@@ -13,7 +13,6 @@ import { useNow } from "@/lib/use-now";
 
 import type { CommandContext, CommandContribution } from "./contribution";
 
-/** Recent scan jobs read to find the running ones. */
 const JOB_WINDOW = 20;
 
 /** Live scan jobs of the libraries `manage` sessions see, for the menu and the scanning toast. */

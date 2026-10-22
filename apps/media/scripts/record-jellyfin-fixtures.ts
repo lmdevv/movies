@@ -1,13 +1,3 @@
-/**
- * Records `src/migration/fixtures/jellyfin.json` from a real Jellyfin in Docker: it starts and
- * sets up the server (`src/migration/testing/jellyfin-docker.ts`), then runs the Jellyfin plugin
- * through a recording proxy with an API key, with each user's password, and with a wrong password.
- * Sign-in tokens are replaced with `fixture-token-<user>`, the API key with `fixture-api-key`,
- * and the server's random passwords with `fixturePassword(user)` (in the keys of sign-in
- * requests); no other secret reaches the recordings.
- *
- *   node scripts/record-jellyfin-fixtures.ts
- */
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import type { MigrationCredentials } from "@movies/contracts/models/migration";
 import { Effect, FileSystem, Layer, Option, Redacted, Schema } from "effect";

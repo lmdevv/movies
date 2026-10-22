@@ -13,7 +13,6 @@ import * as FakeConvex from "./testing/fake-convex";
 import { jwtExpiringAt, Reply } from "./testing/fake-convex";
 import * as TokenStorage from "./token-storage";
 
-/** The media service: records each request and answers `{ ok: true }`. */
 const mediaRequests: Array<{ readonly url: string; readonly auth: string | undefined }> = [];
 
 const media = createServer((request: IncomingMessage, response: ServerResponse) => {
@@ -40,7 +39,6 @@ afterAll(() => {
   media.close();
 });
 
-/** Runs `body` against a fresh fake deployment with the SDK as the CLI composes it. */
 const withSdk = <A, E>(
   options: { readonly mediaUrl: Option.Option<string> },
   body: (fake: FakeConvex.FakeConvex) => Effect.Effect<A, E, Movies.Services | Scope.Scope>,

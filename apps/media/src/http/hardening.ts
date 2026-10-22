@@ -20,7 +20,6 @@ const refuse = (status: 411 | 413, message: string) =>
     HttpServerResponse.text(message, { status, headers: { "cache-control": "no-store" } }),
   );
 
-/** The response for a request whose body is chunked or too large, or none to let it through. */
 const bodyRefusal = (headers: Readonly<Record<string, string | undefined>>) => {
   if (headers["transfer-encoding"] !== undefined) {
     return refuse(411, "Send request bodies with a Content-Length");
@@ -46,11 +45,9 @@ const CAST_SDK_SOURCES = [
   "www.gstatic.com/eureka/clank/",
 ].join(" ");
 
-/** The WebSocket origin that pairs with an HTTP origin, such as `wss://host` for `https://host`. */
 const socketOrigin = (origin: URL): string =>
   `${origin.protocol === "https:" ? "wss:" : "ws:"}//${origin.host}`;
 
-/** The trailer player's origin: YouTube's privacy-enhanced embeds, which set no cookies until play. */
 const YOUTUBE_EMBED_ORIGIN = "https://www.youtube-nocookie.com";
 
 /**
@@ -94,11 +91,9 @@ export const contentSecurityPolicy = (
   ].join("; ");
 };
 
-/** Headers on every response. */
 const securityHeaders = (policy: string) => ({
   "content-security-policy": policy,
   "x-content-type-options": "nosniff",
-  // Media URLs carry playback tokens; no page or resource should pass its URL on.
   "referrer-policy": "no-referrer",
   "x-frame-options": "DENY",
   "cross-origin-opener-policy": "same-origin",

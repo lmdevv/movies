@@ -1,7 +1,3 @@
-/**
- * C09 · Genre: every title of one genre the profile may see, narrowed to movies or shows by the
- * chips, newest first, a page at a time.
- */
 import { TitleKind } from "@movies/contracts/models/catalog";
 import { useLocalSearchParams } from "expo-router";
 import { Option, Schema } from "effect";

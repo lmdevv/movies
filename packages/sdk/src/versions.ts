@@ -1,10 +1,3 @@
-/**
- * The versions (files) of a movie or an episode on a device: which one to offer first, and how to
- * name them. The default is the one the profile last played, else the best quality the device plays
- * as stored, else the best quality, by the direct-play rules the media service negotiates with
- * (`@movies/contracts/direct-play`); `playback.createSession` applies the same order when given the
- * device's capabilities.
- */
 import { dynamicRangeOf, playsDirectly as filePlaysDirectly } from "@movies/contracts/direct-play";
 import type { ClientCapabilities } from "@movies/contracts/media-playback";
 import type { MediaVersion } from "@movies/contracts/models/catalog";
@@ -49,7 +42,6 @@ export const preferredVersion = (
       versions[0],
   );
 
-/** `4K`, `1080p`, `720p`, or `SD` below that; null without video. */
 const pictureClass = (version: MediaVersion): string | null =>
   version.width === null || version.height === null
     ? null

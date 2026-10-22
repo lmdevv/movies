@@ -1,8 +1,3 @@
-/**
- * A title as a row (E01): a 128 × 76 still with the play glyph, the name, its kind and year, and
- * `…` for the title's actions sheet. Tapping opens the title; a long press previews it with its
- * actions.
- */
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import { Link, router } from "expo-router";
 import { Ellipsis, Play } from "lucide-react-native";

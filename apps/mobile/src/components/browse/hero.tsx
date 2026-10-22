@@ -1,9 +1,3 @@
-/**
- * Home's featured billboard (C01): full-bleed artwork under a scrim that keeps the large title and
- * the text legible, the title's logo or name, its facts, Play and My List, and page dots when it
- * pages through several titles. In the light appearance the artwork darkens behind the title and
- * fades into the white page (C18). Kids profiles get the inset card instead (C10).
- */
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { router } from "expo-router";
@@ -35,17 +29,10 @@ export interface HeroProps {
   readonly header?: ReactNode;
 }
 
-/** C01's scrim: the dark top for the status bar and title, clear, then the black page. */
 const DARK_SCRIM_LOCATIONS = [0, 0.3, 0.96] as const;
 
-/**
- * C18's scrim: the dark top, clear, dark again behind the title, then the white page. Paper's
- * stops (0.62, 0.96) move down with the title and its facts, which sit lower here to leave room
- * for the dots, so the white facts line stays on the dark band.
- */
 const LIGHT_SCRIM_LOCATIONS = [0, 0.28, 0.8, 1] as const;
 
-/** One page of the hero: the artwork and the title's art. */
 function HeroPage({ title, width }: { readonly title: TitleCard; readonly width: number }) {
   const { mediaUrl } = useServer();
   const backdrop = artworkUrl(mediaUrl, title.artwork.backdrop ?? title.artwork.poster, "backdrop");
@@ -100,7 +87,6 @@ function HeroPage({ title, width }: { readonly title: TitleCard; readonly width:
 /** The paging billboard. */
 export function Hero({ titles, header }: HeroProps) {
   const { width } = useWindowDimensions();
-  // The page on screen belongs to one list of titles; a new list starts over on its first page.
   const pagesKey = titles.map((title) => title.id).join();
   const [paging, setPaging] = useState({ pagesKey, index: 0 });
   const index = paging.pagesKey === pagesKey ? Math.min(paging.index, titles.length - 1) : 0;
@@ -132,7 +118,6 @@ export function Hero({ titles, header }: HeroProps) {
   );
 }
 
-/** The facts, actions, and dots under the hero's title, for the page on screen. */
 function HeroDetails({
   title,
   pages,

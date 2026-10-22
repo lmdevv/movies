@@ -1,7 +1,3 @@
-/**
- * Plants an invite that expired yesterday through the Convex admin import, since time cannot pass
- * on the server during a test. The code is hashed the way the backend stores invite codes.
- */
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";

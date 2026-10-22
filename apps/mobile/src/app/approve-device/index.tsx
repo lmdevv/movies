@@ -1,7 +1,3 @@
-/**
- * H07 · Approve a Device: type the code another device shows, or scan its QR code (H24), to
- * approve its sign-in (H08).
- */
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { View } from "react-native";
@@ -12,7 +8,6 @@ import { Screen } from "@/components/ui/screen";
 import { TextField } from "@/components/ui/text-field";
 import { USER_CODE_LENGTH, codeLetters, formatUserCode } from "@/lib/device-code";
 
-/** The code as it is typed, with the dash after the first four characters. */
 const shown = (letters: string): string =>
   letters.length > 4 ? `${letters.slice(0, 4)}-${letters.slice(4)}` : letters;
 

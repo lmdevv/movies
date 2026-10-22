@@ -1,7 +1,3 @@
-/**
- * The SDK core runs in browsers, Node, and React Native: no Node built-ins and no DOM globals in
- * shipped sources. Tests and test fixtures may use Node.
- */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
@@ -9,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 const root = import.meta.dirname;
 
-/** Source text without comments, which may name platform APIs in prose. */
 const code = (path: string): string =>
   readFileSync(path, "utf8")
     .replaceAll(/\/\*[\s\S]*?\*\//gu, "")

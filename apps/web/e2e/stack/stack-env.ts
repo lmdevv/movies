@@ -1,8 +1,3 @@
-/**
- * Finds the worktree's dev stack (`scripts/dev-stack.sh up`), which writes the Convex URL, media
- * URL, and web port to `apps/web/.env.local` and the media service key to `apps/media/.env.local`.
- * Environment variables of the same names override the files. Without a stack the suite skips.
- */
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 

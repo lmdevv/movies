@@ -1,9 +1,3 @@
-/**
- * The top of a title's page (D01, D03): full-bleed artwork that drifts at half speed and fades as
- * the page scrolls (and stretches when pulled down), the centered title or its logo, the facts
- * line, Play or Resume with the My List circle, and the overview. The glass top bar over it turns
- * compact, with the title, once the title has scrolled under it (D02).
- */
 import type { ProfileId } from "@movies/contracts/ids";
 import type { TitleDetail } from "@movies/contracts/models/catalog";
 import { BlurView } from "expo-blur";
@@ -27,15 +21,12 @@ import { useServer } from "@/session/connection";
 import { playAction, titleFacts } from "./title-model";
 import { useMyListToggle } from "./use-title-actions";
 
-/** The artwork's height, which the parallax and stretch are measured against. */
 const HERO_HEIGHT = 480;
 
-/** Scroll offsets over which the top bar turns compact: the title passing under it. */
 const COMPACT_FROM = 150;
 
 const COMPACT_TO = 200;
 
-/** The artwork behind the header, moving with `scrollY`. */
 function HeroArtwork({
   uri,
   scrollY,
@@ -49,7 +40,6 @@ function HeroArtwork({
   const motion = useAnimatedStyle(() => {
     const y = scrollY.value;
 
-    // Pulled down, the artwork grows from its top edge; scrolled up, it drifts at half speed.
     return y < 0
       ? { opacity: 1, transform: [{ translateY: y / 2 }, { scale: 1 - y / HERO_HEIGHT }] }
       : {

@@ -1,7 +1,3 @@
-/**
- * Room clock rules on the server. The constants equal those in `@movies/contracts/clock`; the
- * backend tests compare them.
- */
 import type { Doc } from "../_generated/dataModel";
 
 /** How often members send heartbeats; a host reading older than this cannot be right. */

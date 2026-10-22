@@ -1,15 +1,3 @@
-/**
- * The packaged install, end to end: the Compose stack (`deploy/compose`) started by
- * `scripts/stack-e2e.sh` with a generated fixture library mounted read-only at `/media/library`,
- * or the NixOS module's service. An owner signs up on the fresh deployment through the SDK, adds
- * a library, scans it, plays a movie directly (byte range) and through HLS, restarts the media
- * service (the stream answers a typed error and playback negotiates again), then backs up and
- * restores through the `movies` CLI and signs in again.
- *
- * Skipped unless `MOVIES_PACKAGED_STACK=1`; the script sets it with the stack's URLs, the library
- * folder as the service sees it (`MOVIES_PACKAGED_LIBRARY`), and the command that restarts the
- * media service (`MOVIES_PACKAGED_RESTART`).
- */
 import { DeviceId } from "@movies/contracts/ids";
 import type { LibraryId, ProfileId, TitleId } from "@movies/contracts/ids";
 import {
@@ -45,15 +33,12 @@ const convexUrl = process.env["MOVIES_PACKAGED_CONVEX_URL"] ?? "";
 
 const mediaUrl = process.env["MOVIES_PACKAGED_MEDIA_URL"] ?? "";
 
-/** The fixture library as the media service sees it. */
 const libraryDir = process.env["MOVIES_PACKAGED_LIBRARY"] ?? "/media/library";
 
-/** Restarts the media service, such as `docker compose -p movies-e2e restart movies`. */
 const restartCommand = (process.env["MOVIES_PACKAGED_RESTART"] ?? "").split(" ").filter(Boolean);
 
 const OWNER = "owner@movies.test";
 
-/** A browser that plays MP4 with H.264 and AAC. */
 const browser: ClientCapabilities = {
   containers: ["mp4"],
   videoCodecs: [{ codec: "h264", maxBitDepth: 8 }],
@@ -64,7 +49,6 @@ const browser: ClientCapabilities = {
   mse: true,
 };
 
-/** The same browser on a screen too small for the fixtures, so video is transcoded to HLS. */
 const smallScreen: ClientCapabilities = {
   containers: browser.containers,
   videoCodecs: browser.videoCodecs,
@@ -132,7 +116,6 @@ const signIn = async (flow: "signIn" | "signUp"): Promise<StackSession> => {
   return opened;
 };
 
-/** Starts playback as the owner and negotiates it the way a player does. */
 const play = async (capabilities: ClientCapabilities, device: string) => {
   const started = await runIn(
     owner,

@@ -1,8 +1,3 @@
-/**
- * The restore command the media service serves: `backups.restore` (`POST /api/backups/restore`)
- * for a session holding the `admin` scope. It answers when the restore finished; by then every
- * session, the caller's included, has ended.
- */
 import { Conflict, Internal, NotFound } from "@movies/contracts/errors";
 import { Effect, Layer } from "effect";
 import type { HttpRouter } from "effect/http";

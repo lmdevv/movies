@@ -6,7 +6,6 @@
  * `nb`/`nn` and the legacy `iw` and `in` some tools still write.
  */
 
-/** A language the pickers offer: its ISO 639-1 code, its own name, and its ISO 639-2 codes. */
 interface Language {
   readonly code: string;
   readonly name: string;
@@ -45,7 +44,6 @@ export const LANGUAGES: ReadonlyArray<Language> = [
   { code: "zh", name: "中文", others: ["chi", "zho"] },
 ];
 
-/** The ISO 639-1 code a track's tag means, such as `es` for `spa` or `es-MX`; null when unknown. */
 const baseCode = (tag: string | null | undefined): string | null => {
   if (tag === null || tag === undefined) return null;
 

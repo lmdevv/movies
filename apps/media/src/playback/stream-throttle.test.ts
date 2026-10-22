@@ -19,10 +19,8 @@ const LONG = LibraryId.make("long");
 
 const LONG_FILE = "Long Fixture (2020)/Long Fixture (2020).mkv";
 
-/** Ten minutes of tiny video: quick to make, and far longer than the run-ahead limit. */
 const LONG_SECONDS = 600;
 
-/** A small screen forces a transcode, which runs much faster than real time on this clip. */
 const smallScreen: ClientCapabilities = {
   containers: [],
   videoCodecs: [{ codec: "h264", maxBitDepth: 8 }],
@@ -35,7 +33,6 @@ const smallScreen: ClientCapabilities = {
 
 const decodeNegotiation = Schema.decodeUnknownEffect(Schema.toCodecJson(NegotiateResponse));
 
-/** Makes the long clip inside the approved workspace and scans it into its own library. */
 const addLongClip = Effect.gen(function* () {
   const workspace = yield* FixtureWorkspace.Service;
   const tools = yield* MediaTools.Service;
@@ -73,7 +70,6 @@ const addLongClip = Effect.gen(function* () {
   return MemoryLibrary.fileIdOf(LONG, LONG_FILE);
 });
 
-/** Fragments the stream's first generation has written so far. */
 const writtenFragments = Effect.fn(function* (streamId: string) {
   const server = yield* MediaTestServer.Service;
   const fs = yield* FileSystem.FileSystem;
@@ -113,7 +109,6 @@ describe.skipIf(!hasFfmpeg)("stream throttling", () => {
           assert.strictEqual(negotiated.mode, "transcode-software");
           const streamId = negotiated.streamId ?? "";
 
-          // Without a pause, the whole clip would be written in a few seconds.
           yield* Effect.sleep(Duration.seconds(4));
           const paused = yield* writtenFragments(streamId);
           yield* Effect.sleep(Duration.seconds(2));
@@ -121,8 +116,6 @@ describe.skipIf(!hasFfmpeg)("stream throttling", () => {
           assert.strictEqual(yield* writtenFragments(streamId), paused);
           assert.isBelow(paused, LONG_SECONDS / 4);
 
-          // An encode writes one fragment per planned segment. Asking for the one before the
-          // newest brings the player within half the limit, so the encoder continues.
           const playlist = new URL(negotiated.url.replace(/^https?:\/\/[^/]+/u, server.baseUrl));
           const index = paused - 2;
 

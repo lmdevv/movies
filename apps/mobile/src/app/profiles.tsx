@@ -1,4 +1,3 @@
-/** B01 · Who's Watching?: choose a profile; PIN profiles ask for it first; the pencil manages them. */
 import type { Profile } from "@movies/contracts/models/profiles";
 import { router } from "expo-router";
 import { Lock, Pencil, Plus } from "lucide-react-native";

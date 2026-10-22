@@ -1,7 +1,3 @@
-/**
- * Turning failed commands into the short lines the UI shows. Server failures carry their own
- * wording (`Wrong email or password`); transport and protocol failures get a plain sentence.
- */
 import type { CommandError } from "@movies/contracts/errors";
 import { Predicate } from "effect";
 import { toast } from "sonner";

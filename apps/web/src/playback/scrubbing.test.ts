@@ -47,7 +47,6 @@ describe("thumbnailsOf", () => {
       "http://media.lan:4300/media/trickplay/file1/abc-def/0.jpg?token=v1.a.b",
       "http://media.lan:4300/media/trickplay/file1/abc-def/1.jpg?token=v1.a.b",
     ]);
-    // 17:25 is thumbnail 104: the second sheet, row 0, column 4.
     expect(tileAt(1_045)).toEqual({
       url: "http://media.lan:4300/media/trickplay/file1/abc-def/1.jpg?token=v1.a.b",
       x: 1_280,

@@ -1,8 +1,3 @@
-/**
- * Signs playback tokens in the Convex runtime with WebCrypto, in the format docs/decisions.md and
- * `@movies/contracts/playback-token` define: `v1.<base64url JSON>.<base64url HMAC-SHA256>`.
- * The backend tests check this signer against the shared test vectors and the contracts verifier.
- */
 import { base64UrlDecode, base64UrlEncode } from "./crypto";
 import { fail } from "./errors";
 

@@ -5,7 +5,6 @@
  * Names come only from IDs, never from titles, so they are always safe file names.
  */
 
-/** A path segment from any text: letters, digits, `.`, `_`, and `-`, nothing else. */
 const segment = (text: string): string => text.replace(/[^\w.-]/gu, "_");
 
 /** The folder of one account's downloads on one server, relative to the documents folder. */

@@ -1,7 +1,3 @@
-/**
- * Converts documents into command results. Every function here returns the `Infer` of the result
- * validator in `validators.ts`, so a drift between storage and the wire contract fails to compile.
- */
 import type { Infer } from "convex/values";
 
 import type { Doc, Id } from "../_generated/dataModel";

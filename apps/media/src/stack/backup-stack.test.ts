@@ -1,16 +1,3 @@
-/**
- * Backups and restores against a real stack: the built media service, signed in to the
- * worktree's self-hosted Convex with its admin key, runs a backup job (`convex export` into
- * `BACKUP_DIR`, recorded, then retention), and restores it (`convex import --replace-all`): data
- * written after the backup is gone, every session ended, and the service signs in again and runs
- * the next job.
- *
- *   scripts/dev-stack.sh up && pnpm --filter @movies/media test:stack
- *
- * Skipped unless `MOVIES_STACK_TESTS=1`. A restore replaces the stack's whole database with the
- * snapshot this suite took, and ends the other suites' sessions, so the stack suites run one at a
- * time.
- */
 import { join } from "node:path";
 
 import { NotFound } from "@movies/contracts/errors";
@@ -48,10 +35,8 @@ const convexUrl = stack?.convexUrl ?? "";
 
 const mediaUrl = stack?.mediaUrl ?? "";
 
-/** An archive from long before the retention window, left by an earlier install. */
 const EXPIRED = "movies-nightly-2020-01-01T03-00-00-000Z.zip";
 
-/** A partial export a crashed backup left behind. */
 const PARTIAL = ".partial-movies-manual-2020-01-02T03-00-00-000Z.zip";
 
 let scope: Scope.Closeable;
@@ -97,7 +82,6 @@ const profileNames = (session: StackSession) =>
     Effect.flatMap(client, (movies) => movies.query("profiles.list", {})),
   ).then((profiles) => profiles.map((profile) => profile.name));
 
-/** Queues a backup as `session` and waits for its job. */
 const backUp = (session: StackSession) =>
   runIn(
     session,
@@ -179,7 +163,6 @@ describe.skipIf(stack === undefined)(
         Effect.flatMap(client, (movies) => movies.media("backups.restore", { backupId: taken.id })),
       );
 
-      // The snapshot carried this session; the restore ended it.
       const stale = await runIn(
         owner,
         Effect.flatMap(client, (movies) => movies.query("profiles.list", {})).pipe(Effect.exit),
@@ -192,7 +175,6 @@ describe.skipIf(stack === undefined)(
       expect(await profileNames(again)).not.toContain(after);
       expect((await listBackups(again)).map((backup) => backup.fileName)).toContain(taken.fileName);
 
-      // The service signed in again with its re-registered key and still runs jobs.
       await connected();
       const next = await backUp(again);
 

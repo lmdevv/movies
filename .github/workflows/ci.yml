@@ -20,7 +20,6 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      # The media service tests probe and transcode generated clips with ffmpeg (software paths only).
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
@@ -28,11 +27,8 @@ jobs:
       - run: pnpm fmt:check
       - run: pnpm test
       - run: pnpm knip
-      # The iOS app bundles with Metro, so a module it cannot resolve fails here, not on a phone.
       - run: pnpm --filter mobile bundle
-      # The installs pin one Convex backend and expose every media service setting.
       - run: scripts/check-deploy.sh
-      # The release's standalone binary, so a change that breaks it fails here and not at a tag.
       - run: pnpm --filter @lmdevv/movies build:sea
       - run: test "$(apps/cli/dist/sea/movies-linux-x64 --version)" = "$(scripts/check-version.sh)"
 
@@ -48,14 +44,12 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      # The media suite generates fixtures, probes, remuxes, and transcodes (software only).
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: pnpm install --frozen-lockfile
       - run: scripts/dev-stack.sh up
       - run: pnpm --filter @movies/backend test:stack
       - run: pnpm --filter @movies/sdk test:stack
       - run: pnpm --filter @lmdevv/movies test:stack
-      # The migration suite also imports from a real Jellyfin, set up over the fixture library.
       - run: docker pull jellyfin/jellyfin:12.2@sha256:357724bf0ae27a672c7cbaa899db2d9abeb13dbd8657ccce750258a4c059d037
       - run: pnpm --filter @movies/media test:stack
         env:
@@ -75,12 +69,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      # The suite generates its fixture library with ffmpeg and runs the real media service.
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter web exec playwright install --with-deps chromium
       - run: scripts/dev-stack.sh up
-      # The migration suite imports from a real Jellyfin, set up over the fixture library.
       - run: docker pull jellyfin/jellyfin:12.2@sha256:357724bf0ae27a672c7cbaa899db2d9abeb13dbd8657ccce750258a4c059d037
       - run: pnpm --filter web exec playwright test
         env:
@@ -102,6 +94,4 @@ jobs:
         with:
           persist-credentials: false
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
-      # Builds the package, shellchecks the startup script, evaluates the module, and boots it in a
-      # NixOS VM (checks.x86_64-linux.vm, under KVM, which install-nix-action enables).
       - run: nix flake check -L

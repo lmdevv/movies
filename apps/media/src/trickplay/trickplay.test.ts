@@ -39,7 +39,6 @@ const testLayer = Layer.unwrap(
   }),
 ).pipe(Layer.provideMerge(FixtureWorkspace.layer), Layer.provideMerge(NodeServices.layer));
 
-/** Encodes a test clip into the workspace with `args` after the inputs. */
 const encode = Effect.fn(function* (name: string, args: ReadonlyArray<string>) {
   const { root } = yield* FixtureWorkspace.Service;
   const path = yield* Path.Path;
@@ -51,7 +50,6 @@ const encode = Effect.fn(function* (name: string, args: ReadonlyArray<string>) {
   return output;
 });
 
-/** A file as playback resolves it, probed for real. */
 const resolved = Effect.fn(function* (file: string) {
   const fs = yield* FileSystem.FileSystem;
   const info = yield* fs.stat(file);
@@ -66,7 +64,6 @@ const resolved = Effect.fn(function* (file: string) {
   } satisfies ResolvedMediaFile;
 });
 
-/** A stand-in build that writes `sheets` fake sheets and returns their manifest. */
 const built = (sheets: number) => (folder: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -117,7 +114,6 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
         const store = yield* TrickplayStore.Service;
         const fs = yield* FileSystem.FileSystem;
 
-        // 360 × 270 pixels drawn 4:3 wide display as 16:9, as DVDs and some broadcasts do.
         const clip = yield* encode("anamorphic.mkv", [
           "-f",
           "lavfi",
@@ -170,8 +166,6 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
         const store = yield* TrickplayStore.Service;
         const tools = yield* MediaTools.Service;
 
-        // Brightness rises with time (luma 4 per second) and keyframes fall every 3 seconds, so a
-        // tile's brightness says which keyframe it shows: 0:10 must show 0:09, not 0:18.
         const clip = yield* encode("ramp.mkv", [
           "-f",
           "lavfi",
@@ -215,7 +209,6 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
             .pipe(Effect.map((text) => Number(text.trim()))),
         );
 
-        // Tiles 0:00, 0:10, 0:20, and 0:30 show the keyframes at 0:00, 0:09, 0:18, and 0:30.
         measured.forEach((value, tile) => {
           const seconds = [0, 9, 18, 30][tile] ?? 0;
 
@@ -269,7 +262,6 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
         const folder = yield* fs.makeTempDirectoryScoped();
         const manifest = yield* generate(file, "1-1", INTERVAL, folder);
 
-        // 60 seconds by the container, but frames only for 0:00, 0:10, and 0:20.
         assert.isAbove(file.probe.durationSeconds, 59);
         assert.strictEqual(manifest.thumbnailCount, 3);
         assert.deepStrictEqual(yield* fs.readDirectory(folder), ["0.jpg"]);
@@ -321,7 +313,6 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
         yield* store.publish("changing", version, TrickplayJob.build(file, version, INTERVAL));
         assert.isTrue(Option.isSome(yield* store.find("changing", version, "manifest.json")));
 
-        // Replaced after a job read its size and time: ffmpeg read other contents than `version`.
         const later = new Date(mtime.getTime() + 60_000);
 
         yield* fs.utimes(clip, later, later);
@@ -345,8 +336,6 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
           yield* store.publish("file2", "a-1", built(1));
           yield* store.publish("file2", "b-2", built(2));
 
-          // Two jobs for one file may both publish; the catalog says which one it took, and the
-          // sweep removes the other, so the one it took is never deleted under it.
           assert.isTrue(Option.isSome(yield* store.find("file2", "a-1", "0.jpg")));
           assert.isTrue(Option.isSome(yield* store.find("file2", "b-2", "1.jpg")));
 
@@ -382,8 +371,6 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
 
         yield* store.publish("file3", "a-1", built(2));
 
-        // The same store on a disk where moving a new set into place fails, as a full or
-        // unplugged one may; moving folders aside still works.
         const intoPlaceFails = Layer.succeed(FileSystem.FileSystem, {
           ...fs,
           rename: (from: string, to: string) =>

@@ -14,7 +14,6 @@ const toolsLayer = MediaTools.layer.pipe(
   Layer.provideMerge(NodeServices.layer),
 );
 
-/** Encodes ten seconds of video with `options`, keyframes at least every 1.5 s and at scene cuts. */
 const encode = Effect.fn(function* (name: string, options: ReadonlyArray<string>) {
   const tools = yield* MediaTools.Service;
   const fs = yield* FileSystem.FileSystem;
@@ -45,7 +44,6 @@ const encode = Effect.fn(function* (name: string, options: ReadonlyArray<string>
   return output;
 });
 
-/** Keyframe times as ffprobe's packet scan reports them. */
 const scanned = Effect.fn(function* (file: string) {
   const tools = yield* MediaTools.Service;
 
@@ -69,7 +67,6 @@ const scanned = Effect.fn(function* (file: string) {
     .toSorted((left, right) => left - right);
 });
 
-/** Keyframe times from the sample tables. */
 const indexed = Effect.fn(function* (file: string) {
   const fs = yield* FileSystem.FileSystem;
   const info = yield* fs.stat(file);
@@ -94,7 +91,6 @@ describe.skipIf(!hasFfmpeg)("MP4 keyframe index", () => {
     it.effect("matches a packet scan, with B-frames, edit lists, and moov at either end", () =>
       Effect.gen(function* () {
         const files = [
-          // B-frames: composition offsets and an edit list that hides the first frame's delay.
           yield* encode("bframes.mp4", ["-preset", "veryfast", "-bf", "3"]),
           yield* encode("faststart.mp4", ["-preset", "veryfast", "-movflags", "+faststart"]),
           yield* encode("plain.mp4", ["-preset", "ultrafast"]),
@@ -138,7 +134,6 @@ describe.skipIf(!hasFfmpeg)("MP4 keyframe index", () => {
         const bytes = yield* fs.readFile(file);
         const stts = Buffer.from(bytes).indexOf("stts");
 
-        // The entry count and the first entry's sample count both claim far more than exists.
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
         view.setUint32(stts + 8, 0xff_ff_ff_f0);

@@ -32,7 +32,6 @@ const password = (username: string, value: string): MigrationCredentials => ({
   password: Redacted.make(value),
 });
 
-/** Runs `use` against a fixture server started by `start`, then closes it. */
 const withServer = <A, E, R>(
   start: () => Promise<RecordedServer>,
   use: (server: RecordedServer) => Effect.Effect<A, E, R>,
@@ -50,7 +49,6 @@ const readAll = (session: SourceSession) =>
 const reason = <A, R>(effect: Effect.Effect<A, SourceError, R>) =>
   effect.pipe(Effect.flip, Effect.map(failureReasonOf));
 
-/** Why `source` at `url` refused `credentials`. */
 const refusal = (source: "jellyfin" | "plex", url: string, credentials: MigrationCredentials) =>
   reason(openSource(source, { url, credentials }));
 
@@ -58,7 +56,6 @@ const { ids } = jellyfinRecording;
 
 const decodeObject = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json));
 
-/** Starts the recorded Jellyfin with `GET /System/Info/Public` answering `body`. */
 const withInfo = (body: Schema.Json) => () =>
   startRecordedServer(
     { ...jellyfinRecording.recordings, "-|GET /System/Info/Public": { status: 200, body } },
@@ -71,10 +68,6 @@ const decodeUsers = Schema.decodeUnknownSync(
   Schema.Array(Schema.Record(Schema.String, Schema.Json)),
 );
 
-/**
- * Starts the recorded Jellyfin with each user's policy in `GET /Users` replaced by what `policy`
- * returns for that user's name and recorded policy.
- */
 const withPolicies =
   (policy: (name: string, recorded: Readonly<Record<string, Schema.Json>>) => Schema.Json) =>
   () => {
@@ -97,11 +90,9 @@ const withPolicies =
     );
   };
 
-/** A Jellyfin folder ID as policies write it: the virtual folder's ID with dashes. */
 const dashed = (id: string): string =>
   [id.slice(0, 8), id.slice(8, 12), id.slice(12, 16), id.slice(16, 20), id.slice(20)].join("-");
 
-/** Why the server refused the fixture API key. */
 const refusedKey = (server: RecordedServer) =>
   refusal("jellyfin", server.url, token(FIXTURE_API_KEY));
 
@@ -132,7 +123,6 @@ layer(FetchHttpClient.layer, { excludeTestServices: true })(
               library.access,
             ]),
             [
-              // Both users' policies enable every folder.
               ["Shows", "shows", ["/media/shows"], { kind: "everyone" }],
               ["Movies", "movies", ["/media/movies"], { kind: "everyone" }],
               ["Collections", "other", ["/config/data/collections"], { kind: "everyone" }],

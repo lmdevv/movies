@@ -1,7 +1,3 @@
-/**
- * The home billboard for the featured title: the full-bleed desktop hero and the phone hero card.
- * The featured card comes with the home rows; its details (overview, progress, files) load next.
- */
 import type { ProfileId } from "@movies/contracts/ids";
 import type { TitleCard, TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
@@ -22,7 +18,6 @@ import { fileBadges } from "@/lib/media-facts";
 import { playTarget, useMyListToggle, watchSearch } from "./play-target";
 import { newBadge } from "./new-badge";
 
-/** The title's logo when it has one; without it the hero draws the name as heavy text. */
 const titleArt = (title: TitleCard, phone: boolean): ReactNode => {
   const logo = artworkUrl(title.artwork.logo, "card");
 

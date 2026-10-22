@@ -5,7 +5,6 @@ import { stackEnv } from "./e2e/stack/stack-env";
 
 const stack = stackEnv();
 
-/** The worktree's web port when it has a stack, so worktrees running suites at once never share a server. */
 const port = Number(process.env["E2E_PORT"] ?? stack?.webPort ?? 3011);
 
 /**
@@ -53,7 +52,6 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {
-      // Signs in as the owner the core flows create, so it runs after them.
       name: "admin",
       testMatch: /e2e\/admin\/.*\.spec\.ts$/u,
       testIgnore: /e2e\/admin\/(migration|backups)\.spec\.ts$/u,
@@ -61,7 +59,6 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {
-      // Scans its own NFO library with its own media service as the owner, after the admin suites.
       name: "metadata",
       testMatch: /e2e\/metadata\/.*\.spec\.ts$/u,
       dependencies: ["admin"],
@@ -80,7 +77,6 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {
-      // A host and two guests move a room on to its next episode.
       name: "party",
       testMatch: /e2e\/playback\/party\.spec\.ts$/u,
       dependencies: ["rooms"],

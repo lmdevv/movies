@@ -1,4 +1,3 @@
-/** I18 · Remove Library: the sheet that confirms removing a library; its files stay on disk. */
 import { LibraryId } from "@movies/contracts/ids";
 import { useCommand } from "@movies/sdk/react";
 import { Schema } from "effect";
@@ -12,7 +11,6 @@ import { Button } from "@/components/ui/button";
 const decodeLibraryId = Schema.decodeUnknownSync(LibraryId);
 
 export default function RemoveLibrary() {
-  // The name comes with the route: the sheet keeps it while the library disappears.
   const params = useLocalSearchParams<{ libraryId: string; name: string }>();
   const libraryId = decodeLibraryId(params.libraryId);
   const remove = useCommand("libraries.remove");

@@ -1,9 +1,3 @@
-/**
- * The command registry and the Convex functions agree: every Convex command and media service
- * function names an existing public function of the right kind whose argument and result
- * validators describe the same wire values as the contract's schemas; every public function is in
- * the registry; and constants duplicated across the seam are equal. Runs without a backend.
- */
 import {
   AWAY_PRESENCE_TIMEOUT_MS,
   HEARTBEAT_INTERVAL_MS,
@@ -76,7 +70,6 @@ import { ROLE_SCOPES } from "../convex/lib/scopes";
 import type { ValidatorJson } from "./validator-json";
 import { normalizeValidator, parseExportedValidator, validatorFromSchema } from "./validator-json";
 
-/** Every module with Convex functions except `auth.ts`, whose `signIn` and `signOut` are Convex Auth's. */
 const modules = {
   account,
   apiKeys,
@@ -105,7 +98,6 @@ const modules = {
   users,
 };
 
-/** What the Convex runtime exposes about a registered function. */
 interface RegisteredFunction {
   readonly kind: "query" | "mutation" | "action";
   readonly isPublic: boolean;
@@ -115,12 +107,10 @@ interface RegisteredFunction {
 
 type Modules = typeof modules;
 
-/** Any function a listed module exports. */
 type RegisteredExport = {
   [Name in keyof Modules]: Modules[Name][keyof Modules[Name]];
 }[keyof Modules];
 
-/** The Convex runtime's `exportArgs` and `exportReturns`; `parseExportedValidator` checks what they return. */
 const isExporter = (value: unknown): value is () => string => Predicate.isFunction(value);
 
 const exported = (registered: RegisteredExport, method: "exportArgs" | "exportReturns") => {
@@ -161,10 +151,8 @@ const convexCommands = [
   command.kind === "media" ? [] : [{ name, command }],
 );
 
-/** A string of `length` characters, starting with `prefix`. */
 const text = (length: number, prefix = ""): string => prefix.padEnd(length, "x");
 
-/** `count` distinct absolute folders. */
 const folders = (count: number) => Array.from({ length: count }, (_, index) => `/f${index}`);
 
 const normalized = (json: ValidatorJson | null | undefined) =>
@@ -235,7 +223,6 @@ describe("constants shared across the seam", () => {
     expect(accepts(text(bounds.PASSWORD_MIN - 1, ""))).toBe(false);
   });
 
-  // Validators check shapes only; these are the lengths and ranges the backend enforces itself.
   it.each([
     { name: "display names", schema: DisplayName, max: bounds.DISPLAY_NAME_MAX, prefix: "" },
     { name: "avatar keys", schema: AvatarKey, max: bounds.AVATAR_KEY_MAX, prefix: "" },

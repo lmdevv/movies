@@ -1,4 +1,3 @@
-/** A stand-in media service on a free local port, for commands that call it over HTTP. */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 

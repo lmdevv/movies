@@ -18,7 +18,6 @@ const router = createRouter({
   routeTree,
   defaultPreload: "intent",
   scrollRestoration: true,
-  // Search values stay plain strings; each route reads its own.
   parseSearch,
   stringifySearch,
   defaultNotFoundComponent: NotFoundPage,

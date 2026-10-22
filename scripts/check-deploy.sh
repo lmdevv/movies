@@ -9,8 +9,6 @@
 #     the root .env.example, or the README's configuration table;
 #   - the Jellyfin test image is referenced in code or CI without a digest, or with different ones;
 #   - a workspace package carries another version than the release (scripts/check-version.sh).
-#
-#   scripts/check-deploy.sh
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -21,8 +19,6 @@ fail() {
   echo "check-deploy: $*" >&2
   failures=$((failures + 1))
 }
-
-# --- The Convex backend image -------------------------------------------------------------------
 
 pinned="$(<deploy/convex-backend.image)"
 if ! [[ "$pinned" =~ ^ghcr\.io/convex/convex-backend:[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]]; then
@@ -42,28 +38,21 @@ grep -qF 'deploy/convex-backend.image' scripts/dev-stack.sh ||
 grep -qF '../deploy/convex-backend.image' nix/module.nix ||
   fail "nix/module.nix no longer reads deploy/convex-backend.image"
 
-# --- Media service settings ---------------------------------------------------------------------
-
-# Every NAME in a Config call of the media service's configuration, including calls that span lines.
 config_source="$(tr '\n' ' ' <apps/media/src/media-config.ts)"
 mapfile -t config_names < <(
   grep -oE 'Config\.[A-Za-z]+\([^()]*"[A-Z][A-Z0-9_]+"' <<<"$config_source" |
     grep -oE '"[A-Z][A-Z0-9_]+"' | tr -d '"' | sort -u
 )
-# Each setting is read by one `yield* Config.…`; a different count means a call was not parsed.
 config_reads="$(grep -oE 'yield\* Config\.' <<<"$config_source" | wc -l)"
 ((${#config_names[@]} == config_reads)) ||
   fail "parsed ${#config_names[@]} setting names but media-config.ts has $config_reads Config reads"
 
-# Set by the entrypoint from the install's own layout and secrets.
 mapfile -t entrypoint_set < <(sed -n 's/^setting \([A-Z][A-Z0-9_]*\) .*/\1/p' deploy/compose/entrypoint.sh | sort -u)
-# Passed on from the container's environment when set.
 mapfile -t entrypoint_forwarded < <(
   sed -n '/^optional_settings=(/,/^)/p' deploy/compose/entrypoint.sh | grep -oE '^ +[A-Z][A-Z0-9_]+' |
     tr -d ' ' | sort -u
 )
 ((${#entrypoint_forwarded[@]} > 0)) || fail "found no optional_settings in entrypoint.sh"
-# Fixed by the image: it listens on every interface inside the container and ships ffmpeg.
 image_fixed=(HOST FFMPEG_PATH FFPROBE_PATH)
 
 contains() {
@@ -78,12 +67,10 @@ for name in "${config_names[@]}"; do
   if ! contains "$name" "${entrypoint_set[@]}" "${entrypoint_forwarded[@]}" "${image_fixed[@]}"; then
     fail "$name (media-config.ts) is neither set nor passed on by deploy/compose/entrypoint.sh"
   fi
-  # An option-backed environment entry, or a secret the startup script writes to media.env.
   grep -qE "^ +${name} = |'${name}=%s" nix/module.nix || fail "$name (media-config.ts) is not set by nix/module.nix"
   grep -qF "\`${name}\`" apps/media/README.md || fail "$name (media-config.ts) is not in apps/media/README.md"
 done
 
-# What a Compose user sets: the passed-on settings plus LIBRARY_ROOTS, which has a container default.
 user_facing=(LIBRARY_ROOTS "${entrypoint_forwarded[@]}")
 for name in "${user_facing[@]}"; do
   grep -qE "^      ${name}: \\$\\{${name}:-\\}$" deploy/compose/compose.yaml ||
@@ -93,9 +80,6 @@ for name in "${user_facing[@]}"; do
   grep -qF "\`${name}\`" README.md || fail "$name is not in README.md's configuration table"
 done
 
-# --- Test images --------------------------------------------------------------------------------
-
-# Prose may name the tag; code and CI must use one pinned reference.
 mapfile -t jellyfin_refs < <(
   git ls-files -z -- ':!*.md' |
     xargs -0 grep -ohE 'jellyfin/jellyfin:[0-9][0-9.]*(@sha256:[0-9a-f]{64})?' 2>/dev/null | sort -u
@@ -105,8 +89,6 @@ for ref in "${jellyfin_refs[@]}"; do
   [[ "$ref" == *@sha256:* ]] || fail "the Jellyfin test image '$ref' is not pinned by digest"
 done
 ((${#jellyfin_refs[@]} <= 1)) || fail "the Jellyfin test image is referenced as: ${jellyfin_refs[*]}"
-
-# --- Versions ------------------------------------------------------------------------------------
 
 scripts/check-version.sh >/dev/null || fail "the workspace packages disagree on the release version"
 

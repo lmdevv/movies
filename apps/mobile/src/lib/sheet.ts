@@ -1,4 +1,3 @@
-/** The native form sheet the app's stacks present, sized to its content, in the theme's colors. */
 import { useCSSVariable } from "uniwind";
 
 import { useThemeColor } from "./theme-color";

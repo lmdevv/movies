@@ -101,7 +101,6 @@ const safari: ClientCapabilities = {
   mse: false,
 };
 
-/** Software only, and an ffmpeg without `zscale`, so HDR cannot be tone-mapped. */
 const software = { audioIndex: undefined, hardware: undefined, softwareToneMapping: false };
 
 const hardware = { audioIndex: undefined, hardware: "qsv", softwareToneMapping: false } as const;
@@ -268,7 +267,6 @@ describe("decidePlayback", () => {
       video: { width: 1280, height: 720, bitrate: 4_000_000 },
     });
 
-    // A bitrate cap below the source's sends it to an encode at the cap.
     const heavy = probe("mkv", h264, [aac], 600, { bitRate: 30_000_000 });
 
     expect(

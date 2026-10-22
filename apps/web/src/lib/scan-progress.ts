@@ -1,7 +1,3 @@
-/**
- * How far a scan job has come, for the first-scan screen, the scanning toast, and the command
- * menu's running-job row.
- */
 import type { Job } from "@movies/contracts/models/jobs";
 
 /** A scan job's progress as the UI shows it. */

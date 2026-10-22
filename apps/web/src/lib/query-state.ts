@@ -1,4 +1,3 @@
-/** Reading query states for display. */
 import type { QueryState } from "@movies/sdk/react";
 
 const NO_ROWS: ReadonlyArray<never> = [];

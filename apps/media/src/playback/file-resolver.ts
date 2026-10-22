@@ -1,9 +1,3 @@
-/**
- * Turns a file ID from a verified playback token into the file to stream. The integration
- * milestone implements `Service` over Convex; the media service never accepts a path from a
- * client. `resolveInsideRoots` re-checks every resolved path against the approved library roots
- * after following symbolic links, so a bad record cannot expose other files.
- */
 import { type FileResolverUnavailable, MediaFileNotFound } from "@movies/contracts/media-playback";
 import { Context, Effect, FileSystem, Option, Path, Schema, Struct } from "effect";
 
@@ -12,7 +6,6 @@ import { SidecarFormat } from "../library/sidecar-subtitles.ts";
 import * as MediaConfig from "../media-config.ts";
 import type { MediaProbe } from "../media/media-probe.ts";
 
-/** A subtitle file beside the media file, with its absolute path. */
 const ResolvedSidecar = Schema.Struct({
   path: Schema.String,
   format: SidecarFormat,
@@ -23,7 +16,6 @@ const ResolvedSidecar = Schema.Struct({
   default: Schema.Boolean,
 });
 
-/** A subtitle file beside the media file, with its absolute path. */
 interface ResolvedSidecar extends Schema.Schema.Type<typeof ResolvedSidecar> {}
 
 /** Everything playback needs about one stored media file. */
@@ -76,7 +68,6 @@ export const approvedRoots = Effect.fnUntraced(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
-  // Concurrently: on a network share each `realPath` is a round trip.
   const roots = (yield* Effect.forEach(
     config.libraryRoots,
     (root) => fs.realPath(root).pipe(Effect.option),
@@ -121,7 +112,6 @@ export const resolveInsideRoots = Effect.fn("FileResolver.resolveInsideRoots")(f
 ) {
   const resolver = yield* Service;
   const file = yield* resolver.resolve(fileId);
-  // Resolved once for the file and its sidecars: this runs on every byte-range request.
   const roots = yield* approvedRoots();
   const real = yield* roots.realPathInside(file.path);
 

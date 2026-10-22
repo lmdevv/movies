@@ -1,10 +1,3 @@
-/**
- * G02–G08 · A watch room on the phone, where room links and Home's room pill lead: join it (G03),
- * or, once in it, see the shared timeline and who is watching (G02 host, G04 guest, G05 while the
- * host buffers), and open the room's player from the artwork. A guest whose host left keeps
- * watching alone or goes home (G06); an ended room (G07) or one this profile may not watch (G08)
- * says so.
- */
 import { targetPosition } from "@movies/contracts/clock";
 import type { RoomId } from "@movies/contracts/ids";
 import type { Room } from "@movies/contracts/models/rooms";
@@ -45,24 +38,19 @@ import { watchHref } from "@/lib/routes";
 import { useActiveProfile } from "@/session/active-profile";
 import { useServer } from "@/session/connection";
 
-/** Home, from wherever the room was opened. */
 const goHome = (): void => {
   router.dismissTo("/");
 };
 
-/** The room's player, in the room. */
 const watchHrefFor = (room: Room): string =>
   watchHref({ titleId: room.title.id, episodeId: room.episode?.id, room: room.id });
 
-/** The artwork a room shows: the episode's still, else the title's wide art. */
 const artworkKey = (room: Room): string | null =>
   room.episode?.still ?? room.title.artwork.backdrop ?? room.title.artwork.poster;
 
-/** `S1, E2 · Half Loop` under a show's name. */
 const roomEpisode = (room: Room): string | null =>
   room.episode === null ? null : episodeLine(room.episode);
 
-/** G03 · Join: the room's title and host, then Join Room or Not Now. */
 function JoinRoom({ room }: { readonly room: Room }) {
   const { mediaUrl } = useServer();
   const { busy, error, join } = useJoinRoom(room.id);
@@ -107,7 +95,6 @@ function JoinRoom({ room }: { readonly room: Room }) {
   );
 }
 
-/** The ••• menu: the host's Invite People and End Room, a guest's Leave Room. */
 const openMenu = (room: Room, role: RoomRole, leave: () => void): void => {
   const options =
     role === "host" ? ["Invite People", "End Room", "Cancel"] : ["Leave Room", "Cancel"];
@@ -128,7 +115,6 @@ const openMenu = (room: Room, role: RoomRole, leave: () => void): void => {
   );
 };
 
-/** G02, G04, G05 · In the room: the shared timeline, who is watching, and the way to the player. */
 function InRoom({ room, role }: { readonly room: Room; readonly role: RoomRole }) {
   const { mediaUrl } = useServer();
   const { profile } = useActiveProfile();
@@ -136,7 +122,6 @@ function InRoom({ room, role }: { readonly room: Room; readonly role: RoomRole }
   const device = deviceId();
   const playing = room.clock.status === "playing";
   const now = useNow(playing, 1_000);
-  // The shared position by the server's clock, as the room's players read it.
   const clock = useServerClock(room.id);
   const positionMs = targetPosition(room.clock, EpochMillis.make(Math.round(now + clock.offsetMs)));
   const notice = roomNotice(room, role);
@@ -227,7 +212,6 @@ function InRoom({ room, role }: { readonly room: Room; readonly role: RoomRole }
   );
 }
 
-/** G06 · The host left: keep watching alone from where the room paused, or go home. */
 function HostLeft({ room }: { readonly room: Room }) {
   const leaveRoom = useCommand("rooms.leave");
 
@@ -274,7 +258,6 @@ function HostLeft({ room }: { readonly room: Room }) {
   );
 }
 
-/** A room by its ID, as this device stands with it. */
 function RoomView({ roomId }: { readonly roomId: RoomId }) {
   const { profile } = useActiveProfile();
   const read = useCommandQuery("rooms.get", { roomId, profileId: profile.id });

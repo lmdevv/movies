@@ -1,18 +1,9 @@
-/**
- * The contract between the command menu and the features that fill it. Each feature module in
- * `src/commands/` exports one hook that returns its groups (and any "No results" fallbacks) for the
- * current context; `index.ts` calls every hook and merges the results into the menu's root page.
- */
 import type { Profile } from "@movies/contracts/models/profiles";
 import type { Scope } from "@movies/contracts/scopes";
 import type { TrackOption } from "@movies/ui/components/track-popover";
 import type { CommandGroup, CommandItem } from "@movies/ui/lib/command-menu";
 import type { useNavigate } from "@tanstack/react-router";
 
-/**
- * Room actions the player offers while it is in a room: the host ends the room for everyone, and a
- * guest leaves it (and the player).
- */
 type PlayerRoomCommands = { readonly copyLink: () => void } & (
   | { readonly role: "host"; readonly end: () => void }
   | { readonly role: "guest"; readonly leave: () => void }

@@ -1,4 +1,3 @@
-/** Following a background job until it finishes, for `--wait`. */
 import type { JobId } from "@movies/contracts/ids";
 import type { Job } from "@movies/contracts/models/jobs";
 import type { MoviesClient } from "@movies/sdk/effect";
@@ -19,7 +18,6 @@ export const progressLine = (job: Job): string => {
   return `${job.kind} ${job.id}: ${job.status} ${count}${note === null ? "" : ` (${note})`}`;
 };
 
-/** Most jobs `waitForJobs` polls at once; each poller is a `jobs.get` request a second. */
 const MAX_POLLERS = 4;
 
 /** How `--wait` behaves. */
@@ -29,10 +27,6 @@ export interface WaitOptions {
   readonly timeout: Duration.Duration;
 }
 
-/**
- * Watches `jobs.get` until the job succeeds, fails, or is cancelled, or the clock passes
- * `deadlineMs`, printing progress to stderr whenever it changes. Fails unless the job succeeded.
- */
 const followJob = Effect.fn("Jobs.follow")(function* (
   client: MoviesClient.Interface,
   jobId: JobId,

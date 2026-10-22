@@ -1,23 +1,14 @@
-/**
- * Keeps the caches under `DATA_DIR` (provider responses, keyframe indexes, converted subtitles,
- * and downloaded or resized artwork) within `CACHE_MAX_MB`. Every pass removes temporary files a
- * crashed write left behind, then the least recently used files until the total fits. Cache reads
- * touch the files they hit, so modification time stands for last use. Everything here can be
- * rebuilt: a pruned entry is fetched, scanned, or resized again on its next request.
- */
 import { Clock, Duration, Effect, FileSystem, Layer, Option, Path, Schedule } from "effect";
 
 import * as MediaConfig from "./media-config.ts";
 import { modifiedAtMs } from "./platform/file-info.ts";
 
-/** What one pass removed. */
 interface PruneSummary {
   readonly removedFiles: number;
   readonly removedBytes: number;
   readonly keptBytes: number;
 }
 
-/** A file under a cache folder. */
 interface CacheFile {
   readonly path: string;
   readonly size: number;
@@ -26,10 +17,8 @@ interface CacheFile {
 
 const PRUNE_EVERY = Duration.hours(1);
 
-/** A `.part` file older than this belongs to a write that will never finish. */
 const ABANDONED_AFTER = Duration.hours(1);
 
-/** A cache hit marks its file used again only when the last mark is older than this. */
 const MARK_AFTER = Duration.days(1);
 
 /**
@@ -53,7 +42,6 @@ export const cacheDirectories = (dataDir: string, path: Path.Path): ReadonlyArra
   path.join(dataDir, "artwork"),
 ];
 
-/** Every file under `roots`, with its size and modification time. Missing folders are empty. */
 const listFiles = Effect.fnUntraced(function* (roots: ReadonlyArray<string>) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -77,7 +65,6 @@ const listFiles = Effect.fnUntraced(function* (roots: ReadonlyArray<string>) {
               ),
               Effect.orElseSucceed(() => Option.none<CacheFile>()),
             ),
-          // A data folder on a slow disk or a share holds tens of thousands of resized images.
           { concurrency: 16 },
         ),
       ),
@@ -109,7 +96,6 @@ export const prune = Effect.fn("CachePruner.prune")(function* (
     .filter((file) => !abandoned.includes(file))
     .toSorted((left, right) => right.modifiedAt - left.modifiedAt);
 
-  // Keep the newest files that fit; everything older goes.
   let keptBytes = 0;
   const expired: Array<CacheFile> = [];
 

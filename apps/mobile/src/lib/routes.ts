@@ -1,12 +1,3 @@
-/**
- * Links into the player and what they carry: the title, an episode for shows, a chosen version
- * (file), `start` (`beginning` to start over; `resume`, like leaving it out, picks up the saved
- * progress), `at` to start at a position (a watch room's, when a guest goes on alone), the watch
- * room to play in, and a download kept on this iPhone to play instead of the server's stream.
- * Screens link with `watchHref`, which writes them in one order; the player reads them back with
- * `parseWatchParams`, which never throws. `togetherHref` links to starting a watch room (G01), and
- * the download links to the Downloads screens.
- */
 import { EpisodeId, MediaFileId, RoomId, TitleId } from "@movies/contracts/ids";
 import { Schema } from "effect";
 import type { Option } from "effect";
@@ -59,7 +50,6 @@ export const watchHref = ({
   return query === "" ? path : `${path}?${query}`;
 };
 
-/** The player's params, as typed IDs. */
 const WatchParams = Schema.Struct({
   titleId: TitleId,
   episodeId: Schema.optionalKey(EpisodeId),

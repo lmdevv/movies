@@ -1,8 +1,3 @@
-/**
- * Bundles the CLI into one executable file, `dist/movies.js`, so it installs and runs without the
- * workspace, with the licenses of the packages it inlines in `dist/THIRD_PARTY_LICENSES.md`.
- * `--watch` rebuilds on change.
- */
 import { chmod } from "node:fs/promises";
 import { join } from "node:path";
 

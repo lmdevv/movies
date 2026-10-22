@@ -152,7 +152,6 @@ export function BackupsScreen() {
   );
 }
 
-/** Restoring replaces everything since the backup and signs everyone out, so it asks first. */
 function RestoreConfirm({
   backup,
   now,
@@ -167,7 +166,6 @@ function RestoreConfirm({
 
   const action = useAction(async () => {
     await restore({ backupId: backup.id });
-    // The restore ends every session, this one included.
     await signOut();
   });
 

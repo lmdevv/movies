@@ -1,9 +1,3 @@
-/**
- * A tolerant reader for the small XML documents media managers write (Kodi/Jellyfin NFO files).
- * It keeps elements, attributes, and text; it ignores namespaces, processing instructions,
- * comments, and doctypes, and closes unbalanced tags instead of failing.
- */
-
 /** One element with its attributes, child elements, and directly contained text. */
 export interface XmlElement {
   readonly name: string;
@@ -88,7 +82,6 @@ export const parseXml = (source: string): ReadonlyArray<XmlElement> => {
       if (closing === "/") {
         const index = stack.findLastIndex((element) => element.name === name);
 
-        // A stray closing tag is ignored; one that closes an outer element closes the inner ones too.
         if (index > 0) {
           const finished = stack.splice(index);
 

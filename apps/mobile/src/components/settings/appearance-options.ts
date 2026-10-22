@@ -1,4 +1,3 @@
-/** H22 · Appearance's choices, in Paper's order. */
 import type { Appearance } from "@/lib/appearance";
 import type { PreferenceOption } from "@/lib/preferences";
 

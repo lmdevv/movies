@@ -1,9 +1,3 @@
-/**
- * What the player decides without side effects: what to do about each way playback can fail, and
- * how to narrow the capabilities after a path failed. Media service failures follow the SDK's
- * `Playback.recoveryFor`; a file that is gone shows File Unavailable (F13), and anything the player
- * cannot recover from shows Playback Interrupted (F09).
- */
 import type { ClientCapabilities, NegotiateResponse } from "@movies/contracts/media-playback";
 import { PlaybackApiError } from "@movies/contracts/media-playback";
 import type { CallError, PlaybackCallError } from "@movies/sdk/effect";
@@ -101,7 +95,6 @@ export const afterPlaybackFailure = (error: PlaybackCallError | CallError): Play
     );
   }
 
-  // Renewing the token fails with `Conflict` or `NotFound` once the session ended elsewhere.
   return Match.value(error).pipe(
     Match.tags({
       TransportError: recoveryStep,
@@ -167,11 +160,6 @@ export const withoutFailedPath = (
   return null;
 };
 
-/**
- * Answers meaning the service cannot give a stream with the quality cap or picture subtitle asked
- * for now. A choice the viewer just made is undone and the current stream plays on; one carried
- * into a recovery, or asked for when a session starts, is dropped for playback without it.
- */
 const UNHONOURED = [
   "UnsupportedPlayback",
   "TranscodeCapacityReached",

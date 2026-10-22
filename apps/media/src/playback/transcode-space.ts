@@ -1,10 +1,3 @@
-/**
- * Free space in `TRANSCODE_DIR`, shared by streams and download MP4s. The MP4 being written has
- * not written all its bytes yet, so it reserves its estimate here until it finishes or stops; every
- * new stream or MP4 then needs `MIN_FREE_TRANSCODE_MB` beyond what the disk has left after that
- * reservation. MP4s waiting in the queue reserve nothing, so they never keep a stream from
- * starting.
- */
 import { InsufficientTranscodeSpace } from "@movies/contracts/media-playback";
 import { Context, Effect, Layer, Ref } from "effect";
 

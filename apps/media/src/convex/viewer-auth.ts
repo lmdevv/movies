@@ -1,9 +1,3 @@
-/**
- * Authorizes registry `media` commands: the caller sends its Convex auth token as a bearer token,
- * and this asks Convex who that is by calling `account.viewer` with it, then checks the command's
- * scope against the session's scopes. Convex checks the session row on every call, so a revoked
- * key or a signed-out session is refused at once. The token is used for that one call only.
- */
 import { commands } from "@movies/contracts/commands";
 import { Forbidden } from "@movies/contracts/errors";
 import type { Viewer } from "@movies/contracts/models/account";

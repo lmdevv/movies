@@ -1,7 +1,3 @@
-/**
- * The bar that follows removing a title from My List: says what left and offers Undo for a few
- * seconds, so the change is reversible from the list itself.
- */
 import { View } from "react-native";
 import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

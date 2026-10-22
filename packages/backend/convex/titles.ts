@@ -1,8 +1,3 @@
-/**
- * Browsing for one profile. Every result passes through the profile's audience: titles in
- * libraries the account cannot see, or rated above a limited profile's age, never appear and look
- * missing when asked for directly.
- */
 import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
@@ -40,7 +35,6 @@ import {
 import { continueWatching, firstVisible, itself, upNextEpisode } from "./lib/viewing";
 import { authorize } from "./lib/viewer";
 
-/** Titles read per row of the home screen before filtering. */
 const ROW_SCAN = 200;
 
 const ROW_LIMIT = 20;
@@ -49,22 +43,16 @@ const DEFAULT_PAGE = 50;
 
 const MAX_PAGE = 100;
 
-/** Actors a title page lists. */
 const CAST_LIMIT = 20;
 
-/** Crew members a title page lists. */
 const CREW_LIMIT = 20;
 
-/** Guest stars and crew listed per episode. */
 const EPISODE_CREDIT_LIMIT = 12;
 
-/** Titles read for genre counts. */
 const GENRE_SCAN = 1000;
 
-/** Titles of the same kind read to top up "more like this". */
 const SIMILAR_SCAN = 300;
 
-/** Crew ordered the way a title page reads: who made it first. */
 const CREW_ORDER = ["creator", "director", "writer", "producer", "composer"] as const;
 
 const NO_RATINGS = { tmdb: null, imdb: null, rottenTomatoes: null, metacritic: null };
@@ -219,7 +207,6 @@ export const get = query({
       .withIndex("by_profile_title", (q) => q.eq("profileId", profileId).eq("titleId", titleId))
       .unique();
 
-    // Only the credits the page shows are presented, so only their people are read.
     const rows = await creditsOf(ctx, titleId, null, CREDIT_LIMIT);
     const castRows = rows.filter((row) => row.kind === "actor").slice(0, CAST_LIMIT);
 
@@ -230,7 +217,6 @@ export const get = query({
 
     const [cast = [], crew = []] = await presentCreditGroups(ctx, [castRows, crewRows]);
 
-    // A title may be in several collections; the one its metadata names comes first.
     const memberships = await ctx.db
       .query("collectionItems")
       .withIndex("by_title", (q) => q.eq("titleId", titleId))
@@ -324,7 +310,6 @@ export const episodes = query({
       Promise.all(docs.map((doc) => creditsOf(ctx, titleId, doc._id, EPISODE_CREDIT_LIMIT))),
     ]);
 
-    // One read per person across the season: the same writers and guest stars recur.
     const credits = await presentCreditGroups(ctx, rows);
 
     return docs.map((doc, index) =>
@@ -335,11 +320,6 @@ export const episodes = query({
   },
 });
 
-/**
- * The newest titles of `kind` (or of every kind) the audience may see, about `count` read in all,
- * to count genres over or rank as similar. Each library the account sees gets its share of the
- * reads, so a profile granted one small library is not crowded out by the others.
- */
 const discoveryCandidates = async (
   ctx: QueryCtx,
   audience: Audience,
@@ -380,7 +360,6 @@ export const genres = query({
   },
 });
 
-/** The keys a title is known by: its ID, and its TMDB ID when it has one. */
 const identityOf = (title: Doc<"titles">): ReadonlyArray<string> =>
   title.externalIds.tmdb === null ? [title._id] : [title._id, `tmdb:${title.externalIds.tmdb}`];
 
@@ -408,8 +387,6 @@ export const similar = query({
       }),
     );
 
-    // One entry per provider identity: another library's copy of this title, or of a title
-    // already listed, is the same film.
     const seen = new Set<string>(identityOf(title));
 
     const fresh = (candidate: Doc<"titles">): boolean => {

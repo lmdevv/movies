@@ -1,7 +1,3 @@
-/**
- * H06 · Devices: this iPhone and the account's other password and device sign-ins, each opening
- * Sign Out (H23), then Approve a Device.
- */
 import type { SessionInfo } from "@movies/contracts/models/account";
 import { useCommandQuery } from "@movies/sdk/react";
 import { router } from "expo-router";
@@ -17,7 +13,6 @@ import { Screen } from "@/components/ui/screen";
 import { deviceDetail, deviceName, listedDevices } from "@/lib/account";
 import { describeFailure } from "@/lib/failure";
 
-/** The glyph of a device: this iPhone, a TV or other device that signed in with a code, or a browser. */
 const deviceIcon = (session: SessionInfo) => {
   if (session.current) return Smartphone;
 
@@ -26,7 +21,6 @@ const deviceIcon = (session: SessionInfo) => {
 
 export default function Devices() {
   const sessions = useCommandQuery("sessions.list", {});
-  // Sign-in days are counted from when the screen opened.
   const [now] = useState(Date.now);
 
   if (sessions.status === "error") {

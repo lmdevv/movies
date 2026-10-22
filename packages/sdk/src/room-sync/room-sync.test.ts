@@ -31,7 +31,6 @@ import * as TokenStorage from "../token-storage";
 
 const START = 1_760_000_000_000;
 
-/** The server's clock runs this far ahead of the devices'. */
 const SERVER_OFFSET_MS = 7_000;
 
 const LATENCY_MS = 40;
@@ -94,13 +93,11 @@ const roomWith = (
     createdAt: START,
   });
 
-/** Advances the test clock in small steps so every fiber gets to run. */
 const advance = (ms: number) =>
   Effect.gen(function* () {
     for (let elapsed = 0; elapsed < ms; elapsed += 20) yield* TestClock.adjust(20);
   });
 
-/** Where the room's shared timeline is now. */
 const sharedPosition = (rooms: MemoryRooms) =>
   Effect.gen(function* () {
     const room = yield* rooms.room;
@@ -129,7 +126,6 @@ interface Fixture {
   readonly rooms: MemoryRooms;
 }
 
-/** Runs a scenario against a fresh backend on the test clock. */
 const scenario = (
   clock: Partial<RoomClock>,
   body: (
@@ -157,7 +153,6 @@ const scenario = (
     ),
   );
 
-/** A room that has been playing for a minute from position zero. */
 const playingForAMinute: Partial<RoomClock> = {
   status: "playing",
   positionAtAnchorMs: Milliseconds.make(0),
@@ -222,7 +217,6 @@ describe("room sync", () => {
         yield* start(rooms, GUEST, player);
         yield* advance(4_000);
 
-        // Fall 600 ms behind without a seek event, as a slow decoder would.
         player.setPlaybackRate(1);
         player.userSeek(player.positionMs() - 600);
         yield* advance(DEFAULT_TUNABLES.correctionIntervalMs + 100);
@@ -284,7 +278,6 @@ describe("room sync", () => {
         host.userPlay();
         yield* advance(2_000);
 
-        // A real player starts a little after the command that anchored the room.
         host.userSeek(host.positionMs() - 100);
         yield* advance(2 * DEFAULT_TUNABLES.heartbeatIntervalMs + 5_000);
 
@@ -300,13 +293,11 @@ describe("room sync", () => {
       Effect.gen(function* () {
         const guest = yield* makeFakePlayer(0);
 
-        // Joining seeks to the live position, and the guest is in sync once the seek lands.
         yield* start(rooms, GUEST, guest);
         expect(Math.abs(yield* driftOf(rooms, guest))).toBeLessThanOrEqual(
           DEFAULT_TUNABLES.settleMs,
         );
 
-        // A real player only starts advancing a moment later.
         guest.stall();
         yield* advance(100);
         guest.recover();
@@ -377,7 +368,6 @@ describe("room sync", () => {
         yield* start(rooms, HOST, host);
         yield* advance(2_000);
 
-        // Another writer moved the room to 10 minutes without this device seeing it yet.
         yield* rooms.changeSilently({
           positionAtAnchorMs: Milliseconds.make(600_000),
           anchorServerTime: yield* rooms.serverNow,
@@ -410,10 +400,8 @@ describe("room sync", () => {
         expect((yield* current(hostSync)).connection).toBe("reconnecting");
         expect(hostControlsEnabled(yield* current(hostSync))).toBe(false);
 
-        // Offline, the guest keeps interpolating the last clock.
         expect(Math.abs(yield* driftOf(rooms, guest))).toBeLessThanOrEqual(120);
 
-        // A pause while offline cannot reach the room.
         host.userPause();
         yield* advance(1_000);
         expect((yield* rooms.room).clock.status).toBe("playing");
@@ -462,7 +450,6 @@ describe("room sync", () => {
         yield* advance(1_000);
         expect((yield* current(sync)).follow).toBe("following");
 
-        // Less than a seek's worth behind: the rate nudge closes the gap.
         yield* advance(25_000);
         expect(Math.abs(yield* driftOf(rooms, guest))).toBeLessThanOrEqual(120);
       }),
@@ -480,7 +467,6 @@ describe("room sync", () => {
         guest.userPlay();
         yield* advance(3_000);
 
-        // The room moves on to the next episode, paused at its start.
         yield* rooms.moveTo(MediaFileId.make("file-2"));
         yield* advance(1_000);
 
@@ -490,8 +476,6 @@ describe("room sync", () => {
         expect(hostControlsEnabled(yield* current(hostSync))).toBe(false);
         expect((yield* current(guestSync)).follow).toBe("moved");
 
-        // The old players are left where they were, and the host's pause or seek on the old file
-        // never reaches the new one's clock, nor do its heartbeats.
         expect(guest.positionMs()).toBeGreaterThan(60_000);
         host.userPause();
         yield* advance(1_000);
@@ -499,7 +483,6 @@ describe("room sync", () => {
         yield* advance(12_000);
         expect((yield* rooms.room).clock).toStrictEqual(moved);
 
-        // Back on their file before the app opened the other, they follow the room again.
         yield* rooms.moveTo(MediaFileId.make("file-1"));
         yield* advance(1_000);
         expect((yield* current(guestSync)).follow).toBe("following");
@@ -584,7 +567,6 @@ describe("room sync over HTTP", () => {
 
             host.userPlay();
             yield* Deferred.await(playArrived);
-            // Heartbeats fall due while the play command holds the engine.
             yield* Effect.sleep(100);
             yield* Deferred.succeed(releasePlay, undefined);
             yield* Effect.sleep(100);
@@ -604,7 +586,6 @@ describe("room sync over HTTP", () => {
     ));
 });
 
-/** How many heartbeats the backend has received. */
 const heartbeats = (rooms: MemoryRooms) =>
   Effect.map(rooms.calls, (calls) => calls.filter((path) => path === "rooms:heartbeat").length);
 
@@ -614,7 +595,6 @@ describe("room presence while browsing", () => {
       Effect.gen(function* () {
         const player = yield* makeFakePlayer(0);
 
-        // The player's engine runs in its own scope, which leaving the player closes.
         const watching = yield* Effect.forkChild(
           Effect.scoped(
             Effect.gen(function* () {
@@ -628,8 +608,6 @@ describe("room presence while browsing", () => {
         yield* advance(DEFAULT_TUNABLES.heartbeatIntervalMs + 1_000);
         expect((yield* rooms.room).members[0]?.driftMs).toBeTypeOf("number");
 
-        // The viewer leaves the player for the rest of the app. Away counts once the player has
-        // been silent for `PLAYER_SILENCE_MS`.
         yield* Fiber.interrupt(watching);
         const before = yield* heartbeats(rooms);
 
@@ -638,7 +616,6 @@ describe("room presence while browsing", () => {
 
         const sent = (yield* heartbeats(rooms)) - before;
 
-        // No silence ever reaches the timeout: one heartbeat now, then one per interval.
         expect(sent).toBeGreaterThanOrEqual(
           Math.floor((MEMBER_PRESENCE_TIMEOUT_MS + 5_000) / DEFAULT_TUNABLES.heartbeatIntervalMs),
         );
@@ -657,7 +634,6 @@ describe("room presence while browsing", () => {
         yield* Effect.forkChild(keepAway({ roomId: (yield* rooms.room).id, deviceId: HOST }));
         yield* advance(4 * DEFAULT_TUNABLES.heartbeatIntervalMs);
 
-        // The stall the host's player is in holds; the other tab's heartbeats only keep the place.
         expect((yield* rooms.room).clock.status).toBe("buffering");
       }),
     ));
@@ -680,7 +656,6 @@ describe("room presence while browsing", () => {
         const frozen = (yield* rooms.room).clock;
 
         yield* Effect.forkChild(keepAway({ roomId: (yield* rooms.room).id, deviceId: HOST }));
-        // Once the host's player has been silent long enough for away to count.
         yield* advance(PLAYER_SILENCE_MS + DEFAULT_TUNABLES.heartbeatIntervalMs);
 
         expect((yield* rooms.room).clock).toMatchObject({
@@ -729,7 +704,6 @@ describe("a host coming back to a playing room", () => {
     scenario(playingForAMinute, ({ rooms }) =>
       Effect.gen(function* () {
         const before = (yield* rooms.room).clock;
-        // The host's stream starts seconds behind the live position, as a negotiated stream does.
         const live = yield* sharedPosition(rooms);
         const host = yield* makeFakePlayer(live - 4_000);
 
@@ -752,7 +726,6 @@ describe("a host coming back to a playing room", () => {
 
         host.userPlay();
         yield* start(rooms, HOST, host);
-        // The seek to the live position stalls, as a seek past what is buffered does.
         host.stall();
         yield* advance(2 * DEFAULT_TUNABLES.heartbeatIntervalMs);
 
@@ -832,7 +805,6 @@ describe("a host coming back to a playing room", () => {
 
         yield* advance(2_000);
 
-        // The room pauses with the host's paused player, as before catching up existed.
         expect((yield* current(sync)).follow).toBe("following");
         expect((yield* rooms.room).clock.status).toBe("paused");
       }),
@@ -866,7 +838,6 @@ describe("a host coming back to a playing room", () => {
         host.stall();
         yield* advance(500);
 
-        // As the sweep or an end-of-file pause does: the host learns of it from a heartbeat.
         yield* rooms.changeSilently({
           status: "paused",
           positionAtAnchorMs: yield* sharedPosition(rooms),
@@ -883,7 +854,6 @@ describe("a host coming back to a playing room", () => {
   it("puts the room's rate back when the catch-up ends while nudging", () =>
     scenario(playingForAMinute, ({ rooms }) =>
       Effect.gen(function* () {
-        // Behind by less than a seek: the catch-up nudges the rate instead.
         const host = yield* makeFakePlayer((yield* sharedPosition(rooms)) - 1_300);
 
         host.userPlay();
@@ -928,7 +898,6 @@ describe("nextEpisodeCountdownMs", () => {
     expect(nextEpisodeCountdownMs({ room, offset }, START)).toBe(10_000);
     expect(nextEpisodeCountdownMs({ room, offset }, START + 7_250)).toBe(2_750);
     expect(nextEpisodeCountdownMs({ room, offset }, START + 60_000)).toBe(0);
-    // Until the offset is known, the device's own clock stands in for the server's.
     expect(nextEpisodeCountdownMs({ room, offset: null }, START + SERVER_OFFSET_MS)).toBe(10_000);
   });
 

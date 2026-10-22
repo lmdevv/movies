@@ -14,7 +14,6 @@ import {
 
 const DAY = 86_400_000;
 
-/** The file at `sequence` of records up to `modifiedAt`, of `sizeBytes`. */
 const file = (sequence: number, sizeBytes: number, modifiedAt: number): LogFile => ({
   name: fileName(sequence, modifiedAt),
   startsAt: modifiedAt,

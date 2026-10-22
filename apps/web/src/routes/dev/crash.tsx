@@ -5,7 +5,6 @@ import { Schema } from "effect";
 import { NotFoundPage } from "@/components/shell/route-states";
 
 const CrashSearch = Schema.Struct({
-  /** When to stop crashing, in milliseconds since the epoch; omitted crashes every time. */
   until: Schema.optionalKey(Schema.String),
 });
 

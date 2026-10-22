@@ -1,7 +1,3 @@
-/**
- * One episode of a show, read from its season's list, which the show's page has already
- * subscribed to. Episode Actions (D07) and Watch Together on an episode (G01) both open on one.
- */
 import type { EpisodeId, TitleId } from "@movies/contracts/ids";
 import { useCommandQuery } from "@movies/sdk/react";
 

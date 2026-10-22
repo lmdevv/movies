@@ -1,12 +1,3 @@
-/**
- * Functions a migration job calls. Like `mediaService.ts`, every function requires the
- * `media-service` scope; writes also require the job's lease, so a worker that lost it stops.
- *
- * The media service matches source items to [movies] files itself, so imports name [movies] IDs.
- * Every import is idempotent: watched marks stay set, play counts keep the larger value, a
- * position applies only when the source played the item more recently than [movies] did, favorites
- * and collection members are written once, and local metadata overrides win over imported ones.
- */
 import type { Infer } from "convex/values";
 import { v } from "convex/values";
 
@@ -60,7 +51,6 @@ import { authorize } from "./lib/viewer";
 import type { ReadCtx } from "./lib/viewer";
 import { writeProgress } from "./lib/viewing";
 
-/** Most members one imported collection keeps. */
 const COLLECTION_LIMIT = 1000;
 
 const pageSize = (limit: number | undefined): number => resultLimit(limit, 100, 100);
@@ -71,7 +61,6 @@ const migrationOf = async (ctx: ReadCtx, jobId: Id<"jobs">): Promise<Doc<"migrat
     .withIndex("by_job", (q) => q.eq("jobId", jobId))
     .unique()) ?? fail("not_found", "This job has no migration plan");
 
-/** Loads a held migration job's plan. */
 const heldMigration = async (
   ctx: ReadCtx,
   jobId: Id<"jobs">,
@@ -297,22 +286,12 @@ export const saveCheckpoint = mutation({
   },
 });
 
-/** A set of folders as one comparable string, whatever their order and spelling. */
 const folderSetKey = (folders: ReadonlyArray<string>): string =>
   JSON.stringify([...new Set(folders.map(normalizeRoot))].toSorted());
 
-/**
- * Who sees a library added for these folders, from the stored plan the admin reviewed: the
- * planned library with the same folders. A call naming folders the plan does not list gets none,
- * so the library is admins-only.
- */
 const plannedAccessOf = (plan: Doc<"migrations">["plan"], roots: ReadonlyArray<string>) =>
   plan.libraries.find((library) => folderSetKey(library.roots) === folderSetKey(roots))?.access;
 
-/**
- * The accounts an added library is granted to: those whose profiles receive the history of the
- * listed source users. Source users the plan does not import get nothing.
- */
 const grantedAccounts = async (
   ctx: ReadCtx,
   plan: Doc<"migrations">["plan"],
@@ -349,12 +328,10 @@ export const ensureLibrary = mutation({
     await authorize(ctx, "media-service");
     const doc = await requireLeaseOf(ctx, jobId, workerId, "migration");
     const row = await migrationOf(ctx, jobId);
-    // Folders inside another of these folders are covered by it: one library never nests.
     const wanted = outermostRoots([...new Set(roots.map(normalizeRoot))]);
 
     checkAbsolute(wanted);
     const existing = await ctx.db.query("libraries").collect();
-    // A library whose folder holds this one, or lies inside it: adding another would nest them.
     const coveringOf = (root: string) => librariesOverlapping(root, existing);
 
     const covering = wanted.flatMap((root) => coveringOf(root).map((library) => library._id));
@@ -419,7 +396,6 @@ export const scansPending = query({
   },
 });
 
-/** What one watch state item changed. */
 interface WatchOutcome {
   watched: number;
   inProgress: number;
@@ -448,7 +424,6 @@ const durationOf = async (
   return file?.probe.durationMs ?? existing?.durationMs ?? 0;
 };
 
-/** Applies one item's progress, watched mark, and play count. */
 const importProgress = async (
   ctx: MutationCtx,
   item: WatchItem,
@@ -456,7 +431,6 @@ const importProgress = async (
 ): Promise<WatchOutcome> => {
   const played = item.watched || item.positionMs > 0 || item.playCount > 0;
 
-  // A show's own row carries favorites only; its progress lives on episodes.
   if (!played || (title.kind === "show" && item.episodeId === null)) return NO_CHANGE;
   const existing = await findProgress(ctx, item.profileId, item.titleId, item.episodeId);
 
@@ -608,8 +582,6 @@ export const importCollections = mutation({
         .withIndex("by_collection_position", (q) => q.eq("collectionId", collectionId))
         .collect();
 
-      // Members a title's metadata added (a TMDB collection or NFO set) stay; the import's own
-      // members are replaced.
       const kept = new Set(
         members.flatMap((member) => (member.source === "metadata" ? [member.titleId] : [])),
       );
@@ -640,10 +612,6 @@ export const importCollections = mutation({
   },
 });
 
-/**
- * Fills the provider IDs a title lacks from the source's; IDs [movies] already has are kept. An
- * unmatched title that gains one is queued for a metadata refresh, which looks it up by that ID.
- */
 const importExternalIds = async (
   ctx: MutationCtx,
   title: Doc<"titles">,
@@ -689,7 +657,6 @@ export const importOverrides = mutation({
         await importExternalIds(ctx, title, item.externalIds);
       }
 
-      // Overrides an admin made on [movies] win over the source's.
       const overrides = { ...withoutBrokenOverrides(item.overrides), ...title.overrides };
       const before = title.overrides ?? {};
 

@@ -10,7 +10,6 @@ import type { CallError } from "./sdk-errors";
 import { TransportError } from "./sdk-errors";
 import { clientLayer } from "./testing/client-context";
 
-/** What one subscription does: deliver `values`, then fail with `error` or stay open. */
 interface Attempt {
   readonly values: ReadonlyArray<Schema.Json>;
   readonly error?: CallError;
@@ -26,10 +25,6 @@ const crashed = new Internal({ message: "The server failed while running librari
 
 const missing = new NotFound({ message: "No such item: nothing has that ID" });
 
-/**
- * Runs each `libraries.list` subscription from the next attempt in `script` (the last repeats),
- * on the real command client and a test clock. Counts the subscriptions opened and closed.
- */
 const scripted = (script: ReadonlyArray<Attempt>) => {
   const counts = { opened: 0, closed: 0 };
 
@@ -60,7 +55,6 @@ const scripted = (script: ReadonlyArray<Attempt>) => {
   return {
     counts,
     watch: QueryWatch.make(runtime, "libraries.list", {}),
-    /** Moves the test clock forward in small steps so each retry's sleep fires in turn. */
     advance: (ms: number) =>
       runtime.runPromise(
         Effect.gen(function* () {
@@ -134,7 +128,6 @@ describe("QueryWatch", () => {
   });
 
   it("starts the retry count over after each result", async () => {
-    // Five drops in a row would exhaust the retries; a result between each drop resets them.
     const { counts, watch, advance } = scripted([
       { values: [[]], error: dropped },
       { values: [[]], error: dropped },

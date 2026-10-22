@@ -9,7 +9,6 @@ describe("library folders", () => {
     expect(normalizeFolder("///")).toBe("/");
     expect(normalizeFolder("")).toBe("");
     expect(normalizeFolder("//srv//media//")).toBe("/srv/media");
-    // Dropping the slash exposes more whitespace; normalizing again must not change the result.
     expect(normalizeFolder("! /")).toBe("!");
     expect(normalizeFolder("/srv/a / /")).toBe("/srv/a");
   });

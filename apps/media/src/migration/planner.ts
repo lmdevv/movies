@@ -1,8 +1,3 @@
-/**
- * Plans a migration from what the source and [movies] hold, without side effects. The dry run
- * shows the plan's summary; the job computes the same plan again after the new libraries' first
- * scans and writes its batches, so what the Review screen promised is what gets written.
- */
 import type { LibraryId, ProfileId } from "@movies/contracts/ids";
 import type { LibraryKind } from "@movies/contracts/models/catalog";
 import type {
@@ -34,7 +29,6 @@ import type {
   SourceServer,
 } from "./source-plugin.ts";
 
-/** Most unmatched items the report lists. */
 const SAMPLE_LIMIT = 25;
 
 /** A source user and the profile receiving their history, if any. */
@@ -46,18 +40,14 @@ export interface ResolvedUser {
   readonly history: "full" | "plays";
 }
 
-/** A source library as it will exist on [movies]. */
 interface PlannedLibrary {
   readonly sourceLibraryId: string;
   readonly name: string;
   readonly kind: LibraryKind;
-  /** The library's folders on this host. */
   readonly roots: ReadonlyArray<string>;
   readonly existingLibraryId: LibraryId | null;
-  /** Local folders no [movies] library covers yet; the import adds a library for them. */
   readonly newRoots: ReadonlyArray<string>;
   readonly unmappedFolders: ReadonlyArray<string>;
-  /** Who sees the library if the import adds it. */
   readonly access: PlannedLibraryAccess;
 }
 
@@ -80,7 +70,6 @@ export interface PlanInput {
   readonly localProgress: ReadonlyMap<ProfileId, ReadonlyArray<LocalProgress>>;
 }
 
-/** One user's watch state writes, in a stable order. */
 interface UserWatchState {
   readonly sourceUserId: string;
   readonly items: ReadonlyArray<WatchStateImport>;
@@ -106,10 +95,6 @@ const libraryKindOf = (kind: SourceLibrary["kind"]): LibraryKind | null => {
   return kind;
 };
 
-/**
- * Who sees an added library: everyone when every source user could see it; otherwise the imported
- * users who could, and nobody but admins when the source does not say.
- */
 const plannedAccess = (
   access: SourceLibraryAccess,
   imported: ReadonlySet<string>,
@@ -121,16 +106,11 @@ const plannedAccess = (
   return { kind: "users", sourceUserIds: access.userIds.filter((userId) => imported.has(userId)) };
 };
 
-/**
- * The [movies] library whose folders hold `folder`, or lie inside it. Libraries never nest, so the
- * import reuses that library rather than adding one around it, as `ensureLibrary` does.
- */
 const coveringLibrary = (existing: ReadonlyArray<MediaLibrary>, folder: string) =>
   existing.find((candidate) =>
     candidate.roots.some((root) => isInside(folder, root) || isInside(root, folder)),
   );
 
-/** Plans each movie, show, or mixed library: its local folders and the [movies] library covering them. */
 const planLibraries = (
   libraries: ReadonlyArray<SourceLibrary>,
   mappings: ReadonlyArray<PathMapping>,
@@ -177,14 +157,9 @@ const planLibraries = (
 const progressKey = (titleId: string, episodeId: string | null): string =>
   `${titleId}|${episodeId ?? ""}`;
 
-/** Whether a write carries progress (shows' own rows carry favorites only). */
 const isPlayed = (write: WatchStateImport): boolean =>
   write.watched || write.positionMs > 0 || write.playCount > 0;
 
-/**
- * Whether [movies] keeps its own progress: it has a row the source did not play more recently,
- * and the source's position or watched mark differs. The import mutation applies the same rule.
- */
 const keepsLocal = (write: WatchStateImport, local: LocalProgress | undefined): boolean => {
   if (local === undefined || !isPlayed(write)) return false;
   const sourceNewer = write.lastPlayedAt !== null && local.lastPlayedAt < write.lastPlayedAt;
@@ -192,9 +167,7 @@ const keepsLocal = (write: WatchStateImport, local: LocalProgress | undefined): 
   return !sourceNewer && (local.positionMs !== write.positionMs || local.watched !== write.watched);
 };
 
-/** What a user's state for an item imports, before matching; null when nothing. */
 const valuesOf = (state: SourceItemState, item: SourceItem) => {
-  // Shows carry favorites only; episodes and movies carry progress and favorites.
   const series = item.kind === "series";
   const favorite = state.favorite && item.kind !== "episode";
 
@@ -209,7 +182,6 @@ const valuesOf = (state: SourceItemState, item: SourceItem) => {
   };
 };
 
-/** What one item's import carries, for counting. */
 interface ImportValues {
   readonly watched: boolean;
   readonly positionMs: number;
@@ -289,7 +261,6 @@ export const planMigration = (input: PlanInput): MigrationPlan => {
     return match !== undefined && ItemMatch.$is("Matched")(match) ? match : null;
   };
 
-  /** Matched now, or in a folder the import adds: the job imports it after the first scan. */
   const importable = (itemId: string): boolean => {
     const match = matches.get(itemId);
 
@@ -363,9 +334,6 @@ export const planMigration = (input: PlanInput): MigrationPlan => {
     }))
     .filter((collection) => collection.titleIds.length > 0);
 
-  // Overrides, and the source's provider IDs so titles [movies] could not match get them. Several
-  // source items may match one title (versions, duplicates): the last overrides win as before,
-  // and IDs fill in from every item without dropping any item's overrides.
   const overridesByTitle = new Map<string, OverrideImport>();
 
   for (const item of input.items) {
@@ -400,8 +368,6 @@ export const planMigration = (input: PlanInput): MigrationPlan => {
 
   const overrides = [...overridesByTitle.values()];
 
-  // The summary counts what the job will import: items matched now and items in folders it
-  // adds, which match by path once their library's first scan finishes.
   const projected = imported.flatMap((user) =>
     (input.states.get(user.sourceUserId) ?? []).flatMap((state) => {
       const item = itemsById.get(state.itemId);

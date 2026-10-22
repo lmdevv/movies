@@ -28,7 +28,6 @@ export const Route = createFileRoute("/_app/search")({
   component: SearchPage,
 });
 
-/** A "Did you mean" title needs at least this similarity to the query. */
 const SUGGESTION_THRESHOLD = 0.3;
 
 type KindFilter = "all" | TitleKind;
@@ -39,14 +38,12 @@ const KIND_CHIPS: ReadonlyArray<{ readonly kind: KindFilter; readonly label: str
   { kind: "show", label: "Shows" },
 ];
 
-/** The count beside the field: none while a search runs, `No results`, or `12 results`. */
 const resultCount = (empty: boolean, loading: boolean, count: number): string => {
   if (empty) return "No results";
 
   return loading ? "" : plural(count, "result", "results");
 };
 
-/** The full search page (06 Search): a large field, kind chips with counts, and result cards. */
 function SearchPage() {
   const { q } = Route.useSearch();
   const { profile } = useActiveProfile();
@@ -57,7 +54,6 @@ function SearchPage() {
   const input = useRef<HTMLInputElement>(null);
   const search = useTitleSearch(profile.id, text);
 
-  // The URL follows the settled query, so reloading or sharing keeps the search.
   useEffect(() => {
     if (search.query === (q ?? "")) return;
 
@@ -160,7 +156,6 @@ function SearchPage() {
   );
 }
 
-/** All, Movies, and Shows, each with how many results it holds. */
 function KindChips({
   kind,
   counts,
@@ -201,10 +196,6 @@ function ResultCard({ title }: { readonly title: TitleCard }) {
   );
 }
 
-/**
- * 06 Search · 03 No results: the closest title by spelling, the query's words to search on their
- * own, and a rescan for people who manage libraries.
- */
 function NoResults({
   profileId,
   query,

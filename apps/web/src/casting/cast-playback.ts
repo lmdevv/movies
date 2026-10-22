@@ -1,18 +1,3 @@
-/**
- * One playback session continued on a Chromecast: the imperative shell of casting.
- *
- * Casting keeps the page's playback session (and its token): the receiver gets its own stream,
- * negotiated with the Chromecast's client profile at the position the page reached, the page's
- * element pauses, and the controller's output player switches to the receiver, so progress keeps
- * reaching Convex and a watch room follows the TV. Subtitles and audio-track changes on the page
- * reach the receiver, and the cast renews its token before it expires (retrying while the media
- * service cannot answer). A seek outside what an HLS stream has produced moves the stream first
- * (`seekStream`), as the page's own player does, because the receiver would otherwise get
- * `StreamGenerationGone` for the old generation's segments; a seek within it happens on the
- * receiver at once. A receiver that refuses a stream, or a session that can no longer be played,
- * ends the cast through `onLost`. Ending the cast stops the receiver's stream and continues on the
- * page where the TV was.
- */
 import { artworkUrl } from "@movies/contracts/artwork";
 import { castCapabilities } from "@movies/contracts/cast";
 import type { StartedPlayback } from "@movies/contracts/models/playback";
@@ -47,19 +32,10 @@ export type CastFailure =
   /** The page had nothing playing to cast. */
   | "not-ready";
 
-/** How long a failed renewal or reload waits before it tries again. */
 const RETRY_MS = 30_000;
 
-/**
- * How far past the receiver's position a seek stays on the receiver: the media service produces
- * well ahead of what a player asked for, so this part of a generation is there already.
- */
 const IN_PLACE_AHEAD_MS = 30_000;
 
-/**
- * Failures that may pass: the media service or Convex unreachable or busy. Anything else (a
- * session that ended, a token that cannot be renewed, a file gone) ends the cast.
- */
 const PASSING_FAILURES = [
   "TransportError",
   "TranscodeCapacityReached",
@@ -73,7 +49,6 @@ const PASSING_FAILURES = [
 const mayPass = (failure: { readonly _tag: string }): boolean =>
   PASSING_FAILURES.some((tag) => Predicate.isTagged(failure, tag));
 
-/** Why a cast ended by itself, as the viewer reads it. */
 const LOST = {
   refused: "The TV couldn't play this. Continuing here.",
   ended: "This can no longer play on the TV. Continuing here.",
@@ -84,7 +59,6 @@ const LOST = {
 export const castImage = (started: StartedPlayback, key: string | null): string | null =>
   key === null || key === "" ? null : artworkUrl(started.mediaBaseUrl, key, 500);
 
-/** Builds the SDK's load request for `plan`, playing at once when `autoplay` is set. */
 const loadRequest = (sdk: CastSdk, plan: CastLoadPlan, autoplay: boolean): CastLoadRequest => {
   const { media, Image } = sdk.cast;
   const info = new media.MediaInfo(plan.contentUrl, plan.contentType);
@@ -133,7 +107,6 @@ const loadRequest = (sdk: CastSdk, plan: CastLoadPlan, autoplay: boolean): CastL
   return request;
 };
 
-/** The page's quality and burned-in subtitle as one comparable value. */
 const choicesKey = (controller: PlaybackController): string => {
   const { burnInSubtitle } = controller.streamChoices();
 
@@ -150,21 +123,13 @@ export class CastPlayback {
   readonly #item: CastItem;
   readonly #onLost: (message: string) => void;
   #playback: Playback.Playback;
-  /** Where the receiver's current HLS generation starts; everything from there on is produced. */
   #generationStartMs: number;
   #plan: CastLoadPlan;
   #subtitleId: string | null;
   #audioStreamIndex: number | null;
-  /** The page's quality and burned-in subtitle the receiver's stream was asked with. */
   #choices: string;
-  /**
-   * The stream changes asked for (reloads, and seeks the media service moves), run one at a time:
-   * the media service keeps only the newest stream of a session, so two at once could leave the
-   * receiver on one already replaced.
-   */
   #changes: Promise<void> = Promise.resolve();
   #changesPending = 0;
-  /** Counts the reloads asked for; one that a later reload will redo skips itself. */
   #reloadTicket = 0;
   #renewTimer: ReturnType<typeof setTimeout> | undefined;
   #unsubscribe: () => void = () => undefined;
@@ -228,12 +193,9 @@ export class CastPlayback {
 
     if (started === null || stream === null) return Result.fail("not-ready");
 
-    // The controller's view, not the element's: a stream still attaching reads 0 and paused.
     const positionMs = controller.positionMs();
     const playing = controller.playing();
 
-    // The receiver's stream will replace the page's, so the page lets go first; until the
-    // receiver plays, the session reports where the page was.
     controller.output.switchTo(heldPlayer(positionMs, !playing));
     controller.park();
 
@@ -291,10 +253,6 @@ export class CastPlayback {
     this.#scheduleRenewal();
   }
 
-  /**
-   * Follows the page's subtitle, audio, and quality choices; a picture subtitle or a quality needs
-   * a new stream, as audio does.
-   */
   readonly #onSnapshot = (): void => {
     const { subtitleId, audioStreamIndex } = this.#controller.getSnapshot();
 
@@ -325,10 +283,6 @@ export class CastPlayback {
     );
   }
 
-  /**
-   * Renews the token (and so the receiver's stream) five minutes before it expires, unless the TV
-   * finished meanwhile: reloading would wake it at the end of the film.
-   */
   #scheduleRenewal(): void {
     clearTimeout(this.#renewTimer);
 
@@ -341,7 +295,6 @@ export class CastPlayback {
     }, due);
   }
 
-  /** Runs `change` after every stream change asked for before it. */
   #serially(change: () => Promise<void>): Promise<void> {
     this.#changesPending += 1;
 
@@ -354,10 +307,6 @@ export class CastPlayback {
     return run;
   }
 
-  /**
-   * Negotiates the receiver's stream again where it is (another audio track, a token about to
-   * expire) and loads it, once the stream changes before it ran.
-   */
   #reload(): Promise<void> {
     const ticket = ++this.#reloadTicket;
 
@@ -368,11 +317,6 @@ export class CastPlayback {
     });
   }
 
-  /**
-   * Negotiates the receiver's stream again at `positionMs` and loads it, keeping play or pause.
-   * While the media service cannot answer it tries again every half minute; a session that can no
-   * longer play ends the cast. Runs as a stream change.
-   */
   async #renegotiate(positionMs: number): Promise<void> {
     const previous = this.#playback;
 
@@ -388,7 +332,6 @@ export class CastPlayback {
     );
 
     if (this.#stopped) {
-      // Stopped meanwhile: a stream just made is nobody's.
       if (renewed !== null && Result.isSuccess(renewed)) {
         void runSdk(this.#runtime, Playback.stop(renewed.success));
       }
@@ -416,10 +359,6 @@ export class CastPlayback {
     await this.#load(positionMs);
   }
 
-  /**
-   * Loads the current stream on the receiver at `positionMs`, keeping play or pause. A receiver
-   * that refuses it ends the cast.
-   */
   async #load(positionMs: number): Promise<void> {
     this.#plan = castLoadPlan(
       this.#playback.stream,
@@ -436,10 +375,6 @@ export class CastPlayback {
     if (failure !== undefined && !this.#stopped) this.#onLost(LOST.refused);
   }
 
-  /**
-   * Whether the receiver can seek to `positionMs` itself: a direct file, or a produced position
-   * (from the generation's start to a little past where the TV is).
-   */
   #inPlace(positionMs: number): boolean {
     return (
       this.#playback.stream.streamId === undefined ||
@@ -448,11 +383,6 @@ export class CastPlayback {
     );
   }
 
-  /**
-   * Moves the receiver to `positionMs`: on the receiver itself where it can, else through the media
-   * service, which starts a new generation there for the receiver to load. A move waits for the
-   * stream changes asked for before it, and one a newer seek replaced does not start.
-   */
   #moveTo(positionMs: number, signal: AbortSignal): Promise<void> {
     if (this.#changesPending === 0 && this.#inPlace(positionMs)) {
       this.player.seekInPlace(positionMs);
@@ -461,7 +391,6 @@ export class CastPlayback {
     }
 
     return this.#serially(async () => {
-      // A newer seek replaced this one, or the cast ended (which aborts every move).
       if (signal.aborted) return;
 
       if (this.#inPlace(positionMs)) {
@@ -477,12 +406,9 @@ export class CastPlayback {
         Playback.seekStream(playback, Milliseconds.make(positionMs)),
       );
 
-      // Once the media service moved the stream the receiver follows it, even for a seek replaced
-      // meanwhile: the old generation is gone, and the newer seek runs next.
       if (this.#stopped) return;
 
       if (moved === null || Result.isFailure(moved)) {
-        // The stream is gone (a restart, an idle timeout): negotiate a new one there.
         await this.#renegotiate(positionMs);
 
         return;

@@ -4,7 +4,6 @@ import { Schema } from "effect";
 import { LibrariesScreen } from "@/components/admin/libraries";
 import { ScopeGate } from "@/components/admin/scope-gate";
 
-/** `?dialog=add` opens Add library, so the command menu can start there. */
 const LibrariesSearch = Schema.Struct({ dialog: Schema.optionalKey(Schema.String) });
 
 export const Route = createFileRoute("/_app/admin/libraries/")({

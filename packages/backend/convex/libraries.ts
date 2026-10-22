@@ -158,7 +158,6 @@ export const update = mutation({
       await enqueueJob(ctx, { kind: "scan", libraryId, mode: "full" }, viewer.userId);
     }
 
-    // Turning thumbnails off stops the ones still queued for this library.
     if (trickplay === false && current.trickplay !== false) {
       await ctx.scheduler.runAfter(0, internal.libraries.cancelTrickplayPage, {
         libraryId,
@@ -237,7 +236,6 @@ export const scan = mutation({
   },
 });
 
-/** Files one `queueTrickplayPage` run looks at before it schedules the next page. */
 const TRICKPLAY_PAGE = 200;
 
 /**
@@ -302,7 +300,6 @@ export const cancelTrickplayPage = internalMutation({
   handler: async (ctx, { libraryId, cursor }) => {
     const doc = await ctx.db.get(libraryId);
 
-    // Turned back on meanwhile: whatever is queued stays.
     if (doc === null || doc.trickplay !== false) return null;
 
     const result = await ctx.db
@@ -333,13 +330,10 @@ const MAX_FILE_PAGE = 100;
 /** Unmatched titles per page; each brings its files, so pages stay well under the read limit. */
 const UNMATCHED_TITLES_PER_PAGE = 20;
 
-/** Most files listed per unmatched title, so a large unmatched show cannot exhaust a page. */
 const FILES_PER_UNMATCHED_TITLE = 50;
 
-/** Most missing files or unmatched titles counted for a summary; more read as this many. */
 const SUMMARY_LIMIT = 1000;
 
-/** A file with its title (overrides applied) and, for a show, its episode numbers. */
 const presentLibraryFile = async (
   ctx: QueryCtx,
   file: Doc<"mediaFiles">,
@@ -375,7 +369,6 @@ const presentLibraryFile = async (
   };
 };
 
-/** Presents files whose titles still exist, loading each title once. */
 const presentFiles = async (
   ctx: QueryCtx,
   files: ReadonlyArray<Doc<"mediaFiles">>,

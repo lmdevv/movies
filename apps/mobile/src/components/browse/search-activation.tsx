@@ -8,9 +8,7 @@ import { createContext, useContext, useEffect, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 
 interface SearchActivation {
-  /** Asks the Search screen to focus its field. */
   readonly activate: () => void;
-  /** Sets what activating does; returns the cleanup that unsets it. */
   readonly onActivate: (focus: () => void) => () => void;
 }
 

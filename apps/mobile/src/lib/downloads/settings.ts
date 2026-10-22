@@ -1,8 +1,3 @@
-/**
- * Download Settings on this iPhone (H18): Wi-Fi Only and the video quality new downloads ask for.
- * Stored as one JSON value; a field that is missing or no longer valid falls back to its default
- * on its own.
- */
 import { DownloadQuality } from "@movies/contracts/media-playback";
 import { Effect, Option, Schema } from "effect";
 

@@ -1,4 +1,3 @@
-/** The chosen, unlocked profile that everything on screen belongs to. */
 import type { Profile } from "@movies/contracts/models/profiles";
 import { createContext, useContext } from "react";
 

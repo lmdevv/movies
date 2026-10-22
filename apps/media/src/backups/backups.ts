@@ -1,18 +1,3 @@
-/**
- * Database backups and restores. A backup runs `convex export --include-file-storage` into a
- * hidden partial file in `BACKUP_DIR` and renames it into place only when the export succeeded, so
- * the folder never holds a truncated archive under an archive name. Archives are private to the
- * service user (`0600` in a `0700` folder): they hold every account's password hash.
- *
- * Retention runs only after a new backup succeeded and never removes that backup. The Convex
- * `backups` table mirrors the folder: `sync` makes it list exactly the archives on disk, after
- * pruning, after a restore (whose snapshot carries an older table), and at startup.
- *
- * A restore (`restore`) follows the procedure in `docs/operations.md`: `convex import
- * --replace-all` of an archive inside `BACKUP_DIR`, then re-registering this service's key (the
- * snapshot's `apiKeys` table may hold another deployment's), settling the jobs the snapshot caught
- * mid-run, and ending every session (a snapshot carries the sessions it was taken with). One backup or restore runs at a time.
- */
 import { createHash } from "node:crypto";
 
 import type { BackupId } from "@movies/contracts/ids";
@@ -40,17 +25,14 @@ import { modifiedAtMs } from "../platform/file-info.ts";
 import * as Archives from "./backup-archives.ts";
 import * as ConvexCli from "./convex-cli.ts";
 
-/** Another backup or restore is running. */
 class BackupBusy extends Schema.TaggedError<BackupBusy>()("BackupBusy", {}) {
   override get message(): string {
     return "Backup busy: another backup or restore is running; try again when it finished";
   }
 }
 
-/** The backup folder could not be read or written. */
 class BackupFolderFailed extends Schema.TaggedError<BackupFolderFailed>()("BackupFolderFailed", {
   operation: Schema.Literals(["prepare", "list", "finish", "remove", "resolve"]),
-  /** A path-free label, such as `missing` or `permission denied`. */
   reason: Schema.String,
   cause: Schema.Defect(),
 }) {
@@ -59,7 +41,6 @@ class BackupFolderFailed extends Schema.TaggedError<BackupFolderFailed>()("Backu
   }
 }
 
-/** The archive of a backup is not a regular file inside `BACKUP_DIR`. */
 class BackupArchiveMissing extends Schema.TaggedError<BackupArchiveMissing>()(
   "BackupArchiveMissing",
   { fileName: Schema.String },
@@ -72,7 +53,6 @@ class BackupArchiveMissing extends Schema.TaggedError<BackupArchiveMissing>()(
 /** Failures of taking a backup. */
 export type CreateError = BackupBusy | BackupFolderFailed | ConvexCli.ConvexCliError;
 
-/** Failures of a restore. */
 type RestoreError =
   | BackupBusy
   | BackupArchiveMissing
@@ -113,10 +93,8 @@ const folderFailed =
       cause,
     });
 
-/** A function result the CLI printed, on one line for the log. */
 const compact = (printed: string): string => printed.replaceAll(/\s+/gu, "");
 
-/** Builds the service; one permit serializes backups and restores. */
 const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
   const fs = yield* FileSystem.FileSystem;
@@ -126,7 +104,6 @@ const make = Effect.gen(function* () {
   const permit = yield* Semaphore.make(1);
   const folder = config.backupDir;
 
-  /** Runs `effect` holding the permit, or fails at once when another backup or restore holds it. */
   const exclusively = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, E | BackupBusy> =>
     Semaphore.withPermitsIfAvailable(
       permit,
@@ -145,7 +122,6 @@ const make = Effect.gen(function* () {
     yield* fs.chmod(folder, 0o700);
   }).pipe(Effect.mapError(folderFailed("prepare")));
 
-  /** Every archive in the folder; partial exports and other files are skipped. */
   const listArchives = Effect.gen(function* () {
     const names = yield* fs.readDirectory(folder);
 
@@ -167,7 +143,6 @@ const make = Effect.gen(function* () {
     return archives.flatMap(Option.toArray);
   }).pipe(Effect.mapError(folderFailed("list")));
 
-  /** Deletes partial exports a crashed backup left behind. */
   const removePartials = Effect.gen(function* () {
     const names = yield* fs.readDirectory(folder);
 
@@ -240,7 +215,6 @@ const make = Effect.gen(function* () {
     return expired.map((archive) => archive.fileName);
   });
 
-  /** The real path of `fileName` when it is a regular file directly inside the folder. */
   const archivePath = Effect.fnUntraced(function* (fileName: string) {
     if (!Archives.isArchiveName(fileName)) return yield* new BackupArchiveMissing({ fileName });
     const missing = () => new BackupArchiveMissing({ fileName });
@@ -262,7 +236,6 @@ const make = Effect.gen(function* () {
   const restore = Effect.fn("Backups.restore")(function* (backupId: BackupId) {
     yield* exclusively(
       Effect.gen(function* () {
-        // Resolved under the permit, so a backup's pruning cannot remove the archive in between.
         const { fileName } = yield* backend.call("mediaService.backupFile", { backupId });
         const archive = yield* archivePath(fileName);
 
@@ -270,11 +243,8 @@ const make = Effect.gen(function* () {
 
         yield* cli.importSnapshot(archive);
 
-        // The snapshot's `apiKeys` may not hold this service's key; register it before the
-        // service signs in again.
         if (Option.isSome(serviceKey)) yield* cli.run("setup:ensureServiceKey", serviceKey.value);
 
-        // The snapshot was taken while its backup job ran; settle that job and any other.
         const settled = yield* cli.run("maintenance:settleRestoredJobs", {});
         const ended = yield* cli.run("maintenance:endAllSessions", {});
 
@@ -284,7 +254,6 @@ const make = Effect.gen(function* () {
       }),
     );
 
-    // The data is back; listing the archives again only corrects the table.
     yield* sync.pipe(
       Effect.retry(Schedule.exponential("1 second").pipe(Schedule.upTo({ times: 5 }))),
       Effect.catch((error) => Effect.logWarning("Backups.sync_after_restore_failed", error)),

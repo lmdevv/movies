@@ -1,8 +1,3 @@
-/**
- * The scrubber (F01, F12): the position and the time left in Geist Mono either side of a 4pt track
- * filled in the accent red. Dragging shows the frame at the finger (from the file's trickplay
- * sheets) with its time above the track, and seeks on release.
- */
 import { useEffect, useRef, useState } from "react";
 import { PanResponder, View } from "react-native";
 import type { GestureResponderEvent, HostInstance } from "react-native";
@@ -12,7 +7,6 @@ import { Text } from "@/components/ui/text";
 import { formatClock, formatTimeLeft } from "@/lib/player/clock";
 import type { ScrubTile } from "@/lib/player/scrubbing";
 
-/** The preview's width in points (F12). */
 const PREVIEW_WIDTH = 184;
 
 /** Props for `Scrubber`. */
@@ -29,7 +23,6 @@ export interface ScrubberProps {
 
 const clamp = (value: number): number => Math.min(1, Math.max(0, value));
 
-/** The frame at a scrub position, cut from its sprite sheet. */
 function Thumbnail({ tile }: { readonly tile: ScrubTile }) {
   const scale = PREVIEW_WIDTH / tile.width;
 
@@ -125,7 +118,6 @@ export function Scrubber({
       >
         <View
           ref={track}
-          // Where the track sits on screen, read ahead of a touch so a tap seeks at once.
           onLayout={() => {
             track.current?.measureInWindow((x, _y, width) => {
               bounds.current = { left: x, width: Math.max(1, width) };

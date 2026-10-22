@@ -26,7 +26,6 @@ const recorderLayer = ClientDiagnostics.layer.pipe(
   Layer.orDie,
 );
 
-/** Runs `effect` with a fresh recorder, returning what it logged at `INFO` and above. */
 const recording = <A, E>(
   effect: Effect.Effect<
     A,

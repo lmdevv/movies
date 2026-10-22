@@ -31,7 +31,6 @@ import {
 
 const SERVICE_KEY = "test-media-service-key";
 
-/** The recorded server's own ID (`GET /System/Info/Public`). */
 const SERVER_ID = "237573b6a39f4aa0bd5d95be34d5f5f9";
 
 const ADMIN = ProfileId.make("profile-admin");
@@ -74,7 +73,6 @@ const episode = (number: number, path: string): CatalogFile => ({
   episodeNumber: number,
 });
 
-/** The fixture library as [movies] scanned it, under `/mnt/nas`. */
 const CATALOG: ReadonlyArray<CatalogFile> = [
   movie("big-buck", "Big Buck Fixture (2008)/Big Buck Fixture (2008).mp4"),
   movie("remux", "Remux Fixture (2015)/Remux Fixture (2015).mkv"),
@@ -113,26 +111,20 @@ const planFor = (sourceUrl: string): StoredMigrationPlan => ({
   pathMappings: [{ from: "/media", to: "/mnt/nas" }],
 });
 
-/** What the in-memory Convex holds. */
 interface Stored {
   readonly progress: Map<string, WatchStateImport>;
   readonly myList: Set<string>;
   readonly collections: Map<string, ReadonlyArray<string>>;
   readonly overrides: Map<string, string>;
-  /** Provider IDs the import carried, by title. */
   readonly externalIds: Map<string, string>;
   readonly libraries: Map<string, LibraryId>;
   checkpoint: MigrationCheckpoint;
   imported: MigrationImported;
-  /** Every import call, in order: its kind and how many items it carried. */
   readonly writes: Array<readonly [string, number]>;
 }
 
-/** Fault and observation hooks for one backend. */
 interface Hooks {
-  /** Fails the checkpoint with this number (1-based) as if Convex were unreachable. */
   readonly failCheckpoint?: number;
-  /** Answers `cancelled` from the checkpoint with this number (1-based). */
   readonly cancelAtCheckpoint?: number;
   readonly cancelled?: Deferred.Deferred<void>;
 }
@@ -140,11 +132,6 @@ interface Hooks {
 const progressKey = (item: WatchStateImport) =>
   `${item.profileId}|${item.titleId}|${item.episodeId ?? ""}`;
 
-/**
- * An in-memory `MigrationBackend` with the Convex functions' idempotency: progress keyed by
- * profile and item, My List by profile and title, collections by source key, and overrides by
- * title, so writing a batch again changes nothing.
- */
 const inMemoryBackend = (sourceUrl: string, stored: Stored, hooks: Hooks = {}) => {
   let checkpoints = 0;
 
@@ -250,7 +237,6 @@ const freshStore = (): Stored => ({
   writes: [],
 });
 
-/** The parts of the store a finished import determines. */
 const contentsOf = (stored: Stored) => ({
   progress: [...stored.progress.entries()].toSorted(([left], [right]) => left.localeCompare(right)),
   myList: [...stored.myList].toSorted(),
@@ -288,7 +274,6 @@ layer(environment, { excludeTestServices: true })("runMigrationJob", (it) => {
           librariesAdded: 2,
           watched: 2,
           inProgress: 1,
-          // The two played items and the partly watched one carry a last-played date.
           playCounts: 3,
           favorites: 1,
           collections: 1,
@@ -318,7 +303,6 @@ layer(environment, { excludeTestServices: true })("runMigrationJob", (it) => {
           [[TitleId.make("big-buck"), TitleId.make("remux")]],
         );
         assert.deepStrictEqual([...stored.overrides.keys()], [TitleId.make("big-buck")]);
-        // The source's provider IDs travel with every matched movie and show, overrides or not.
         assert.includeMembers([...stored.externalIds.keys()], [TitleId.make("show")]);
       }),
     ),
@@ -330,8 +314,6 @@ layer(environment, { excludeTestServices: true })("runMigrationJob", (it) => {
         const uninterrupted = freshStore();
         yield* runWith(inMemoryBackend(url, uninterrupted));
 
-        // Checkpoints: two libraries, scanning, Bob's watch state, then the admin's. The admin's
-        // batch is written, but its checkpoint is not.
         const crashed = freshStore();
 
         const failed = yield* runWith(inMemoryBackend(url, crashed, { failCheckpoint: 5 })).pipe(
@@ -348,7 +330,6 @@ layer(environment, { excludeTestServices: true })("runMigrationJob", (it) => {
         const resumed = yield* runWith(inMemoryBackend(url, crashed));
 
         assert.deepStrictEqual(contentsOf(crashed), contentsOf(uninterrupted));
-        // Only the batch without a checkpoint was written again.
         assert.deepStrictEqual(crashed.writes, [
           ["watchState", 1],
           ["watchState", 3],
@@ -358,7 +339,6 @@ layer(environment, { excludeTestServices: true })("runMigrationJob", (it) => {
         ]);
         assert.deepStrictEqual(resumed, uninterrupted.imported);
 
-        // A finished job run again writes nothing.
         const again = yield* runWith(inMemoryBackend(url, crashed));
 
         assert.deepStrictEqual(again, resumed);
@@ -378,7 +358,6 @@ layer(environment, { excludeTestServices: true })("runMigrationJob", (it) => {
         yield* Deferred.await(cancelled);
         yield* Effect.yieldNow;
 
-        // The job waits for the worker to interrupt it and writes nothing more.
         assert.isUndefined(job.pollUnsafe());
         assert.deepStrictEqual(stored.writes, [["watchState", 1]]);
         yield* Fiber.interrupt(job);

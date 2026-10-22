@@ -1,9 +1,3 @@
-/**
- * What the playback suites share: clips encoded for each rung of the playback ladder as Chromium
- * meets it, libraries created and scanned through the SDK the way the admin screens do, and probes
- * that read the player's `<video>` element. Nothing is committed; the suites generate their clips
- * into a temporary folder.
- */
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -22,7 +16,6 @@ const run = promisify(execFile);
 
 const ffmpegPath = process.env["FFMPEG_PATH"] ?? "ffmpeg";
 
-/** An audio track of a clip: its codec and ISO 639-2 language. */
 interface ClipAudio {
   readonly codec: "aac" | "ac3";
   readonly language: string;
@@ -42,7 +35,6 @@ export interface ClipSpec {
   readonly subtitles?: { readonly file: string; readonly language: string };
 }
 
-/** Chapters in ffmpeg's metadata format, times in milliseconds. */
 const chapterMetadata = (chapters: NonNullable<ClipSpec["chapters"]>, seconds: number): string =>
   [
     ";FFMETADATA1",
@@ -104,11 +96,9 @@ export const encodeClip = async (output: string, spec: ClipSpec): Promise<void> 
 
   if (chapters.length > 0) await writeFile(metadata, chapterMetadata(chapters, spec.seconds));
 
-  // The chapters file is the input after the audio inputs.
   const chapterArgs =
     chapters.length === 0 ? [] : ["-i", metadata, "-map_chapters", String(spec.audio.length + 1)];
 
-  // The subtitle file follows the audio inputs and the chapters file, when there is one.
   const subtitleInput = spec.audio.length + 1 + (chapters.length === 0 ? 0 : 1);
 
   await run(ffmpegPath, [
@@ -163,7 +153,6 @@ export const showNfo = (name: string, year: number): string => `<?xml version="1
 </tvshow>
 `;
 
-/** `text` with the characters XML reserves escaped, for NFO text. */
 const escapeXml = (text: string): string =>
   text
     .replaceAll("&", "&amp;")
@@ -171,7 +160,6 @@ const escapeXml = (text: string): string =>
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 
-/** What an episode's NFO may add to its name: a synopsis and a runtime in minutes. */
 interface EpisodeDetails {
   readonly plot?: string;
   readonly runtimeMinutes?: number;
@@ -222,7 +210,6 @@ export const offline = (stack: StackEnv): StackEnv => ({
   ),
 });
 
-/** How long a scan of the suite's clips may take. */
 const SCAN_TIMEOUT_MS = 60_000;
 
 /** Creates a library over `root` and waits until its first scan succeeded. */
@@ -335,7 +322,6 @@ export const expectPositionNear = async (
     .toBe(true);
 };
 
-/** User Timing marks the player sets, as `playback-controller.ts` names them. */
 const MARKS = { start: "movies:playback-start", firstFrame: "movies:first-frame" } as const;
 
 /**
@@ -385,7 +371,6 @@ export const leaveWithEscape = async (page: Page): Promise<void> => {
   await leaveDialog(page).getByRole("button", { name: "Leave", exact: true }).click();
 };
 
-/** The command menu and the group of player commands in it. */
 interface CommandMenuParts {
   readonly menu: Locator;
   readonly playback: Locator;

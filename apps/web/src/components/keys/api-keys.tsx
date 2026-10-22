@@ -314,10 +314,6 @@ function CreateKeyDialog({
   );
 }
 
-/**
- * The new key's secret, shown once. It lives only in this dialog's props: closing the dialog drops
- * it, and it is never logged or stored.
- */
 function KeyCreatedDialog({
   created,
   onClose,
@@ -420,7 +416,6 @@ function RevokeKeyDialog({
   );
 }
 
-/** A label and value on one line of a facts list. */
 function Fact({
   label,
   mono = false,

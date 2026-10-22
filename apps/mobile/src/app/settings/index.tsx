@@ -1,7 +1,3 @@
-/**
- * H05 · App Settings: this iPhone's appearance, streaming quality, mobile data, audio and
- * subtitle languages, autoplay of the next episode, and About [movies].
- */
 import { router } from "expo-router";
 import { Clapperboard, Info, Play, Sun, Captions, Volume2, Wifi } from "lucide-react-native";
 import { View } from "react-native";

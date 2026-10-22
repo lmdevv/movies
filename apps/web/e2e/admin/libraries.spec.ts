@@ -1,8 +1,3 @@
-/**
- * Library administration against the real media service: a new library waits for the service,
- * scans, lists its files, notices a deleted file, offers fixes for unmatched titles (search stays
- * unavailable without a TMDB key, hand edits work), and says so when its folder goes offline.
- */
 import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,20 +14,16 @@ const stack = await ownedStack();
 
 test.skip(stack === null, NO_STACK);
 
-/** Generating the clips and bundling the service take a while on a cold machine. */
 const SETUP_TIMEOUT_MS = 180_000;
 
-/** How long a scan of the three clips may take, startup included. */
 const SCAN_TIMEOUT_MS = 30_000;
 
 const run = Date.now().toString(36);
 
-/** The approved library root, holding the library folder. */
 let workspace = "";
 
 let media: MediaService | undefined;
 
-/** The stack's media service without a metadata provider, so search reports itself unavailable. */
 const withoutProvider = (env: StackEnv): StackEnv => ({
   ...env,
   mediaEnv: Object.fromEntries(
@@ -58,7 +49,6 @@ test.beforeAll(async ({ browser }) => {
   const arrival = join(films, "Arrival (2016)");
 
   await mkdir(arrival, { recursive: true });
-  // Arrival matches through its NFO and has a poster; the loose files stay unmatched.
   await Promise.all([
     encodeClip(join(arrival, "Arrival.2016.1080p.mkv")),
     writeFile(join(arrival, "movie.nfo"), ARRIVAL_NFO),
@@ -97,7 +87,6 @@ test("an admin adds a library, watches it scan, reviews missing and unmatched fi
   await add.getByRole("button", { name: "Add library" }).click();
   await expect(add).toBeHidden();
 
-  // No media service runs yet, so the scan waits for one.
   const row = page.getByRole("rowgroup").filter({ hasText: name });
   await expect(row).toContainText(root);
   await expect(row).toContainText("Queued");
@@ -110,13 +99,11 @@ test("an admin adds a library, watches it scan, reviews missing and unmatched fi
   await expect(page.getByRole("heading", { name })).toBeVisible();
 
   const files = page.getByRole("table", { name: "Files" });
-  // Rows count the header too.
   await expect(files.getByRole("row")).toHaveCount(4);
   await expect(files).toContainText("Arrival.2016.1080p.mkv");
   await expect(files).toContainText("1080p · H.264");
   await expect(files).toContainText("Arrival (2016)");
 
-  // A file disappears from disk; the next scan marks it missing.
   await rm(join(root, "The.Prestige.2006.mkv"));
   await page.getByRole("button", { name: "Scan now" }).click();
   await expect(page.getByRole("note")).toContainText("1 file disappeared", {
@@ -132,13 +119,11 @@ test("an admin adds a library, watches it scan, reviews missing and unmatched fi
   await expect(files).toContainText("The.Prestige.2006.mkv");
   await expect(files).toContainText("Missing");
 
-  // Both loose files are unmatched, the missing one included.
   await page.getByRole("radio", { name: /Unmatched/u }).click();
   await expect(files.getByRole("row")).toHaveCount(3);
   await page.getByLabel("Filter by title or filename").fill("stalker");
   await expect(files.getByRole("row")).toHaveCount(2);
 
-  // Without a metadata provider search is unavailable; a hand edit still renames the title.
   await files.getByRole("link", { name: "Fix match" }).click();
   await expect(page.getByRole("heading", { name: "Fix match" })).toBeVisible();
   await expect(page.getByText(join(root, "Stalker.1979.Criterion.mkv"))).toBeVisible();
@@ -151,7 +136,6 @@ test("an admin adds a library, watches it scan, reviews missing and unmatched fi
   await page.getByRole("radio", { name: /All/u }).click();
   await expect(files).toContainText("best guess · Stalker (Criterion) (1979)");
 
-  // A matched title opens from its name and shows its poster from the media service.
   await files.getByRole("link", { name: "Arrival (2016)" }).click();
   const poster = page.getByRole("img", { name: "Arrival" });
   await expect(poster).toHaveAttribute("src", /\/artwork\//u);
@@ -160,7 +144,6 @@ test("an admin adds a library, watches it scan, reviews missing and unmatched fi
     .toBeGreaterThan(0);
   await page.getByRole("link", { name: "Cancel" }).click();
 
-  // The share drops: the next scan cannot read the folder.
   await rename(root, `${root}-offline`);
   await page.getByRole("button", { name: "Scan now" }).click();
   await expect(page.getByRole("heading", { name: "Can’t reach your NAS" })).toBeVisible({
@@ -173,7 +156,6 @@ test("an admin adds a library, watches it scan, reviews missing and unmatched fi
   );
   await page.keyboard.press("Escape");
 
-  // It comes back, and a retry scans it again.
   await rename(`${root}-offline`, root);
   await page.getByRole("button", { name: "Retry now" }).click();
   await expect(page.getByRole("heading", { name: "Can’t reach your NAS" })).toBeHidden({

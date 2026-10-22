@@ -1,7 +1,3 @@
-/**
- * The header of pushed screens (A02 Connect to Server): a raised back circle and a 20pt semibold
- * title in a 64pt row, below the safe area.
- */
 import { router } from "expo-router";
 import type { Href } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";

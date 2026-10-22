@@ -1,11 +1,3 @@
-/**
- * Video keyframe times for copy-mode HLS, where segments can only start on source keyframes.
- * Matroska files answer from their Cues index and MP4/QuickTime files from their sample tables,
- * each in a few reads; other files fall back to an ffprobe packet scan, which reads the whole
- * file. Results are cached on disk by file ID, size, and modification time, so each file pays the
- * cost once. A scan runs in the background of the service, shared by every caller asking about
- * the same file, so a caller that stops waiting (`keyframesWithin`) does not waste it.
- */
 import { KeyframeIndexFailed } from "@movies/contracts/media-playback";
 import {
   Context,
@@ -52,17 +44,14 @@ const CACHE_MAX_AGE = Duration.days(3650);
 
 const Keyframes = Schema.fromJsonString(Schema.Array(Schema.Finite));
 
-/** A result some callers wait for. */
 type Pending = Deferred.Deferred<ReadonlyArray<number>, KeyframeIndexFailed>;
 
-/** Scans in progress, by cache key. */
 type Running = ReadonlyMap<string, Pending>;
 
 const decodeKeyframes = Schema.decodeEffect(Keyframes);
 
 const encodeKeyframes = Schema.encodeEffect(Keyframes);
 
-/** Parses ffprobe `packet=pts_time,flags` CSV lines, keeping keyframes. */
 const parsePacketList = (csv: string): ReadonlyArray<number> =>
   csv
     .split("\n")
@@ -74,7 +63,6 @@ const parsePacketList = (csv: string): ReadonlyArray<number> =>
     .filter(Number.isFinite)
     .toSorted((left, right) => left - right);
 
-/** Which container index can answer for `file`, if any. */
 const indexKind = (file: ResolvedMediaFile): Option.Option<"matroska" | "mp4"> => {
   const container = file.probe.container;
 
@@ -86,7 +74,6 @@ const indexKind = (file: ResolvedMediaFile): Option.Option<"matroska" | "mp4"> =
 const keyOf = (file: ResolvedMediaFile): string =>
   `${file.fileId}:${file.sizeBytes}:${file.modifiedAtMs}`;
 
-/** Builds the keyframe index. */
 const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const tools = yield* MediaTools.Service;
@@ -96,7 +83,6 @@ const make = Effect.gen(function* () {
 
   const running = yield* Ref.make<Running>(new Map());
 
-  /** Reads `path` through a container index; none when it has no usable one. */
   const fromIndex = (path: string, read: "matroska" | "mp4", size: number) =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -132,7 +118,6 @@ const make = Effect.gen(function* () {
     return parsePacketList(csv);
   });
 
-  /** Indexes `file` without the cache. */
   const index = Effect.fn("KeyframeIndex.index")(function* (file: ResolvedMediaFile) {
     const failed = (cause: unknown) => new KeyframeIndexFailed({ fileId: file.fileId, cause });
     const kind = indexKind(file);
@@ -153,7 +138,6 @@ const make = Effect.gen(function* () {
     return times;
   });
 
-  /** The cached keyframes, or a scan in the background shared by every caller of the same file. */
   const lookup = Effect.fnUntraced(function* (file: ResolvedMediaFile) {
     const key = keyOf(file);
     const cached = yield* cache.read(CACHE_NAMESPACE, key, CACHE_MAX_AGE);
@@ -196,8 +180,6 @@ const make = Effect.gen(function* () {
         Effect.forkIn(scope),
       );
 
-    // Registering the scan and forking it happen together: a caller interrupted in between would
-    // leave a registered scan that never runs, and every later caller waiting on it forever.
     return yield* Effect.uninterruptible(
       Effect.gen(function* () {
         const [deferred, started] = yield* Ref.modify(

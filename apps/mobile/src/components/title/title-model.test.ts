@@ -231,7 +231,6 @@ describe("watchedMarks", () => {
         }),
       ).markUnwatched,
     ).toBe(true);
-    // No next episode: finished, or only the finale watched; both may be undone or completed.
     expect(watchedMarks(show({ nextEpisode: null }))).toEqual({
       markWatched: true,
       markUnwatched: true,

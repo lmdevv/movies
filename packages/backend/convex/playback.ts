@@ -1,9 +1,3 @@
-/**
- * Per-device playback sessions. Creating one signs a playback token for the media service; each
- * device then reports its own position, and a report from an older session of the same profile
- * cannot overwrite a newer one's progress. Downloads (`downloads.ts`) are sessions too; they leave
- * the device's playback alone and report no progress.
- */
 import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -36,10 +30,8 @@ import type { Viewer } from "./lib/viewer";
 import { authorize } from "./lib/viewer";
 import { nextEpisodeAfter, reachedEnd, writeProgress } from "./lib/viewing";
 
-/** Most devices one account plays on at once; starting another ends the quietest. */
 const MAX_ACTIVE_SESSIONS = 8;
 
-/** Where a room member's stream starts: the room's file, with the member's own session. */
 const roomFile = async (
   ctx: MutationCtx,
   viewer: Viewer,
@@ -108,9 +100,6 @@ export const createSession = mutation({
 
     const previous = (await activeSessions(ctx, viewer)).filter((session) => !isDownload(session));
 
-    // One device plays one thing: starting here ends this device's earlier session. An account
-    // plays on at most `MAX_ACTIVE_SESSIONS` devices; past that, the quietest sessions end, so one
-    // account cannot hold an unbounded number of streams on the media service.
     const otherDevices = previous
       .filter((session) => session.deviceId !== args.deviceId)
       .toSorted((left, right) => right.lastReportAt - left.lastReportAt);
@@ -145,14 +134,12 @@ export const renewToken = mutation({
 
     if (session.status !== "active") return fail("conflict", "This playback session has ended");
 
-    // The profile may have been locked or limited, or the library's grant revoked, since it began.
     await loadVisibleTitle(
       ctx,
       await loadAudience(ctx, viewer, session.profileId),
       session.titleId,
     );
 
-    // A download reports nothing else, so renewing is what keeps it from going idle.
     if (isDownload(session)) await ctx.db.patch(sessionId, { lastReportAt: Date.now() });
 
     return issueToken(session);

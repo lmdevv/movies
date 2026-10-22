@@ -1,9 +1,3 @@
-/**
- * A whole-screen state for failures and endings (A07 Invite Expired, A08 Server
- * Unavailable, A10 Code Expired, D08 File Unavailable): a glyph in a round surface badge, a 28pt
- * heading, one short muted line, and up to two actions. Full-screen states sit where Paper draws
- * them, 120pt below the navigation row; states under other content center in the space left. No colored stripes.
- */
 import type { LucideIcon } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { View } from "react-native";

@@ -12,10 +12,8 @@ import { useTitleSearch } from "@/lib/use-title-search";
 
 import type { CommandContext, CommandContribution } from "./contribution";
 
-/** Continue watching rows shown when the menu opens. */
 const CONTINUE_LIMIT = 3;
 
-/** Title results shown while typing; the search page lists the rest. */
 const RESULT_LIMIT = 6;
 
 const posterOf = (title: TitleCard): CommandLeading => {
@@ -65,8 +63,6 @@ export const useBrowseCommands = (context: CommandContext): CommandContribution 
         }),
     }));
 
-    // The previous results stay while the same query is typed further or shortened, so the list
-    // does not flicker. Results of a replaced query would sit first, and Enter would open one.
     const typed = query.trim().toLowerCase();
     const shown = search.query.toLowerCase();
 
@@ -167,8 +163,6 @@ export const useBrowseCommands = (context: CommandContext): CommandContribution 
           items: [...pending, ...results, ...seeAll],
         },
         { id: "people", label: "People", scope: "search", filter: "none", items: people },
-        // Actions on the top result lead "Actions" while searching; their detail is the title, so
-        // they match the query. Without them the group keeps its place after "Go to".
         ...(topActions.length === 0
           ? []
           : [{ id: "actions", label: "Actions", items: topActions }]),

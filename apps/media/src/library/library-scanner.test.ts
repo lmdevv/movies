@@ -17,7 +17,6 @@ import * as MemoryLibrary from "./memory-library.ts";
 
 const hasFfmpeg = await ffmpegAvailable();
 
-/** The scanner over the in-memory store, with the whole fixture workspace approved. */
 const scannerLayer = Layer.unwrap(
   Effect.gen(function* () {
     const workspace = yield* FixtureWorkspace.Service;
@@ -285,7 +284,6 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
         const source = path.join(target.movies, library.messyMovie);
         const request = { libraryId, root: target.movies, mode: "incremental" } as const;
 
-        // `Alpha-Beta` begins with another film's name, so its subtitle is named after both.
         yield* fs.makeDirectory(folder);
 
         for (const film of ["Alpha (2001)", "Alpha (2001)-Beta (2002)", "Gamma (2003)"]) {
@@ -354,7 +352,6 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
           });
         }
 
-        // A subtitle named after one edition rescans that edition only.
         yield* fs.writeFileString(
           path.join(target.movies, folder, `${folder} {edition-Theatrical}.en.srt`),
           "1\n00:00:01,000 --> 00:00:02,000\nHello\n",
@@ -368,7 +365,6 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
 
         assert.strictEqual(subtitled.processed, 1);
 
-        // Different films in a year-bearing folder don't share its generic metadata.
         const anthology = "Anthology (2020)";
 
         yield* fs.makeDirectory(path.join(target.movies, anthology));
@@ -415,7 +411,6 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
             path.join(target.movies, "Remux Fixture (2015)", "loop"),
           );
 
-          // An NFO beside a movie that links out of the root is not read either.
           const leakedNfo = path.join(target.root, "leaked.nfo");
 
           yield* fs.writeFileString(
@@ -480,10 +475,8 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
           yield* scanner.scan({ libraryId, root: target.movies, mode: "incremental" });
           const after = yield* fs.readDirectory(target.movies, { recursive: true });
 
-          // Scanning never writes inside a library folder.
           assert.deepStrictEqual(after.toSorted(), before.toSorted());
 
-          // An unmounted share looks like an empty folder; known files must not be marked missing.
           yield* fs.remove(target.movies, { recursive: true });
           yield* fs.makeDirectory(target.movies);
 

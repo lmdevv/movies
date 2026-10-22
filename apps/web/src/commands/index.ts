@@ -1,11 +1,3 @@
-/**
- * The command menu's root list, collected from every feature in `src/commands/`.
- *
- * To add commands for a feature, create `src/commands/<feature>.ts` exporting a hook
- * `use<Feature>Commands(context: CommandContext): CommandContribution`, then call it below in the
- * place its groups should appear. Groups with the same `id` merge, so a feature can add rows to
- * "Actions" (`id: "actions"`) or "Go to" (`id: "go"`).
- */
 import type { CommandPage } from "@movies/ui/lib/command-menu";
 import { useMemo } from "react";
 

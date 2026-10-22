@@ -1,9 +1,3 @@
-/**
- * The player beside its Watch Together pane (F16 host, F19 guest, F20 the host buffering): the pane
- * lists who is in the room with the host's Invite People and End Room or a guest's Leave Room, and
- * the video beside it keeps compact controls. A guest follows the host, so its side shows no
- * transport, and a spinner while the host buffers.
- */
 import { LinearGradient } from "expo-linear-gradient";
 import type { LucideIcon } from "lucide-react-native";
 import {
@@ -39,7 +33,6 @@ import type { MoreItem } from "../player/player-controls";
 import { Scrubber } from "../player/scrubber";
 import { Spinner } from "../player/spinner";
 
-/** One person in the pane (F16): a 36pt tile, the name, and how they stand. */
 function PaneMember({ row }: { readonly row: MemberRow }) {
   return (
     <View
@@ -63,7 +56,6 @@ function PaneMember({ row }: { readonly row: MemberRow }) {
   );
 }
 
-/** A 44pt pill in the pane. */
 function PaneButton({
   label,
   icon,
@@ -115,7 +107,6 @@ export interface RoomPaneProps {
 
 /** The Watch Together pane along the player's right edge. */
 export function RoomPane(props: RoomPaneProps) {
-  // The pane's own edge is mid-screen; only its right side meets the hardware.
   const { paddingRight } = useMargin(PLAYER_MARGINS.pane);
 
   return (
@@ -178,7 +169,6 @@ export function RoomPane(props: RoomPaneProps) {
   );
 }
 
-/** A skip button on its own dark disc, as the compact transport draws it. */
 function DiscSkip({
   direction,
   onPress,
@@ -224,7 +214,6 @@ export interface RoomViewportControlsProps {
 
 /** The compact controls over the video beside the pane. */
 export function RoomViewportControls(props: RoomViewportControlsProps) {
-  // The video's left edge meets the hardware; its right edge is the pane's.
   const barLeft = useMargin(PLAYER_MARGINS.pane).paddingLeft;
   const rowLeft = useMargin(PLAYER_MARGINS.compact).paddingLeft;
   const transport = props.controlsTimeline && !props.waiting;
@@ -234,7 +223,6 @@ export function RoomViewportControls(props: RoomViewportControlsProps) {
   return (
     <View className="absolute inset-0" pointerEvents="box-none">
       <LinearGradient
-        // Paper's contrast scrim: dim at the top, clear above the middle, black at the bottom.
         colors={[scrim, "transparent", bottom]}
         locations={[0, 0.4, 1]}
         style={StyleSheet.absoluteFill}

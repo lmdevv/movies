@@ -1,7 +1,3 @@
-/**
- * H02 · Account: the signed-in account's name and email, Change Password, API Keys, the connected
- * server, and Sign Out (H15).
- */
 import { useCommandQuery } from "@movies/sdk/react";
 import { router } from "expo-router";
 import { KeyRound, Lock, Server } from "lucide-react-native";
@@ -20,8 +16,6 @@ import { useServer } from "@/session/connection";
 
 export default function Account() {
   const viewer = useCommandQuery("account.viewer", {});
-  // Changing the password and API keys need the account scope, which a session signed in with a
-  // code may lack.
   const accountScope = viewer.status === "success" && viewer.data.scopes.includes("account");
   const keys = useCommandQuery("apiKeys.list", accountScope ? {} : "skip");
   const server = useServer();

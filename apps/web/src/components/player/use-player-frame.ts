@@ -1,10 +1,5 @@
-/**
- * The player frame's own behavior: controls that hide while the video plays untouched, full screen
- * on the whole frame (or the system player on iPhones), and which phone layout applies.
- */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-/** How long the controls stay after the last pointer move, tap, or key. */
 const CONTROLS_IDLE_MS = 3_000;
 
 /**
@@ -59,7 +54,6 @@ export const useFullscreen = (
   frame: HTMLElement | null,
   video: HTMLVideoElement | null,
 ): Fullscreen => {
-  // When full screen last ended, on the same clock as event times.
   const endedAt = useRef(Number.NEGATIVE_INFINITY);
 
   useEffect(() => {
@@ -103,7 +97,6 @@ export const useFullscreen = (
   return { toggle, takeEscape };
 };
 
-/** A touch screen too small for the desktop player: a phone in either orientation. */
 const PHONE_QUERY = "(pointer: coarse) and ((width < 48rem) or (height < 30rem))";
 
 const PORTRAIT_QUERY = "(orientation: portrait)";

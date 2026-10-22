@@ -28,7 +28,6 @@ export function Keycaps({
   return (
     <kbd data-slot="keycaps" className={cn("flex shrink-0 gap-1", className)}>
       {keys.map((key, index) => (
-        // Keys repeat (`G G`), so the position is part of the identity.
         <Keycap key={`${index}-${key}`}>{key}</Keycap>
       ))}
     </kbd>

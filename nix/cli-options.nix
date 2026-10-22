@@ -1,5 +1,3 @@
-# The `programs.movies` options and session variables that the NixOS (cli-module.nix) and Home
-# Manager (home-module.nix) modules share.
 { lib, pkgs }:
 {
   options = {

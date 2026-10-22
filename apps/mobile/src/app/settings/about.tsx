@@ -1,4 +1,3 @@
-/** H29 · About [movies]: the wordmark, this app's version, licenses, the server, and privacy. */
 import Constants from "expo-constants";
 import { router } from "expo-router";
 import { Info, Server, ShieldCheck } from "lucide-react-native";

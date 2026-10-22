@@ -1,7 +1,3 @@
-/**
- * Dates, durations, sizes, and counts as the settings and admin screens print them. Every function
- * takes `now` so tests and live rows agree on the clock.
- */
 import type { LibraryKind } from "@movies/contracts/models/catalog";
 
 const SECOND_MS = 1000;

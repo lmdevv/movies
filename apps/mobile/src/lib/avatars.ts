@@ -1,9 +1,3 @@
-/**
- * The avatar set profiles choose from, shared with the web app (`apps/web/src/lib/avatars.ts`). A
- * profile stores the key; each client draws its art. Here each key is a two-stop gradient tile
- * from the `--color-avatar-*` tokens. Unknown keys (from a newer client) draw the plain tile.
- */
-
 /** Avatar keys in picker order. `red` is the backend's default for a new account's profile. */
 export const AVATAR_KEYS = ["red", "blue", "green", "plum", "teal", "slate", "kids"] as const;
 
@@ -14,7 +8,6 @@ const known: ReadonlySet<string> = new Set(AVATAR_KEYS);
 
 const isAvatarKey = (key: string): key is AvatarKey => known.has(key);
 
-/** The gradient's stops as theme variables, top left to bottom right. */
 type AvatarGradient = ReadonlyArray<`--color-${string}`>;
 
 /** How an avatar key draws. */

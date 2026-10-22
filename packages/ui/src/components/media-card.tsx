@@ -15,10 +15,6 @@ type CardProps = useRender.ComponentProps<"a"> & {
   readonly badge?: string | undefined;
 };
 
-/**
- * The artwork box: a fixed-aspect raised placeholder with the image lazily loaded on top. A missing
- * or broken image leaves the placeholder, never a broken-image icon.
- */
 function Artwork({
   image,
   className,

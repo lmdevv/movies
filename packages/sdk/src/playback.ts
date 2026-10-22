@@ -1,12 +1,3 @@
-/**
- * Playing a movie or an episode on this device: start a playback session in Convex, negotiate a
- * stream with the media service, and report progress while it plays. Watched marks happen on the
- * server at 90 percent; the client only reports what it actually played.
- *
- * The media service's playback API is defined once in `@movies/contracts/media-playback`; requests
- * and responses here are its schemas, and its failures arrive as its tagged errors. `recoveryFor`
- * says what a player should do about each one.
- */
 import type {
   DeviceId,
   EpisodeId,
@@ -229,7 +220,6 @@ export const recoveryFor = (error: PlaybackCallError): Recovery =>
     ProtocolError: (): Recovery => "fail",
   });
 
-/** Renew a token this long before it expires, so no media request races the expiry. */
 const TOKEN_RENEW_MARGIN_MS = 5 * 60 * 1000;
 
 /**
@@ -312,7 +302,6 @@ export const start = Effect.fn("Playback.start")(function* (request: PlaybackReq
 /** How often a playing device reports progress between events. */
 export const PROGRESS_INTERVAL_MS = 10_000;
 
-/** How long the final report on exit may take before it is abandoned. */
 const EXIT_REPORT_TIMEOUT_MS = 2_000;
 
 const EVENT_REPORTS: Readonly<Record<PlayerEvent, ProgressEvent | null>> = {

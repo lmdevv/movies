@@ -19,7 +19,6 @@ layer(spaceLayer)("TranscodeSpace", (it) => {
   it.effect("counts what is reserved as used until it is released", () =>
     Effect.gen(function* () {
       const space = yield* TranscodeSpace.Service;
-      // Most of the free space, so two such claims never fit together.
       const most = Math.floor((yield* Effect.promise(() => freeBytes(transcodeDir))) * 0.6);
 
       yield* space.check(most);
@@ -30,7 +29,6 @@ layer(spaceLayer)("TranscodeSpace", (it) => {
       assert.instanceOf(refused, InsufficientTranscodeSpace);
       assert.isAbove(refused.requiredBytes, 2 * most);
 
-      // A stream claims nothing for itself but still needs the minimum beyond reservations.
       yield* space.check(0);
       yield* space.release("download:a");
       yield* space.check(most);

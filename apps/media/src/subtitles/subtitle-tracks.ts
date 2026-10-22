@@ -1,12 +1,3 @@
-/**
- * The subtitle tracks of a media file as clients see them: embedded streams and sidecar files,
- * each with a stable ID used in subtitle URLs, and their conversion to WebVTT. Embedded tracks are
- * `e<stream index>`; sidecar files are `x` and a hash of their file name, so adding or removing
- * another sidecar never renames a track. Text formats convert; bitmap formats (PGS, VobSub) cannot
- * become WebVTT and are burned into a transcode instead. ASS/SSA styling is dropped to plain text
- * with basic emphasis. Conversions are cached: embedded tracks by the media file's size and
- * modification time, sidecars by their own path, size, and modification time.
- */
 import { createHash } from "node:crypto";
 
 import type { SubtitleTrack } from "@movies/contracts/media-playback";
@@ -104,7 +95,6 @@ const CACHE_NAMESPACE = "subtitles";
 
 const CACHE_MAX_AGE = Duration.days(3650);
 
-/** Conversions that run at once; each reads its whole source, embedded tracks a whole film. */
 const MAX_CONVERSIONS = 2;
 
 const webVttArgs = (input: string, map: ReadonlyArray<string>): ReadonlyArray<string> => [
@@ -122,7 +112,6 @@ const webVttArgs = (input: string, map: ReadonlyArray<string>): ReadonlyArray<st
   "pipe:1",
 ];
 
-/** Builds the converter. */
 const make = Effect.gen(function* () {
   const tools = yield* MediaTools.Service;
   const cache = yield* DiskCache.Service;

@@ -1,4 +1,3 @@
-/** People credited on titles: their details and the titles a profile may see them in. */
 import { Schema } from "effect";
 
 import { PersonId } from "../ids";

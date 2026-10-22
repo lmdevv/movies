@@ -103,7 +103,6 @@ export function UsersScreen() {
   );
 }
 
-/** Which libraries a person sees: admins see all; members see shared ones plus their grants. */
 const libraryAccessLabel = (user: User, libraries: ReadonlyArray<LibraryDetail>): string => {
   if (user.role === "owner" || user.role === "admin") return "All libraries";
 
@@ -189,7 +188,6 @@ function UserRow({
   );
 }
 
-/** A person's row menu: switch role, library access for members, and disable or enable. */
 function UserMenu({
   user,
   nextRole,

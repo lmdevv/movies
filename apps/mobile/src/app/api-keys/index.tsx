@@ -1,7 +1,3 @@
-/**
- * H11 · API Keys: the account's keys with their broadest permission, each opening Revoke Key
- * (H14), and Create API Key (H12).
- */
 import { useCommandQuery } from "@movies/sdk/react";
 import { router } from "expo-router";
 import { KeyRound, Plus } from "lucide-react-native";
@@ -21,7 +17,6 @@ const create = () => router.push("/api-keys/new");
 
 export default function ApiKeys() {
   const keys = useCommandQuery("apiKeys.list", {});
-  // Expiry is judged from when the screen opened.
   const [now] = useState(Date.now);
 
   const header = (

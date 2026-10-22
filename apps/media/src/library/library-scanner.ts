@@ -1,17 +1,3 @@
-/**
- * Scans one library folder: walks it, skips files whose size and modification time did not
- * change, probes the rest with bounded concurrency, reads local NFO files, artwork, and sidecar
- * subtitles, enriches titles through the metadata resolver, and sends the results to the
- * `LibrarySink` in batches. It never writes inside a library folder.
- *
- * Safety rules:
- * - The root must be inside one of the approved `LIBRARY_ROOTS`.
- * - Symbolic links are followed only when their target stays inside the root; others are
- *   counted as rejected and skipped. Directory loops are visited once.
- * - An unreadable root or folder fails the scan instead of marking files missing, and a root
- *   that is suddenly empty while the store knows files (an unmounted share) is reported as
- *   unavailable. Files are marked missing only after a complete walk.
- */
 import {
   Cache,
   Context,
@@ -58,16 +44,12 @@ import { sidecarSubtitles } from "./sidecar-subtitles.ts";
 /** How much of a library a scan re-reads. */
 export type ScanMode = "incremental" | "full";
 
-/** One scan of one library folder. */
 interface ScanRequest {
   readonly libraryId: LibraryId;
-  /** Absolute path of the library folder. */
   readonly root: string;
-  /** `incremental` skips files whose video and companions (NFO, artwork, subtitles) are unchanged; `full` re-reads every file. */
   readonly mode: ScanMode;
 }
 
-/** A file the scan could not read. */
 interface ScanFailure {
   readonly relativePath: string;
   readonly reason: string;
@@ -116,7 +98,6 @@ export class LibraryRootUnavailable extends Schema.TaggedError<LibraryRootUnavai
   }
 }
 
-/** A folder inside the library cannot be read. The scan stops so no file is marked missing. */
 class LibraryFolderUnreadable extends Schema.TaggedError<LibraryFolderUnreadable>()(
   "LibraryFolderUnreadable",
   { folder: Schema.String, code: Schema.String },
@@ -209,11 +190,9 @@ interface StatResult {
   readonly relativePath: string;
   readonly sizeBytes: number;
   readonly modifiedAtMs: number;
-  /** A digest of the file's companions (NFO, artwork, subtitles) and their sizes and times. */
   readonly sidecarDigest: string;
 }
 
-/** Extensions of the companions whose edits change a file's metadata: NFO, artwork, subtitles. */
 const COMPANION_EXTENSIONS = new Set([
   "nfo",
   "jpg",
@@ -227,22 +206,12 @@ const COMPANION_EXTENSIONS = new Set([
   "ssa",
 ]);
 
-/**
- * A folder's companions as digest lines: those named after no main video in the folder
- * (`movie.nfo`, `poster.jpg`), the rest by every name they could be named after, and all of them
- * for an episode's show folder.
- */
 interface FolderCompanions {
   readonly shared: ReadonlyArray<string>;
   readonly byStem: ReadonlyMap<string, ReadonlyArray<string>>;
   readonly all: ReadonlyArray<string>;
 }
 
-/**
- * Every stem `lowerName` is named after: each prefix that ends before a `.` or `-`, so
- * `alpha-beta.en.srt` gives `alpha`, `alpha-beta`, and `alpha-beta.en`. A video `<stem>` owns the
- * companions named `<stem>.nfo`, `<stem>-poster.jpg`, and so on.
- */
 const stemsOf = (lowerName: string): ReadonlyArray<string> => {
   const stems: Array<string> = [];
 
@@ -255,7 +224,6 @@ const stemsOf = (lowerName: string): ReadonlyArray<string> => {
   return stems;
 };
 
-/** A short, path-free label for a file system failure. */
 const platformReason = (
   error: PlatformError.PlatformError,
 ): "missing" | "permission-denied" | "unreadable" =>
@@ -277,14 +245,9 @@ const isMainVideo =
   (name: string): boolean =>
     isMediaFile(name) && !MediaName.guards.Extra(parseMediaPath(join(folder, name)));
 
-/**
- * Whether a folder holds a single movie: one main video, or several whose file names name the same
- * movie, such as its editions or parts. Generic names like `movie.nfo` and `poster.jpg` then belong to it.
- */
 const holdsOneMovie = (mainVideos: ReadonlyArray<string>): boolean => {
   const movies = new Set(
     mainVideos.map((name) => {
-      // The file name alone: a year-bearing folder would otherwise lend every file its title.
       const parsed = parseMediaPath(name);
 
       return MediaName.guards.Movie(parsed)
@@ -296,13 +259,11 @@ const holdsOneMovie = (mainVideos: ReadonlyArray<string>): boolean => {
   return movies.size === 1;
 };
 
-/** Title and episode metadata of one file; both absent for extras. */
 interface Described {
   readonly title: MetadataResolver.TitleMetadata | undefined;
   readonly episode: MetadataResolver.EpisodeMetadata | undefined;
 }
 
-/** Mutable counters owned by one scan; snapshots are what the sink sees. */
 interface Counters {
   discovered: number;
   unchanged: number;
@@ -311,7 +272,6 @@ interface Counters {
   missing: number;
 }
 
-/** Builds the scanner. */
 const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
   const fs = yield* FileSystem.FileSystem;
@@ -320,7 +280,6 @@ const make = Effect.gen(function* () {
   const resolver = yield* MetadataResolver.Service;
   const tools = yield* MediaTools.Service;
 
-  /** The canonical root, after checking it is approved and readable. */
   const openRoot = Effect.fn("LibraryScanner.openRoot")(function* (root: string) {
     const realRoot = yield* fs
       .realPath(root)
@@ -357,7 +316,6 @@ const make = Effect.gen(function* () {
     const visited = new Set<string>();
     let rejectedLinks = 0;
 
-    /** What `child` is, following a symbolic link only when it stays inside the root. */
     const resolveEntry = Effect.fnUntraced(function* (child: string, kind: EntryKind) {
       if (kind !== "symlink") return kind;
       const target = yield* fs.realPath(path.join(root, child)).pipe(Effect.option);
@@ -395,7 +353,6 @@ const make = Effect.gen(function* () {
           catch: (cause) =>
             new LibraryFolderUnreadable({ folder: relative, code: errorCode(cause) }),
         }).pipe(
-          // A folder deleted mid-walk is simply gone; anything else stops the scan.
           Effect.asSome,
           Effect.catchIf(
             (error) => relative !== "" && error.code === "ENOENT",
@@ -477,7 +434,6 @@ const make = Effect.gen(function* () {
       const absolute = (relativePath: string): string =>
         path.join(root, ...relativePath.split("/"));
 
-      // A folder's main videos, parsed once per scan: a flat folder can hold thousands.
       const mainVideosByFolder = new Map<string, ReadonlyArray<string>>();
 
       const mainVideos = (folder: string): ReadonlyArray<string> => {
@@ -492,7 +448,6 @@ const make = Effect.gen(function* () {
         return found;
       };
 
-      // The NFO, artwork, and subtitle files in a folder, with their sizes and times.
       const folderCompanions = yield* Cache.make({
         capacity: 10_000,
         lookup: (folder: string) =>
@@ -516,7 +471,6 @@ const make = Effect.gen(function* () {
               { concurrency: STAT_CONCURRENCY },
             );
 
-            // The hidden `.actors` folder is not walked; its time changes when photos come or go.
             const actors = yield* fs.stat(absolute(join(folder, ".actors"))).pipe(
               Effect.map((info) =>
                 info.type === "Directory"
@@ -526,7 +480,6 @@ const make = Effect.gen(function* () {
               Effect.orElseSucceed(() => []),
             );
 
-            // Classified once per folder, so a file's digest reads only its own companions.
             const videoStems = new Set(
               mainVideos(folder).map((name) => stemOf(name).toLowerCase()),
             );
@@ -560,13 +513,6 @@ const make = Effect.gen(function* () {
           }),
       });
 
-      /**
-       * A digest of the companions a file's metadata can come from: those named after it, those
-       * named after no other video in its folder (`movie.nfo`, `poster.jpg`, season art), and, for
-       * an episode in a season folder, the show folder's (`tvshow.nfo`, show and season art).
-       * Other videos' sidecars are left out, so a subtitle added for one film doesn't rescan the
-       * rest of a shared folder.
-       */
       const sidecarDigest = Effect.fn("LibraryScanner.sidecarDigest")(function* (
         relativePath: string,
       ) {
@@ -588,7 +534,6 @@ const make = Effect.gen(function* () {
           .digest("base64url");
       });
 
-      // An NFO may be a link like any other entry; it is read only when it stays inside the root.
       const nfoCache = yield* Cache.make({
         capacity: 10_000,
         lookup: ([relativePath, kind, episode]: readonly [string, NfoKind, number | undefined]) =>
@@ -600,7 +545,6 @@ const make = Effect.gen(function* () {
           ),
       });
 
-      /** Reads the first NFO among `candidates` that exists in `folder`. */
       const readNfo = (
         folder: string,
         candidates: ReadonlyArray<string>,
@@ -620,8 +564,6 @@ const make = Effect.gen(function* () {
           : Cache.get(nfoCache, [join(folder, found), kind, episode] as const);
       };
 
-      // `.actors` folders are hidden, so the walk skips them; they are listed on first use, and
-      // only when they stay inside the root.
       const actorsCache = yield* Cache.make({
         capacity: 10_000,
         lookup: (folder: string) => {
@@ -639,7 +581,6 @@ const make = Effect.gen(function* () {
         },
       });
 
-      /** Finds actor photos in the `.actors` folders of `folders`, nearest first. */
       const actorImagesIn = Effect.fnUntraced(function* (folders: ReadonlyArray<string>) {
         const listings = yield* Effect.forEach(folders, (folder) => Cache.get(actorsCache, folder));
 
@@ -675,7 +616,6 @@ const make = Effect.gen(function* () {
           }),
       });
 
-      // Whether a folder is one movie's own, decided once per folder per scan.
       const ownFolders = new Map<string, boolean>();
 
       const isOwnFolder = (folder: string): boolean => {
@@ -797,7 +737,6 @@ const make = Effect.gen(function* () {
       const isUnchanged = (file: StatResult): boolean => {
         const known = previous.get(file.relativePath);
 
-        // A file indexed before digests were kept has none, and is rescanned once to record it.
         return (
           request.mode === "incremental" &&
           known !== undefined &&

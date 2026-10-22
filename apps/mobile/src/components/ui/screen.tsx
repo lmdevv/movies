@@ -1,7 +1,3 @@
-/**
- * The page canvas: the background role edge to edge, with content inside the safe area. Forms
- * scroll and keep the focused field above the keyboard.
- */
 import type { ReactNode } from "react";
 import { KeyboardAvoidingView, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

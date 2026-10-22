@@ -20,7 +20,6 @@ import { Duration, Effect, FileSystem, Option, Path, Schema } from "effect";
 import * as MediaTools from "../media/media-tools.ts";
 import type { ResolvedMediaFile } from "../playback/file-resolver.ts";
 
-/** Why a file has no thumbnails. */
 const TrickplayFailure = Schema.Literals(["no-video", "unknown-duration", "no-output"]);
 
 const FAILURE_MESSAGES: Readonly<Record<typeof TrickplayFailure.Type, string>> = {
@@ -29,7 +28,6 @@ const FAILURE_MESSAGES: Readonly<Record<typeof TrickplayFailure.Type, string>> =
   "no-output": "ffmpeg could not read frames from this file",
 };
 
-/** The file cannot have thumbnails, or ffmpeg made none. Retrying will not help. */
 class TrickplayUnavailable extends Schema.TaggedError<TrickplayUnavailable>()(
   "TrickplayUnavailable",
   { reason: TrickplayFailure, cause: Schema.Defect() },
@@ -39,7 +37,6 @@ class TrickplayUnavailable extends Schema.TaggedError<TrickplayUnavailable>()(
   }
 }
 
-/** HDR transfer to SDR BT.709, on the scaled frames so it stays cheap. */
 const TONE_MAP = [
   "zscale=t=linear:npl=100",
   "format=gbrpf32le",
@@ -50,7 +47,6 @@ const TONE_MAP = [
 
 const SHEET = /^(\d+)\.jpg$/u;
 
-/** Where ffmpeg lists the frames it picked, one `frame:` line each, inside the build folder. */
 const FRAME_LOG = "frames.txt";
 
 /**
@@ -66,7 +62,6 @@ const SheetSize = Schema.Struct({
 
 const decodeSheetSize = Schema.decodeUnknownEffect(Schema.fromJsonString(SheetSize));
 
-/** The ffmpeg arguments that write `file`'s sheets into `folder` as `0.jpg`, `1.jpg`, …. */
 const thumbnailArgs = (
   file: Pick<ResolvedMediaFile, "path"> & { readonly videoIndex: number },
   interval: Duration.Duration,

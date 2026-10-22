@@ -9,7 +9,6 @@
  */
 import type { PathMapping } from "@movies/contracts/models/migration";
 
-/** A Windows drive path such as `D:/Movies`. */
 const DRIVE = /^[A-Za-z]:\//u;
 
 /** Normalizes a path for comparison. */
@@ -27,7 +26,6 @@ export const normalizePath = (path: string): string => {
 
 const comparable = (path: string): string => (DRIVE.test(path) ? path.toLowerCase() : path);
 
-/** The part of `path` below `folder`, or null when `path` is not `folder` or inside it. */
 const relativeTo = (path: string, folder: string): string | null => {
   const left = comparable(normalizePath(path));
   const right = comparable(normalizePath(folder));

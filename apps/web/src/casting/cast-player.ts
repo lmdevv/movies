@@ -15,17 +15,14 @@ import type {
   RemotePlayerController,
 } from "./cast-api";
 
-/** The receiver's player states, as the SDK names them. */
 const BUFFERING = "BUFFERING";
 
 const IDLE = "IDLE";
 
-/** Why a receiver went idle: its media played to the end, or it failed to play on. */
 const FINISHED = "FINISHED";
 
 const ERROR = "ERROR";
 
-/** How long a play or pause may take to show in the receiver's mirror before it counts as lost. */
 const TOGGLE_TIMEOUT_MS = 5_000;
 
 /** What the controls draw while casting. */
@@ -57,9 +54,7 @@ export class CastPlayer implements PlayerPort {
    * at a time.
    */
   #wanted: boolean | null = null;
-  /** The pause or play listeners last heard, so they hear each change once. */
   #reported: boolean | null = null;
-  /** A toggle is on its way; the next pause or play the mirror reports is its outcome. */
   #toggling: ReturnType<typeof setTimeout> | null = null;
   /**
    * Whether the receiver should be muted, until its mirror shows it. As with play and pause, the
@@ -67,13 +62,10 @@ export class CastPlayer implements PlayerPort {
    * before the mirror shows the first would repeat it rather than undo it.
    */
   #muteWanted: boolean | null = null;
-  /** A mute toggle is on its way; given up on, and the mirror trusted again, after a while. */
   #muteToggling: ReturnType<typeof setTimeout> | null = null;
   #moving: AbortController | null = null;
   #ended = false;
-  /** Where the receiver was when this player was disposed; reports read it from then on. */
   #final: number | null = null;
-  /** Where the receiver was and whether it was paused while connected; a disconnect resets the mirror. */
   #last = { positionMs: 0, paused: true };
   #state: RemoteState;
 
@@ -137,7 +129,6 @@ export class CastPlayer implements PlayerPort {
       ended: this.#ended,
       buffering: this.isBuffering(),
       volume: this.#remote.volumeLevel,
-      // What was asked shows at once, so controls (and a second press) read it, not the lagging mirror.
       muted: this.#muteWanted ?? this.#remote.isMuted,
       volumeSettable: this.#remote.canControlVolume,
     };
@@ -176,8 +167,6 @@ export class CastPlayer implements PlayerPort {
       this.#reconcileMute();
     }
 
-    // Every pause and play the receiver goes through is reported, even one it is being toggled
-    // away from: the room engine hears one echo for each pause it asks for.
     if (change.field === "isPaused" && this.#pending === null) {
       if (change.value === false) this.#ended = false;
       this.#reportPaused(change.value === true);
@@ -259,18 +248,12 @@ export class CastPlayer implements PlayerPort {
     this.#ask(true);
   };
 
-  /** Asks for the receiver to be `paused` (or playing); reached as soon as no toggle is on its way. */
   #ask(paused: boolean): void {
     this.#wanted = paused;
     this.#reconcile();
     this.#refresh();
   }
 
-  /**
-   * Sends one toggle if the receiver isn't where it was asked to be and none is on its way. A
-   * toggle whose outcome never shows (a lost command) is given up on after a while, and the mirror
-   * is trusted again.
-   */
   #reconcile(): void {
     if (this.#wanted === null || this.#toggling !== null) return;
 
@@ -291,7 +274,6 @@ export class CastPlayer implements PlayerPort {
     this.#controller.playOrPause();
   }
 
-  /** Tells listeners the receiver is `paused` (or playing), unless that is what they last heard. */
   #reportPaused(paused: boolean): void {
     if (paused === this.#reported) return;
     this.#reported = paused;
@@ -327,7 +309,6 @@ export class CastPlayer implements PlayerPort {
     this.#reconcileMute();
   }
 
-  /** Sends one mute toggle if the receiver isn't where it was asked to be and none is on its way. */
   #reconcileMute(): void {
     if (this.#muteWanted === null || this.#muteToggling !== null) return;
 

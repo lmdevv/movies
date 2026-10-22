@@ -1,8 +1,3 @@
-/**
- * What every player of a playback session shares when it talks to the SDK: the page's controller
- * and a cast to a TV run SDK calls the same way, renew tokens on the same schedule, and follow a
- * stream to its next HLS generation the same way.
- */
 import type { MoviesClient, Playback } from "@movies/sdk/effect";
 import type { useMoviesRuntime } from "@movies/sdk/react";
 import { Effect, Exit, Struct } from "effect";

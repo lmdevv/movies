@@ -1,9 +1,3 @@
-/**
- * Every registry command by name, typed by the registry: arguments are encoded and results decoded
- * with the command's schemas, so each call also checks the wire contract. Convex commands go over
- * the Convex connection; `media` commands go to the media service with the session's Convex token
- * as a bearer token, and so does reading the media service's retained log (`logs`).
- */
 import type {
   AnyCommand,
   ArgsSchema,
@@ -128,7 +122,6 @@ const decodeWireArgs = Schema.decodeUnknownEffect(Schema.JsonObject);
 const issueText = (issue: SchemaIssue.Issue): string =>
   SchemaIssue.makeFormatterDefault()(issue).replaceAll("\n", " ");
 
-/** Encodes arguments with the command's schema; values the schema rejects are `InvalidArgs`. */
 const encodeArgs = <Command extends AnyCommand>(
   name: string,
   command: Command,

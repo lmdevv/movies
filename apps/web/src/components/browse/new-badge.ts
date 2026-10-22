@@ -1,6 +1,5 @@
 import type { TitleCard } from "@movies/contracts/models/catalog";
 
-/** Titles added this recently carry the red `NEW` flag. */
 const NEW_FOR_MS = 7 * 86_400_000;
 
 /** `New` for titles added in the last week, at `now`. */

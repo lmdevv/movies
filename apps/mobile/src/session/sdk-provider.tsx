@@ -1,7 +1,3 @@
-/**
- * Opens the SDK on the connected server: one Convex client (and WebSocket) for the app's lifetime
- * on that server, with the session kept in the keychain.
- */
 import { MoviesProvider } from "@movies/sdk/react";
 import { ConvexReactClient } from "convex/react";
 import { useEffect, useState } from "react";

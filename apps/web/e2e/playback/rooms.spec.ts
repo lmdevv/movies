@@ -1,13 +1,3 @@
-/**
- * Join watching with two browsers: the owner hosts and an invited member follows with a stream of
- * their own. A late guest lands on the live position; the host's pause and seek reach the guest;
- * the guest's controls are locked and the server refuses their commands; the host's stall holds
- * the guest; a guest who stalls catches up without moving the host; host and guest browse away
- * and come back through the navbar's room pill, also after the room moved to another film, and
- * the pill shows only on the device and profile in the room; the host going away pauses the room;
- * room links say why they cannot be joined; and an ended room takes the pill away. The film remuxes to HLS, so the suite
- * can hold segment requests to stall a player. Settled drift goes to the test's annotations.
- */
 import { join } from "node:path";
 
 import {
@@ -54,7 +44,6 @@ test.skip(stack === null, NO_STACK);
 
 test.describe.configure({ mode: "serial" });
 
-/** Encoding the clips and bundling the service take a while on a cold machine. */
 const SETUP_TIMEOUT_MS = 240_000;
 
 const run = Date.now().toString(36);
@@ -63,29 +52,16 @@ const SHARED = "Harbor Lights";
 
 const PRIVATE = "Quiet Hours";
 
-/** The film the host moves the room to while everyone browses. */
 const NEXT = "Night Ferry";
 
-/** How long the shared film runs; long enough that seeks land far outside what is buffered. */
 const FILM_SECONDS = 360;
 
-/**
- * A settled guest is this close to the host: the engine settles it within 30 ms of the room clock,
- * and the host's heartbeat keeps the clock within 50 ms of the host. The rest is for reading two
- * pages one after the other on a loaded machine.
- */
 const SETTLED_MS = 150;
 
-/**
- * How long after first coming within `SETTLED_MS` the drift is read again: the guest is often still
- * nudging then, and the host's next heartbeat may still re-anchor the clock. Two heartbeats cover
- * both, so the second reading shows where the guest ends up, and that it stayed.
- */
 const REPORT_AFTER_MS = 2 * HEARTBEAT_INTERVAL_MS;
 
 const GUEST = { name: "Sam", email: `sam-rooms-${run}@movies.test`, password: "sam-password-1" };
 
-/** HLS media segments; playlists, init segments, and API calls go through. */
 const SEGMENTS = /\/media\/hls\/[^/]+\/\d+\/\d+\.m4s/u;
 
 let workspace = "";
@@ -108,11 +84,6 @@ let roomId: RoomId;
 
 const titles = new Map<string, TitleId>();
 
-/**
- * Drift samples after settling, reported once the suite ends. `guestReportedMs` is the drift the
- * guest's engine last reported against the room clock as it estimates it; a gap between the two
- * is that estimate's error.
- */
 const drifts: Array<{
   readonly when: string;
   readonly ms: number;
@@ -163,7 +134,6 @@ test.beforeAll(async ({ browser }) => {
       root: shared,
       access: "everyone",
     }),
-    // Members see a restricted library only when an admin grants it; Sam has no grant.
     scanLibrary(owner.sdk, {
       name: `Private films ${run}`,
       kind: "movies",
@@ -208,7 +178,6 @@ test.afterAll(async () => {
       .join(", "),
   });
 
-  // The numbers the milestone report quotes.
   console.log(`Room drift after settling: ${JSON.stringify(drifts)}`);
   await hostContext.close();
   await guestContext.close();
@@ -226,7 +195,6 @@ function titleId(name: string): TitleId {
   return id;
 }
 
-/** Waits until the guest is within `SETTLED_MS` of the host, then checks and records it stays. */
 const expectSettled = async (when: string): Promise<void> => {
   await expect
     .poll(async () => Math.abs(await driftMs(host, guest)), { timeout: 30_000 })
@@ -244,7 +212,6 @@ const expectSettled = async (when: string): Promise<void> => {
   expect(Math.abs(settled)).toBeLessThanOrEqual(SETTLED_MS);
 };
 
-/** Holds `page`'s HLS segment requests until the returned function releases them. */
 const holdSegments = async (page: Page): Promise<() => Promise<void>> => {
   const held: Array<Route> = [];
   let holding = true;
@@ -269,7 +236,6 @@ const holdSegments = async (page: Page): Promise<() => Promise<void>> => {
   };
 };
 
-/** Opens Watch together from the player's controls and starts the room. */
 const startRoom = async (page: Page): Promise<RoomId> => {
   await revealControls(page);
   await page.getByRole("button", { name: "Watch together" }).click();
@@ -288,17 +254,14 @@ const startRoom = async (page: Page): Promise<RoomId> => {
   return Schema.decodeSync(RoomId)(id);
 };
 
-/** The navbar's room pill, in whichever form the viewport shows. */
 const roomPill = (page: Page) => page.getByRole("link", { name: /^Room · \d+: return to /u });
 
-/** Leaves the player for the title's page in the app, as the player's back button does. */
 const browseAway = async (page: Page): Promise<void> => {
   await revealControls(page);
   await page.getByRole("button", { name: "Back to details" }).click();
   await expect(page).toHaveURL(/\/title\//u);
 };
 
-/** The room's member for `profileName`, as the server has it now. */
 const memberNamed = async (profileName: string) => {
   const room = await owner.sdk.query("rooms.get", { roomId });
   const found = room.members.find((each) => each.profileName === profileName);
@@ -323,7 +286,6 @@ test("the host starts a room and a late guest lands on the live position", async
   roomId = await startRoom(host);
   await expect(host.getByText("Live · 1 watching")).toBeVisible();
 
-  // The guest opens the link a few seconds into the room.
   await expectPlayingPast(host, 8);
   await guest.goto(`/r/${roomId}`);
   await expect(guest).toHaveURL(new RegExp(`/watch/${titleId(SHARED)}\\?room=${roomId}`, "u"));
@@ -349,7 +311,6 @@ test("the host's pause and seek reach the guest", async () => {
     .poll(async () => Math.abs((await videoState(guest)).currentTime - paused.currentTime))
     .toBeLessThanOrEqual(SETTLED_MS / 1000);
 
-  // A seek while paused moves the guest and keeps everyone paused.
   await host.getByTestId("player").press("l");
   await expect
     .poll(async () => (await videoState(guest)).currentTime, { timeout: 15_000 })
@@ -393,7 +354,6 @@ test("a guest's controls are locked, and the server refuses a guest's command", 
 test("⌘K and Escape in a room: each side gets its own commands, and asking never pauses the room", async () => {
   const onRoom = new RegExp(`[?&]room=${roomId}`, "u");
 
-  // The guest follows the timeline, so their menu has tracks but no transport, and no End room.
   const ofGuest = commandMenu(guest);
 
   await guest.keyboard.press("ControlOrMeta+k");
@@ -416,7 +376,6 @@ test("⌘K and Escape in a room: each side gets its own commands, and asking nev
   await guest.keyboard.press("Escape");
   await expect(ofGuest.menu).toBeHidden();
 
-  // The host moves the timeline and ends the room; leaving it is the guest's command.
   const ofHost = commandMenu(host);
 
   await host.keyboard.press("ControlOrMeta+k");
@@ -435,7 +394,6 @@ test("⌘K and Escape in a room: each side gets its own commands, and asking nev
   await host.keyboard.press("Escape");
   await expect(ofHost.menu).toBeHidden();
 
-  // Escape asks on both sides without pausing anyone, and Stay keeps everyone in the room.
   const askThenStay = async (page: Page, other: Page): Promise<void> => {
     await page.getByTestId("player").press("Escape");
     await expect(leaveDialog(page)).toBeVisible();
@@ -451,7 +409,6 @@ test("⌘K and Escape in a room: each side gets its own commands, and asking nev
   await askThenStay(guest, host);
   await askThenStay(host, guest);
 
-  // A guest who leaves playback leaves the room playing for the host, and can come back.
   await leaveWithEscape(guest);
   await expect(guest).toHaveURL(new RegExp(`/title/${titleId(SHARED)}$`, "u"));
   await host.waitForTimeout(1_000);
@@ -466,12 +423,10 @@ test("⌘K and Escape in a room: each side gets its own commands, and asking nev
 test("the host's stall holds the guest until the host plays again", async () => {
   const release = await holdSegments(host);
 
-  // A seek far ahead needs segments the host cannot get.
   await clickScrubber(host, 0.8);
   await expect(guest.getByText(`Waiting for ${OWNER.name}'s connection`)).toBeVisible({
     timeout: 15_000,
   });
-  // The guest's stream moves too: its element reads paused at 0 until the new segments load.
   await expect
     .poll(
       async () => {
@@ -494,14 +449,12 @@ test("the host's stall holds the guest until the host plays again", async () => 
 });
 
 test("a guest who stalls catches up without moving the host", async () => {
-  // Back to an early position, so the rest of the suite has film left to play.
   await clickScrubber(host, 0.1);
   await expectSettled("after host seek back");
 
   const release = await holdSegments(guest);
   const hostBefore = await videoState(host);
 
-  // The guest reloads and cannot load a segment; the room plays on.
   await guest.reload();
   await expect(guest.getByText(`Syncing to ${OWNER.name}`)).toBeVisible({ timeout: 15_000 });
   await capture(guest, "08-03-guest-joining");
@@ -523,8 +476,6 @@ test("a guest who browses away keeps their place, and the navbar pill takes them
   await expect(roomPill(guest)).toHaveText("Room · 2");
   await expect(roomPill(guest)).toHaveAccessibleName(`Room · 2: return to ${SHARED}`);
 
-  // Away once the player has been silent a while: the host's panel marks the guest away, with no
-  // drift.
   await expect
     .poll(async () => (await memberNamed(GUEST.name)).presence, {
       timeout: PLAYER_SILENCE_MS + 3 * HEARTBEAT_INTERVAL_MS,
@@ -537,7 +488,6 @@ test("a guest who browses away keeps their place, and the navbar pill takes them
   await revealControls(host);
   await capture(host, "08-11-member-away");
 
-  // The app's own heartbeats keep the place, so the member timeout never passes.
   const heard = (await memberNamed(GUEST.name)).lastSeenAt;
 
   await expect
@@ -550,8 +500,6 @@ test("a guest who browses away keeps their place, and the navbar pill takes them
   await expect(roomPill(guest)).toBeVisible();
   await capture(guest, "08-09-room-pill");
 
-  // On a phone the pill is an icon and the count beside the avatar, over the artwork of a title's
-  // page, which has no phone title, and above a page without a title of its own.
   await guest.setViewportSize({ width: 390, height: 844 });
   await expect(roomPill(guest)).toHaveText("2");
   await capture(guest, "08-10-room-pill-phone");
@@ -559,12 +507,10 @@ test("a guest who browses away keeps their place, and the navbar pill takes them
   await expect(guest).toHaveURL(/\/title\//u);
   await expect(roomPill(guest)).toHaveText("2");
   await capture(guest, "08-10b-room-pill-phone-title");
-  // A page without a title of its own shows it above the page.
   await guest.goto("/collections");
   await expect(roomPill(guest)).toHaveText("2");
   await guest.setViewportSize({ width: 1440, height: 900 });
 
-  // A refresh while browsing keeps it too.
   await guest.reload();
   await roomPill(guest).click();
   await expect(guest).toHaveURL(new RegExp(`/watch/${titleId(SHARED)}\\?room=${roomId}`, "u"));
@@ -580,7 +526,6 @@ test("the host browses away, the guest keeps watching, and the host comes back t
 
   const before = await videoState(guest);
 
-  // Past the host timeout: a host browsing in the app is still there, so the room plays on.
   await guest.waitForTimeout(HOST_PRESENCE_TIMEOUT_MS + 5_000);
 
   const during = await videoState(guest);
@@ -593,7 +538,6 @@ test("the host browses away, the guest keeps watching, and the host comes back t
   expect((await memberNamed(OWNER.name)).presence).toBe("away");
   await expect(guest.getByRole("heading", { name: `${OWNER.name} left the room` })).toBeHidden();
 
-  // Back by keyboard; the host joins the time the guest is watching instead of pulling it back.
   await roomPill(host).focus();
   await host.keyboard.press("Enter");
   await expect(host).toHaveURL(new RegExp(`/watch/${titleId(SHARED)}\\?room=${roomId}`, "u"));
@@ -634,7 +578,6 @@ test("the pill shows only on the device and profile in the room", async ({
 }: {
   readonly browser: Browser;
 }) => {
-  // The owner's account on another device is in no room.
   const elsewhere = await browser.newContext();
   const other = await elsewhere.newPage();
 
@@ -645,7 +588,6 @@ test("the pill shows only on the device and profile in the room", async ({
   await expect(roomPill(other)).toHaveCount(0);
   await elsewhere.close();
 
-  // Another profile on the host's device is not in the room either.
   const spare = await owner.sdk.mutate("profiles.create", {
     name: `Spare ${run}`,
     avatar: "green",
@@ -660,7 +602,6 @@ test("the pill shows only on the device and profile in the room", async ({
   await host.waitForTimeout(2_000);
   await expect(roomPill(host)).toHaveCount(0);
 
-  // Back on the room's profile, well inside the host timeout, the pill is back.
   await host.goto("/profiles");
   await host.getByRole("button", { name: (await adultProfile(owner.sdk)).name }).click();
   await roomPill(host).click();
@@ -679,7 +620,6 @@ test("a guest who plays another film alone keeps their place in the room, away",
     })
     .toBe("away");
 
-  // Back into the room by its link.
   await guest.goto(`/r/${roomId}`);
   await expect(guest).toHaveURL(new RegExp(`\\?room=${roomId}`, "u"));
   await expectSettled("after playing another film alone");
@@ -689,7 +629,6 @@ test("the host going away pauses the room for the guest, who can keep watching a
   test.setTimeout(90_000);
   await host.close();
 
-  // The server marks a host away after twenty silent seconds and pauses the room.
   await expect(guest.getByRole("heading", { name: `${OWNER.name} left the room` })).toBeVisible({
     timeout: 45_000,
   });
@@ -720,7 +659,6 @@ test("an ended room and another household's room deny their links", async ({
   await host.getByRole("button", { name: "End room" }).click();
   await expect(host).not.toHaveURL(/[?&]room=/u);
 
-  // The host's stream plays on after the room ends.
   const ended = (await videoState(host)).currentTime;
 
   await expectPlayingPast(host, ended + 1);
@@ -733,7 +671,6 @@ test("an ended room and another household's room deny their links", async ({
   await expect(guest.getByText(`${OWNER.name} closed this room.`)).toBeVisible();
   await capture(guest, "08-07a-join-denied-ended");
 
-  // A room playing a title the member's account cannot see.
   const profile = await adultProfile(owner.sdk);
 
   const hidden = await owner.sdk.mutate("rooms.create", {
@@ -766,7 +703,6 @@ test("ending the room takes the pill away from a guest who browsed off", async (
   await host.getByRole("button", { name: "End room" }).click();
   await expect(roomPill(guest)).toHaveCount(0);
 
-  // The command menu offers no way back either.
   await guest.keyboard.press("ControlOrMeta+k");
   await expect(guest.getByRole("combobox")).toBeVisible();
   await expect(guest.getByRole("option", { name: /Return to room/u })).toHaveCount(0);

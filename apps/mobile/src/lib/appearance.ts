@@ -1,7 +1,3 @@
-/**
- * Light, dark, or following the system (H22 Appearance). Dark is the default theme, as in Paper;
- * the choice is kept on this device and applied before the first frame.
- */
 import { Schema, Option } from "effect";
 import { Uniwind } from "uniwind";
 
@@ -9,7 +5,6 @@ import { readValue, writeValue } from "./secure-storage";
 
 const KEY = "movies.appearance";
 
-/** A theme choice. */
 const Appearance = Schema.Literals(["dark", "light", "system"]);
 
 /** A theme choice: `dark`, `light`, or `system` to follow iOS. */

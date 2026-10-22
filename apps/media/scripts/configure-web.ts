@@ -1,23 +1,10 @@
-/**
- * Points a packaged web build at its Convex deployment. The image and the Nix package build the
- * web app once with `VITE_CONVEX_URL=__MOVIES_CONVEX_URL__`; at startup this copies the build and
- * writes the real URL into it, so one build serves any install.
- *
- *   node scripts/configure-web.ts --from /app/web --to /run/movies/web --convex-url http://nas:3210
- *
- * Every asset holding the placeholder gets a new name derived from the URL, and every reference to
- * it is rewritten, so a browser never keeps a cached asset (served `immutable`) that points at a
- * previous URL. Plain Node, no Effect: it runs before the service starts.
- */
 import { createHash } from "node:crypto";
 import { chmod, cp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, relative } from "node:path";
 import { parseArgs } from "node:util";
 
-/** What `VITE_CONVEX_URL` holds in a packaged build. */
 const PLACEHOLDER = "__MOVIES_CONVEX_URL__";
 
-/** Files whose text may name an asset or hold the placeholder. */
 const TEXT = new Set([".html", ".js", ".mjs", ".css", ".json", ".webmanifest", ".map"]);
 
 const { values } = parseArgs({
@@ -42,7 +29,6 @@ if (url.protocol !== "http:" && url.protocol !== "https:") {
   process.exit(2);
 }
 
-// The placeholder sits inside a JavaScript string literal; JSON escaping keeps the URL inside it.
 const literal = JSON.stringify(convexUrl).slice(1, -1);
 
 const suffix = createHash("sha256").update(convexUrl).digest("hex").slice(0, 8);

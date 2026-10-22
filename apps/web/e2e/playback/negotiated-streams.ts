@@ -1,7 +1,3 @@
-/**
- * The streams a page negotiates, read from the media service's answers as the player
- * receives them.
- */
 import {
   MEDIA_ROUTES,
   NegotiateResponse,
@@ -68,7 +64,6 @@ export const refuseQualityCaps = async (page: Page, delayFirstMs = 0): Promise<v
 
     if (wait > 0) await page.waitForTimeout(wait);
 
-    // The page may have given up on a held request when a later choice started another.
     return route
       .fulfill({ status: 503, contentType: "application/json", body: capacityReached })
       .catch(() => undefined);

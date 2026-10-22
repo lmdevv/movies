@@ -1,10 +1,3 @@
-/**
- * Playback diagnostics from retained log records: the timeline of one session, and the sessions
- * the log mentions. A table maps each playback event name (`log-events.ts`) to its timeline kind
- * and one-line summary; records under other names are left out. Evidence the records cannot hold
- * is named in `missing` rather than left blank, and audio/video drift, which no player reports,
- * is always "not measured".
- */
 import {
   atLeast,
   type ClientPlatform,
@@ -23,12 +16,10 @@ import { LogEvent, SLOW_MS } from "./log-events.ts";
 
 type Annotations = LogRecord["annotations"];
 
-/** How one playback event becomes a timeline entry. */
 interface Rule {
   readonly kind: TimelineKind;
   readonly source: TimelineEntry["source"];
   readonly summary: (fields: Annotations) => string;
-  /** Whether the record belongs on the timeline; every record when absent. */
   readonly keep?: (fields: Annotations) => boolean;
 }
 
@@ -41,7 +32,6 @@ const text = (value: Schema.Json | undefined): string =>
 
 const number = (value: Schema.Json | undefined): number => (Predicate.isNumber(value) ? value : 0);
 
-/** `1234` milliseconds as `1.2 s`, `87` as `87 ms`. */
 const duration = (value: Schema.Json | undefined): string => {
   const ms = number(value);
 
@@ -50,7 +40,6 @@ const duration = (value: Schema.Json | undefined): string => {
 
 const pad = (part: number): string => String(part).padStart(2, "0");
 
-/** A media position as `h:mm:ss`. */
 const position = (value: Schema.Json | undefined): string => {
   const total = Math.max(0, Math.floor(number(value)));
 
@@ -227,7 +216,6 @@ const RULES = new Map<string, Rule>([
   ],
 ]);
 
-/** Annotations that identify the session rather than describe the event. */
 const IDENTITY_FIELDS: ReadonlySet<string> = new Set([
   "sessionId",
   "userId",
@@ -236,7 +224,6 @@ const IDENTITY_FIELDS: ReadonlySet<string> = new Set([
   "streamId",
 ]);
 
-/** When a record's event happened: a player's `occurredAt`, else when it was logged. */
 const occurredAt = (record: LogRecord): Option.Option<number> => {
   const reported = record.annotations["occurredAt"];
   const time = Date.parse(Predicate.isString(reported) ? reported : record.timestamp);
@@ -274,17 +261,12 @@ const sumOf = (entries: ReadonlyArray<TimelineEntry>, kind: TimelineKind, field:
     .filter((entry) => entry.kind === kind)
     .reduce((total, entry) => total + number(entry.details[field]), 0);
 
-/** Server entries that name the stream they are about. */
 const STREAM_KINDS: ReadonlySet<TimelineKind> = new Set([
   "stream-started",
   "stream-ended",
   "encoder-failed",
 ]);
 
-/**
- * The streams the entries show: every direct play, and every HLS stream that started, ended, or
- * failed, including one whose encoder failed before it started.
- */
 const streamsOf = (entries: ReadonlyArray<TimelineEntry>): number =>
   entries.filter((entry) => entry.kind === "stream-started" && entry.streamId === null).length +
   new Set(
@@ -293,7 +275,6 @@ const streamsOf = (entries: ReadonlyArray<TimelineEntry>): number =>
     ),
   ).size;
 
-/** HLS streams that ended or failed without a start, each with why it ended, if the log says. */
 const neverStarted = (
   entries: ReadonlyArray<TimelineEntry>,
 ): ReadonlyMap<string, string | undefined> => {
@@ -334,13 +315,9 @@ const isPlatform = (value: Schema.Json | undefined): value is ClientPlatform =>
 const platformOf = (records: ReadonlyArray<LogRecord>): ClientPlatform | null =>
   records.map((record) => record.annotations["platform"]).find(isPlatform) ?? null;
 
-/** What the records say about how they were kept, beyond their entries. */
 interface Keeping {
-  /** Only the latest records were read. */
   readonly truncated: boolean;
-  /** The service's least severe level logged. */
   readonly logLevel: LogLevel.LogLevel;
-  /** Failed requests counted past the session's budget rather than logged one by one. */
   readonly suppressedFailures: number;
 }
 
@@ -350,7 +327,6 @@ const missingEvidence = (
   { truncated, logLevel, suppressedFailures }: Keeping,
 ): ReadonlyArray<string> => {
   const fromPlayer = entries.some((entry) => entry.source === "player");
-  // Above INFO the service never wrote the records the other notes reason from.
   const dropsInfo = LogLevel.isGreaterThan(logLevel, "Info");
 
   const engines = new Set(
@@ -384,7 +360,6 @@ const missingEvidence = (
       : [
           "No stream started in the retained logs: the session began before the oldest log file (LOG_RETENTION_DAYS) or never reached this media service.",
         ]),
-    // At WARN and above no start is ever logged, and a cut-off read may have lost it.
     ...(dropsInfo || truncated
       ? []
       : [...neverStarted(entries)].map(

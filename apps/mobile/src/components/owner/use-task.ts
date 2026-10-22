@@ -1,4 +1,3 @@
-/** One action at a time from an owner screen, with its spinner and its failure line. */
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { describeFailure } from "@/lib/failure";

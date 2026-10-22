@@ -1,9 +1,3 @@
-/**
- * This device's watch room, as Home's room pill (C17) reads it outside the player. One subscription
- * for the whole app, which also keeps the device's place in the room while it browses: the server
- * drops a silent guest and pauses a room whose host goes silent, so heartbeats say the device is
- * away rather than gone. The room's player sends its own heartbeats; the server lets those win.
- */
 import type { RoomId } from "@movies/contracts/ids";
 import { useCommandQuery, useRoomPresence } from "@movies/sdk/react";
 import { createContext, useContext, useMemo } from "react";
@@ -45,7 +39,6 @@ export function CurrentRoomProvider({ children }: { readonly children: ReactNode
 
   useRoomPresence(id === null ? null : { roomId: id, deviceId: device });
 
-  // Every member's heartbeat changes the record; the pill changes only with what it shows.
   const current = useMemo(() => (id === null ? null : { id, members }), [id, members]);
 
   return <CurrentRoomContext value={current}>{children}</CurrentRoomContext>;

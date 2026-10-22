@@ -1,10 +1,3 @@
-/**
- * Troubleshooting from the media service's retained log: `movies logs` reads or follows it
- * (admin sessions only), `movies diagnostics sessions` lists the playback sessions it mentions,
- * and `movies diagnostics playback <session-id>` prints one session's timeline. All three take
- * `--json` and `--human`: logs print for people by default and as the service's NDJSON with
- * `--json`; diagnostics print JSON by default, like every other command.
- */
 import { commands } from "@movies/contracts/commands";
 import {
   type DiagnosedSession,
@@ -77,25 +70,14 @@ export const parseLevel = (text: string): Option.Option<LogLevel> => {
 
 const pad = (part: number, width = 2): string => String(part).padStart(width, "0");
 
-/** An instant as `2026-10-21 14:05:03.123` in local time. */
 const clockTime = (time: number): string => {
   const date = new Date(time);
 
   return `${String(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
 };
 
-/**
- * Characters a terminal acts on rather than shows: every control character (C0, DEL, and C1), the
- * line and paragraph separators, and the bidirectional marks, embeddings, overrides, and isolates,
- * which make text read in another order than it was written.
- */
 const UNPRINTABLE = /[\p{Cc}\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/gu;
 
-/**
- * `text` safe to print on one terminal line: every `UNPRINTABLE` character, such as an escape
- * sequence a player put in an error message, a newline, or a right-to-left override, becomes a
- * `\u001b`-style escape. Every untrusted string printed for people goes through it.
- */
 const printable = (text: string): string =>
   text.replaceAll(
     UNPRINTABLE,
@@ -147,7 +129,6 @@ export const formatLogLine = (line: string): string =>
     },
   });
 
-/** The log query the flags describe, or a usage error naming the flag that is wrong. */
 const logQuery = Effect.fn("Logs.query")(function* (invocation: Invocation) {
   const { tokens } = invocation;
   const now = yield* Clock.currentTimeMillis;
@@ -242,7 +223,6 @@ const logQuery = Effect.fn("Logs.query")(function* (invocation: Invocation) {
   return query;
 });
 
-/** Whether log lines print as the service's NDJSON: `--json` or an explicit `--format json`. */
 const printsJson = (invocation: Invocation): boolean =>
   booleanFlag(invocation.tokens, "json") ||
   Option.contains(stringFlag(invocation.tokens, "format"), "json");
@@ -286,7 +266,7 @@ const logs: ShortcutCommand = {
         output.out(json ? line : formatLogLine(line)),
       );
 
-      if (query.follow) {
+      if (query.follow === true) {
         return yield* new TransportError({
           operation: "logs",
           message: "Transport failed during logs: the media service ended the followed log",
@@ -298,13 +278,11 @@ const logs: ShortcutCommand = {
     }),
 };
 
-/** An instant as `2026-10-21 14:05:03` in local time. */
 const shortTime = (time: number): string => clockTime(time).slice(0, 19);
 
 const plural = (count: number, one: string, many = `${one}s`): string =>
   `${String(count)} ${count === 1 ? one : many}`;
 
-/** Milliseconds as `41.2 s`. */
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
 
 /** The timeline for people: a summary, what is not known, then one line per event. */
@@ -341,7 +319,6 @@ export const renderTimeline = (diagnostics: PlaybackDiagnostics): string => {
   ].join("\n");
 };
 
-/** The sessions for people, newest first. */
 const renderSessions = (sessions: ReadonlyArray<DiagnosedSession>): string =>
   sessions.length === 0
     ? "No playback sessions in the retained logs for that time."

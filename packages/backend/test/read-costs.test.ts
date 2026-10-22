@@ -30,7 +30,6 @@ const EPISODES = 6;
 
 const GENRES = ["Action", "Comedy", "Drama", "Horror", "Sci-Fi", "Romance", "Thriller", "Family"];
 
-/** People credited across the catalog; each credited movie names `CAST` of them. */
 const PEOPLE = 200;
 
 const CAST = 8;
@@ -43,7 +42,6 @@ const url = stack?.convexUrl ?? "";
 
 const decodeItem = Schema.decodeUnknownSync(ScannedItem);
 
-/** A scanned file of a fixture movie or episode; `index` varies its year and genres. */
 const scanned = (
   path: string,
   index: number,
@@ -140,7 +138,6 @@ const showItems = range(SHOWS).flatMap((show) =>
 const batchesOf = <Item>(items: ReadonlyArray<Item>): ReadonlyArray<ReadonlyArray<Item>> =>
   range(Math.ceil(items.length / 100)).map((batch) => items.slice(batch * 100, batch * 100 + 100));
 
-/** Runs `step` for each item, one after another, as writes that depend on order must. */
 const inOrder = async <Item, Result>(
   items: ReadonlyArray<Item>,
   step: (item: Item, index: number) => Promise<Result>,
@@ -160,7 +157,6 @@ const person = (n: number) => ({
   profile: null,
 });
 
-/** What one call read and wrote. */
 interface Usage {
   readonly readDocs: number;
   readonly readBytes: number;
@@ -196,7 +192,6 @@ const logSince = async (cursor: number): Promise<typeof FunctionLog.Type> => {
   return decodeLog(await response.json());
 };
 
-/** The usage the log reports for the next completed call of `identifier` after `cursor`. */
 const usageOf = async (identifier: string, cursor: number, attempts = 20): Promise<Usage> => {
   const log = await logSince(cursor);
 
@@ -219,7 +214,6 @@ const usageOf = async (identifier: string, cursor: number, attempts = 20): Promi
   return usageOf(identifier, cursor, attempts - 1);
 };
 
-/** One hot path: a label for the table, the function it calls, and the call. */
 interface Probe {
   readonly label: string;
   readonly identifier: string;
@@ -348,7 +342,6 @@ describe.skipIf(stack === undefined)("read costs", () => {
       }),
     );
 
-    // A second profile has started 120 movies: continue watching with a long history.
     const started = await run(owner, "profiles.create", {
       name: "Started",
       avatar: "owl",

@@ -1,14 +1,3 @@
-/**
- * Media service entrypoint. Reads configuration, serves HTTP, and keeps libraries in sync.
- *
- * With `CONVEX_URL` and `MEDIA_SERVICE_API_KEY` the service signs in to Convex: libraries, files,
- * and jobs come from Convex, scans write back to it, and playback resolves files through it.
- * Without `CONVEX_URL` it runs standalone for development and tests: each `LIBRARY_ROOTS` entry is
- * scanned into memory and playback events are logged.
- *
- * Routes are assembled in `http/http-server.ts` (one layer per route group). Job kinds are
- * registered in `jobHandlers` below.
- */
 import { createHash } from "node:crypto";
 
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
@@ -53,7 +42,6 @@ import * as PlaybackReporter from "./playback/playback-reporter.ts";
 import * as TrickplayJob from "./trickplay/trickplay-job.ts";
 import * as TrickplaySweep from "./trickplay/trickplay-sweep.ts";
 
-/** `CONVEX_URL` is set without `MEDIA_SERVICE_API_KEY`, so the service cannot sign in. */
 class MediaServiceKeyMissing extends Schema.TaggedError<MediaServiceKeyMissing>()(
   "MediaServiceKeyMissing",
   {},
@@ -63,7 +51,6 @@ class MediaServiceKeyMissing extends Schema.TaggedError<MediaServiceKeyMissing>(
   }
 }
 
-/** The job kinds this service runs. Add a kind's handler here. */
 const jobHandlers = Effect.all([
   Effect.all([
     ScanJob.handler,
@@ -75,7 +62,6 @@ const jobHandlers = Effect.all([
   TrickplayJob.handlers,
 ]).pipe(Effect.map(([always, trickplay]) => [...always, ...trickplay]));
 
-/** Route groups of registry `media` commands and the log route, which need Convex sign-in. */
 const commandRoutes = Layer.mergeAll(
   MetadataRoutes.layer,
   MigrationRoutes.layer,
@@ -85,7 +71,6 @@ const commandRoutes = Layer.mergeAll(
   DiagnosticsRoutes.layer,
 );
 
-/** Signed in to Convex: Convex libraries, scan jobs, ended sessions, and file records. */
 const convexMode = (options: MediaBackend.Options) =>
   Layer.mergeAll(
     HttpServer.layer(commandRoutes),
@@ -112,7 +97,6 @@ const convexMode = (options: MediaBackend.Options) =>
     Layer.provideMerge(MediaBackend.layer(options)),
   );
 
-/** Standalone: one in-memory library per approved root, kept in sync by the monitor. */
 const standaloneMode = (roots: ReadonlyArray<string>) =>
   Layer.mergeAll(
     HttpServer.layer(Layer.empty),

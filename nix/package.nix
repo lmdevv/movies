@@ -40,7 +40,6 @@ stdenv.mkDerivation (finalAttrs: {
     );
   };
 
-  # Only what the build needs; the CLI, UI tooling, and test runners stay out.
   pnpmWorkspaces = [
     "web..."
     "@movies/media..."
@@ -81,8 +80,7 @@ stdenv.mkDerivation (finalAttrs: {
     lib=$out/lib/movies
     mkdir -p $lib/media/scripts $out/bin
 
-    # The Convex functions, their production dependencies, the Convex CLI, and configure.ts. The
-    # functions' tsconfig extends the shared config, which `convex deploy` reads.
+    # The functions' tsconfig extends the shared config, which `convex deploy` reads.
     pnpm --filter @movies/backend --config.inject-workspace-packages=true deploy --prod --offline $lib/backend
     rm -rf $lib/backend/test
     mkdir -p $lib/backend/node_modules/@movies

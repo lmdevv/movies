@@ -15,12 +15,10 @@ interface CastReceiver {
   readonly capabilities?: ReadonlyArray<string>;
 }
 
-/** An image in a media item's metadata. */
 interface CastImage {
   readonly url: string;
 }
 
-/** A WebVTT text track of a media item. */
 interface CastTrack {
   trackContentId: string;
   trackContentType: string;
@@ -29,7 +27,6 @@ interface CastTrack {
   language: string;
 }
 
-/** Movie or episode metadata; both kinds share these fields. */
 interface CastMetadata {
   title: string;
   images: Array<CastImage>;
@@ -38,7 +35,6 @@ interface CastMetadata {
   episode?: number;
 }
 
-/** What the receiver plays. */
 interface CastMediaInfo {
   contentUrl: string;
   streamType: string;
@@ -56,18 +52,15 @@ export interface CastLoadRequest {
   activeTrackIds: Array<number>;
 }
 
-/** A request to show other text tracks; the SDK builds it. */
 interface CastEditTracksRequest {
   readonly activeTrackIds: ReadonlyArray<number>;
 }
 
-/** A failure the SDK reports, such as a cancelled device picker. */
 interface CastError {
   readonly code?: string;
   readonly description?: string | null;
 }
 
-/** The media item playing on the receiver. */
 interface CastMedia {
   readonly idleReason?: string | null;
   editTracksInfo(

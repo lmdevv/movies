@@ -171,7 +171,6 @@ describe("import progress", () => {
   });
 
   it("estimates minutes left from the pace so far", () => {
-    // A quarter done in two minutes: six minutes left.
     expect(importMinutesLeft(run("watchState", 0, null), 0.25, 120_000)).toBe(6);
     expect(importMinutesLeft(run("libraries", 0, null), 0.01, 120_000)).toBeNull();
   });

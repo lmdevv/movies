@@ -1,15 +1,3 @@
-/**
- * Runs background jobs from Convex. The worker subscribes to `mediaService:pendingJobs`, claims
- * jobs it has a handler for with a one-minute lease, renews the lease every fifteen seconds with
- * the handler's progress, and completes or fails the job. A renewal that reports the job
- * cancelled, or that finds the lease taken by another worker, interrupts the handler. A worker
- * that dies stops renewing; Convex's cron returns the job to the queue once the lease expires and
- * another worker claims it, so handlers must tolerate running a job again (scans are idempotent).
- *
- * Handlers are registered by job kind (`layer(handlers)`); a kind without a handler is left for
- * another worker. Expected handler failures carry whether the job should be retried; defects fail
- * the job without a retry.
- */
 import { hostname } from "node:os";
 
 import type { JobId } from "@movies/contracts/ids";
@@ -61,7 +49,6 @@ export interface JobHandler {
   ) => Effect.Effect<string, JobFailed>;
 }
 
-/** How a held job ended. */
 type JobEnd = Data.TaggedEnum<{
   Finished: { readonly message: string };
   Failed: { readonly error: JobFailed };
@@ -75,15 +62,12 @@ const LEASE_MS = 60_000;
 
 const RENEW_EVERY = Duration.seconds(15);
 
-/** Jobs of kinds without their own slots run at the same time by one worker. */
 const MAX_RUNNING = 2;
 
-/** How often pending jobs are looked at again without a subscription update. */
 const RESCAN_EVERY = Duration.seconds(30);
 
 const EMPTY_PROGRESS: JobProgress = { done: 0, total: null, message: null };
 
-/** Builds the worker; its fibers live as long as the layer's scope. */
 const make = Effect.fn("JobWorker.make")(function* (handlers: ReadonlyArray<JobHandler>) {
   const backend = yield* MediaBackend.Service;
   const crypto = yield* Crypto.Crypto;
@@ -91,16 +75,13 @@ const make = Effect.fn("JobWorker.make")(function* (handlers: ReadonlyArray<JobH
   const workerId = `${hostname()}:${String(process.pid)}:${suffix}`;
   const byKind = new Map(handlers.map((handler) => [handler.kind, handler]));
   const pending = yield* Ref.make<ReadonlyArray<Job>>([]);
-  /** Running jobs and the slot pool each one holds: its kind's own, or the shared one. */
   const running = yield* Ref.make<ReadonlyMap<JobId, JobKind | null>>(new Map());
 
-  /** The pool a kind runs in, and how many of its jobs may run at once. */
   const poolOf = (handler: JobHandler): readonly [JobKind | null, number] =>
     handler.concurrency === undefined ? [null, MAX_RUNNING] : [handler.kind, handler.concurrency];
 
   const wake = yield* Queue.sliding<void>(1);
 
-  /** Renews the lease until the job is cancelled or the lease is lost. */
   const keepLease = (jobId: JobId, progress: Ref.Ref<JobProgress>): Effect.Effect<JobEnd> =>
     Effect.gen(function* () {
       for (;;) {
@@ -132,7 +113,6 @@ const make = Effect.fn("JobWorker.make")(function* (handlers: ReadonlyArray<JobH
       }
     });
 
-  /** Completes or fails a held job; a lost lease means another worker owns the outcome. */
   const settle = Effect.fn("JobWorker.settle")(function* (jobId: JobId, end: JobEnd) {
     const write = JobEnd.$match(end, {
       Finished: ({ message }) =>
@@ -205,7 +185,6 @@ const make = Effect.fn("JobWorker.make")(function* (handlers: ReadonlyArray<JobH
 
       const end = yield* Effect.raceFirst(work, keepLease(job.id, progress));
 
-      // The last renewal may predate the end of the work; leave the final progress on the job.
       if (JobEnd.$is("Finished")(end) || JobEnd.$is("Failed")(end)) {
         yield* backend
           .call("mediaService.renewLease", {
@@ -222,7 +201,6 @@ const make = Effect.fn("JobWorker.make")(function* (handlers: ReadonlyArray<JobH
     (effect, job) => effect.pipe(Effect.annotateLogs({ jobId: job.id, workerId })),
   );
 
-  /** Claims every pending job this worker can run while its pool has a free slot. */
   const dispatch = Effect.gen(function* () {
     for (const job of yield* Ref.get(pending)) {
       const handler = byKind.get(job.kind);

@@ -1,7 +1,3 @@
-/**
- * The pieces of the Watch Together pages (G01–G06): the title's wide artwork, with the room's state
- * over it, the people in the room, and the clock that moves the shared position on.
- */
 import type { Room } from "@movies/contracts/models/rooms";
 import { Pause, Play } from "lucide-react-native";
 import type { ReactNode } from "react";

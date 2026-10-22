@@ -13,7 +13,6 @@ import * as RetainedLogs from "./retained-logs.ts";
 
 const BASE = Date.UTC(2026, 9, 21, 12);
 
-/** A log line as the logger writes it, `offsetMs` after `BASE`. */
 const line = (
   message: string,
   offsetMs: number,
@@ -31,7 +30,6 @@ const line = (
 
 const SESSION = PlaybackSessionId.make("session_a");
 
-/** Every line the tests write, in order. */
 const LINES = [
   line("Main.started", 0),
   line("Stream.started", 1000, "INFO", { sessionId: SESSION, streamId: "s1", mode: "remux" }),
@@ -45,7 +43,6 @@ const LINES = [
   line("Backups.failed", 5000, "ERROR", { detail: "token=abc.def disk full" }),
 ];
 
-/** The messages `query` reads from a log holding `LINES`. */
 const messages = (query: LogQuery) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -232,18 +229,15 @@ layer(NodeServices.layer)("log queries", (it) => {
   );
 });
 
-/** Record `n` of a burst, logged `offsetMs` after `BASE`, padded to about 60 KB. */
 const burstLine = (n: number, offsetMs = 0): string =>
   line("Burst.record", offsetMs, "INFO", { n, padding: "x".repeat(60_000) });
 
-/** The `n` of each record `query` reads. */
 const numbersRead = (logs: RetainedLogs.Interface, query: LogQuery) =>
   LogReader.read(query).pipe(
     Effect.provideService(RetainedLogs.Service, logs),
     Effect.map((found) => found.matches.map((match) => match.record.annotations["n"])),
   );
 
-/** The `n` of every record in `directory`, file by file in the order `ls` lists them. */
 const numbersOnDisk = (directory: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -279,7 +273,6 @@ layer(NodeServices.layer)("log order across rotations", (it) => {
         retention: { maxAgeMs: Duration.toMillis(Duration.days(14)), maxBytes: MIN_LOG_BYTES },
       });
 
-      // Every record at one instant: each batch fills two files that start at the same time.
       for (let batch = 0; batch < 10; batch += 1) {
         for (let index = 0; index < 30; index += 1)
           appendRecord(logs, burstLine(batch * 30 + index));
@@ -323,7 +316,6 @@ layer(NodeServices.layer)("log order across rotations", (it) => {
       appendRecord(logs, burstLine(1));
       yield* logs.flush;
 
-      // NTP steps the clock back an hour: later records carry earlier times.
       yield* TestClock.setTime(BASE - hour);
       appendRecord(logs, burstLine(2, -hour));
       yield* logs.flush;

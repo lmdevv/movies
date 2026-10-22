@@ -1,4 +1,3 @@
-/** Privacy, from About (H29): where this app's data lives. */
 import { Sheet } from "@/components/title/sheet";
 import { displayHost } from "@/lib/local-network";
 import { useServer } from "@/session/connection";

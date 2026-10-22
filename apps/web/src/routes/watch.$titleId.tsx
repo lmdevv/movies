@@ -9,15 +9,10 @@ import { RequireProfile, RequireSignedIn } from "@/session/guards";
 const decodeTitleId = Schema.decodeSync(TitleId);
 
 const WatchSearch = Schema.Struct({
-  /** The episode to play; omit for a movie or a show's next episode. */
   episodeId: Schema.optionalKey(EpisodeId),
-  /** The file to play when the title has several; omit for the one this browser prefers. */
   version: Schema.optionalKey(MediaFileId),
-  /** `0` plays from the beginning; `resume` resumes without asking; omitted asks. */
   start: Schema.optionalKey(Schema.Literals(["0", "resume"])),
-  /** The watch room this device plays in. */
   room: Schema.optionalKey(RoomId),
-  /** `1` opens Watch together once playback runs. */
   together: Schema.optionalKey(Schema.Literal("1")),
 });
 
@@ -47,10 +42,8 @@ function WatchPage() {
   const search = Route.useSearch();
 
   return (
-    // Playing something else alone, this device still keeps its place in its room, away.
     <CurrentRoomProvider keepPlace={search.room === undefined}>
       <PlayerScreen
-        // A new title or episode is a new session; a room joined or left keeps the stream.
         key={`${titleId}:${search.episodeId ?? ""}`}
         titleId={titleId}
         episodeId={search.episodeId}

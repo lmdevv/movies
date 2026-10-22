@@ -82,7 +82,6 @@ export function LibraryDialog({
   );
 }
 
-/** What the form starts with. */
 interface StartingValues {
   readonly name: string;
   readonly kind: LibraryKind;
@@ -91,7 +90,6 @@ interface StartingValues {
   readonly trickplay: boolean;
 }
 
-/** The library's own settings, or a new library's defaults with one empty folder. */
 const startingValues = (library: LibraryDetail | undefined): StartingValues => ({
   name: library?.name ?? "",
   kind: library?.kind ?? "movies",
@@ -194,7 +192,6 @@ function LibraryForm({
   );
 }
 
-/** Cancel and the submit button; editing also offers Remove library on the left. */
 function LibraryFormFooter({
   adding,
   disabled,
@@ -221,7 +218,6 @@ function LibraryFormFooter({
   );
 }
 
-/** The library's folders, one field each, up to 20; every folder is an absolute path. */
 function FolderFields({
   roots,
   relative,
@@ -276,7 +272,6 @@ function FolderFields({
   );
 }
 
-/** Whether scans make scrub thumbnails, and Generate now for the files that have none. */
 function TrickplayRow({
   library,
   checked,

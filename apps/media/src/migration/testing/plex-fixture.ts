@@ -15,7 +15,6 @@ export const FIXTURE_PLEX_TOKEN = "fixture-plex-token";
 /** A shared user's token: it signs in, but may not list the server's accounts. */
 export const FIXTURE_SHARED_TOKEN = "fixture-shared-token";
 
-/** Tells callers apart by `X-Plex-Token`. */
 const plexIdentity: Identity = {
   tokenOf: (request) => {
     const token = request.headers["x-plex-token"];
@@ -33,7 +32,6 @@ const RecordedFile = Schema.Struct({
   recordings: Schema.Record(Schema.String, Recording),
 });
 
-/** The written responses. */
 const plexRecordings: Recordings = Schema.decodeSync(RecordedFile)(recorded).recordings;
 
 /** Starts the Plex stand-in, optionally with some responses replaced. */

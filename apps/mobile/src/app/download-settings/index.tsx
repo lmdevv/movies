@@ -1,7 +1,3 @@
-/**
- * H18 · Download Settings: Wi-Fi Only, the Video Quality new downloads ask for (Standard or High),
- * the storage the profile's downloads use, and Remove All Downloads.
- */
 import { router } from "expo-router";
 import { Clapperboard, Server, Trash2, Wifi } from "lucide-react-native";
 

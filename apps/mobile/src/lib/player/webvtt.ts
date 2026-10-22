@@ -6,7 +6,6 @@
  * removed, and the common entities decoded.
  */
 
-/** A run of cue text, italic or not. */
 interface CueSpan {
   readonly text: string;
   readonly italic: boolean;
@@ -33,7 +32,6 @@ const ENTITIES: ReadonlyMap<string, string> = new Map([
   ["&rlm;", "‏"],
 ]);
 
-/** Seconds for a WebVTT timestamp such as `01:02:03.450` or `02:03.450`. */
 const seconds = (stamp: string): number => {
   const parts = stamp.replace(",", ".").split(":").map(Number);
 
@@ -46,7 +44,6 @@ const decodeEntities = (text: string): string =>
     (entity) => ENTITIES.get(entity) ?? entity,
   );
 
-/** A cue line's text as spans, italic inside `<i>`; other tags are dropped. */
 const spansOf = (line: string): ReadonlyArray<CueSpan> => {
   const spans: Array<CueSpan> = [];
   let italic = false;

@@ -1,9 +1,3 @@
-/**
- * Decisions for keeping one player on a room's shared timeline: what a following player should
- * do to reach the committed clock, and which host command a host player's state calls for. Pure:
- * every input is a value, including the server time, so the engine and tests share one source of
- * truth.
- */
 import type { ClockAnchor } from "@movies/contracts/clock";
 import { DRIFT_THRESHOLDS, HEARTBEAT_INTERVAL_MS, targetPosition } from "@movies/contracts/clock";
 import type { EpochMillis } from "@movies/contracts/units";
@@ -110,10 +104,8 @@ export interface FollowDecision {
   readonly settling: boolean;
 }
 
-/** Whether two rates differ enough to be worth setting. */
 const rateDiffers = (a: number, b: number): boolean => Math.abs(a - b) > 1e-6;
 
-/** Commands that hold a player still at `positionMs`. */
 const holdAt = (
   player: PlayerSnapshot,
   positionMs: Milliseconds,
@@ -178,17 +170,13 @@ export const follow = (
     };
   }
 
-  // A player that cannot nudge its rate waits for drift to reach `fixedRateSeekMs`.
   if (player.fixedRate) return { commands: play, driftMs, settling };
 
-  // Positive while running fast to catch up, negative while running slow to let the room catch up.
-  // A fresh target starts over: a nudge toward the old one may lead away from it.
   const nudging =
     !settling && rateDiffers(player.playbackRate, clock.playbackRate)
       ? Math.sign(player.playbackRate - clock.playbackRate)
       : 0;
 
-  // A running nudge stops once within `settleMs` or past the shared position, so it cannot swing.
   const closing =
     (nudging > 0 && driftMs < -tunables.settleMs) || (nudging < 0 && driftMs > tunables.settleMs);
 
@@ -205,9 +193,6 @@ export const follow = (
     ? [PlayerCommand.SetRate({ rate: wanted })]
     : [];
 
-  // A player only starts advancing a little after a seek lands or play starts, so a target stays
-  // fresh until a decision sees it already playing past the seek cooldown; otherwise that start
-  // lag would leave it anywhere in the band.
   const settled = correcting || (!player.paused && !recentlySought);
 
   return { commands: [...rate, ...play], driftMs, settling: settling && !settled };

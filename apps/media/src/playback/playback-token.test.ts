@@ -15,7 +15,6 @@ import {
 import * as EndedSessions from "./ended-sessions.ts";
 import * as PlaybackToken from "./playback-token.ts";
 
-// A fixed 32-byte secret, base64url encoded the way `PLAYBACK_TOKEN_SECRET` is configured.
 const secretBytes = Buffer.from(
   "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
   "hex",
@@ -33,7 +32,6 @@ const claims = {
   exp: 21_601_000,
 };
 
-/** Signs a token independently of the module under test, with Node's HMAC. */
 const sign = (payload: string, key: Buffer = secretBytes): string => {
   const encoded = Buffer.from(payload, "utf8").toString("base64url");
   const signature = createHmac("sha256", key).update(`v1.${encoded}`).digest("base64url");
@@ -48,7 +46,6 @@ const verify = (token: string, purposes = PlaybackToken.PLAY) =>
     return yield* verifier.verify(Redacted.make(token), purposes);
   });
 
-/** Why verification failed: the token's rejection reason, or `session-ended`. */
 const reasonOf = Match.type<PlaybackTokenInvalid | PlaybackSessionEnded>().pipe(
   Match.tagsExhaustive({
     PlaybackTokenInvalid: (error) => error.reason,
@@ -97,7 +94,6 @@ layer(EndedSessions.layer)("PlaybackToken", (it) => {
 
   it.effect("matches a fixed test vector", () =>
     Effect.gen(function* () {
-      // Computed once with node:crypto; it pins the wire format, not just a round trip.
       const token =
         "v1.eyJhdWQiOiJtZWRpYSIsInN1YiI6InVzZXJfMSIsInBpZCI6InByb2ZpbGVfMSIsImZpZCI6ImZpbGVfMSIsInNpZCI6InNlc3Npb25fMSIsImlhdCI6MTAwMCwiZXhwIjoyMTYwMTAwMH0." +
         sign(JSON.stringify(claims)).split(".")[2];

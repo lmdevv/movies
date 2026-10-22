@@ -5,19 +5,16 @@ import { Duration, Effect, Exit, FileSystem, Layer } from "effect";
 import { testConfigLayer } from "../testing/test-config.ts";
 import * as MediaTools from "./media-tools.ts";
 
-/** `env` stands in for ffprobe, so the test reads the environment the tools really get. */
 const toolsLayer = MediaTools.layer.pipe(
   Layer.provide(testConfigLayer({ FFPROBE_PATH: "/usr/bin/env" })),
   Layer.provide(NodeServices.layer),
 );
 
-/** `sleep` stands in for ffmpeg, so a run never finishes on its own. */
 const hangingLayer = MediaTools.layer.pipe(
   Layer.provide(testConfigLayer({ FFMPEG_PATH: "sleep", PROBE_TIMEOUT_SECONDS: "1" })),
   Layer.provideMerge(NodeServices.layer),
 );
 
-/** Whether a process with exactly these arguments is running. */
 const running = Effect.fnUntraced(function* (args: ReadonlyArray<string>) {
   const fs = yield* FileSystem.FileSystem;
   const wanted = args.join("\0");
@@ -86,7 +83,6 @@ describe("media tools", () => {
       Effect.gen(function* () {
         const service = yield* MediaTools.Service;
 
-        // Scrub thumbnails of a whole film take minutes; only an explicit timeout bounds them.
         assert.isTrue(Exit.isSuccess(yield* service.ffmpegInBackground(["1.5"]).pipe(Effect.exit)));
       }),
     );

@@ -1,8 +1,3 @@
-/**
- * The audio and subtitle tracks App Settings asks for (H28 Audio & Subtitles), chosen from what a
- * file has when its playback starts: the preferred audio language (an audio description track when
- * asked for, otherwise not), and subtitles in the preferred language (SDH when asked for).
- */
 import type { SubtitleTrack } from "@movies/contracts/media-playback";
 import type { AudioStream } from "@movies/contracts/models/catalog";
 
@@ -17,14 +12,11 @@ export interface PreferredTracks {
 
 const DESCRIPTION = /audio description|descriptive/iu;
 
-/** `AD` in capitals only, so titles such as `Ad-free mix` do not count. */
 const DESCRIPTION_ABBREVIATION = /\bAD\b/u;
 
-/** Whether an audio track's title marks it as audio description. */
 const describes = (title: string | null): boolean =>
   title !== null && (DESCRIPTION.test(title) || DESCRIPTION_ABBREVIATION.test(title));
 
-/** The first of `items` ranked by `score`, highest first; ties keep the file's order. */
 const best = <A>(items: ReadonlyArray<A>, score: (item: A) => number): A | null =>
   items.reduce<A | null>(
     (chosen, item) => (chosen === null || score(item) > score(chosen) ? item : chosen),
@@ -45,7 +37,6 @@ export const preferredTracks = (
   const { audioLanguage, audioDescription, subtitleLanguage, subtitlesSdh } = preferences;
   const fallback = audio.find((track) => track.default) ?? audio[0];
 
-  // Without a preferred language, audio description still applies in the file's own language.
   const audioChoices =
     audioLanguage !== null
       ? audio.filter((track) => isLanguage(track.language, audioLanguage))

@@ -1,10 +1,3 @@
-/**
- * Serves the built web app from `WEB_DIST_DIR` with a single-page-app fallback: unknown paths
- * without a file extension get `index.html`. Hashed files under `/assets/` are cached for a
- * year; `index.html` is always revalidated. Paths are resolved inside the folder after
- * following symbolic links, so nothing outside it is ever served. `/api` and `/media` paths are
- * never answered with the app.
- */
 import { Effect, FileSystem, Layer, Option, Path } from "effect";
 import { HttpPlatform, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
@@ -62,7 +55,6 @@ export const layer: Layer.Layer<
       });
     };
 
-    /** The canonical path of `relative` when it is a regular file inside the root. */
     const fileInside = (relative: string) =>
       Effect.gen(function* () {
         const realRoot = yield* fs.realPath(root);

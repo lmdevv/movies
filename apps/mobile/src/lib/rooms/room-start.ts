@@ -1,8 +1,3 @@
-/**
- * What a room started from a title's page (G01) plays: a movie from where the profile stopped, or
- * the show's next episode from where the profile stopped in it, as Play on the page would. From an
- * episode's actions (D07) it plays that episode instead.
- */
 import type { EpisodeId } from "@movies/contracts/ids";
 import type { Episode, Progress, TitleDetail } from "@movies/contracts/models/catalog";
 
@@ -15,7 +10,6 @@ export interface RoomStart {
   readonly episode: Episode | null;
 }
 
-/** Where `progress` resumes: its position while unfinished, else the start. */
 const resumeAt = (progress: Progress | null): number =>
   progress === null || progress.watched ? 0 : progress.positionMs;
 

@@ -1,8 +1,3 @@
-/**
- * Watch room commands: starting, copying the link, leaving, and ending a room from the player;
- * returning to or leaving this device's room from anywhere else; and joining a room whose link is
- * pasted into the menu.
- */
 import { RoomId } from "@movies/contracts/ids";
 import type { CommandItem } from "@movies/ui/lib/command-menu";
 import { useCommand } from "@movies/sdk/react";
@@ -18,7 +13,6 @@ import type { CommandContext, CommandContribution } from "./contribution";
 
 const decodeRoomId = Schema.decodeUnknownOption(RoomId);
 
-/** The room a pasted room link (`…/r/<id>`) names, or none. */
 const typedRoomId = (query: string): Option.Option<RoomId> => {
   const match = /\/r\/([a-z0-9]{16,})\/?$/iu.exec(query.trim());
 
@@ -31,7 +25,6 @@ export const useRoomCommands = (context: CommandContext): CommandContribution =>
   const deviceId = useMemo(() => loadDeviceId(), []);
   const leave = useCommand("rooms.leave");
 
-  // Outside the player's menu only; the player follows its own room.
   const shellRoom = useCurrentRoom();
   const current = player === null ? shellRoom : null;
 
@@ -110,8 +103,6 @@ export const useRoomCommands = (context: CommandContext): CommandContribution =>
             },
           ];
 
-    // A device in a room with another profile can still leave it, without naming what it plays.
-    // A host leaving ends the room for everyone, so the host's item says so.
     const elsewhere: ReadonlyArray<CommandItem> =
       current === null
         ? []

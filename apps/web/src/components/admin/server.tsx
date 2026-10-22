@@ -18,7 +18,6 @@ type Health =
   | { readonly status: "up"; readonly health: HealthResponse }
   | { readonly status: "down" };
 
-/** The media service's health, polled while mounted. It is public, so no session is sent. */
 const useMediaHealth = (): Health => {
   const [state, setState] = useState<Health>({ status: "loading" });
 

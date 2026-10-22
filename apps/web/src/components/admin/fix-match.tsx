@@ -30,19 +30,13 @@ import { Poster } from "./poster";
 
 const SEARCH_DELAY_MS = 400;
 
-/** Where the TMDB search stands. */
 type SearchResults =
   | { readonly status: "idle" }
   | { readonly status: "searching" }
   | { readonly status: "done"; readonly candidates: ReadonlyArray<MetadataCandidate> }
   | { readonly status: "failed"; readonly message: string }
-  /** The server has no metadata provider, or cannot reach it; hand edits still work. */
   | { readonly status: "unavailable" };
 
-/**
- * How a failed search reads: a missing or unreachable provider (the media service answers
- * `Internal`, or cannot be reached) leaves search unavailable rather than broken.
- */
 const searchFailure = (cause: unknown): SearchResults => {
   if (isFailure(cause, "RateLimited")) {
     return { status: "failed", message: "TMDB is busy. Try again in a moment." };
@@ -96,7 +90,6 @@ export function FixMatchScreen({
   );
 }
 
-/** What the hand-edit fields hold. */
 interface HandEdit {
   readonly name: string;
   readonly year: string;
@@ -113,7 +106,6 @@ const editFor = (source: {
   tmdbId: source.tmdbId ?? "",
 });
 
-/** The overrides to save: only the fields an admin changed by hand. */
 const overridesFor = (name: string | null, year: number | null): MetadataOverrides => {
   if (name !== null && year !== null) return { name, year };
 
@@ -128,7 +120,6 @@ const parseYear = (text: string): number | null => {
   return text.trim() !== "" && Number.isInteger(year) && year >= 1870 && year <= 2200 ? year : null;
 };
 
-/** What applying the hand edit changes: a new TMDB match, a new name, a new year. */
 interface MatchPlan {
   readonly tmdbId: string;
   readonly rematch: boolean;
@@ -139,10 +130,6 @@ interface MatchPlan {
   readonly yearInvalid: boolean;
 }
 
-/**
- * Compares the hand edit with what a save produces anyway, the current title or the candidate a
- * new TMDB ID matches, so only real changes become overrides.
- */
 const planFor = ({
   currentTmdbId,
   current,
@@ -349,7 +336,6 @@ function MatchEditor({
   );
 }
 
-/** The title as matched now, with the file's runtime and quality. */
 function CurrentMatch({ file }: { readonly file: LibraryFile }) {
   const { title } = file;
 

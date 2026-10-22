@@ -1,7 +1,3 @@
-/**
- * The richer parts of a title's page: scores, provider links, credit lines, the cast and crew row
- * with round photos, the trailer dialog, the collection the title belongs to, and More like this.
- */
 import type { CollectionId, ProfileId, TitleId } from "@movies/contracts/ids";
 import type {
   Credit,
@@ -29,7 +25,6 @@ import type { TrailerDialog as TrailerDialogComponent } from "./trailer-dialog";
 
 const loadTrailerDialog = () => import("./trailer-dialog");
 
-/** People the cast row shows: the billed cast, then the crew who made the title. */
 const CAST_ROW_LIMIT = 24;
 
 /** `IMDb 7.9 · RT 88% · MC 73 · TMDB 7.1`, each score labeled for screen readers. */
@@ -142,7 +137,6 @@ export function CreditSummary({
   );
 }
 
-/** A round photo with a name and what they did, linking to the person's page. */
 function PersonCard({
   personId,
   name,
@@ -179,7 +173,6 @@ function PersonCard({
   );
 }
 
-/** An actor's character, or a crew member's job such as `Director`. */
 const roleOf = (credit: Credit): string | null =>
   credit.kind === "actor" || credit.kind === "guest-star"
     ? credit.role
@@ -228,11 +221,7 @@ export function TrailerButton({
   readonly phone: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  // The dialog's module loads as the pointer or focus reaches the button, so it is mounted, closed,
-  // before the press and opening it animates. It then stays mounted, so closing animates too.
   const [dialog, setDialog] = useState<typeof TrailerDialogComponent | null>(null);
-  // A press before the module arrived waits for the same load; a failed load, such as after a
-  // redeploy, is a toast, and the next press tries again.
   const [pending, setPending] = useState(false);
   const loading = useRef<Promise<typeof TrailerDialogComponent> | null>(null);
   const src = trailerEmbedUrl(trailer.key);
@@ -256,7 +245,6 @@ export function TrailerButton({
     return loading.current;
   };
 
-  // Warming up only; a failure shows when the button is pressed.
   const prepare = (): void => {
     load().catch(() => undefined);
   };

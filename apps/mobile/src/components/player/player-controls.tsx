@@ -1,10 +1,3 @@
-/**
- * The player's controls over the video (F01): close, the title, AirPlay, and lock on top; brightness
- * and volume at the sides; back 10, play or pause, and forward 10 in the middle; the scrubber; and
- * speed, Audio & Subtitles, Watch Together (or the room's pill, F16), and More along the bottom. A
- * scrim darkens the top and the bottom so white reads over any frame. A watch room's guest follows
- * the host's timeline, so it gets no transport and a scrubber that only shows the position.
- */
 import { Button as MenuButton, Host, Menu, RNHostView } from "@expo/ui/swift-ui";
 import { onDisappear } from "@expo/ui/swift-ui/modifiers";
 import { VideoAirPlayButton } from "expo-video";
@@ -45,7 +38,6 @@ export interface MoreItem {
   readonly onPress: () => void;
 }
 
-/** The bottom row's Watch Together action: start a room (F01), or open the room's pane (F16). */
 type TogetherAction =
   | { readonly kind: "start"; readonly onPress: () => void }
   | { readonly kind: "room"; readonly count: number; readonly onPress: () => void };
@@ -106,7 +98,6 @@ export function RoundButton({
   );
 }
 
-/** A skip button: the turning arrow with the seconds under it. */
 function SkipButton({
   direction,
   onPress,
@@ -147,7 +138,6 @@ export function BarAction({
   return (
     <Pressable
       onPress={onPress}
-      // 36pt tall like More beside it; the slop keeps the touch target past 44pt.
       hitSlop={8}
       accessibilityRole="button"
       accessibilityLabel={label}
@@ -186,7 +176,6 @@ export function RoomPill({
   );
 }
 
-/** Watch Together or the room's pill, as the bottom row shows it. */
 function Together({ action }: { readonly action: TogetherAction }) {
   return action.kind === "start" ? (
     <BarAction icon={UsersRound} label="Watch Together" onPress={action.onPress} />
@@ -284,7 +273,6 @@ export function PlayerControls(props: PlayerControlsProps) {
   return (
     <View className="absolute inset-0" pointerEvents="box-none">
       <LinearGradient
-        // Paper's scrim: dim at the top, clear through the middle, black at the bottom.
         colors={[scrim, "transparent", bottom]}
         locations={[0, 0.45, 1]}
         style={StyleSheet.absoluteFill}
@@ -377,15 +365,12 @@ export function PlayerControls(props: PlayerControlsProps) {
             disabled={!timeline}
           />
         </View>
-        {/* Paper's condensed toolbar: 4pt above, 12pt below, the actions grouped on the left. */}
         <View
           className="flex-row items-center gap-8 pt-1 pb-3"
           style={row}
           pointerEvents="box-none"
         >
-          {/* The actions give way first, so More stays on the row with large text. */}
           <View className="min-w-0 flex-1 flex-row items-center gap-8" pointerEvents="box-none">
-            {/* A room plays at one speed for everyone. */}
             {props.together?.kind === "room" ? null : (
               <BarAction label={props.rateLabel} onPress={props.onSpeed} />
             )}

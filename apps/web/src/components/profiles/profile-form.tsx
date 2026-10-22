@@ -1,7 +1,3 @@
-/**
- * Creating and editing a profile: avatar (through the pencil), name, kids profile with its maximum
- * rating, an optional PIN, and deleting the profile.
- */
 import { AgeRating, KIDS_DEFAULT_MAX_AGE } from "@movies/contracts/content-rating";
 import type { Profile } from "@movies/contracts/models/profiles";
 import { useCommand } from "@movies/sdk/react";
@@ -25,18 +21,15 @@ import { useProfileChoice } from "@/session/profile-choice";
 
 const age = Schema.decodeSync(AgeRating);
 
-/** The maximum ratings a kids profile can pick, as Paper lists them. */
 const KIDS_RATINGS: ReadonlyArray<{ readonly label: string; readonly age: AgeRating }> = [
   { label: "G", age: age(0) },
   { label: "PG", age: KIDS_DEFAULT_MAX_AGE },
   { label: "PG-13", age: age(13) },
 ];
 
-/** The first avatar no other profile uses, leaving the kids one to kids profiles. */
 const firstFreeAvatar = (takenAvatars: ReadonlyArray<string>): string =>
   AVATAR_KEYS.find((key) => key !== "kids" && !takenAvatars.includes(key)) ?? "red";
 
-/** What the form starts with. */
 interface StartingValues {
   readonly name: string;
   readonly avatar: string;
@@ -45,7 +38,6 @@ interface StartingValues {
   readonly hasPin: boolean;
 }
 
-/** The profile's own settings, or a new profile's defaults. */
 const startingValues = (profile: Profile | undefined, freeAvatar: string): StartingValues => ({
   name: profile?.name ?? "",
   avatar: profile?.avatar ?? freeAvatar,
@@ -78,7 +70,6 @@ export function ProfileForm({
   const start = startingValues(profile, freeAvatar);
   const [name, setName] = useState(start.name);
   const [avatar, setAvatar] = useState(start.avatar);
-  // A new profile's avatar follows the kids switch until someone picks one.
   const avatarPicked = useRef(profile !== undefined);
   const [kids, setKids] = useState(start.kids);
   const [maxAge, setMaxAge] = useState<AgeRating>(start.maxAge);
@@ -253,7 +244,6 @@ export function ProfileForm({
   );
 }
 
-/** A kids profile's maximum rating, one pill per rating. */
 function MaxRatingChoice({
   value,
   onChange,
@@ -289,7 +279,6 @@ function MaxRatingChoice({
   );
 }
 
-/** Asks once more before deleting the profile. */
 function ConfirmDelete({
   name,
   pending,
@@ -323,7 +312,6 @@ function SettingRow({ label, children }: { readonly label: string; readonly chil
   );
 }
 
-/** The avatar with its pencil; the pencil opens the avatar set. */
 function AvatarPicker({
   name,
   value,

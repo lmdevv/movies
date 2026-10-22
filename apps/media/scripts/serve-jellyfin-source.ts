@@ -1,15 +1,3 @@
-/**
- * Serves a Jellyfin to migrate from over the generated fixture library in a folder, for the web
- * app's browser tests: the recorded Jellyfin server (`src/migration/testing/jellyfin-fixture.ts`)
- * by default, or with `--docker` a real Jellyfin in Docker set up over the same library
- * (`src/migration/testing/jellyfin-docker.ts`). Either way Jellyfin sees the folder's `movies` and
- * `shows` as `/media/movies` and `/media/shows`.
- *
- * Prints one JSON line, `{ "url", "apiKey", "version" }`, once the server answers, then runs until
- * SIGTERM or SIGINT, when it stops the server (and removes the container).
- *
- *   node scripts/serve-jellyfin-source.ts /tmp/movies-migration [--docker]
- */
 import { resolve } from "node:path";
 
 import { Effect, Exit, Scope } from "effect";
@@ -30,7 +18,6 @@ const root = resolve(workspace);
 
 const scope = Scope.makeUnsafe();
 
-/** Starts the source and returns what callers connect with, and how to stop it. */
 const start = async (): Promise<{
   readonly url: string;
   readonly apiKey: string;

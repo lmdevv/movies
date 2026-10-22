@@ -1,4 +1,3 @@
-/** G09 · End this room?: ending stops playback for everyone; Keep Watching closes the sheet. */
 import { useCommand } from "@movies/sdk/react";
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";

@@ -1,7 +1,3 @@
-/**
- * The kit's cards bound to titles: links to a title's page (or straight to playback for Continue
- * watching), artwork from the media service, and detail prefetch on hover and focus.
- */
 import type { ContinueWatchingItem, TitleCard } from "@movies/contracts/models/catalog";
 import { LandscapeCard, PosterCard } from "@movies/ui/components/media-card";
 import { Link } from "@tanstack/react-router";
@@ -61,13 +57,11 @@ export function TitleLandscapeCard({
   );
 }
 
-/** The two lines of a Continue watching card. */
 interface ContinueText {
   readonly title: string;
   readonly subtitle: string | undefined;
 }
 
-/** What a Continue watching card says: `Severance · S2:E4` over `41m left` or `Next`. */
 const continueText = (item: ContinueWatchingItem, phone: boolean): ContinueText => {
   const left =
     item.progress === null || item.progress.watched

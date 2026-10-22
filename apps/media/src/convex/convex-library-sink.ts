@@ -1,11 +1,3 @@
-/**
- * `LibrarySink` over Convex: the scanner's batches go to `mediaService:upsertScanned` and
- * `markMissing`, and the known files come from `mediaService:fileIndex`. Convex stores absolute
- * paths; this module converts them to and from paths relative to the scanned folder.
- *
- * Scan progress has no Convex function of its own: it travels with the scan job's lease renewal.
- * The sink keeps each library's latest progress for the job runner (`ScanProgress`).
- */
 import type { LibraryId } from "@movies/contracts/ids";
 import type { UpsertedFile } from "@movies/contracts/models/scan";
 import { Context, Effect, Layer, Option, Ref, Stream } from "effect";
@@ -37,23 +29,15 @@ const failed =
   (cause: unknown): LibrarySink.LibrarySinkFailed =>
     new LibrarySink.LibrarySinkFailed({ operation, cause });
 
-/** Credit and collection writes in flight at once during a scan. */
 const DETAIL_CONCURRENCY = 8;
 
-/** Titles and episodes whose last write digest the sink remembers before starting over. */
 const SENT_CAPACITY = 50_000;
 
-/** Builds the sink and its progress board. */
 const make = Effect.gen(function* () {
   const backend = yield* MediaBackend.Service;
   const keys = yield* ArtworkKeys.Service;
   const progress = yield* Ref.make<ReadonlyMap<LibraryId, LibrarySink.ScanProgress>>(new Map());
 
-  /**
-   * What this scan sent per title or episode, so it writes a show's credits once rather than once
-   * per episode file. It starts empty with every scan (`previousIndex`), because a metadata
-   * refresh may have changed what Convex holds since; Convex compares digests itself.
-   */
   const sent = new Map<string, string>();
 
   const previousIndex = Effect.fn("ConvexLibrarySink.previousIndex")(function* (
@@ -96,11 +80,6 @@ const make = Effect.gen(function* () {
     );
   });
 
-  /**
-   * Sends `write` unless Convex already stores `digest` (`stored`) or this scan already sent it
-   * for `key`. The key is marked before the write, so concurrent writes of one batch send once;
-   * a failed write unmarks it for the next scan.
-   */
   const once = <E>(
     key: string,
     digest: string,
@@ -119,7 +98,6 @@ const make = Effect.gen(function* () {
       );
     });
 
-  /** Credits and the collection of each title (and episode) a batch touched. */
   const writeDetails = Effect.fn("ConvexLibrarySink.writeDetails")(function* (
     folder: LibrarySink.LibraryFolder,
     written: ReadonlyArray<{
@@ -163,7 +141,6 @@ const make = Effect.gen(function* () {
         const episodeCredits = yield* toScannedCredits(folder, file.episode.credits, keys.seal);
         const episodeHash = digestOf(episodeCredits);
 
-        // An episode without credits that never had any needs no write either.
         const stored =
           upserted.episodeCreditsHash ?? (episodeCredits.length === 0 ? episodeHash : null);
 
@@ -211,8 +188,6 @@ const make = Effect.gen(function* () {
       })
       .pipe(Effect.mapError(failed("upsertBatch")));
 
-    // Credits and collections are extras: the files are stored, so a failed extra is logged and
-    // written again by the next scan of the title, without failing this one.
     yield* writeDetails(
       folder,
       items.flatMap((entry, index) => {

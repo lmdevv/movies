@@ -1,8 +1,3 @@
-/**
- * What the media service and Convex exchange while a migration runs: the stored plan, its
- * checkpoint, the catalog the media service matches source items against, and idempotent import
- * batches. Matching happens in the media service, so every write names [movies] IDs.
- */
 import { Schema } from "effect";
 
 import { EpisodeId, LibraryId, MediaFileId, ProfileId, TitleId, UserId } from "../ids";

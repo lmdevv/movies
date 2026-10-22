@@ -1,9 +1,3 @@
-/**
- * The library the stack suite scans with the real media service: tiny ffmpeg clips named the way
- * people name their files, NFO files with certifications (so kids profiles see some titles and not
- * others), and posters, backdrops, and episode stills drawn in the browser. Nothing is committed;
- * the suite generates it into a temporary folder.
- */
 import { execFile } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -15,10 +9,8 @@ const run = promisify(execFile);
 
 const ffmpegPath = process.env["FFMPEG_PATH"] ?? "ffmpeg";
 
-/** How a fixture file is encoded, which decides the badges its title page shows. */
 type Encoding = "uhd-hdr" | "hd";
 
-/** A movie of the fixture library. */
 interface FixtureMovie {
   readonly name: string;
   readonly year: number;
@@ -30,7 +22,6 @@ interface FixtureMovie {
   readonly encoding: Encoding;
 }
 
-/** Movies from all ages to adults only, so kids profiles see some and not others. */
 const MOVIES: ReadonlyArray<FixtureMovie> = [
   {
     name: "Dune Part Two",
@@ -134,7 +125,6 @@ const MOVIES: ReadonlyArray<FixtureMovie> = [
   },
 ];
 
-/** The show: two seasons of short episodes. */
 const SHOW = {
   name: "Severance",
   year: 2022,
@@ -152,7 +142,6 @@ const SHOW = {
 /** How many titles the movies folder holds. */
 export const MOVIE_COUNT = MOVIES.length;
 
-/** Hue pairs that read like film posters: warm sand, steel blue, wine, olive, plum, teal. */
 const PALETTES: ReadonlyArray<readonly [string, string]> = [
   ["#c3a07c", "#4f3d2d"],
   ["#4b6584", "#141d2b"],
@@ -177,7 +166,6 @@ const escapeXml = (text: string): string =>
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 
-/** What an image shows: a poster lettered with the name, or a plain backdrop or still. */
 type ArtKind = "poster" | "backdrop" | "still";
 
 const ART_SIZES: Readonly<Record<ArtKind, readonly [number, number]>> = {
@@ -186,10 +174,6 @@ const ART_SIZES: Readonly<Record<ArtKind, readonly [number, number]>> = {
   still: [960, 540],
 };
 
-/**
- * A gradient colored from `name`, with the name lettered on posters the way Paper draws them.
- * Backdrops stay plain, as the hero draws the name over them.
- */
 const artSvg = (kind: ArtKind, name: string): string => {
   const [from, to] = PALETTES[hash(name) % PALETTES.length] ?? ["#444444", "#111111"];
   const [width, height] = ART_SIZES[kind];
@@ -202,14 +186,12 @@ const artSvg = (kind: ArtKind, name: string): string => {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${String(width)}" height="${String(height)}" viewBox="0 0 ${String(width)} ${String(height)}"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs><rect width="${String(width)}" height="${String(height)}" fill="url(#g)"/>${lettering}</svg>`;
 };
 
-/** One image to draw: what it shows and where it goes. */
 interface ArtJob {
   readonly kind: ArtKind;
   readonly name: string;
   readonly path: string;
 }
 
-/** Draws one image as a JPEG in its own page. */
 const drawArt = async (browser: Browser, job: ArtJob): Promise<void> => {
   const [width, height] = ART_SIZES[job.kind];
   const page = await browser.newPage({ viewport: { width, height } });
@@ -227,7 +209,6 @@ const drawArt = async (browser: Browser, job: ArtJob): Promise<void> => {
 
 const silentAudio = ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"];
 
-/** Encoder arguments per encoding: 4K HEVC Main 10 tagged HDR10 with 5.1 E-AC-3, or 1080p H.264. */
 const ENCODINGS: Readonly<Record<Encoding, ReadonlyArray<string>>> = {
   "uhd-hdr": [
     "-f",
@@ -282,7 +263,6 @@ const encode = async (encoding: Encoding, output: string): Promise<void> => {
   ]);
 };
 
-/** Runs `tasks` with at most `limit` at a time. */
 const pooled = async (tasks: ReadonlyArray<() => Promise<void>>, limit: number): Promise<void> => {
   const queue = [...tasks];
 

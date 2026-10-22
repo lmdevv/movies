@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { formatAgo, formatBytes, formatDate, formatSpan, formatUntil, plural } from "./format";
 
-// Local times, so calendar assertions hold in any time zone.
 const NOW = new Date(2026, 9, 12, 12, 0, 0).getTime();
 
 const MINUTE = 60_000;

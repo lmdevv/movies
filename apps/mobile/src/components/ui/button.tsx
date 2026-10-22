@@ -1,8 +1,3 @@
-/**
- * Pill buttons from Paper's foundations board: 52pt tall, full radius, 17pt semibold labels with
- * an optional 20pt leading icon. Primary is the filled red action, secondary the raised surface,
- * destructive an outlined danger pill, and plain a borderless text action.
- */
 import * as Haptics from "expo-haptics";
 import type { LucideIcon } from "lucide-react-native";
 import type { ReactNode } from "react";
@@ -18,15 +13,11 @@ const VARIANTS = {
   secondary: { box: "bg-surface-raised active:opacity-80", tone: "default" },
   destructive: { box: "border border-danger active:opacity-70", tone: "danger" },
   plain: { box: "active:opacity-60", tone: "default" },
-  /** A borderless danger action that opens a confirmation, such as Delete Profile (B03). */
   plainDestructive: { box: "active:opacity-60", tone: "danger" },
-  /** Secondary over artwork and video: white on the glass fill. */
   glass: { box: "bg-glass active:opacity-80", tone: "onMedia" },
-  /** Secondary on the player's dark panels, whatever the theme (F09). */
   onDark: { box: "bg-dark-surface-raised active:opacity-80", tone: "onMedia" },
 } as const satisfies Record<string, { box: string; tone: TextTone }>;
 
-/** How a button looks. */
 type ButtonVariant = keyof typeof VARIANTS;
 
 /** Props for `Button`. */

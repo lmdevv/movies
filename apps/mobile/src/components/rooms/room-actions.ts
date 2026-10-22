@@ -1,7 +1,3 @@
-/**
- * What the player and the room's pages share: copying the invite link, joining a room, each with
- * the state its buttons show, and this device's estimate of the server's clock.
- */
 import { estimateClockOffset } from "@movies/contracts/clock";
 import type { RoomId } from "@movies/contracts/ids";
 import { useCommand } from "@movies/sdk/react";
@@ -80,7 +76,6 @@ export const useJoinRoom = (roomId: RoomId | null) => {
   return { busy, error, join };
 };
 
-/** A clock offset read for a room. */
 interface RoomClockRead {
   readonly roomId: RoomId;
   readonly offsetMs: number;
@@ -110,7 +105,6 @@ export const useServerClock = (
 
         return undefined;
       },
-      // The room engine estimates the offset again; meanwhile the device's clock stands in.
       () => {
         if (active) setClock({ roomId, offsetMs: 0 });
       },

@@ -1,13 +1,3 @@
-/**
- * The Convex CLI of the deployed `@movies/backend` package (`CONVEX_BACKEND_DIR`), run with the
- * self-hosted deployment's admin key for the work only an admin can do: `convex export`,
- * `convex import --replace-all`, and internal functions such as `maintenance:endAllSessions`.
- *
- * The CLI runs in the backend package folder (it reads that `package.json`) with an environment of
- * exactly the deployment URL and the admin key, so nothing else of this process leaks into it.
- * The key leaves `Redacted` only in that environment; diagnostics carry the operation, the exit
- * code, and the tail of the CLI's output with the key and absolute paths replaced.
- */
 import { join } from "node:path";
 
 import { Context, Effect, Fiber, Layer, Option, Redacted, Ref, Schema, Stream } from "effect";
@@ -15,10 +5,8 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import * as MediaConfig from "../media-config.ts";
 
-/** What the CLI was asked to do. */
 type Operation = "export" | "import" | "run";
 
-/** Backups need the admin key and the backend package, and one of them is not configured. */
 class ConvexCliUnavailable extends Schema.TaggedError<ConvexCliUnavailable>()(
   "ConvexCliUnavailable",
   { missing: Schema.Array(Schema.String) },
@@ -28,11 +16,9 @@ class ConvexCliUnavailable extends Schema.TaggedError<ConvexCliUnavailable>()(
   }
 }
 
-/** The CLI could not start, or exited unsuccessfully. */
 class ConvexCliFailed extends Schema.TaggedError<ConvexCliFailed>()("ConvexCliFailed", {
   operation: Schema.Literals(["export", "import", "run"]),
   exitCode: Schema.NullOr(Schema.Int),
-  /** The tail of the CLI's output, with the admin key and absolute paths replaced. */
   output: Schema.String,
   cause: Schema.Defect(),
 }) {
@@ -62,14 +48,12 @@ export class Service extends Context.Service<Service, Interface>()("@movies/medi
 
 const OUTPUT_TAIL = 4096;
 
-/** Replaces the admin key and absolute paths among `secrets` in CLI output. */
 const scrub = (text: string, secrets: ReadonlyArray<string>): string =>
   secrets
     .filter((secret) => secret.length > 1)
     .toSorted((left, right) => right.length - left.length)
     .reduce((scrubbed, secret) => scrubbed.replaceAll(secret, "<redacted>"), text);
 
-/** Builds the CLI over the platform's child process spawner. */
 const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -137,7 +121,6 @@ const make = Effect.gen(function* () {
       const code = yield* handle.exitCode.pipe(Effect.mapError((cause) => failed(null, "", cause)));
       const printed = yield* Fiber.join(stdout);
 
-      // The CLI's last error lines are the useful ones; read the tail only once stderr is drained.
       yield* Fiber.join(stderr);
 
       if (code !== ChildProcessSpawner.ExitCode(0)) {

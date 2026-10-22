@@ -27,8 +27,6 @@
             pkgs.pnpm
             # ffmpeg-full carries libvpl (Intel QSV); the default ffmpeg does not.
             pkgs.ffmpeg-full
-            # scripts/demo-library.sh: downloads, Blender zips, and spumux with a known font for
-            # the image (VobSub) subtitle.
             pkgs.curl
             pkgs.unzip
             pkgs.dvdauthor
@@ -54,7 +52,6 @@
         // nixpkgs.lib.optionalAttrs isLinux { inherit movies; }
       );
 
-      # `nix run github:lmdevv/movies -- whoami`; on Linux, `nix build` builds the server.
       apps = forAllSystems (
         pkgs:
         let
@@ -87,8 +84,6 @@
         default = self.homeManagerModules.movies;
       };
 
-      # Builds the package, evaluates the module in minimal systems (catching option and type
-      # errors and shellchecking the startup script), and boots it in a NixOS VM (`vm`).
       checks = forLinux (
         pkgs:
         let
@@ -131,7 +126,6 @@
         in
         {
           package = self.packages.${pkgs.stdenv.hostPlatform.system}.movies;
-          # Builds the CLI, so a stale pnpm dependency hash fails `nix flake check`.
           inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) cli;
           module = evaluate { };
           module-qsv = evaluate {
@@ -224,8 +218,6 @@
               actual == expected
             ) "programs.movies: expected ${builtins.toJSON expected}, got ${builtins.toJSON actual}";
             pkgs.writeText "movies-cli-module-check" (builtins.toJSON actual);
-          # homeManagerModules.movies against stand-ins for the two Home Manager options it sets,
-          # typed like Home Manager's own, so the flake needs no home-manager input.
           home-module =
             let
               inherit (nixpkgs) lib;

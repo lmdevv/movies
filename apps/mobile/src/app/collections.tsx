@@ -1,4 +1,3 @@
-/** C07 · Collections: every collection with a title this profile may see, as wide cards. */
 import { useCommandQuery } from "@movies/sdk/react";
 import { Library } from "lucide-react-native";
 import { ActivityIndicator, FlatList } from "react-native";

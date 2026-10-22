@@ -1,4 +1,3 @@
-/** H28 · Audio & Subtitles: the preferred audio language, subtitles, and audio description. */
 import { router } from "expo-router";
 
 import { ListRow } from "@/components/ui/list-row";

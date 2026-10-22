@@ -1,10 +1,3 @@
-/**
- * I15 · Add Your First Library: first run's second step, after the owner account, and the screen
- * the owner stack opens on during first run. Add & Scan
- * follows the first scan (I06), from which Keep Browsing goes Home while it runs; Set Up Later
- * goes Home now. Owner setup that began with Import from Jellyfin or Plex opens the import over
- * this screen, so backing out of it lands here.
- */
 import { useCommand } from "@movies/sdk/react";
 import { router } from "expo-router";
 import { useEffect } from "react";
@@ -23,7 +16,6 @@ export default function AddYourFirstLibrary() {
   const finishSetup = useFinishSetup();
   const phase = useSessionPhase();
 
-  // Outside first run (opened from a link) there is no setup to finish; going back is the same.
   const later = useTask(async () => {
     if (phase.kind === "setup") await finishSetup();
     else router.back();

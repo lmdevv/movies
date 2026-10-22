@@ -1,11 +1,3 @@
-/**
- * The playback ladder: direct play, then remux to fMP4 HLS, then audio-only transcode, then a
- * hardware (Quick Sync or VA-API) video transcode with tone mapping when needed, then a software
- * transcode capped at 1080p, tone-mapped when this ffmpeg can. A quality cap the viewer chose
- * (`maxHeight`, `maxBitrate`) sends a source above it down the ladder to an encode within it, and
- * an image subtitle (PGS, VobSub) to burn in always means an encode. Pure: it reads a probe, what
- * the client says it can decode, and what the encoders can do.
- */
 import {
   canonicalCodec as canonical,
   decodesAudio,
@@ -99,7 +91,6 @@ const HLS_AUDIO_CODECS: ReadonlySet<string> = new Set([
 
 const SOFTWARE_MAX = { width: 1920, height: 1080 } as const;
 
-/** Target bitrate in bits per second for an H.264 encode of `height` lines. */
 const bitrateFor = (height: number): number =>
   height > 1440
     ? 20_000_000
@@ -111,7 +102,6 @@ const bitrateFor = (height: number): number =>
           ? 4_000_000
           : 2_000_000;
 
-/** Largest even size that fits `bounds` without upscaling or changing the aspect ratio. */
 const fit = (video: VideoStream, bounds: { readonly width: number; readonly height: number }) => {
   const scale = Math.min(1, bounds.width / video.width, bounds.height / video.height);
   const even = (value: number) => Math.max(2, Math.floor((value * scale) / 2) * 2);
@@ -128,7 +118,6 @@ const selectAudio = (
   return probe.audio.find((track) => track.default) ?? probe.audio[0];
 };
 
-/** Whether `probe` exceeds the viewer's cap, so its video must be encoded down. */
 const exceeds = (probe: MediaProbe, video: VideoStream, quality: PlaybackQuality | undefined) =>
   quality !== undefined &&
   ((quality.maxHeight !== undefined && video.height > quality.maxHeight) ||
@@ -180,7 +169,6 @@ export const decideWithin = (
 
   const defaultAudio = probe.audio.find((track) => track.default) ?? probe.audio[0];
 
-  // A cap the source exceeds, or a subtitle drawn onto the picture, leaves only an encode.
   const mustEncode = burnSubtitle !== undefined || exceeds(probe, video, options.quality);
   const videoOk = decodesVideo(client, video) && !mustEncode;
   const audioOk = audio === undefined || decodesAudio(client, audio);

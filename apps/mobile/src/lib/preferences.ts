@@ -1,19 +1,9 @@
-/**
- * Playback preferences kept on this iPhone (H05 App Settings): the streaming quality cap, what
- * happens on mobile data, the preferred audio and subtitle languages, audio description, and
- * autoplay of the next episode. They are stored as one JSON value; each field that is missing or
- * no longer valid falls back to its default on its own, so one bad field never resets the others.
- */
 import { Effect, Option, Schema } from "effect";
 
 import { LANGUAGES, languageName } from "./languages";
 import { QUALITY_OPTIONS as PLAYER_QUALITY_OPTIONS } from "./player/quality";
 import type { QualityChoice } from "./player/quality";
 
-/**
- * The most the player asks the media service for (H26 Streaming Quality): `auto` lets the service
- * send the best this iPhone plays; the others cap the picture height.
- */
 const StreamingQuality = Schema.Literals([
   "auto",
   "1080p",
@@ -24,13 +14,11 @@ const StreamingQuality = Schema.Literals([
 /** A streaming quality cap. */
 export type StreamingQuality = typeof StreamingQuality.Type;
 
-/** What playback does on mobile data (H27 Mobile Data). */
 const MobileData = Schema.Literals(["askFirst", "allowStreaming", "wifiOnly"]);
 
 /** A mobile data choice. */
 export type MobileData = typeof MobileData.Type;
 
-/** An ISO 639-1 language code from the pickers, such as `en`. */
 const LanguageCode = Schema.String.check(Schema.isPattern(/^[a-z]{2}$/u));
 
 /** The playback preferences of this iPhone. */
@@ -60,11 +48,9 @@ export const DEFAULT_PREFERENCES: PlaybackPreferences = {
   autoplayNext: true,
 };
 
-/** `schema`, reading anything it refuses as `fallback`, so one bad field never resets the others. */
 const orElse = <S extends Schema.Top>(schema: S, fallback: S["Type"]) =>
   Schema.optionalKey(schema.pipe(Schema.catchDecoding(() => Effect.succeedSome(fallback))));
 
-/** The stored JSON: every field optional, each read on its own. */
 const StoredPreferences = Schema.fromJsonString(
   Schema.Struct({
     quality: orElse(StreamingQuality, DEFAULT_PREFERENCES.quality),

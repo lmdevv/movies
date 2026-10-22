@@ -1,4 +1,3 @@
-/** Shapes shared by many commands: pagination, empty arguments, and acknowledgements. */
 import { Schema } from "effect";
 
 /** Arguments of a command that takes none. */

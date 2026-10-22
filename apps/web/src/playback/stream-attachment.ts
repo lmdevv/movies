@@ -1,11 +1,3 @@
-/**
- * Puts a negotiated stream into a `<video>` element: direct files and native HLS through `src`,
- * HLS elsewhere through hls.js (loaded on demand, so direct play never downloads it). Failures
- * reach the caller as a `StreamFailure`, keeping the HTTP status the media service answered with
- * so the caller can tell a replaced generation (410) from a lost stream (404) or an expired token
- * (401). What hls.js sees on the way, every segment it loads and every error, recovered or not,
- * reaches the caller's `observe` for the player diagnostics.
- */
 import { PlayerObservation } from "@movies/contracts/diagnostics";
 import type { NegotiateResponse } from "@movies/contracts/media-playback";
 import type { ErrorData, FragLoadedData } from "hls.js";
@@ -22,7 +14,6 @@ export type StreamFailure =
 /** Receives what the player saw, for the player diagnostics. */
 export type Observe = (observation: PlayerObservation) => void;
 
-/** How long hls.js took to load a media segment, or none for the init segment. */
 const fragmentLoaded = ({ frag }: FragLoadedData): PlayerObservation | null => {
   if (frag.sn === "initSegment") return null;
   const { loading, loaded } = frag.stats;
@@ -55,7 +46,6 @@ export const failureObservation = (failure: StreamFailure): PlayerObservation =>
     status: failure.kind === "http" ? failure.status : undefined,
   });
 
-/** An hls.js error as the diagnostics record it, recovered or not. */
 const hlsError = (data: ErrorData): PlayerObservation =>
   PlayerObservation.cases.PlayerError.make({
     source: "hls.js",
@@ -78,7 +68,6 @@ export interface AttachedStream {
   readonly detach: () => void;
 }
 
-/** Statuses that mean the stream itself is gone or refused; hls.js would not retry them. */
 const TERMINAL_STATUSES: ReadonlySet<number> = new Set([401, 403, 404, 410]);
 
 /** `MediaError.MEDIA_ERR_NETWORK`. */
@@ -91,7 +80,6 @@ const MEDIA_ERR_NETWORK = 2;
 export const usesHlsJs = (mse: boolean): boolean =>
   mse && !/^((?!chrome|android).)*safari/iu.test(navigator.userAgent);
 
-/** Resolves once `element` has data to play at its position. */
 const canPlay = (element: HTMLVideoElement): Promise<void> =>
   new Promise((resolve) => {
     element.addEventListener(
@@ -180,22 +168,16 @@ const attachHlsJs = async (
 ): Promise<AttachedStream> => {
   const { default: Hls } = await preloadHlsJs();
   let mediaRecoveries = 0;
-  /** Where loading starts once the current playlist is parsed. */
   let startFrom = seconds;
 
   const hls = new Hls({
     // Loading starts by hand once each playlist is parsed: a new generation's playlist starts
     // later in the film, and hls.js would otherwise start it from the first configured position.
     autoStartLoad: false,
-    // Fetch the first segment while the init segment and the media source are still being set
-    // up; the media service starts encoding it before the playlist is even requested.
     startFragPrefetch: true,
-    // One rendition: there is nothing to choose between, so no bandwidth test delays the start.
     testBandwidth: false,
-    // A transcode produces segments a little faster than real time; half a minute is plenty.
     maxBufferLength: 30,
     backBufferLength: 30,
-    // Segments wait on ffmpeg; the media service answers 503 when one was not produced in time.
     fragLoadPolicy: {
       default: {
         maxTimeToFirstByteMs: 20_000,
@@ -218,7 +200,6 @@ const attachHlsJs = async (
 
     if (failure === null) return;
 
-    // A decoder hiccup often recovers in place once; a second one means the path does not work.
     if (failure.kind === "media" && mediaRecoveries === 0) {
       mediaRecoveries += 1;
       observe(

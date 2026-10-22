@@ -22,7 +22,6 @@ type VideoCodecSupport = ClientCapabilities["videoCodecs"][number];
 
 type AudioCodecSupport = ClientCapabilities["audioCodecs"][number];
 
-/** The largest picture negotiation offers without transcoding; larger files are scaled down. */
 const MAX_SIZE = { width: 3840, height: 2160 } as const;
 
 /** H.264 at level 5.1, 5.0, and 4.1, as `avc1` strings and ffprobe levels. */
@@ -33,7 +32,6 @@ const H264_LEVELS: ReadonlyArray<readonly [string, number]> = [
   ["avc1.42E01E", 30],
 ];
 
-/** Codec strings for one codec at 8 and 10 bits, and the HDR formats its 10-bit variant carries. */
 interface CodecProbe {
   readonly codec: string;
   readonly eightBit: string;
@@ -46,7 +44,6 @@ const VIDEO_PROBES: ReadonlyArray<CodecProbe> = [
   { codec: "vp9", eightBit: "vp09.00.40.08", tenBit: "vp09.02.40.10" },
 ];
 
-/** Audio codecs by ffmpeg name and the MIME types that test them. */
 const AUDIO_PROBES: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [
   ["aac", ['audio/mp4; codecs="mp4a.40.2"']],
   ["mp3", ["audio/mpeg", 'audio/mp4; codecs="mp4a.6B"']],
@@ -57,7 +54,6 @@ const AUDIO_PROBES: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [
   ["vorbis", ['audio/webm; codecs="vorbis"']],
 ];
 
-/** Progressive containers worth trying directly, and the MIME type that tests each. */
 const CONTAINER_PROBES: ReadonlyArray<readonly [ClientCapabilities["containers"][number], string]> =
   [
     ["mp4", "video/mp4"],
@@ -68,7 +64,6 @@ const CONTAINER_PROBES: ReadonlyArray<readonly [ClientCapabilities["containers"]
 
 const videoType = (codecs: string): string => `video/mp4; codecs="${codecs}"`;
 
-/** Whether the browser decodes `type`, through Media Source Extensions or a "probably". */
 const decodes = (support: MediaSupport, type: string): boolean =>
   (support.isTypeSupported?.(type) ?? false) || support.canPlayType(type) === "probably";
 

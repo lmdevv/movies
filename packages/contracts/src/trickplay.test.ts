@@ -13,7 +13,6 @@ import {
 
 const decodeManifest = Schema.decodeUnknownSync(TrickplayManifest);
 
-/** A two-hour film at 10 seconds: 720 thumbnails on eight 10 × 10 sheets. */
 const film = decodeManifest({
   version: trickplayVersion(4_000_000_000, 1_760_000_000_000),
   intervalMs: 10_000,
@@ -53,7 +52,6 @@ describe("trickplayTile", () => {
       positionMs: 0,
     });
 
-    // 1:23:45 is thumbnail 502: sheet 5, row 0, column 2.
     expect(trickplayTile(film, 5_025_000)).toEqual({
       sheet: 5,
       x: 640,
@@ -63,7 +61,6 @@ describe("trickplayTile", () => {
       positionMs: 5_020_000,
     });
 
-    // 9:59 is thumbnail 59: row 5, column 9.
     expect(trickplayTile(film, 599_999)).toMatchObject({ sheet: 0, x: 2880, y: 680 });
   });
 

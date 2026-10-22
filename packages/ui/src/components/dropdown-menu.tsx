@@ -12,7 +12,6 @@ function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props) {
   return <MenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />;
 }
 
-/** The menu panel: a raised surface with a hairline border and the overlay shadow. */
 function DropdownMenuContent({
   align = "start",
   alignOffset = 0,

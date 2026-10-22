@@ -1,10 +1,3 @@
-/**
- * The next-episode card: near the end of an episode, the credits keep playing in the full frame
- * while a compact card in the corner names the next episode and counts down to it. Play next plays
- * it now; Watch credits cancels the countdown and closes the card. In a watch room the host's card
- * acts for everyone, and a guest's only follows. Paper 07 · 05 still draws the earlier layout (the
- * video shrunk beside a large still); this one awaits its Paper check.
- */
 import type { Episode } from "@movies/contracts/models/catalog";
 import { Button } from "@movies/ui/components/button";
 import { cn } from "@movies/ui/lib/utils";
@@ -56,7 +49,6 @@ export function AutoplayNext({
 }) {
   return (
     <div className="on-media pointer-events-none absolute inset-0 p-4 font-sans md:p-12 short:p-4">
-      {/* The safe areas pad this box rather than the card, so the card's full width stays inside. */}
       <div className="flex size-full items-end justify-end pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)]">
         <section
           aria-label="Next episode"
@@ -105,17 +97,14 @@ export function AutoplayNext({
   );
 }
 
-/** "Starts in 7 seconds", for `countdownMs` left. */
 const startsIn = (countdownMs: number): string => {
   const seconds = secondsLeft(countdownMs);
 
   return `Starts in ${String(seconds)} ${seconds === 1 ? "second" : "seconds"}`;
 };
 
-/** The whole seconds left, as the card shows them. */
 const secondsLeft = (countdownMs: number): number => Math.max(0, Math.ceil(countdownMs / 1000));
 
-/** The card's buttons, or a guest's countdown, or why the next episode cannot play. */
 function CardActions({ actions }: { readonly actions: NextEpisodeActions }) {
   const describedBy = useId();
 
@@ -181,15 +170,9 @@ function CardActions({ actions }: { readonly actions: NextEpisodeActions }) {
   );
 }
 
-/** The share of the countdown gone once `countdownMs` is left, from 0 to 1. */
 const gone = (countdownMs: number): string =>
   String(Math.min(1, Math.max(0, 1 - countdownMs / AUTOPLAY_COUNTDOWN.totalMs)));
 
-/**
- * The countdown's progress across its control, from the left. It opens empty and glides over each
- * step toward where the countdown will be at the next one, so it is full as the next episode
- * starts. For viewers who asked for less motion it shows where the countdown is, a step at a time.
- */
 function CountdownFill({
   countdownMs,
   className,
@@ -223,10 +206,6 @@ function CountdownFill({
   );
 }
 
-/**
- * The seconds left, in a box two digits wide with digits of one width, so nothing beside it moves
- * as they count down. Hidden from screen readers, which would read every tick.
- */
 function Seconds({ value }: { readonly value: number }) {
   return (
     <span

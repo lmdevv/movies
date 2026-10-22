@@ -128,8 +128,6 @@ testers.runNixOSTest {
         assert "+" in version, version
 
     with subtest("a retried upgrade does not back up again"):
-        # As after a deploy that failed: the version file still names the old version, and the
-        # marker the version already backed up for.
         machine.succeed(
             "cd /var/lib/movies/media && cp version upgrade-backup && echo 0.0.0-previous > version"
         )

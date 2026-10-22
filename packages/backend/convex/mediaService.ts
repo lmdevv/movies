@@ -1,8 +1,3 @@
-/**
- * Functions for the media service, which signs in with `MEDIA_SERVICE_API_KEY` through the
- * `apikey` provider. Every function here requires the `media-service` scope, which only that key's
- * session holds; user sessions are refused, and the service session is refused everywhere else.
- */
 import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -76,10 +71,6 @@ const requireLibrary = async (
 ): Promise<Doc<"libraries">> =>
   (await ctx.db.get(libraryId)) ?? fail("not_found", "No such library");
 
-/**
- * Pending jobs of each kind the worker is shown; trickplay jobs run one or two at a time. A record,
- * so a new job kind fails to typecheck until it has a limit here.
- */
 const PENDING_PER_KIND: Readonly<Record<Doc<"jobs">["kind"], number>> = {
   scan: 50,
   metadata: 50,
@@ -89,7 +80,6 @@ const PENDING_PER_KIND: Readonly<Record<Doc<"jobs">["kind"], number>> = {
   trickplay: 10,
 };
 
-/** Every job kind, from the validator itself. */
 const JOB_KINDS = jobKind.members.map((member) => member.value);
 
 /**
@@ -137,7 +127,6 @@ export const claimJob = mutation({
 
     if (doc.status !== "pending" && !lapsed) return null;
 
-    // A lapsed job that used its last attempt fails, as the lease sweep would fail it.
     if (lapsed && doc.attempts >= MAX_JOB_ATTEMPTS) {
       await failAttempt(ctx, doc, { error: LAPSED_LEASE_ERROR, retry: true });
 
@@ -474,7 +463,6 @@ export const applyMetadata = mutation({
     await ctx.db.patch(titleId, {
       ...fields,
       kind: current.kind,
-      // A hand-picked match stays one through later refreshes, so scans keep leaving it alone.
       matchStatus:
         doc.payload.match !== null || current.matchStatus === "manual"
           ? "manual"
@@ -494,10 +482,6 @@ export const applyMetadata = mutation({
   },
 });
 
-/**
- * Whether a metadata write may change `title`: a scan may change any title an admin did not match
- * by hand; a metadata job holding its lease may change the title it is for.
- */
 const mayWriteMetadata = async (
   ctx: MutationCtx,
   title: Doc<"titles">,
@@ -513,7 +497,6 @@ const mayWriteMetadata = async (
 
 const optionalLease = v.optional(v.object(leaseArgs));
 
-/** A credited person as `applyCredits` reports them, with whether a person job should run. */
 const creditedPerson = (person: Doc<"people">) => ({
   personId: person._id,
   tmdbId: person.externalIds.tmdb,
@@ -564,13 +547,10 @@ export const applyCredits = mutation({
       return { written: false, people: [] };
     }
 
-    // A refresh fills credits nobody wrote yet; it never replaces a scan's (often an NFO's cast,
-    // which would only come back at the next scan). A hand-picked match replaces them.
     if (lease !== undefined && stored !== undefined) {
       const held = await requireLeaseOf(ctx, lease.jobId, lease.workerId, "metadata");
 
       if (held.payload.match === null) {
-        // The people already credited still get their details fetched by the refresh.
         const rows = await creditsOf(ctx, titleId, episodeId, CREDIT_LIMIT);
         const people = await Promise.all(rows.map((row) => ctx.db.get(row.personId)));
 
@@ -593,8 +573,10 @@ export const applyCredits = mutation({
   },
 });
 
-/** Where an automatically added member sorts: by year, so a film series reads in order. */
-const positionOf = (title: Doc<"titles">): number => title.overrides?.year ?? title.year ?? 9999;
+const UNDATED_COLLECTION_POSITION = 9999;
+
+const positionOf = (title: Doc<"titles">): number =>
+  title.overrides?.year ?? title.year ?? UNDATED_COLLECTION_POSITION;
 
 /**
  * Puts a title in the collection its metadata names, creating the collection on first sight, and
@@ -627,7 +609,6 @@ export const applyCollection = mutation({
             .query("collections")
             .withIndex("by_source_key", (q) => q.eq("sourceKey", collection.sourceKey))
             .first()) ??
-          // A box set or NFO set of the same name joins it; another TMDB collection never does.
           (
             await ctx.db
               .query("collections")
@@ -676,8 +657,6 @@ export const applyCollection = mutation({
 
     const member = memberships.find((entry) => entry.collectionId === collectionId);
 
-    // An imported membership becomes the metadata one, so a later import that leaves the title out
-    // of that collection no longer drops what the metadata says.
     if (member !== undefined && member.source !== "metadata") {
       await ctx.db.patch(member._id, { source: "metadata" });
     }
@@ -723,7 +702,6 @@ export const applyPerson = mutation({
       return fail("invalid_args", "This job is for another person");
     }
 
-    // A metadata job describes the people credited on its own title, and nobody else.
     if (held.payload.kind === "metadata") {
       const { titleId } = held.payload;
 
@@ -739,7 +717,6 @@ export const applyPerson = mutation({
 
     const person = (await ctx.db.get(personId)) ?? fail("not_found", "No such person");
 
-    // IDs already stored win, as they do for credits; the provider fills the ones missing.
     const externalIds = {
       tmdb: person.externalIds.tmdb ?? details.externalIds.tmdb,
       imdb: person.externalIds.imdb ?? details.externalIds.imdb,
@@ -851,8 +828,6 @@ export const recordTrickplay = mutation({
       return { ok: true as const };
     }
 
-    // Made from other contents than the catalog has: the file changed after its last scan. The
-    // frames cannot be trusted for this record; the scan that notices the change queues a job.
     if (sizeBytes !== file.sizeBytes || mtimeMs !== file.mtimeMs) {
       await ctx.db.patch(fileId, { trickplay: undefined });
 

@@ -1,10 +1,3 @@
-/**
- * The Convex functions the media service calls after signing in with `MEDIA_SERVICE_API_KEY`
- * through the `apikey` provider. Each requires the `media-service` scope, which no user session can
- * hold, and user sessions cannot call them. Convex never calls the media service: the media service
- * subscribes to `pendingJobs`, `libraries`, and `endedSessions` and writes back through these
- * mutations.
- */
 import { Schema } from "effect";
 
 import { mutation, query } from "./commands/command";

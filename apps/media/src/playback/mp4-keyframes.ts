@@ -12,18 +12,14 @@ import { Effect, Option } from "effect";
 
 import type { ReadAt } from "./matroska-cues.ts";
 
-/** The largest `moov` read into memory; a two-hour film's is a few megabytes. */
 const MAX_MOOV_BYTES = 64 * 1024 * 1024;
 
-/** More video samples than this (a day at 120 frames per second) means a corrupt table. */
 const MAX_SAMPLES = 10_368_000;
 
-/** Top-level boxes walked before giving up on finding `moov`. */
 const MAX_TOP_LEVEL_BOXES = 64;
 
 const HEADER_BYTES = 16;
 
-/** A box: its type, where its payload starts, and where it ends, relative to `bytes`. */
 interface Box {
   readonly type: string;
   readonly start: number;
@@ -37,7 +33,6 @@ const uint32 = (view: DataView, offset: number): number => view.getUint32(offset
 
 const uint64 = (view: DataView, offset: number): number => Number(view.getBigUint64(offset));
 
-/** The box header at `offset`, or undefined when it does not fit in `limit`. */
 const headerAt = (view: DataView, offset: number, limit: number): Box | undefined => {
   if (offset + 8 > limit) return undefined;
   const size32 = uint32(view, offset);
@@ -55,7 +50,6 @@ const headerAt = (view: DataView, offset: number, limit: number): Box | undefine
   return size32 !== 0 && size32 < 8 ? undefined : { type, start: offset + 8, end };
 };
 
-/** The child boxes of the payload `[start, end)`. */
 const children = (view: DataView, start: number, end: number): ReadonlyArray<Box> => {
   const boxes: Array<Box> = [];
 
@@ -82,18 +76,12 @@ const path = (view: DataView, parent: Box, types: ReadonlyArray<string>): Box | 
 /** A full box's version byte, after which its fields start four bytes in. */
 const versionOf = (view: DataView, box: Box): number => view.getUint8(box.start);
 
-/** `mvhd` or `mdhd` timescale. */
 const timescaleOf = (view: DataView, box: Box): number =>
   uint32(view, box.start + (versionOf(view, box) === 1 ? 20 : 12));
 
-/** Entries of `size` bytes a table box claims, limited to what fits in the box. */
 const entryCount = (view: DataView, box: Box, size: number): number =>
   Math.max(0, Math.min(uint32(view, box.start + 4), Math.floor((box.end - box.start - 8) / size)));
 
-/**
- * The decode time of every sample, in media timescale units, from `stts`; undefined for a table
- * claiming more samples than any real film has.
- */
 const decodeTimes = (view: DataView, stts: Box): ReadonlyArray<number> | undefined => {
   const count = entryCount(view, stts, 8);
   const times: Array<number> = [];
@@ -115,7 +103,6 @@ const decodeTimes = (view: DataView, stts: Box): ReadonlyArray<number> | undefin
   return times;
 };
 
-/** The composition offset of every sample from `ctts`; zeros without one. */
 const compositionOffsets = (
   view: DataView,
   ctts: Box | undefined,
@@ -188,7 +175,6 @@ const editShift = (
   return delay / movieTimescale - (media[0] ?? 0) / mediaTimescale;
 };
 
-/** Keyframe times in seconds from a whole `moov` box. */
 const keyframesFromMoov = (view: DataView, moov: Box): Option.Option<ReadonlyArray<number>> => {
   if (child(view, moov, "mvex") !== undefined) return Option.none();
   const mvhd = child(view, moov, "mvhd");

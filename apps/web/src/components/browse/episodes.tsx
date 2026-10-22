@@ -1,7 +1,3 @@
-/**
- * A show's seasons and episodes on its page: the season picker, how far the profile is, and the
- * episode rows with progress, the next one highlighted.
- */
 import type { ProfileId } from "@movies/contracts/ids";
 import type { Episode, SeasonEpisode, TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
@@ -35,7 +31,6 @@ const episodeFacts = (episode: Episode): string | undefined => {
   return parts === "" ? undefined : parts;
 };
 
-/** `Mar 31, 2021 · 52m`, the air date and running time at the top of an episode row. */
 const episodeWhen = (episode: Episode): string | undefined => {
   const parts = facts(
     episode.airDate === null ? null : formatDate(episode.airDate),
@@ -45,7 +40,6 @@ const episodeWhen = (episode: Episode): string | undefined => {
   return parts === "" ? undefined : parts;
 };
 
-/** `Guest stars Ada Stream, Gus Guest · Directed by Dana Keyframe`. */
 const episodeCredits = (episode: SeasonEpisode): string | undefined => {
   const lines = creditLines(episode.credits, ["guest-star", "director", "writer"]).map(
     (line) => `${line.heading} ${line.people.map((person) => person.name).join(", ")}`,
@@ -144,7 +138,6 @@ export function Episodes({
   );
 }
 
-/** The season menu: a large heading on phones, a bordered button with the episode count wider. */
 function SeasonPicker({
   seasons,
   season,
@@ -189,7 +182,6 @@ function SeasonPicker({
   );
 }
 
-/** A placeholder episode row while the season loads. */
 function EpisodeSkeleton() {
   return (
     <li aria-hidden className="flex items-center gap-6 p-4">
@@ -203,7 +195,6 @@ function EpisodeSkeleton() {
   );
 }
 
-/** An episode row on wider screens; the next episode to watch is raised. */
 function DesktopEpisode({
   show,
   episode,

@@ -12,12 +12,10 @@ import * as TokenStorage from "./token-storage";
 
 const START = 1_760_000_000_000;
 
-/** The server lets a device sign-in wait ten minutes. */
 const EXPIRES_AT = START + 600_000;
 
 const TOKEN = jwtExpiringAt(START + 3_600_000);
 
-/** Runs `body` on the test clock against a fake deployment that hands out one device code. */
 const withDeviceLogin = <A, E>(
   body: (
     fake: FakeConvex.FakeConvex,
@@ -60,7 +58,6 @@ const withDeviceLogin = <A, E>(
     ),
   );
 
-/** Answers each `deviceAuth:status` poll with the next reply, repeating the last, and reports it. */
 const scriptStatus = (fake: FakeConvex.FakeConvex, replies: ReadonlyArray<Reply>) =>
   Effect.gen(function* () {
     const polls = yield* Queue.unbounded<number>();
@@ -81,10 +78,6 @@ const scriptStatus = (fake: FakeConvex.FakeConvex, replies: ReadonlyArray<Reply>
 
 const state = (value: string): Reply => Reply.Success({ value: { state: value } });
 
-/**
- * Moves the test clock in half-second steps, giving the network real time between them, until
- * `polls` reports poll number `index` or twenty seconds have passed on the test clock.
- */
 const advanceUntilPoll = (polls: Queue.Queue<number>, index: number) =>
   Effect.gen(function* () {
     for (let step = 0; step < 40; step += 1) {
@@ -96,10 +89,6 @@ const advanceUntilPoll = (polls: Queue.Queue<number>, index: number) =>
     }
   });
 
-/**
- * Waits on `login` through its Promise API, aborts once the first status poll arrives, and
- * resolves with how the wait ended. Without the abort it would wait until the code expires.
- */
 const abandonAfterFirstPoll = async (
   login: DeviceLogin.PendingDeviceLogin,
   polls: Queue.Queue<number>,
@@ -195,7 +184,6 @@ describe("DeviceLogin", () => {
       withDeviceLogin((fake) =>
         Effect.gen(function* () {
           const polls = yield* scriptStatus(fake, [state("pending")]);
-          // The Promise API runs on the real clock, so the code must still be valid in real time.
           const now = yield* TestClock.withLive(Clock.currentTimeMillis);
 
           yield* fake.reply(

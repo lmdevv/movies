@@ -5,14 +5,12 @@ import { HttpClient, HttpClientRequest } from "effect/http";
 
 import * as MediaTestServer from "../testing/media-test-server.ts";
 
-/** The path a request record names; empty for any other record. */
 const urlOf = (record: LogRecord): string => {
   const url = record.annotations["http.url"];
 
   return Predicate.isString(url) ? url : "";
 };
 
-/** A path as long as a stranger may send: the service's own segment route with a 15 KB name. */
 const LONG_NAME = "x".repeat(15_000);
 
 const flood = Effect.gen(function* () {

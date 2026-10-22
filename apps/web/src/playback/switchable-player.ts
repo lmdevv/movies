@@ -1,9 +1,3 @@
-/**
- * A `PlayerPort` that stands for whichever player is playing a session right now: the page's
- * `<video>` element, or a cast device playing the same session. The progress reporter and the room
- * engine subscribe once and follow the switch, so progress keeps reaching Convex and a room keeps
- * following the device that actually plays.
- */
 import type { PlayerEvent, PlayerPort } from "@movies/sdk/effect";
 
 /** A player whose target can change while others listen to it. */

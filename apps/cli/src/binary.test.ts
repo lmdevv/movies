@@ -1,7 +1,3 @@
-/**
- * The built `movies` binary as a separate process, for behaviour that depends on the process
- * itself, such as reading stdin. No server needed.
- */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -42,7 +38,6 @@ describe("the movies binary", () => {
   it("rejects a secret variable that is set but empty, without reading stdin", async () => {
     const env = { XDG_CONFIG_HOME: home, HOME: home };
 
-    // stdin holds a secret, so reading it would get past the check and on to the server.
     const runs = await Promise.all([
       runMovies(
         ["import", "jellyfin", "--url", "http://127.0.0.1:9"],

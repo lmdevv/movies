@@ -1,8 +1,3 @@
-/**
- * What migration needs from Convex: the accounts and catalog to match against, and the migration
- * job's plan, checkpoint, and idempotent imports. `layer` calls the `migrationService:*` functions
- * through the media service's Convex connection (`MediaBackend`); tests swap in their own.
- */
 import type { JobId, LibraryId, ProfileId } from "@movies/contracts/ids";
 import type { JobProgress } from "@movies/contracts/models/jobs";
 import type { MigrationImported } from "@movies/contracts/models/migration";
@@ -30,14 +25,12 @@ export interface Lease {
   readonly workerId: string;
 }
 
-/** A library the import adds or reuses. */
 interface LibraryRequest {
   readonly name: string;
   readonly kind: "movies" | "shows" | "mixed";
   readonly roots: ReadonlyArray<string>;
 }
 
-/** What one watch state batch changed. */
 interface WatchStateCounts {
   readonly watched: number;
   readonly inProgress: number;
@@ -95,7 +88,6 @@ export class Service extends Context.Service<Service, Interface>()(
 /** Most items one import call carries. */
 export const BATCH_SIZE = SCAN_BATCH_LIMIT;
 
-/** Reads every page of a paged function. */
 const allPages = <Item>(
   page: (
     cursor: string | null,

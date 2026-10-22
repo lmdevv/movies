@@ -1,7 +1,3 @@
-/**
- * H31 · Watch History entry actions: resume or play again, mark watched, or remove the entry from
- * history, which also takes it out of Continue Watching.
- */
 import { useCommand } from "@movies/sdk/react";
 import { useLocalSearchParams } from "expo-router";
 import { Check, Play, RotateCcw, Trash2 } from "lucide-react-native";

@@ -1,6 +1,5 @@
 import { Schema } from "effect";
 
-/** What `scripts/serve-jellyfin-source.ts` prints once Jellyfin answers. */
 const JellyfinReady = Schema.Struct({
   url: Schema.String,
   apiKey: Schema.String,

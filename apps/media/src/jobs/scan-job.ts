@@ -1,12 +1,3 @@
-/**
- * Scan jobs: an admin added a library, changed its folders, or asked for a scan. The scan runs
- * through the library monitor, so it never overlaps a watcher's scan of the same library. A
- * `full` scan re-reads every file (picking up edited NFO files and artwork); a `quick` scan skips
- * files whose size and modification time did not change. Progress is the scanner's counters.
- *
- * A folder outside `LIBRARY_ROOTS` fails the job for good with the scanner's message; an
- * unreadable folder or an unreachable Convex returns the job to the queue.
- */
 import { Duration, Effect, Match, Option, Schedule } from "effect";
 
 import * as ScanProgress from "../convex/convex-library-sink.ts";

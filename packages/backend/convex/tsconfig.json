@@ -1,5 +1,4 @@
 {
-  /* Convex requires target ESNext, lib ES2021 + dom, module ESNext, isolatedModules, and noEmit. */
   "extends": "@movies/config/tsconfig.base.json",
   "compilerOptions": {
     "allowJs": true,

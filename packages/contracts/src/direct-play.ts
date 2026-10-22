@@ -1,10 +1,3 @@
-/**
- * Whether a client decodes a file's streams as stored: the rules the media service's negotiation
- * plays a file directly by, and that clients and Convex use to prefer the version a device plays
- * without a transcode. Pure and free of Effect at run time, so every side can share it; Convex,
- * which does not import contracts, mirrors it in `packages/backend/convex/lib/directPlay.ts`, and
- * a property test keeps the two equal.
- */
 import type { ClientCapabilities, DynamicRange } from "./media-playback";
 import type { HdrFormat } from "./models/catalog";
 

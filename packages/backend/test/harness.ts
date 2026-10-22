@@ -1,8 +1,3 @@
-/**
- * Talks to a real [movies] Convex backend the way the SDK will: Convex Auth's sign-in action, and
- * commands called by name with arguments encoded and results decoded by the contract schemas, so
- * every call also checks the wire contract.
- */
 import type { ArgsSchema, ConvexCommand, WireSchema } from "@movies/contracts/command";
 import { commands } from "@movies/contracts/commands";
 import type { CommandArgs, CommandName, CommandResult, Commands } from "@movies/contracts/commands";
@@ -52,7 +47,6 @@ export const anonymous = (url: string): Session => ({
   token: null,
 });
 
-/** Opens a connection that sends `token`. */
 const withToken = (url: string, token: string): Session => {
   const client = new ConvexHttpClient(url, { logger: false });
   client.setAuth(token);
@@ -77,7 +71,6 @@ export const signIn = async (url: string, params: SignInParams): Promise<Session
   return session;
 };
 
-/** Encoded arguments are always an object; this checks it and gives Convex its argument type. */
 const toFunctionArgs = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown));
 
 const invoke = async <

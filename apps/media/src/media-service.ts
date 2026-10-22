@@ -1,9 +1,3 @@
-/**
- * Composition of the media service's capabilities. The result still requires the integration
- * seams (`LibrarySink`, `FileResolver`, `PlaybackReporter`) plus configuration and platform
- * services, so the Convex integration can provide its own implementations; standalone mode and
- * tests provide the in-memory and logging ones.
- */
 import { Layer } from "effect";
 
 import * as ArtworkKeys from "./artwork/artwork-keys.ts";

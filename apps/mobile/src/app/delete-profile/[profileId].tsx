@@ -1,4 +1,3 @@
-/** B09 · Delete Profile: the sheet that confirms deleting a profile with its history and list. */
 import { ProfileId } from "@movies/contracts/ids";
 import { useCommand } from "@movies/sdk/react";
 import { Schema } from "effect";
@@ -16,7 +15,6 @@ import { useProfileChoice } from "@/session/profile-choice";
 const decodeProfileId = Schema.decodeUnknownSync(ProfileId);
 
 export default function DeleteProfile() {
-  // The name comes with the route: the sheet keeps it while the profile disappears.
   const params = useLocalSearchParams<{ profileId: string; name: string }>();
   const profileId = decodeProfileId(params.profileId);
   const removeProfile = useCommand("profiles.remove");
@@ -28,8 +26,6 @@ export default function DeleteProfile() {
     setBusy(true);
     setError(null);
 
-    // Deleting the profile in use leaves the app for Who's Watching?: close everything first,
-    // since the screens above the tabs outlive the switch.
     if (chosen === profileId) {
       router.dismissAll();
 

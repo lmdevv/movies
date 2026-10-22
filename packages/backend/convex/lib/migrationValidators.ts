@@ -1,8 +1,3 @@
-/**
- * Validators for migration and collections. Each mirrors the schema of the same name in
- * `@movies/contracts/models/migration`, `migration-service`, or `collections`; the registry test
- * checks they describe the same wire values.
- */
 import { v } from "convex/values";
 import type { Infer } from "convex/values";
 
@@ -17,7 +12,6 @@ import {
   titleKind,
 } from "./validators";
 
-/** Mirrors `MigrationPhase`. */
 const migrationPhase = v.union(
   v.literal("libraries"),
   v.literal("scanning"),
@@ -60,30 +54,25 @@ export const NOTHING_IMPORTED: Infer<typeof migrationImported> = {
   unmatched: 0,
 };
 
-/** Mirrors `PathMapping`. */
 const pathMapping = v.object({ from: v.string(), to: v.string() });
 
-/** Mirrors `SealedCredentials`. */
 const sealedCredentials = v.object({
   version: v.literal(1),
   nonce: v.string(),
   ciphertext: v.string(),
 });
 
-/** Mirrors `PlannedUser`. */
 const plannedUser = v.object({
   sourceUserId: v.string(),
   profileId: v.id("profiles"),
   history: v.union(v.literal("full"), v.literal("plays")),
 });
 
-/** Mirrors `PlannedLibraryAccess`. */
 const plannedLibraryAccess = v.union(
   v.object({ kind: v.literal("everyone") }),
   v.object({ kind: v.literal("users"), sourceUserIds: v.array(v.string()) }),
 );
 
-/** Mirrors `PlannedLibrary`. */
 const plannedLibrary = v.object({
   name: v.string(),
   kind: libraryKind,

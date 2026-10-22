@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import type { MediaSupport } from "./capabilities";
 import { detectCapabilities, withoutFailedPath } from "./capabilities";
 
-/** A browser that answers "probably" for `types`, "maybe" for `maybe`, and nothing else. */
 const browser = (options: {
   readonly types: ReadonlyArray<string>;
   readonly maybe?: ReadonlyArray<string>;
@@ -17,7 +16,6 @@ const browser = (options: {
   hdrDisplay: options.hdr ?? false,
 });
 
-/** What Chrome on Linux answers: H.264, AV1, VP9, AAC, Opus, FLAC; no HEVC or Dolby audio. */
 const chrome = browser({
   types: [
     'video/mp4; codecs="avc1.640033"',
@@ -33,7 +31,6 @@ const chrome = browser({
   mse: true,
 });
 
-/** An iPhone without Media Source Extensions: native HLS, HEVC Main 10 on an HDR screen. */
 const iphone = browser({
   types: [
     'video/mp4; codecs="avc1.640029"',

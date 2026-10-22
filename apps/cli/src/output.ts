@@ -1,4 +1,3 @@
-/** Where the CLI writes. Results go to stdout; errors, progress, and prompts go to stderr. */
 import { Context, Effect } from "effect";
 
 /** Writes lines to the process streams. */

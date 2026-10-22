@@ -21,13 +21,10 @@ import {
   SourceUnreachable,
 } from "./source-plugin.ts";
 
-/** How long one source request may take before the server counts as unreachable. */
 const REQUEST_TIMEOUT = Duration.seconds(30);
 
-/** Statuses worth one more try after a pause. */
 const TRANSIENT_STATUSES: ReadonlySet<number> = new Set([408, 429, 500, 502, 503, 504]);
 
-/** Whether a failed read may succeed if tried again. */
 const isTransient: (error: SourceError) => boolean = Match.type<SourceError>().pipe(
   Match.tag("SourceUnreachable", () => true),
   Match.tag(
@@ -37,7 +34,6 @@ const isTransient: (error: SourceError) => boolean = Match.type<SourceError>().p
   Match.orElse(() => false),
 );
 
-/** Query parameters; undefined values are left out. */
 type QueryParams = Readonly<Record<string, string | number | boolean | undefined>>;
 
 /** Typed reads (and the sign-in POST) against one source server. */
@@ -115,7 +111,6 @@ export const makeSourceHttp = Effect.fnUntraced(function* (options: SourceHttpOp
   const unexpected = (operation: string, status: number | null, detail: string) =>
     new SourceUnexpectedResponse({ source, operation, status, detail });
 
-  /** Sends `request`, classifying transport failures, timeouts, and statuses. */
   const send = (
     operation: string,
     request: HttpClientRequest.HttpClientRequest,
@@ -201,7 +196,6 @@ export const makeSourceHttp = Effect.fnUntraced(function* (options: SourceHttpOp
         HttpClientRequest.bodyJsonUnsafe(body),
       );
 
-      // Sign-in is not retried: a refused password must not count as several attempts.
       return yield* decode(operation, yield* send(operation, request, false), schema);
     }).pipe(
       Effect.withSpan(`MigrationSource.${operation}`, {

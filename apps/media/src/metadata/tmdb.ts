@@ -280,22 +280,17 @@ const PersonDetails = Schema.Struct({
   external_ids: Schema.optionalKey(Schema.Struct({ tvdb_id: nullable(Schema.Int) })),
 });
 
-/** Actors a title keeps. */
 const CAST_LIMIT = 20;
 
-/** Guest stars an episode keeps. */
 const GUEST_LIMIT = 10;
 
 /** Trailer languages: English, and videos without a language. */
 const VIDEO_LANGUAGES = "en,null";
 
-/** Recommendations a title keeps. */
 const RECOMMENDATION_LIMIT = 20;
 
-/** Keywords a title keeps. */
 const TAG_LIMIT = 40;
 
-/** Crew jobs that become credits, with the kind and how many of each a title keeps. */
 const CREW_JOBS: ReadonlyArray<{
   readonly kind: CreditKind;
   readonly limit: number;
@@ -345,14 +340,12 @@ const score = (
 const idsOf = (list: { readonly results: ReadonlyArray<{ readonly id: number }> } | undefined) =>
   (list?.results ?? []).map((result) => String(result.id));
 
-/** Recommendations, then similar titles, without repeats. */
 const recommended = (
   recommendations: typeof IdList.Type | undefined,
   similar: typeof IdList.Type | undefined,
 ): ReadonlyArray<string> =>
   [...new Set([...idsOf(recommendations), ...idsOf(similar)])].slice(0, RECOMMENDATION_LIMIT);
 
-/** The official YouTube trailer, else any YouTube trailer, else a teaser. */
 const trailerOf = (videos: typeof Videos.Type | undefined) => {
   const youtube = (videos?.results ?? []).filter((video) => video.site === "YouTube");
 
@@ -366,7 +359,6 @@ const trailerOf = (videos: typeof Videos.Type | undefined) => {
     : { key: chosen.key, name: text(chosen.name) };
 };
 
-/** Credits in billing order, numbered from zero. */
 const numbered = (entries: ReadonlyArray<Omit<ProviderCredit, "order">>): Array<ProviderCredit> =>
   entries.map((entry, order) => ({
     personId: entry.personId,
@@ -377,7 +369,6 @@ const numbered = (entries: ReadonlyArray<Omit<ProviderCredit, "order">>): Array<
     profile: entry.profile,
   }));
 
-/** Crew members that become credits, by `CREW_JOBS`, one credit per person and kind. */
 const crewCredits = (
   crew: ReadonlyArray<{
     readonly id: number;
@@ -421,7 +412,6 @@ const usCertification = (
   return text(us?.certification ?? us?.rating);
 };
 
-/** Builds the TMDB plugin. */
 const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
   const cache = yield* DiskCache.Service;
   const apiBase = new URL(options.apiBaseUrl);
@@ -434,7 +424,6 @@ const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
     permissions: { hosts: [apiBase.host], paths: ["DATA_DIR/cache/tmdb"] },
   };
 
-  // Paces every TMDB request of this process and retries `429` answers after `Retry-After`.
   const client = guardHosts(manifest, yield* HttpClient.HttpClient).pipe(
     HttpClient.withRateLimiter({
       limiter: yield* RateLimiter.RateLimiter,
@@ -449,7 +438,6 @@ const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
   const image = (size: string, path: string | null | undefined): string | undefined =>
     path === null || path === undefined ? undefined : `${options.imageBaseUrl}/${size}${path}`;
 
-  /** Fetches `path` (cached), then decodes it with `schema`. */
   const request = <S extends Schema.Codec<unknown, unknown>>(
     operation: string,
     path: string,
@@ -718,7 +706,6 @@ const make = Effect.fn("Tmdb.make")(function* (options: TmdbOptions) {
         profile: image("w185", member.profile_path),
       }));
 
-    // Episode directors and writers belong to episodes; a show keeps its producers and composers.
     const showCrew = crewCredits(
       (show.aggregate_credits?.crew ?? [])
         .toSorted(

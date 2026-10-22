@@ -1,8 +1,3 @@
-/**
- * Human-readable output. Results are rendered by walking the command's result schema next to the
- * value, so lists of known models become compact tables and everything else becomes key-value
- * lines. Only `--human` or `--format table` uses this module; JSON is the default.
- */
 import { ApiKey, Invite, SessionInfo, User } from "@movies/contracts/models/account";
 import {
   ContinueWatchingItem,
@@ -21,7 +16,6 @@ import type { Schema } from "effect";
 
 type Json = Schema.Json;
 
-/** One table column: a header and how to read its cell from a row. */
 interface Column {
   readonly header: string;
   readonly cell: (row: Schema.JsonObject) => string;
@@ -53,7 +47,6 @@ export const formatDuration = (ms: number): string => {
     : `${String(minutes)}:${seconds}`;
 };
 
-/** Epoch milliseconds → `2026-10-10 14:05` in local time. */
 const formatTimestamp = (ms: number): string => {
   const date = new Date(ms);
 
@@ -68,7 +61,6 @@ const formatNumber = (key: string, value: number): string => {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 };
 
-/** Formats a scalar by its field name: durations, timestamps, booleans, and nulls. */
 const formatScalar = (key: string, value: Json): string => {
   if (value === null) return "-";
 
@@ -272,7 +264,6 @@ const clip = (text: string): string => {
   return flat.length > maxCell ? `${flat.slice(0, maxCell - 1)}…` : flat;
 };
 
-/** Renders rows as an aligned table with an uppercase header. */
 const table = (
   columns: ReadonlyArray<Column>,
   rows: ReadonlyArray<Schema.JsonObject>,
@@ -294,7 +285,6 @@ const table = (
   return [line(columns.map((column) => column.header)), ...cells.map(line)];
 };
 
-/** `trackCount` → `track count`, `durationMs` → `duration`. */
 const label = (key: string): string =>
   key
     .replace(/Ms$/u, "")
@@ -313,7 +303,6 @@ const genericColumns = (rows: ReadonlyArray<Schema.JsonObject>): ReadonlyArray<C
     .map(([key]) => field(label(key).toUpperCase(), key));
 };
 
-/** Strips `NullOr` and other unions down to the member that describes a present value. */
 const presentMember = (ast: SchemaAST.AST): SchemaAST.AST => {
   if (!SchemaAST.isUnion(ast)) return ast;
 
@@ -363,7 +352,6 @@ const renderObject = (ast: SchemaAST.AST, value: Schema.JsonObject): ReadonlyArr
   return lines;
 };
 
-/** A page (`items`, `nextCursor`) prints as its table plus the flag for the next page. */
 const renderPage = (ast: SchemaAST.AST, value: Schema.JsonObject): string | null => {
   const { items, nextCursor } = value;
 

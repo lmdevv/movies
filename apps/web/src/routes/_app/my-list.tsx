@@ -15,7 +15,6 @@ export const Route = createFileRoute("/_app/my-list")({
   component: MyListPage,
 });
 
-/** The profile's list, newest first, live. */
 function MyListPage() {
   const { profile } = useActiveProfile();
   const list = useCommandQuery("myList.list", { profileId: profile.id });

@@ -58,7 +58,6 @@ type Runtime = ManagedRuntime.ManagedRuntime<Movies.Services, Movies.OpenError>;
 
 const RuntimeContext = createContext<Runtime | null>(null);
 
-/** Adapts the app's React client; the app owns it, so closing the SDK leaves it open. */
 const reactAdapter = (client: ConvexReactClient): ClientAdapter => ({
   call: (kind, path, args) => ConvexTransport.callByKind(client, kind, path, args),
   subscribe: (path, args, onValue, onError) => {
@@ -164,7 +163,6 @@ export const useCommandQuery = <Name extends QueryName>(
   args: CommandArgs<Name> | "skip",
 ): QueryState<CommandResult<Name>> => {
   const runtime = useMoviesRuntime();
-  // The subscription restarts only when the runtime or the arguments' content changes.
   const key = args === "skip" ? null : `${name}:${JSON.stringify(args)}`;
 
   const watchFor = (): QueryWatch.QueryWatch<CommandResult<Name>> =>
@@ -175,7 +173,6 @@ export const useCommandQuery = <Name extends QueryName>(
   let current = held;
 
   if (held.runtime !== runtime || held.key !== key) {
-    // A watch does nothing until subscribed, so building the next one during render is safe.
     current = { runtime, key, watch: watchFor() };
     setHeld(current);
   }
@@ -258,10 +255,6 @@ export const useAuth = (): UseAuth => {
   }, [runtime, status]);
 };
 
-/**
- * Runs a scoped workflow while `key` stays the same, closing it on change or unmount. Returns the
- * workflow's value once started, or its failure.
- */
 const useScoped = <A, E>(
   key: string | null,
   workflow: () => Effect.Effect<A, E, Movies.Services | Scope.Scope>,
@@ -292,7 +285,6 @@ const useScoped = <A, E>(
       // runtime first; the runtime's disposal would not close this scope.
       Effect.runFork(Effect.andThen(Fiber.interrupt(fiber), Scope.close(scope, Exit.void)));
     };
-    // The key stands for the workflow's inputs.
   }, [runtime, key]);
 
   return outcome;

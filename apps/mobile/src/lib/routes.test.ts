@@ -19,7 +19,6 @@ const fileId = Schema.decodeSync(MediaFileId);
 
 const roomId = Schema.decodeSync(RoomId);
 
-/** The params Expo Router would read from `href`'s path segment and query. */
 const routeParams = (href: string) => {
   const [path = "", query = ""] = href.split("?");
   const params = new Map([["titleId", decodeURIComponent(path.replace(/^\/watch\//u, ""))]]);

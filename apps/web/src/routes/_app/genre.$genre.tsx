@@ -16,10 +16,8 @@ export const Route = createFileRoute("/_app/genre/$genre")({
   component: GenrePage,
 });
 
-/** Every movie and show of one genre the profile may see, with the grid's filters. */
 function GenrePage() {
   const { genre } = Route.useParams();
 
-  // A new genre starts the grid over.
   return <TitleGridPage key={genre} genre={genre} heading={genre} />;
 }

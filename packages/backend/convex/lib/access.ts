@@ -1,8 +1,3 @@
-/**
- * Profile ownership, PIN unlock, library grants, and rating limits. A profile-scoped read builds an
- * `Audience` once and filters every title through it; hidden titles look like missing ones, so a
- * kids profile never learns what it cannot see.
- */
 import type { Doc, Id } from "../_generated/dataModel";
 import { fail } from "./errors";
 import { isAdminRole } from "./scopes";

@@ -1,4 +1,3 @@
-/** Shortcuts for signing in and out, the viewer, the default viewing profile, and API keys. */
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 
@@ -36,10 +35,6 @@ import { connect, openSdk, storageFailure } from "./session";
 
 const isServerUrl = Schema.is(ServerUrl);
 
-/**
- * Fails when the stored profile of this name belongs to another server than `server` while
- * `MOVIES_CONVEX_URL` overrides it: login, logout, and `profiles use` never replace or clear it.
- */
 const keepOtherServerProfile = (
   invocation: Invocation,
   server: Option.Option<string>,
@@ -101,7 +96,6 @@ const login: ShortcutCommand = {
 
       yield* keepOtherServerProfile(invocation, server);
 
-      // The profile's own server keeps its device and viewing profile across logins.
       const previous = Option.filter(
         Option.orElse(target.stored, () => target.shadowed),
         (profile) => normalizeUrl(profile.convexUrl) === server.value,
@@ -199,7 +193,6 @@ const login: ShortcutCommand = {
           ? Option.fromNullishOr(base.viewingProfileId)
           : Option.fromNullishOr((yield* client.query("profiles.list", {}))[0]?.id);
 
-      // The new login replaces the profile's old key and settings; keep only the new session.
       yield* updateProfile(env.configPath, target.name, (profile) =>
         Option.some(
           Struct.assign(base, {
@@ -250,8 +243,6 @@ const logout: ShortcutCommand = {
         Option.fromNullishOr(profile.session),
       );
 
-      // A session from an earlier login lives in the profile even while MOVIES_API_KEY is set; end
-      // it on the server before forgetting it.
       if (Option.isSome(target.convexUrl) && Option.isSome(storedSession)) {
         const { auth } = yield* openSdk(
           target.convexUrl.value,
@@ -333,8 +324,6 @@ const profilesUse: ShortcutCommand = {
         });
       }
 
-      // An install that runs on environment variables alone has no stored profile yet; it gets
-      // one with the server, its device, and the choice, but never the key from the environment.
       yield* updateProfile(invocation.env.configPath, invocation.target.name, (stored) =>
         Option.some(
           Option.match(stored, {

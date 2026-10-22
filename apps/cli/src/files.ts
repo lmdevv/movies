@@ -1,9 +1,3 @@
-/**
- * File and process access for the CLI. Effect's `FileSystem` and `ChildProcessSpawner` services
- * are unstable modules, which the repo's lint rejects, and the lint also keeps raw Node I/O out of
- * Effect modules; so this adapter owns `node:fs` and `node:child_process` and imports nothing from
- * Effect. Callers wrap every call and turn rejections into typed errors.
- */
 import { spawn } from "node:child_process";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -29,7 +23,6 @@ export const writePrivateFile = async (path: string, text: string): Promise<void
   const temporary = `${path}.${String(process.pid)}.tmp`;
 
   await writeFile(temporary, text, { encoding: "utf8", mode: 0o600 });
-  // The process umask can widen the creation mode; set it explicitly.
   await chmod(temporary, 0o600);
   await rename(temporary, path);
 };

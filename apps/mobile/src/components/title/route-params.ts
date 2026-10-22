@@ -1,15 +1,8 @@
-/**
- * Reading the title screens' route parameters. Links come from anywhere (other screens, deep
- * links), so each parameter is parsed, and one that does not parse reads as absent rather than
- * throwing during render.
- */
 import { EpisodeId, MediaFileId, RoomId, TitleId } from "@movies/contracts/ids";
 import { Option, Schema } from "effect";
 
-/** A route parameter as Expo Router hands it over. */
 type RawParam = string | ReadonlyArray<string> | undefined;
 
-/** The value, or the first of repeated values. */
 const single = (raw: RawParam): string | undefined => [raw].flat()[0];
 
 const decoder =

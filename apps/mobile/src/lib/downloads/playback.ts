@@ -1,8 +1,3 @@
-/**
- * A kept download as the player plays it: the session it was downloaded in, with the item's
- * episode and file, and a direct stream of the local video with its WebVTT subtitles. The player
- * then runs as it does for a server's direct stream; nothing about it needs the server.
- */
 import { PlaybackSessionId } from "@movies/contracts/ids";
 import type { NegotiateResponse } from "@movies/contracts/media-playback";
 import { Milliseconds } from "@movies/contracts/units";

@@ -1,9 +1,3 @@
-/**
- * What the browse screens (Home, My List, Search, collections, genres, people) show, worked out
- * from the server's rows: the hero pages, their facts and play action, which layout Home takes
- * while libraries scan, what Search offers before typing, the grid's filters as `titles.list`
- * arguments, and counts.
- */
 import type { CommandArgs } from "@movies/contracts/commands";
 import type { LibraryId, ProfileId, TitleId } from "@movies/contracts/ids";
 import type {
@@ -23,7 +17,6 @@ import { watchHref } from "./routes";
 export const plural = (count: number, one: string, many: string): string =>
   `${count} ${count === 1 ? one : many}`;
 
-/** Most pages the hero pages through on Home, Movies, and Shows. */
 const HERO_PAGES = 5;
 
 /**
@@ -162,7 +155,6 @@ export const playTarget = (
   };
 };
 
-/** While a scan runs, Home keeps the scanning layout until this many titles have arrived. */
 const SCANNING_UNTIL = 8;
 
 /** Which Home the profile sees. */
@@ -294,7 +286,6 @@ export const watchStates = (
   for (const entry of entries) {
     const state = entry.progress.watched ? "watched" : "started";
 
-    // One unfinished episode makes the whole show started.
     if (entry.episode === null || states.get(entry.title.id) !== "started") {
       states.set(entry.title.id, state);
     }
@@ -320,7 +311,6 @@ export const ofKind = (
 ): ReadonlyArray<TitleCard> =>
   kind === "all" ? titles : titles.filter((title) => title.kind === kind);
 
-/** Posters per row in the browse grids. */
 const GRID_COLUMNS = 3;
 
 /** A grid cell: a title, or a blank that keeps the last row's posters at a third of the width. */

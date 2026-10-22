@@ -72,16 +72,11 @@
   --radius-pill: 999px;
 }
 
-/* Literal values the iOS artboards draw that are not Paper tokens yet, named by role so components
-   still use theme utilities only. */
 @theme {
-  /* The translucent fill behind glass buttons over artwork (D01, F01). */
   --color-glass: rgb(44 44 46 / 62%);
-  /* Player chrome over video: tracks behind progress and the text under titles. */
   --color-video-track: rgb(255 255 255 / 30%);
   --color-video-muted: rgb(255 255 255 / 70%);
   --text-tab: 10px;
-  /* The top corners of sheets (C16, D10). */
   --radius-sheet: 28px;
 }
 
@@ -118,7 +113,6 @@
       --color-success: #46d369;
       --color-warning: #f5a623;
       --color-danger: #ff6b6b;
-      /* The scroll edge fades (C02): the page at Paper's scrim opacity, then clear. */
       --color-bg-fade: rgb(0 0 0 / 60%);
       --color-bg-clear: rgb(0 0 0 / 0%);
     }

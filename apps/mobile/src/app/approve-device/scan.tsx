@@ -1,7 +1,3 @@
-/**
- * H24 · Scan Device Code: the camera reads the QR code another device shows and opens its approval
- * (H08). iOS asks for the camera first (H25); without it the screen says so and offers Settings.
- */
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
@@ -21,7 +17,6 @@ const enterCode = () => (router.canGoBack() ? router.back() : router.replace("/a
 export default function ScanDeviceCode() {
   const [permission, requestPermission] = useCameraPermissions();
   const [unreadable, setUnreadable] = useState(false);
-  // One scan opens one approval, however many frames still show the code.
   const scanned = useRef(false);
 
   useEffect(() => {

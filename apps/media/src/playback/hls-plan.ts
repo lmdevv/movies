@@ -1,15 +1,3 @@
-/**
- * Segment boundaries and VOD playlists for HLS sessions. Transcodes cut on a fixed grid (the
- * encoder is told to place keyframes there); copies cut on source keyframes, grouped so each
- * segment lasts at least the target duration. Boundaries are seconds on the source timeline.
- *
- * Playback starts sooner on short segments: a player needs a whole segment before it shows a
- * frame, and an encoder needs to finish it. So the eight seconds from where a session starts are
- * cut short (1, 1, 2, 2, and 2 seconds for transcodes; one keyframe each for copies), and the
- * plan returns to its normal length after them. The plan is fixed for the session, so seeks and
- * new generations use the same boundaries.
- */
-
 /** Where each segment starts, and where the last one ends. */
 export interface SegmentPlan {
   /** Start of each segment, ascending. Segment `i` covers `[starts[i], starts[i + 1] ?? end)`. */
@@ -17,19 +5,14 @@ export interface SegmentPlan {
   readonly end: number;
 }
 
-/** Target segment length for transcodes and the minimum grouping for copies. */
 const SEGMENT_SECONDS = 4;
 
-/** A trailing segment shorter than this merges into the one before it. */
 const MIN_TAIL_SECONDS = 0.5;
 
-/** Where the short segments end, from the start of the grid cell playback starts in. */
 const QUICK_GRID_OFFSETS: ReadonlyArray<number> = [1, 2, 4, 6];
 
-/** How long after the start keyframe copies keep one keyframe per segment. */
 const QUICK_COPY_SECONDS = 8;
 
-/** The shortest quick copy segment, so sources with a keyframe every frame are not cut per frame. */
 const QUICK_COPY_MIN_SECONDS = 1;
 
 /** Where a session starts, which its first segments are cut short around. */
@@ -93,8 +76,6 @@ export const planKeyframeSegments = (
   const starts: Array<number> = [];
   const { quickStart } = options;
 
-  // A start before the first keyframe (audio primed a few milliseconds ahead of the video) plays
-  // from the first segment, so the quick segments begin there.
   const quickFrom =
     quickStart === undefined
       ? undefined
@@ -134,7 +115,6 @@ export const segmentAt = (plan: SegmentPlan, seconds: number): number => {
   return low;
 };
 
-/** Length of segment `index` in seconds. */
 const segmentDuration = (plan: SegmentPlan, index: number): number =>
   (plan.starts[index + 1] ?? plan.end) - (plan.starts[index] ?? plan.end);
 

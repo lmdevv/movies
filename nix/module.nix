@@ -29,7 +29,6 @@
 let
   cfg = config.services.movies;
 
-  # The pinned Convex backend, shared with compose.yaml, the Dockerfile, and scripts/dev-stack.sh.
   pinnedConvexImage = lib.fileContents ../deploy/convex-backend.image;
 
   backend = config.virtualisation.oci-containers.backend;
@@ -59,8 +58,6 @@ let
       convex_public_url=${lib.escapeShellArg cfg.convexPublicUrl}
       backup_dir=${lib.escapeShellArg cfg.backupDir}
       owner=${lib.escapeShellArg "${cfg.user}:${cfg.group}"}
-      # The release plus a hash of the bundled functions and their dependencies (package.nix), so
-      # any build whose functions differ, such as one following `main`, backs up before it deploys.
       version=${lib.escapeShellArg cfg.package.version}
       functions_hash=${lib.escapeShellArg "${cfg.package}/lib/movies/backend/.functions-hash"}
       if [ -s "$functions_hash" ]; then
@@ -84,14 +81,10 @@ let
       done
       curl -fsS "$convex_url/version" >/dev/null
 
-      # The admin key is derived from the backend's instance secret on every start; it is never
-      # stored on disk.
       admin_key="$(${containerRuntime} exec movies-convex ./generate_admin_key.sh | tail -n 1)"
       export CONVEX_SELF_HOSTED_URL="$convex_url"
       export CONVEX_SELF_HOSTED_ADMIN_KEY="$admin_key"
 
-      # One backup per target version: the version file changes only after a deploy succeeds, and
-      # a deploy that keeps failing must not export everything again on every restart.
       if [ -s "$version_file" ] && [ "$(cat "$version_file")" != "$version" ] &&
         [ "$(cat "$upgrade_backup_file" 2>/dev/null)" != "$version" ]; then
         name="movies-manual-$(date -u +%Y-%m-%dT%H-%M-%S-000Z).zip"
@@ -106,7 +99,6 @@ let
       movies-convex deploy --yes --codegen disable --typecheck disable
 
       log "configuring the deployment"
-      # Prints MEDIA_SERVICE_API_KEY=... and PLAYBACK_TOKEN_SECRET=...; keeps existing secrets.
       media_env="$(movies-configure --site-url="$public_url" --media-url="$public_url")"
       media_service_api_key="$(sed -n 's/^MEDIA_SERVICE_API_KEY=//p' <<<"$media_env")"
       playback_token_secret="$(sed -n 's/^PLAYBACK_TOKEN_SECRET=//p' <<<"$media_env")"
@@ -116,10 +108,8 @@ let
       movies-configure-web --to /run/movies/web --convex-url "$convex_public_url"
       printf '%s\n' "$version" >"$version_file"
       chown "$owner" "$version_file"
-      # Deployed: the next upgrade, even to a version that failed before, backs up again.
       rm -f "$upgrade_backup_file"
 
-      # The service's secrets, readable by its user only.
       umask 077
       env_file=/run/movies/media.env
       install -m 600 -o ${lib.escapeShellArg cfg.user} -g ${lib.escapeShellArg cfg.group} /dev/null "$env_file"

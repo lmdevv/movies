@@ -27,7 +27,6 @@ import * as RetainedLogs from "./retained-logs.ts";
 
 const decodeQuery = Schema.decodeUnknownEffect(Schema.toCodecJson(LogQuery));
 
-/** How often a followed log with nothing new sends a blank line. */
 const KEEPALIVE = Duration.seconds(15);
 
 /** Adds the route. */

@@ -1,4 +1,3 @@
-/** Libraries, scans, jobs, metadata fixes, backups, and migration. */
 import { Schema } from "effect";
 
 import { BackupId, JobId, LibraryId, TitleId } from "../ids";

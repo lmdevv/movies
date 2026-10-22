@@ -1,10 +1,3 @@
-/**
- * Translation between the scanner's records and the catalog records Convex stores
- * (`@movies/contracts/models/scan` and `models/catalog`). Convex keeps absolute paths, a probe
- * listing every video stream, and artwork keys; the scanner works with paths relative to a
- * library folder, one main video stream, and image references. Pure apart from sealing artwork
- * keys, which the caller supplies.
- */
 import type { ArtworkKey } from "@movies/contracts/artwork";
 import { ageRatingFromCertification } from "@movies/contracts/content-rating";
 import { dynamicRangeOf } from "@movies/contracts/direct-play";
@@ -41,7 +34,6 @@ import {
 } from "../metadata/title-metadata.ts";
 import type { ResolvedMediaFile } from "../playback/file-resolver.ts";
 
-/** Seals an artwork source into the key titles carry. */
 type SealArtwork = (source: ArtworkSource) => Effect.Effect<ArtworkKey>;
 
 const HDR_FORMATS: Readonly<Record<DynamicRange, HdrFormat>> = {
@@ -51,7 +43,6 @@ const HDR_FORMATS: Readonly<Record<DynamicRange, HdrFormat>> = {
   "dolby-vision": "dolby_vision",
 };
 
-/** An optional field's value, for spreading it only when present. */
 const present = <A>(value: A | undefined): Option.Option<A> => Option.fromUndefinedOr(value);
 
 /** The absolute path of `relativePath` inside a library folder. */
@@ -133,7 +124,6 @@ const decodeContainer = Schema.decodeUnknownOption(Container);
 
 const decodeSidecarFormat = Schema.decodeUnknownOption(SidecarFormat);
 
-/** The playback probe of a catalog file. Records written before probes kept every field use defaults. */
 const toMediaProbe = (probe: Probe): MediaProbe => {
   const [video] = probe.video;
 
@@ -241,7 +231,6 @@ export const matchKeyOf = (metadata: TitleMetadata): string => {
   return `${metadata.kind}:local:${normaliseName(metadata.title)}${year}`;
 };
 
-/** The artwork key of an image reference; local paths are relative to `folder`. */
 const artworkKey = (
   folder: LibraryFolder,
   image: ImageRef | undefined,
@@ -265,7 +254,6 @@ const communityRating = (score: Score | undefined) =>
 const percentScore = (value: number | undefined): number | null =>
   value === undefined ? null : Math.min(100, Math.max(0, Math.round(value)));
 
-/** The catalog ratings of merged scores. */
 const toRatings = (ratings: SiteRatings): Ratings => ({
   tmdb: communityRating(ratings.tmdb),
   imdb: communityRating(ratings.imdb),

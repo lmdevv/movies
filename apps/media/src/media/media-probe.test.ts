@@ -3,7 +3,6 @@ import { Effect } from "effect";
 
 import { parseFfprobeJson } from "./media-probe.ts";
 
-/** The ffprobe stream fields these tests write. */
 interface StreamJson {
   readonly index: number;
   readonly codec_type: string;

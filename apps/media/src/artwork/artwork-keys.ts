@@ -1,13 +1,3 @@
-/**
- * Artwork keys: the opaque strings titles, seasons, and episodes carry for their images. A key
- * seals where the image lives (a file inside a library, or a provider URL) with AES-256-GCM, so
- * clients learn nothing about folder paths and cannot point the artwork route at other files.
- *
- * Sealing is deterministic: the IV is an HMAC of the reference (a synthetic IV), so rescanning
- * the same image yields the same key and titles do not churn. Both keys derive from
- * `PLAYBACK_TOKEN_SECRET` with their own labels; rotating that secret invalidates every artwork
- * key until the next full scan. Format: `a1.<base64url(iv ‖ ciphertext ‖ tag)>`.
- */
 import { createCipheriv, createDecipheriv, createHmac } from "node:crypto";
 
 import { ArtworkKey } from "@movies/contracts/artwork";

@@ -1,4 +1,3 @@
-/** D05 · Season Picker: a show's seasons with their episode counts; choosing one shows it. */
 import { useCommandQuery } from "@movies/sdk/react";
 import { router, useLocalSearchParams } from "expo-router";
 

@@ -1,9 +1,3 @@
-/**
- * D07 · Episode Actions: play it from the beginning once it has progress, mark it watched or
- * unwatched, watch it together, download it, and choose among its versions when it has several.
- * Tapping the episode itself already plays or resumes it, so the sheet has no Play row. Paper's
- * D07 draws no Download row; this is D10's Download row, in the same place for an episode.
- */
 import type { EpisodeId, TitleId } from "@movies/contracts/ids";
 import type { SeasonEpisode } from "@movies/contracts/models/catalog";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
@@ -21,7 +15,6 @@ import { describeFailure } from "@/lib/failure";
 import { togetherHref, watchHref } from "@/lib/routes";
 import { useActiveProfile } from "@/session/active-profile";
 
-/** The actions of one loaded episode. */
 function EpisodeActions({ episode }: { readonly episode: SeasonEpisode }) {
   const { profile } = useActiveProfile();
   const markWatched = useCommand("history.markWatched");
@@ -38,7 +31,6 @@ function EpisodeActions({ episode }: { readonly episode: SeasonEpisode }) {
     episodeId: episode.id,
   });
 
-  // The show's page has subscribed to it already; a download keeps the show's name.
   const show = useCommandQuery("titles.get", { profileId: profile.id, titleId: episode.titleId });
 
   const download = useDownloadAction({
@@ -117,7 +109,6 @@ function EpisodeActions({ episode }: { readonly episode: SeasonEpisode }) {
   );
 }
 
-/** Loads the episode from its season, which the show's page has already subscribed to. */
 function EpisodeLoader({
   titleId,
   episodeId,

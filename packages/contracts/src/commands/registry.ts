@@ -1,8 +1,3 @@
-/**
- * The command registry: every user action, keyed by its dotted name. The SDK, CLI, and command
- * menu are generated from it, so an action added here exists everywhere. The backend tests that
- * each Convex command names an existing public function whose validators match these schemas.
- */
 import { accountCommands, credentialCommands, userCommands } from "./account";
 import { libraryCommands, maintenanceCommands, metadataCommands } from "./admin";
 import type { AnyCommand } from "./command";

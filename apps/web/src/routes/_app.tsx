@@ -8,10 +8,6 @@ export const Route = createFileRoute("/_app")({
   component: AppLayout,
 });
 
-/**
- * Signed-in screens: a session and an unlocked profile first, then this device's watch room, then
- * the shell around the page.
- */
 function AppLayout() {
   return (
     <RequireSignedIn>
