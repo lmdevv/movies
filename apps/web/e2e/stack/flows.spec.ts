@@ -1,11 +1,3 @@
-/**
- * The web app's core flows against the worktree's real stack (`scripts/dev-stack.sh up`) and the
- * real media service: first run, scans (waiting, live, failed, retried), browsing, My List,
- * profiles and PINs, kids filtering, sign in and out, and invites. The suite generates a fixture
- * library, builds the media service, and runs it on the stack's media port, so stop a media
- * service started with `pnpm dev` first. Needs a fresh stack (no owner yet) and ffmpeg; skips
- * without a fresh stack.
- */
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,7 +24,6 @@ const owner = OWNER;
 
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 
-/** Generating the clips and artwork and bundling the service take a while on a cold machine. */
 const SETUP_TIMEOUT_MS = 180_000;
 
 let context: BrowserContext;
@@ -41,13 +32,10 @@ let page: Page;
 
 let media: MediaService | undefined;
 
-/** The temporary folder holding the fixture library. */
 let workspace = "";
 
-/** The approved library root, holding the movies. */
 let libraryRoot = "";
 
-/** A folder the media service is not allowed to read until it restarts with it approved. */
 let nasRoot = "";
 
 test.beforeAll(async ({ browser }) => {
@@ -72,7 +60,6 @@ test.afterAll(async () => {
   await rm(workspace, { recursive: true, force: true });
 });
 
-/** Starts the media service with `roots` approved, stopping the one running first. */
 const restartMedia = async (roots: ReadonlyArray<string>): Promise<void> => {
   if (stack === null) return;
 
@@ -81,13 +68,11 @@ const restartMedia = async (roots: ReadonlyArray<string>): Promise<void> => {
 };
 
 const openMenu = async (target: Page): Promise<void> => {
-  // The shortcuts listen once the signed-in shell is on screen.
   await expect(target.getByRole("button", { name: "Search", exact: true })).toBeVisible();
   await target.keyboard.press(`${mod}+k`);
   await expect(target.getByRole("combobox")).toBeFocused();
 };
 
-/** Saves a screenshot to `$E2E_SCREENSHOTS/<name>.png` when that folder is set, for design review. */
 const capture = async (target: Page, name: string): Promise<void> => {
   const folder = process.env["E2E_SCREENSHOTS"];
 
@@ -96,7 +81,6 @@ const capture = async (target: Page, name: string): Promise<void> => {
   await target.waitForLoadState("networkidle");
   await target.waitForTimeout(400);
 
-  // The development server's router devtools button is no part of the app.
   await target.getByRole("button", { name: /TanStack Router/u }).evaluateAll((buttons) => {
     for (const button of buttons) {
       if (button instanceof HTMLElement) button.style.visibility = "hidden";
@@ -125,7 +109,6 @@ test("first run creates the owner, checks the folder, and shows the scan live", 
   await page.getByRole("button", { name: "Create admin account" }).click();
   await expect(page).toHaveURL(/\/setup\/library$/u);
 
-  // Before any library, Home offers to add one.
   await page.goto("/");
   await page.getByRole("button", { name: owner.name }).click();
   await expect(page.getByRole("heading", { name: "No libraries yet" })).toBeVisible();
@@ -146,7 +129,6 @@ test("first run creates the owner, checks the folder, and shows the scan live", 
   await expect(page).toHaveURL(/\/setup\/scan/u);
   await expect(page.getByRole("heading", { name: "Building your library." })).toBeVisible();
 
-  // No media service runs yet, so the scan waits for one, here and on Home.
   await expect(page.getByText("waiting for the media service")).toBeVisible();
 
   const home = await context.newPage();
@@ -167,7 +149,6 @@ test("first run creates the owner, checks the folder, and shows the scan live", 
   await expect(page.getByText(String(MOVIE_COUNT), { exact: true }).first()).toBeVisible();
   await capture(page, "03-03-first-scan");
 
-  // The owner's profile was chosen on this browser already, so Home opens straight away.
   await page.getByRole("link", { name: "Continue to [movies]" }).click();
   await expect(page).toHaveURL(/\/$/u);
   await expect(page.getByRole("region", { name: "Recently added" })).toBeVisible();
@@ -186,7 +167,6 @@ test("a scan of a folder the media service may not read fails, and retries once 
   await expect(page.getByText(`${shows} is outside LIBRARY_ROOTS`, { exact: false })).toBeVisible();
   await capture(page, "03-03b-scan-failed");
 
-  // The server's owner mounts the folder and restarts the media service with it approved.
   await restartMedia([libraryRoot, nasRoot]);
   await page.getByRole("button", { name: "Retry scan" }).click();
   await expect(page.getByRole("heading", { name: "Building your library." })).toBeVisible();
@@ -253,7 +233,6 @@ test("profiles: a kids profile and a PIN profile, with a wrong PIN", async ({ br
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("button", { name: "Locked" })).toBeVisible();
 
-  // A new browser session must enter the PIN.
   const other = await browser.newContext();
   const second = await other.newPage();
 

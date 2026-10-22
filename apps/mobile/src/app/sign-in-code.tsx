@@ -1,7 +1,3 @@
-/**
- * A05 · Sign In with a Code: shows a code to approve from a signed-in device and signs in once
- * someone does. A10 · Code Expired shows when the code runs out or is denied.
- */
 import { useAuth } from "@movies/sdk/react";
 import { Predicate } from "effect";
 import { Lock } from "lucide-react-native";
@@ -17,7 +13,6 @@ import { Text } from "@/components/ui/text";
 import { approvalAddress, codeGroups, expiresInLine, spokenCode } from "@/lib/device-code";
 import { describeFailure } from "@/lib/failure";
 
-/** How the approving person sees this device. */
 const CLIENT_NAME = "[movies] for iPhone";
 
 type Attempt =
@@ -31,7 +26,6 @@ type Attempt =
   | { readonly kind: "expired" }
   | { readonly kind: "failed"; readonly message: string };
 
-/** The current time, refreshed every second while `active`. */
 const useSecondClock = (active: boolean): number => {
   const [now, setNow] = useState(Date.now);
 
@@ -45,14 +39,11 @@ const useSecondClock = (active: boolean): number => {
   return now;
 };
 
-/** Starts a device sign-in for each `round` and follows it until it signs in or ends. */
 const useDeviceLogin = (round: number): Attempt => {
   const { startDeviceLogin } = useAuth();
   const [attempt, setAttempt] = useState<Attempt>({ kind: "starting" });
 
   useEffect(() => {
-    // Leaving the screen or asking for a new code stops the wait, so approving an abandoned code
-    // later signs nothing in.
     const stop = new AbortController();
 
     setAttempt({ kind: "starting" });
@@ -68,7 +59,6 @@ const useDeviceLogin = (round: number): Attempt => {
           verificationUrl: login.verificationUrl,
           expiresAt: login.expiresAt,
         });
-        // Signing in changes the session phase, which leaves this screen.
         await login.complete(stop.signal);
       } catch (cause) {
         if (stop.signal.aborted) return;

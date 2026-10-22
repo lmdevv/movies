@@ -1,4 +1,3 @@
-/** Libraries, titles, seasons, episodes, and media files with their probe information. */
 import { Schema } from "effect";
 
 import { AgeRating } from "../content-rating";

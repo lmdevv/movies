@@ -1,7 +1,3 @@
-/**
- * A browse screen with nothing to show (C12 empty library, C20 no downloads, E04 no results): a
- * glyph in a 72pt circle, a 28pt heading, an optional line, and up to one way forward.
- */
 import type { LucideIcon } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { View } from "react-native";

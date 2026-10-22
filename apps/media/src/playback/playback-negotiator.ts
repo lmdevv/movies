@@ -1,9 +1,3 @@
-/**
- * Playback negotiation: verifies the playback token, resolves the token's file on the server,
- * walks the playback ladder for the client's capabilities, starts an HLS session when needed,
- * and returns the URLs to play. Clients never send paths or ffmpeg arguments; everything comes
- * from the token's file ID and the server's own records.
- */
 import {
   type FileResolverUnavailable,
   type MediaFileNotFound,
@@ -26,7 +20,6 @@ import * as PlaybackReporter from "./playback-reporter.ts";
 import * as PlaybackToken from "./playback-token.ts";
 import * as StreamSessions from "./stream-sessions.ts";
 
-/** Failures a negotiation can report. */
 type NegotiateError =
   | PlaybackTokenInvalid
   | PlaybackSessionEnded
@@ -47,17 +40,8 @@ export class Service extends Context.Service<Service, Interface>()(
   "@movies/media/PlaybackNegotiator",
 ) {}
 
-/**
- * How long negotiation waits for a copy's keyframe index before it encodes instead. Matroska and
- * MP4 files answer from their own index at once; a packet scan of a large file on a slow share can
- * take minutes, and it goes on in the background for the next negotiation.
- */
 const KEYFRAME_WAIT = Duration.seconds(2);
 
-/**
- * The ffmpeg stream index of the bitmap subtitle track `trackId` names; -1 for one that is not an
- * embedded bitmap track, which the ladder refuses.
- */
 const burnedStreamIndex = (
   file: FileResolver.ResolvedMediaFile,
   trackId: string | undefined,
@@ -97,7 +81,6 @@ export const subtitleViews = (
         : undefined,
   }));
 
-/** Builds the negotiator. */
 const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
   const verifier = yield* PlaybackToken.Service;
@@ -134,8 +117,6 @@ const make = Effect.gen(function* () {
 
     const preferred = decidePlayback(file.probe, request.capabilities, decision);
 
-    // A copy needs the file's keyframes. When they take long to find, encode on a grid at once if
-    // this client can take an encode; else wait for them.
     const copied =
       PlaybackPlan.$is("Hls")(preferred) && VideoPlan.$is("Copy")(preferred.video)
         ? yield* keyframes.keyframesWithin(file, KEYFRAME_WAIT)
@@ -242,8 +223,6 @@ const make = Effect.gen(function* () {
         })
         .pipe(Effect.map((started) => ({ started, chosen })));
 
-    // An encode chosen only because the index was slow needs a transcode slot the copy does not;
-    // with none free, wait for the index and copy instead.
     const { started, chosen } = yield* startWith(plan, knownKeyframes).pipe(
       Effect.catchTag("TranscodeCapacityReached", (full) =>
         indexing && PlaybackPlan.$is("Hls")(preferred)

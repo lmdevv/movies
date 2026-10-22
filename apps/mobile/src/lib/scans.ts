@@ -1,8 +1,3 @@
-/**
- * Scan jobs as the library screens read them (I04 Recent Scans, I05 NAS offline, I06 Scanning):
- * whether a scan is still going, whether it stopped because the folder could not be read, and the
- * words for its state, count, and phase.
- */
 import type { Job } from "@movies/contracts/models/jobs";
 import { folderTroubleOf } from "@movies/contracts/scan-failure";
 import type { FolderTrouble } from "@movies/contracts/scan-failure";
@@ -55,7 +50,6 @@ export const scanCount = (
   };
 };
 
-/** What a running scan is doing, from the phase the scanner reports (`library-sink.ts`). */
 const phaseLine = (phase: string | null): string => {
   if (phase === "walking") return "Finding files.";
 

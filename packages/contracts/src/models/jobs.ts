@@ -1,7 +1,3 @@
-/**
- * Background jobs the media service claims with a lease: scans, metadata refreshes, person details,
- * backups, migrations, and scrub thumbnails.
- */
 import { Schema } from "effect";
 
 import { BackupId, JobId, LibraryId, MediaFileId, PersonId, TitleId, UserId } from "../ids";

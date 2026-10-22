@@ -1,8 +1,3 @@
-/**
- * Downloads a device keeps. A download is a playback session with `purpose: "download"`, so
- * signing out, losing access, or removing a library stops it as it stops playback. It reports no
- * progress; the device saves what it plays, possibly offline, with `recordProgress`.
- */
 import { v } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
@@ -24,13 +19,8 @@ import { clientCapabilities, ok, progressReceipt, startedPlayback } from "./lib/
 import { authorize } from "./lib/viewer";
 import { reachedEnd, writeProgress } from "./lib/viewing";
 
-/** Most files one device downloads at once; starting another ends the quietest. */
 const MAX_DEVICE_DOWNLOADS = 4;
 
-/**
- * Most files one account downloads at once on all its devices, beside the eight devices it plays
- * on; starting another ends the quietest, so downloads cannot hold unbounded media service work.
- */
 const MAX_ACCOUNT_DOWNLOADS = 8;
 
 /**
@@ -70,7 +60,6 @@ export const start = mutation({
     const replaced = (session: Doc<"playbackSessions">) =>
       session.deviceId === args.deviceId && session.fileId === chosen.playable.file._id;
 
-    // Busiest first, so the quietest fall past each cap.
     const others = downloads
       .filter((session) => !replaced(session))
       .toSorted((left, right) => right.lastReportAt - left.lastReportAt);
@@ -139,13 +128,11 @@ export const recordProgress = mutation({
     const episodeId = played?._id ?? null;
     const file = await ctx.db.get(args.fileId);
 
-    // The file may have left the disk since it was downloaded; it must still be this item's.
     if (file?.titleId !== title._id || file.episodeId !== episodeId) {
       return fail("not_found", "No such file for this title");
     }
 
     const now = Date.now();
-    // The device's clock may be off; its offset from ours at sending moves `playedAt` back in line.
     const playedAt = Math.min(Math.max(0, args.playedAt + (now - args.sentAt)), now);
     const saved = await findProgress(ctx, args.profileId, title._id, episodeId);
 

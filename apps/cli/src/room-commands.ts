@@ -1,9 +1,3 @@
-/**
- * Watch room shortcuts. The CLI has no player of its own, so host controls act on the room's live
- * position: `pause` freezes it where the room is now, `play` resumes from there or `--position`.
- * Each control reads the room first and sends its current revision; a revision that moved on in
- * between is read again and retried once.
- */
 import type { ClockOffset } from "@movies/contracts/clock";
 import {
   countdownRemaining,
@@ -41,20 +35,12 @@ import type { Connection } from "./session";
 import { connect } from "./session";
 import { findTitle } from "./watch-commands";
 
-/**
- * Arguments to read a room: its ID and, for a room this account has not joined, the profile that
- * would join, which must be able to see its title.
- */
 const roomQuery = (roomId: RoomId, profileId: Option.Option<ProfileId>) =>
   Option.match(profileId, {
     onNone: () => ({ roomId }),
     onSome: (id) => ({ roomId, profileId: id }),
   });
 
-/**
- * The room named on the command line, read as `profileId` would join it, or the one this device
- * is in.
- */
 const resolveRoom = Effect.fn("Rooms.resolve")(function* (
   invocation: Invocation,
   connection: Connection,
@@ -79,17 +65,10 @@ const resolveRoom = Effect.fn("Rooms.resolve")(function* (
   return current;
 });
 
-/** This machine's clock taken as the server's, when `rooms.time` is not available. */
 const LOCAL_CLOCK: ClockOffset = { offsetMs: 0, roundTripMs: 0 };
 
-/** How long `rooms status --watch` trusts a clock measurement before taking another. */
 const REMEASURE_AFTER_MS = 5 * 60_000;
 
-/**
- * How far the server's clock runs ahead of this machine's, from one `rooms.time` round trip,
- * assuming the server read its clock halfway through it. When this session may not call
- * `rooms.time`, trusts this machine's clock.
- */
 const measureClockOffset = Effect.fn("Rooms.measureClock")(function* (connection: Connection) {
   const sentAt = yield* Clock.currentTimeMillis;
 
@@ -104,13 +83,11 @@ const measureClockOffset = Effect.fn("Rooms.measureClock")(function* (connection
   );
 });
 
-/** The room's live position now, by the server's clock. */
 const livePosition = (offset: ClockOffset, clock: RoomClock): Effect.Effect<Milliseconds> =>
   Effect.map(Clock.currentTimeMillis, (now) => targetPosition(clock, toServerTime(now, offset)));
 
 type HostCommand = "rooms.play" | "rooms.pause" | "rooms.seek";
 
-/** Sends a host control at the room's current revision, retrying once after a stale revision. */
 const control = Effect.fn("Rooms.control")(function* (
   invocation: Invocation,
   name: HostCommand,
@@ -137,7 +114,6 @@ const control = Effect.fn("Rooms.control")(function* (
   return resultOutcome(commands[name], yield* encodeResult(name, commands[name], clock));
 });
 
-/** A host control whose position comes from `--position` or the live position. */
 const hostControl = (
   path: string,
   name: HostCommand,
@@ -244,7 +220,6 @@ const leave: ShortcutCommand = {
     }),
 };
 
-/** The room's next-episode countdown in a line, or null while there is none. */
 const describeNext = (room: Room, serverNow: EpochMillis): string | null => {
   if (room.next === null) return null;
 
@@ -284,7 +259,6 @@ const status: ShortcutCommand = {
         at: yield* Clock.currentTimeMillis,
       });
 
-      // Not a `rooms.time` call per change: a measurement serves for a few minutes of watching.
       const currentOffset = Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis;
         const last = yield* Ref.get(measured);
@@ -315,7 +289,6 @@ const status: ShortcutCommand = {
       }
 
       yield* connection.client.subscribe("rooms.get", roomQuery(room.id, profileId)).pipe(
-        // An ended room stays readable with the status `ended`; it never changes again.
         Stream.takeUntil((current) => current.clock.status === "ended"),
         Stream.mapEffect(snapshot),
         Stream.runForEach((next) =>
@@ -323,7 +296,6 @@ const status: ShortcutCommand = {
         ),
       );
 
-      // JSON mode stays one line per change; the last line shows the room ended.
       if (invocation.format === "table") yield* output.out("The room ended.");
 
       return Outcome.Printed();
@@ -332,10 +304,6 @@ const status: ShortcutCommand = {
 
 type NextCommand = "rooms.startNextCountdown" | "rooms.cancelNextCountdown" | "rooms.playNext";
 
-/**
- * A host's next-episode command on the named room or the one this device is in, from the episode
- * the room plays as it reads it, so racing the countdown acts once.
- */
 const nextControl = (path: string, name: NextCommand): ShortcutCommand => ({
   path,
   options: {},

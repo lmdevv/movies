@@ -1,7 +1,3 @@
-/**
- * A watch room's next-episode card: the shared countdown, ticking on this device's estimate of the
- * server clock, so every member shows the same seconds.
- */
 import type { ClockOffset } from "@movies/contracts/clock";
 import type { Room } from "@movies/contracts/models/rooms";
 import { RoomSync } from "@movies/sdk/effect";
@@ -13,7 +9,6 @@ import { AutoplayNext } from "./autoplay-next";
 import type { NextEpisodeActions } from "./autoplay-next";
 import type { RoomNextCard } from "./use-room-next";
 
-/** How often the countdown redraws: often enough that the seconds change on time. */
 const TICK_MS = 250;
 
 /**

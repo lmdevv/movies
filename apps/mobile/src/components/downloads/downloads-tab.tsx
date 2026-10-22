@@ -1,7 +1,3 @@
-/**
- * The Downloads tab's content: C19 · Downloads, the profile's downloads, or C20 · Downloads ·
- * Empty, whose Browse Library returns to Home.
- */
 import { router } from "expo-router";
 
 import { DownloadsList } from "./downloads-list";

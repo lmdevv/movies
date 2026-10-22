@@ -1,6 +1,5 @@
 import { useSyncExternalStore } from "react";
 
-/** Below `md` (48rem) the app uses its phone layouts. */
 const PHONE_QUERY = "(width < 48rem)";
 
 const subscribe = (onChange: () => void): (() => void) => {

@@ -1,8 +1,3 @@
-/**
- * Paper 07 · 03 Stream info: how this device receives the file, the one place codec details
- * belong. It reads the file as ffprobe saw it and the stream as negotiated; the media service
- * reports no encoder speed or server load yet, so those rows are left out.
- */
 import type { DynamicRange, NegotiateResponse } from "@movies/contracts/media-playback";
 import type { HdrFormat, MediaFile } from "@movies/contracts/models/catalog";
 import { MediaLabels } from "@movies/sdk/effect";
@@ -11,7 +6,6 @@ import { XIcon } from "lucide-react";
 
 const { channelLabel, codecLabel } = MediaLabels;
 
-/** The three rungs the segmented control names. */
 const RUNGS = [
   { id: "direct", label: "Direct" },
   { id: "remux", label: "Remux" },
@@ -39,7 +33,6 @@ const RANGE_LABELS = {
   "dolby-vision": "Dolby Vision",
 } as const satisfies Record<DynamicRange, string>;
 
-/** How each rung's name reads when it is the active one. */
 const RUNG_TONES = {
   direct: "text-success",
   remux: "text-text",
@@ -54,7 +47,6 @@ const sizeLabel = (width: number, height: number): string => {
 
 const megabits = (bitsPerSecond: number): string => (bitsPerSecond / 1_000_000).toFixed(1);
 
-/** How each transcode mode's encoder reads in the stream details. */
 const ENCODER_LABELS = {
   "transcode-qsv": "Intel QSV",
   "transcode-vaapi": "VA-API",
@@ -70,7 +62,6 @@ const CONTAINER_LABELS = new Map([
   ["ts", "MPEG-TS"],
 ]);
 
-/** The rows of the panel as label and value lines. */
 const streamInfoRows = (
   file: MediaFile,
   stream: NegotiateResponse,

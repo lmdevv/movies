@@ -1,11 +1,3 @@
-/**
- * E00–E05 · Search: a large title over the results, and the system search field, which iOS draws
- * in the tab bar beside a Home circle and focuses as the tab opens (E00). Before typing it offers
- * genres to explore and the titles in play (E01); typing shows live results by kind with people
- * (E02, E03), or says nothing matched with a way to clear it (E04). The server keeps titles above a
- * Kids profile's rating out of results, and Kids profiles see one grid of top results without
- * people or kind chips (E05).
- */
 import type { PersonCard, TitleCard } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { Stack, router, useFocusEffect, useNavigation } from "expo-router";
@@ -29,19 +21,14 @@ import { describeFailure } from "@/lib/failure";
 import { useThemeColor } from "@/lib/theme-color";
 import { useActiveProfile } from "@/session/active-profile";
 
-/** How long typing pauses before the search runs. */
 const DEBOUNCE_MS = 250;
 
-/** Results asked for of each kind. */
 const RESULT_LIMIT = 30;
 
-/** Genres offered before typing, in one sideways row. */
 const EXPLORE_GENRES = 6;
 
-/** Titles offered before typing. */
 const EXPLORE_TITLES = 8;
 
-/** `text` once it has stopped changing for a moment, trimmed. */
 const useSettled = (text: string): string => {
   const [settled, setSettled] = useState(text.trim());
 
@@ -62,8 +49,6 @@ export default function Search() {
   const query = useSettled(text);
 
   const navigation = useNavigation();
-  // Set when the Search tab is selected while another tab is on screen; the field focuses once
-  // this screen is.
   const focusOnArrival = useRef(false);
 
   useOnSearchActivate(
@@ -116,7 +101,6 @@ export default function Search() {
   );
 }
 
-/** E01: genres to explore and the titles in play. */
 function Explore() {
   const { profile } = useActiveProfile();
   const genres = useCommandQuery("titles.genres", { profileId: profile.id });
@@ -162,7 +146,6 @@ function Explore() {
   );
 }
 
-/** E02–E05: live results for `query`. */
 function Results({
   query,
   showPeople,
@@ -203,7 +186,6 @@ function Results({
   }
 
   const found: ReadonlyArray<PersonCard> = people.status === "success" ? people.data : [];
-  // Without people the search is settled only when they are skipped or found none.
   const noPeople = !showPeople || (people.status === "success" && people.data.length === 0);
 
   if (titles.data.length === 0 && noPeople) {
@@ -252,7 +234,6 @@ function Results({
   );
 }
 
-/** A section of results as a three-column poster grid. */
 function ResultGrid({
   title,
   titles,

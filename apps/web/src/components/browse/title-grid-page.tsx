@@ -1,7 +1,3 @@
-/**
- * The Movies, Shows, and genre pages (05 Browse · 02 and 03): heading with the count, sort, decade,
- * and score filters, genre chips, and a poster grid that loads more as it scrolls into view.
- */
 import type { CommandArgs } from "@movies/contracts/commands";
 import type { ProfileId } from "@movies/contracts/ids";
 import type { TitleCard, TitleKind, TitleSort } from "@movies/contracts/models/catalog";
@@ -25,13 +21,10 @@ import type { SelectOption } from "./select-menu";
 import { newBadge } from "./new-badge";
 import { TitlePosterCard } from "./title-cards";
 
-/** Titles per page; the grid asks for the next page as its end scrolls into view. */
 const PAGE_SIZE = 60;
 
-/** Pages ask for more when a filter hides most titles, so a sparse page still fills the grid. */
 const FILTERED_PAGE_SIZE = 100;
 
-/** Genre chips after "All", most common first. */
 const GENRE_CHIPS = 8;
 
 const SORTS: ReadonlyArray<SelectOption<TitleSort>> = [
@@ -57,7 +50,6 @@ const SCORES: ReadonlyArray<SelectOption<string>> = [
   { value: "6", label: "6+" },
 ];
 
-/** What the grid is filtered by. */
 interface GridFilters {
   readonly sort: TitleSort;
   readonly genre: string | null;
@@ -67,14 +59,11 @@ interface GridFilters {
 
 type Mutable<Value> = { -readonly [Key in keyof Value]: Value[Key] };
 
-/** The `titles.list` arguments of one page of the grid. */
 type ListArgs = Mutable<CommandArgs<"titles.list">>;
 
-/** Whether a genre, decade, or score hides some titles. */
 const isNarrowed = (filters: GridFilters): boolean =>
   filters.genre !== null || filters.decade !== ANY || filters.score !== ANY;
 
-/** One page's arguments: the profile, kind, filters, and where the page starts. */
 const listArgs = (
   profileId: ProfileId,
   kind: TitleKind | undefined,
@@ -105,19 +94,16 @@ const listArgs = (
 const filterKey = (filters: GridFilters): string =>
   [filters.sort, filters.genre ?? "", filters.decade, filters.score].join("|");
 
-/** One page of the list: what it held, and the cursor after it. */
 type LoadedPage = {
   readonly items: ReadonlyArray<TitleCard>;
   readonly nextCursor: string | null;
 };
 
-/** The earliest failed page's cause, which speaks for the grid; none while every page is fine. */
 const firstFailure = (
   failures: ReadonlyMap<number, unknown>,
 ): { readonly cause: unknown } | undefined =>
   failures.size === 0 ? undefined : { cause: failures.get(Math.min(...failures.keys())) };
 
-/** Subscribes to one page and reports it; the grid draws every page's titles together. */
 function PageSubscription({
   profileId,
   kind,
@@ -145,16 +131,11 @@ function PageSubscription({
   return null;
 }
 
-/** What {@link useNearViewport} returns. */
 interface NearViewport {
   readonly near: { readonly current: boolean };
   readonly ref: (element: HTMLElement | null) => (() => void) | undefined;
 }
 
-/**
- * Watches the returned element: `near` says whether it is within reach of the viewport, and
- * `onNear` runs each time it comes near. Leaving, or the element going away, only clears `near`.
- */
 const useNearViewport = (onNear: () => void): NearViewport => {
   const latest = useLatest(onNear);
   const near = useRef(false);
@@ -217,7 +198,6 @@ export function PosterGrid({ children }: { readonly children: ReactNode }) {
   );
 }
 
-/** A labeled menu in the grid's heading, such as `Sort Recently added ⌄`. */
 function FilterMenu<Value extends string>({
   label,
   value,
@@ -246,7 +226,6 @@ function FilterMenu<Value extends string>({
   );
 }
 
-/** The genre chips: the profile's most common genres of `kind`, with "All" first. */
 function GenreChips({
   profileId,
   kind,
@@ -305,13 +284,10 @@ export function TitleGridPage({
 
   const [pages, setPages] = useState<ReadonlyArray<LoadedPage | undefined>>([]);
   const [cursors, setCursors] = useState<ReadonlyArray<string | null>>([null]);
-  // Why each failed page failed, by index.
   const [failures, setFailures] = useState<ReadonlyMap<number, unknown>>(new Map());
-  // Try again counts up; it is part of every page subscription's key, so they all subscribe anew.
   const [attempt, setAttempt] = useState(0);
   const last = pages[cursors.length - 1];
 
-  // The grid's end coming into view asks for the page after the last one loaded.
   const end = useNearViewport(() => {
     if (last?.nextCursor !== undefined && last.nextCursor !== null) {
       const cursor = last.nextCursor;
@@ -322,7 +298,6 @@ export function TitleGridPage({
 
   const nearEnd = end.near;
 
-  // Any change of filter starts over from the first page.
   const changeFilters = (next: Partial<GridFilters>): void => {
     setFilters((current) => ({ ...current, ...next }));
     setPages([]);
@@ -330,8 +305,6 @@ export function TitleGridPage({
     setFailures(new Map());
   };
 
-  // A page that lands while the grid's end is still in view asks for the next one, so filtered
-  // pages that hold few titles keep loading until the grid fills or the list ends.
   const onPage = useCallback(
     (index: number, page: LoadedPage) => {
       setPages((current) => {
@@ -436,10 +409,6 @@ export function TitleGridPage({
   );
 }
 
-/**
- * The grid below the heading: the failure, a skeleton until the first page lands, the empty
- * state, or the posters with a loading row at the end that asks for more as it comes into view.
- */
 function GridResults({
   heading,
   failure,

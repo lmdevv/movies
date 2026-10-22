@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-/**
- * Format existing local screenshots or recordings for a GitHub PR body.
- * Browser operation belongs to agent-browser; this script only owns the
- * deterministic attachment markup and marker replacement contract.
- */
 
 import { existsSync, readFileSync } from "node:fs";
 import { extname, relative, resolve } from "node:path";

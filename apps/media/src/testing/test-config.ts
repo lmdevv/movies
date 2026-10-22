@@ -1,11 +1,9 @@
-/** Media configuration and playback tokens for tests, built through the real config decoding. */
 import { createHmac } from "node:crypto";
 
 import { ConfigProvider, Layer } from "effect";
 
 import * as MediaConfig from "../media-config.ts";
 
-/** The 32-byte playback token secret tests sign with, as raw bytes. */
 const testSecretBytes = Buffer.alloc(32, 9);
 
 /**

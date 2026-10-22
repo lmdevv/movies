@@ -16,7 +16,6 @@ const hasFfmpeg = await ffmpegAvailable();
 
 const srt = (text: string): string => `1\n00:00:01,000 --> 00:00:02,000\n${text}\n`;
 
-/** A film folder with sidecar subtitles; the film itself is never read for sidecars. */
 const filmFolder = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -51,7 +50,6 @@ const filmFolder = Effect.gen(function* () {
   return { folder, film };
 });
 
-/** A converter caching under `dataDir`, open for the rest of the test. */
 const converterIn = (dataDir: string) =>
   Layer.build(
     SubtitleConverter.layer.pipe(
@@ -101,7 +99,6 @@ describe.skipIf(!hasFfmpeg)("subtitle tracks", () => {
 
             yield* fs.writeFileString(english, srt("Second version, longer"));
 
-            // A new sidecar sorts first; the English track keeps its ID and its new content.
             yield* fs.writeFileString(path.join(folder, "Film (2020).de.srt"), srt("Deutsch"));
 
             const second = yield* converter.toWebVtt(

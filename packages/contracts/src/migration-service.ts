@@ -1,8 +1,3 @@
-/**
- * The Convex functions a migration job calls, in `convex/migrationService.ts`. Like every media
- * service function they require the `media-service` scope; the job's writes also require the
- * job's lease, so a worker that lost it cannot write.
- */
 import { Schema } from "effect";
 
 import { mutation, query } from "./commands/command";

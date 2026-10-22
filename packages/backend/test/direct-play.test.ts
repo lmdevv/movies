@@ -77,7 +77,6 @@ const files: fc.Arbitrary<DirectPlayFile> = fc.record({
   }),
 });
 
-/** A file built from what `client` takes, so many of them play directly and the rest just miss. */
 const filesFor = (client: ClientCapabilities): fc.Arbitrary<DirectPlayFile> => {
   const support = client.videoCodecs[0];
   const audio = client.audioCodecs[0];
@@ -115,7 +114,6 @@ describe("direct play in Convex", () => {
       { numRuns: 2_000 },
     );
 
-    // The generators reach both answers, so agreement is not agreement on "no".
     const answers = fc
       .sample(pairs, 2_000)
       .map(([client, file]) => contractsPlaysDirectly(client, file));

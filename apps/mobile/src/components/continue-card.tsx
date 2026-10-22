@@ -1,7 +1,3 @@
-/**
- * A Continue Watching card (C01): a 232 × 130 landscape still with a play glyph, the red progress
- * line under it, and the title with time left. Tapping resumes in the player.
- */
 import type { ContinueWatchingItem } from "@movies/contracts/models/catalog";
 import { router } from "expo-router";
 import { Play } from "lucide-react-native";

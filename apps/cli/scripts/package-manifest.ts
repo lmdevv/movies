@@ -1,4 +1,3 @@
-/** The fields of a dependency's package.json that the third-party license list names. */
 import { Schema } from "effect";
 
 const PackageManifest = Schema.Struct({

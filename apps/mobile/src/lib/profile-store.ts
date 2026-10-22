@@ -1,4 +1,3 @@
-/** The profile chosen on this device, kept in the keychain per install. */
 import { ProfileId } from "@movies/contracts/ids";
 import { Option, Schema } from "effect";
 

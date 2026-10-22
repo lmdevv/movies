@@ -1,4 +1,3 @@
-/** Per-device playback sessions and the tokens that authorize media requests. */
 import { Schema } from "effect";
 
 import { DeviceId, EpisodeId, MediaFileId, PlaybackSessionId, ProfileId, TitleId } from "../ids";

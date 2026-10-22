@@ -1,8 +1,3 @@
-/**
- * A title's poster in a rail or grid (C01–C11): 2:3 artwork with the control radius and the name
- * under it, or a 264 × 148 still in Home's My List row (C02). Tapping opens the title; a long press
- * previews it with the title's actions (C16).
- */
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import { Link } from "expo-router";
 import { Pressable, View } from "react-native";

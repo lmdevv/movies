@@ -1,7 +1,3 @@
-/**
- * The structured description of a media file that scanning stores and playback negotiates
- * against, and its translation from ffprobe's JSON output.
- */
 import { extname } from "node:path";
 
 import { BITMAP_SUBTITLE_FORMATS, Container, DynamicRange } from "@movies/contracts/media-playback";
@@ -47,10 +43,8 @@ export const AudioTrack = Schema.Struct({
 /** One audio track. */
 export interface AudioTrack extends Schema.Schema.Type<typeof AudioTrack> {}
 
-/** Whether a subtitle format is text (convertible to WebVTT) or pictures (PGS, VobSub). */
 const SubtitleKind = Schema.Literals(["text", "bitmap"]);
 
-/** One subtitle stream inside the media file. */
 const EmbeddedSubtitle = Schema.Struct({
   index: Schema.Int,
   codec: Schema.String,
@@ -62,17 +56,14 @@ const EmbeddedSubtitle = Schema.Struct({
   hearingImpaired: Schema.Boolean,
 });
 
-/** One subtitle stream inside the media file. */
 interface EmbeddedSubtitle extends Schema.Schema.Type<typeof EmbeddedSubtitle> {}
 
-/** A chapter marker, in seconds from the start of the file. */
 const MediaChapter = Schema.Struct({
   startSeconds: Schema.Finite,
   endSeconds: Schema.Finite,
   title: Schema.optional(Schema.String),
 });
 
-/** A chapter marker. */
 interface MediaChapter extends Schema.Schema.Type<typeof MediaChapter> {}
 
 /** What ffprobe found in a media file. */
@@ -95,7 +86,6 @@ export const MediaProbe = Schema.Struct({
 /** What ffprobe found in a media file. */
 export interface MediaProbe extends Schema.Schema.Type<typeof MediaProbe> {}
 
-/** ffprobe ran but its output did not describe a media file. */
 class MediaProbeInvalid extends Schema.TaggedError<MediaProbeInvalid>()("MediaProbeInvalid", {
   cause: Schema.Defect(),
 }) {

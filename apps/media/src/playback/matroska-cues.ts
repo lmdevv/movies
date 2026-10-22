@@ -71,9 +71,7 @@ const readVint = (bytes: Uint8Array, offset: number, keepMarker: boolean): Vint 
 
 interface Element {
   readonly id: number;
-  /** Offset of the element's data, relative to the buffer or file it was read from. */
   readonly dataStart: number;
-  /** Data size in bytes; `undefined` for an unknown-size element. */
   readonly size: number | undefined;
 }
 
@@ -92,7 +90,6 @@ const readHeader = (bytes: Uint8Array, offset: number): Element | undefined => {
   };
 };
 
-/** The child elements in `bytes[start, end)`. */
 const children = (bytes: Uint8Array, start: number, end: number): ReadonlyArray<Element> => {
   const found: Array<Element> = [];
   let offset = start;
@@ -186,7 +183,6 @@ export const readMatroskaKeyframes = Effect.fnUntraced(function* <E>(read: ReadA
   if (segment?.id !== ID.segment) return Option.none<ReadonlyArray<number>>();
   const segmentStart = segment.dataStart;
 
-  /** Reads a whole top-level element whose header starts at `position` in the file. */
   const readElement = Effect.fnUntraced(function* (position: number) {
     const header = yield* read(position, HEADER_BYTES);
     const element = readHeader(header, 0);

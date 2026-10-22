@@ -1,7 +1,3 @@
-/**
- * Cast and crew for one profile. A person appears only through titles the profile may see: one
- * credited only on hidden titles looks missing, exactly like a hidden title.
- */
 import { v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
@@ -16,19 +12,14 @@ import { ok, personCard, personDetail } from "./lib/validators";
 import type { ReadCtx } from "./lib/viewer";
 import { authorize } from "./lib/viewer";
 
-/** Credits read for one person page. */
 const CREDIT_SCAN = 500;
 
-/** People the search index returns before visibility filtering. */
 const SEARCH_SCAN = 50;
 
-/** Credits read across all search hits, at most, while looking for ones the profile may see. */
 const SEARCH_CREDIT_BUDGET = 1000;
 
-/** How long a details request waits before another may queue a job for the same person. */
 const REQUEST_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
-/** Departments ordered for a person page: acting first, then who made the title. */
 const KIND_RANK: Readonly<Record<Doc<"credits">["kind"], number>> = {
   actor: 0,
   "guest-star": 1,
@@ -39,12 +30,6 @@ const KIND_RANK: Readonly<Record<Doc<"credits">["kind"], number>> = {
   composer: 6,
 };
 
-/**
- * Which of the people the profile may see: those credited on at least one title it may see. Each
- * person's credits stream until one is visible, so a long career of hidden titles never hides the
- * one the profile may see. Title visibility is cached across people, and all of them share one
- * budget of credits read.
- */
 const seenBy = async (
   ctx: ReadCtx,
   audience: Audience,
@@ -65,7 +50,6 @@ const seenBy = async (
     return visible;
   };
 
-  /** Stops at the first visible credit or the budget's end, closing the credits query early. */
   const anyVisible = async (credits: AsyncIterator<Doc<"credits">>): Promise<boolean> => {
     if (budget <= 0) {
       await credits.return?.();
@@ -94,7 +78,6 @@ const seenBy = async (
   return Promise.all(people.map((person) => anyVisible(creditsOf(person)[Symbol.asyncIterator]())));
 };
 
-/** A person's credits on titles the profile may see, one entry per title and kind. */
 const visibleCredits = async (
   ctx: ReadCtx,
   audience: Audience,
@@ -234,7 +217,6 @@ export const requestDetails = mutation({
 
     if (person === null) return fail("not_found", "No such person");
 
-    // Only whether one credit is visible matters, so this stops at the first one.
     const [seen] = await seenBy(ctx, audience, [person], CREDIT_SCAN);
 
     if (seen !== true) return fail("not_found", "No such person");

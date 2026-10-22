@@ -1,22 +1,14 @@
-/**
- * The player's next-episode card on the dev bench (`/dev/autoplay`), without a backend: it stays a
- * compact card inside the window on desktops, short windows, and phones either way up, with a long
- * title, without a still, and at double text size; the countdown's digits change without moving
- * or clipping anything; Play next has focus, and each action does what it says.
- */
 import { devices, expect, test } from "@playwright/test";
 import type { Browser, Locator, Page } from "@playwright/test";
 
 import { capture } from "./playback/playback-stack";
 
-/** What a browser's text size setting does: double the root size and the text tokens with it. */
 const DOUBLE_TEXT = `:root { font-size: 200%; --text-caption: 24px; --leading-caption: 32px;
   --text-label: 26px; --leading-label: 36px; --text-body: 30px; --text-heading: 40px;
   --leading-heading: 52px; }`;
 
 const card = (page: Page): Locator => page.getByRole("region", { name: "Next episode" });
 
-/** A box, rounded to whole pixels, so subpixel layout never reads as movement. */
 const box = async (locator: Locator) => {
   const found = await locator.boundingBox();
 
@@ -30,10 +22,6 @@ const box = async (locator: Locator) => {
   };
 };
 
-/**
- * The card lies inside the window, each part of it inside the card, and no text in it is cut off
- * sideways: buttons keep their whole labels, and the title and synopsis wrap to two lines at most.
- */
 const expectContained = async (page: Page): Promise<void> => {
   const viewport = page.viewportSize();
 
@@ -87,7 +75,6 @@ const fontsLoaded = async (page: Page): Promise<void> => {
   });
 };
 
-/** Opens the bench in a new context made with `options`, and returns its page. */
 const openIn = async (
   browser: Browser,
   options: Parameters<Browser["newContext"]>[0],
@@ -111,7 +98,6 @@ const STATES = [
   { name: "phone-landscape", options: { ...devices["iPhone 13 landscape"] } },
 ] as const;
 
-/** The episodes the card shows: as it comes, then with a long title and no still or a broken one. */
 const EPISODES = [
   { name: "as it comes", query: "" },
   { name: "a long title without a still", query: "title=long&still=none" },
@@ -127,10 +113,8 @@ for (const state of STATES) {
 
       await expectContained(page);
 
-      // Without a still, or until it loads, the tile shows a glyph; a still that loads covers it.
       await expect(card(page).locator('[data-slot="next-episode-still"] svg')).toBeVisible();
 
-      // In a window wider than tall, the card keeps to its corner, leaving the credits in view.
       const viewport = page.viewportSize();
 
       if (viewport !== null && viewport.width > viewport.height) {
@@ -159,7 +143,6 @@ for (const state of [STATES[0], STATES[3]]) {
   }) => {
     const context = await browser.newContext(state.options);
 
-    /** The button, its label, and its digits with the countdown held at `value`, each in its own page. */
     const measure = async (value: number) => {
       const page = await context.newPage();
       const play = page.getByRole("button", { name: "Play next" });
@@ -185,7 +168,6 @@ for (const state of [STATES[0], STATES[3]]) {
 
     for (const other of rest) expect(other).toEqual(ten);
 
-    // The digits sit whole inside the button, clear of its label.
     expect(ten.whole).toBe(true);
     expect(ten.digits.x).toBeGreaterThanOrEqual(ten.label.x + ten.label.width);
     expect(ten.digits.x + ten.digits.width).toBeLessThanOrEqual(ten.button.x + ten.button.width);
@@ -199,8 +181,6 @@ test("Play next has focus and plays the next episode; Watch credits closes the c
   await page.goto("/dev/autoplay?seconds=1");
   await expect(page.getByRole("button", { name: "Play next" })).toBeFocused();
 
-  // Screen readers hear when it starts, once, rather than every tick: the time is its description,
-  // and its name stays the same.
   await expect(page.getByRole("button", { name: "Play next" })).toHaveAccessibleName("Play next");
   await expect(page.getByRole("button", { name: "Play next" })).toHaveAccessibleDescription(
     "Starts in 1 second",

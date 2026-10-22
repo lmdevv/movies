@@ -21,10 +21,8 @@ import * as ArtworkStore from "./artwork-store.ts";
 
 const SMALL = new Uint8Array(1024).fill(7);
 
-/** One megabyte, sent 21 times without a Content-Length: more than the store accepts. */
 const MEGABYTE = new Uint8Array(1024 * 1024).fill(1);
 
-/** A local stand-in for image.tmdb.org. */
 class ImageHost extends Context.Service<ImageHost, { readonly baseUrl: string }>()(
   "test/ImageHost",
 ) {}
@@ -52,7 +50,6 @@ const imageHost = Layer.effect(
   Layer.provideMerge(NodeHttpServer.layer(createServer, { port: 0, host: "127.0.0.1" })),
 );
 
-/** The real HTTP client, with requests for image.tmdb.org sent to the stand-in. */
 const redirectedClient = Layer.effect(
   HttpClient.HttpClient,
   Effect.gen(function* () {
@@ -122,7 +119,6 @@ describe("artwork store", () => {
         const path = yield* Path.Path;
         const config = yield* MediaConfig.Service;
 
-        // A file where the folder of resized copies belongs, as a full or broken data folder would.
         yield* fs.makeDirectory(path.join(config.dataDir, "artwork"), { recursive: true });
         yield* fs.writeFileString(path.join(config.dataDir, "artwork", "w185"), "");
 
@@ -133,7 +129,6 @@ describe("artwork store", () => {
         const error = yield* store.image(key, Option.some(185)).pipe(Effect.flip);
 
         assert.isTrue(Predicate.isTagged(error, "ArtworkUnavailable"));
-        // The folder failure itself, not the download or ffmpeg failures that report the same.
         assert.include(String(error.cause), "AlreadyExists");
         assert.include(String(error.cause), "makeDirectory");
       }),

@@ -11,7 +11,6 @@ const Bench = import.meta.env.DEV
   : undefined;
 
 const TracksSearch = Schema.Struct({
-  /** How many columns the menu has: `1` (subtitles), `3` (audio, subtitles, quality), or `4`. */
   columns: Schema.optionalKey(Schema.Literals(["1", "3", "4"])),
 });
 

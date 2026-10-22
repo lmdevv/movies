@@ -1,9 +1,3 @@
-/**
- * Sessions for the admin suites, which run after the core flows (`stack/flows.spec.ts`) on the same
- * dev stack and sign in as the owner those flows created. Sessions come from the real SDK: a test
- * signs in over HTTP, then hands the stored session and a chosen profile to the page's
- * `localStorage`, exactly where the app keeps its own.
- */
 import { createMovies } from "@movies/sdk/promise";
 import type { MoviesSdk } from "@movies/sdk/promise";
 import type { Page } from "@playwright/test";
@@ -15,7 +9,6 @@ import type { StackEnv } from "../stack/stack-env";
 /** Why the admin suites skip. */
 export const NO_STACK = "needs the dev stack: scripts/dev-stack.sh up";
 
-/** Where the app keeps its session and the profile chosen on this browser. */
 const SESSION_KEY = "movies.session";
 
 const PROFILE_KEY = "movies.profile";

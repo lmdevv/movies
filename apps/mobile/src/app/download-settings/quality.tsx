@@ -1,4 +1,3 @@
-/** H18's Video Quality sheet: Standard or High (`Larger Files`) for new downloads. */
 import { Sheet, useSheetExit } from "@/components/title/sheet";
 import { ListRow } from "@/components/ui/list-row";
 import { DOWNLOAD_QUALITY_OPTIONS } from "@/lib/downloads/settings";

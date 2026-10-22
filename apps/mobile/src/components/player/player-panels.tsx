@@ -1,8 +1,3 @@
-/**
- * The player's sheets: Audio & Subtitles (F02), Playback Quality (F03), speed, Episodes (F04),
- * Chapters (F05), Playback Interrupted (F09), and File Unavailable (F13).
- * Rows are 56pt with 17pt labels; a check or `Selected` marks the current choice.
- */
 import type { NegotiateResponse } from "@movies/contracts/media-playback";
 import type { AudioStream, SeasonEpisode } from "@movies/contracts/models/catalog";
 import { Check, ChevronRight, Minus, Play, Plus, RotateCcw } from "lucide-react-native";
@@ -23,7 +18,6 @@ import { audioTrackLabels, subtitleTrackLabels } from "@/lib/player/tracks";
 
 import { SidePanel } from "./side-panel";
 
-/** A 56pt choice row: its label, an optional detail, and a check when chosen. */
 function ChoiceRow({
   label,
   selected,
@@ -49,7 +43,6 @@ function ChoiceRow({
   );
 }
 
-/** A 56pt row that leads somewhere: its label, a muted detail, and a chevron (F03, F05). */
 function DetailRow({
   leading,
   label,
@@ -87,7 +80,6 @@ function DetailRow({
   );
 }
 
-/** A column heading in Audio & Subtitles. */
 function ColumnHeading({ children }: { readonly children: string }) {
   return (
     <Text variant="label" tone="darkMuted" accessibilityRole="header">
@@ -96,7 +88,6 @@ function ColumnHeading({ children }: { readonly children: string }) {
   );
 }
 
-/** Earlier and Later for the text subtitles shown, and the delay between them. */
 function SubtitleTiming({
   delayMs,
   onDelay,
@@ -228,7 +219,6 @@ export function QualityPanel({
   );
 }
 
-/** The speeds the player offers. */
 const SPEEDS: ReadonlyArray<number> = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 /** `1×`, `1.25×`. */

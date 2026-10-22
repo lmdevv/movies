@@ -6,7 +6,6 @@ import { useSyncExternalStore } from "react";
  */
 const DESKTOP = "(width >= 48rem)";
 
-/** The page canvas color of the theme in use, resolved from the `--color-page` token. */
 const readPageColor = (): string =>
   getComputedStyle(document.documentElement).getPropertyValue("--color-page").trim();
 

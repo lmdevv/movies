@@ -1,7 +1,3 @@
-/**
- * What every command handler receives and returns, and the small parsers handlers share: flag
- * values, times, the viewing profile, and JSON encoding of results.
- */
 import type { ParseArgsOptionsConfig } from "node:util";
 
 import type { AnyCommand } from "@movies/contracts/command";

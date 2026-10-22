@@ -1,10 +1,3 @@
-/**
- * The migration flow behind the routes: connect to a source, dry-run a plan, and queue the import
- * job. Connections live in memory for an hour, with their credentials; the dry run's plan stays
- * on the connection, and an import requires one with the same user mappings, so it queues exactly
- * what the Review screen showed. Nothing here
- * writes to Convex except `migrationService:start`, and nothing reads or writes media files.
- */
 import type { JobId, ProfileId, UserId } from "@movies/contracts/ids";
 import type { Viewer } from "@movies/contracts/models/account";
 import type {
@@ -46,10 +39,8 @@ import { openSource, SOURCE_ERROR_TAGS } from "./sources.ts";
 import type { SourceError, SourceSession } from "./source-plugin.ts";
 import { failureReasonOf } from "./source-plugin.ts";
 
-/** How long a connection stays usable after connect. */
 const CONNECTION_TTL = Duration.hours(1);
 
-/** A dry run's plan, kept for the import that follows it. */
 interface DryRun {
   readonly usersKey: string;
   readonly users: ReadonlyArray<ResolvedUser>;
@@ -57,7 +48,6 @@ interface DryRun {
   readonly report: MigrationReport;
 }
 
-/** A connected source, private to the admin who connected it. */
 interface Connection {
   readonly connectionId: string;
   readonly owner: UserId;
@@ -93,14 +83,12 @@ export interface Interface {
 /** The migration flow. */
 export class Service extends Context.Service<Service, Interface>()("@movies/media/Migrations") {}
 
-/** The "Couldn't connect" result for a source failure. */
 const sourceFailure = (error: SourceError): MigrationSourceFailure => ({
   status: "failed",
   reason: failureReasonOf(error),
   message: error.message,
 });
 
-/** Whether a step ended in a source failure rather than its result. */
 const isSourceFailure = Schema.is(MigrationSourceFailure);
 
 const sameText = (left: string | null, right: string | null): boolean =>
@@ -230,10 +218,6 @@ const make = Effect.gen(function* () {
     Effect.orDie,
   );
 
-  /**
-   * Mappings for source folders that are neither mapped nor inside an approved root: the first
-   * candidate folder under an approved root that exists on this host.
-   */
   const inferMappings = Effect.fnUntraced(function* (
     folders: ReadonlyArray<string>,
     given: ReadonlyArray<PathMapping>,
@@ -259,7 +243,6 @@ const make = Effect.gen(function* () {
     return inferred;
   });
 
-  /** A live connection of `viewer`; others' and expired ones are not found. */
   const connectionOf = Effect.fnUntraced(function* (connectionId: string, viewer: Viewer) {
     const now = yield* Clock.currentTimeMillis;
     const all = yield* Ref.get(connections);
@@ -367,7 +350,6 @@ const make = Effect.gen(function* () {
     return view;
   });
 
-  /** Runs the dry run for a connection and keeps its plan on the connection. */
   const plan = Effect.fnUntraced(function* (connection: Connection, args: MigrationPlanArgs) {
     const users = resolveUsers(connection.view.users, args.users ?? []);
     const usersKey = JSON.stringify(users.map((user) => [user.sourceUserId, user.profileId]));

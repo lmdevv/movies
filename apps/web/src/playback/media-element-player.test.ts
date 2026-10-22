@@ -10,10 +10,6 @@ const ranges = (spans: ReadonlyArray<readonly [number, number]>): TimeRangesLike
   end: (index) => spans[index]?.[1] ?? 0,
 });
 
-/**
- * A media element that keeps the state a browser would and fires the same events. `play` can be
- * refused as an autoplay policy refuses it, or interrupted as a pause interrupts it.
- */
 class FakeMediaElement extends EventTarget implements MediaElementLike {
   currentTime = 0;
   playbackRate = 1;
@@ -53,7 +49,6 @@ const recording = (player: MediaElementPlayer): Array<PlayerEvent> => {
   return events;
 };
 
-/** A stream seeker whose moves land when the test says so. */
 const manualSeeker = (element: FakeMediaElement, reachable: (ms: number) => boolean) => {
   const moves: Array<{ readonly target: number; readonly land: () => void }> = [];
 
@@ -178,7 +173,6 @@ describe("MediaElementPlayer", () => {
     expect(player.isBuffering()).toBe(true);
     expect(player.wantsToPlay()).toBe(true);
 
-    // Pausing during the move is what the player reports from then on.
     player.pause();
 
     expect(player.isPaused()).toBe(true);
@@ -219,7 +213,6 @@ describe("MediaElementPlayer", () => {
     moves[0]?.land();
     await settle();
 
-    // The stale move leaves the element where the newer seek put it.
     expect(player.positionMs()).toBe(5_000);
     expect(events).toStrictEqual(["waiting"]);
   });

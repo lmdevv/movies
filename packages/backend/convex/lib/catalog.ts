@@ -1,9 +1,3 @@
-/**
- * Catalog writes from the media service's scans. Files are identified by library and path, titles
- * by library and match key, episodes by title, season, and episode number. Counters of present
- * files decide whether a title or episode is available; missing files keep their records and the
- * history that points at them.
- */
 import type { Infer } from "convex/values";
 
 import type { Doc, Id } from "../_generated/dataModel";
@@ -21,7 +15,6 @@ import type {
   upsertedFile,
 } from "./validators";
 
-/** Text the title search index matches: names, the year, and any override name. */
 const searchTextOf = (title: {
   readonly name: string;
   readonly sortName: string;
@@ -95,11 +88,9 @@ const adjustPresent = async (
 /** The shape of a YouTube video ID; `YOUTUBE_KEY_PATTERN` in contracts. */
 export const YOUTUBE_KEY = /^[\w-]{6,20}$/u;
 
-/** Only a well-formed key reaches the embed URL the web app builds. */
 const checkedTrailer = (trailer: Infer<typeof scannedTitle>["trailer"]) =>
   trailer === undefined || trailer === null || YOUTUBE_KEY.test(trailer.key) ? trailer : null;
 
-/** Title fields only metadata-aware writers send; a writer that omits one leaves it as stored. */
 type RichMetadata = Partial<
   Pick<
     Doc<"titles">,
@@ -116,7 +107,6 @@ type RichMetadata = Partial<
   >
 >;
 
-/** The rich metadata fields a scanned title carries, bounded and checked. */
 const richMetadata = (scanned: Infer<typeof scannedTitle>): RichMetadata => {
   const rich: RichMetadata = {};
   const trailer = checkedTrailer(scanned.trailer);
@@ -154,7 +144,6 @@ export const TITLE_LIST_LIMIT = 20;
 /** Most keywords a title keeps; `TITLE_TAG_LIMIT` in contracts. */
 export const TITLE_TAG_LIMIT = 40;
 
-/** The fields a scan or metadata job writes onto a title. */
 const titleMetadata = (scanned: Infer<typeof scannedTitle>) => {
   const sortName = scanned.sortName ?? scanned.name;
 
@@ -176,12 +165,6 @@ const titleMetadata = (scanned: Infer<typeof scannedTitle>) => {
   };
 };
 
-/**
- * What a write keeps of the title it replaces: a provider ID the write does not know (one a
- * migration imported, or a metadata job found) and a site score it could not fetch (OMDb
- * unreachable, paused, or over its daily limit) stay as stored, and a title with such IDs stays
- * matched. A write that knows a value replaces it.
- */
 const keepKnown = (
   scanned: Infer<typeof scannedTitle>,
   existing: Doc<"titles">,
@@ -240,10 +223,8 @@ const upsertTitle = async (
   scanned: Infer<typeof scannedTitle>,
   keep: Doc<"titles"> | null,
 ): Promise<Doc<"titles">> => {
-  // A manually matched title keeps its files and metadata across rescans.
   if (keep?.matchStatus === "manual") return keep;
 
-  // A rescan usually lands on the title the file was already on, which is in hand.
   const existing =
     keep?.libraryId === libraryId && keep.matchKey === scanned.matchKey
       ? keep
@@ -260,7 +241,6 @@ const upsertTitle = async (
     if (existing.matchStatus === "manual") return existing;
     const fields = rescannedTitle(scanned, existing);
 
-    // An unchanged rescan, the usual case, writes nothing, so it wakes no query that reads titles.
     if (!changesAny(existing, fields)) return existing;
 
     await ctx.db.patch(existing._id, { ...fields, updatedAt: now });
@@ -482,7 +462,6 @@ export const upsertScannedItem = async (
   return { path: item.file.path, fileId: existingFile._id, ...landed };
 };
 
-/** Queues scrub thumbnails for a file just scanned into `library`, when the library makes them. */
 const queueTrickplayFor = async (
   ctx: MutationCtx,
   library: Doc<"libraries">,

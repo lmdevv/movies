@@ -1,9 +1,3 @@
-/**
- * Where the app stands: not connected, signed out, choosing a profile, or ready, and on a server
- * without an owner, creating the owner account and setting up its first library. The root stack
- * shows only the screens of the current phase, so changing phase (signing in, choosing a
- * profile, signing out) moves to the right place by itself.
- */
 import { useAuth, useCommandQuery } from "@movies/sdk/react";
 import type { QueryState } from "@movies/sdk/react";
 import type { SetupStatus } from "@movies/contracts/models/account";
@@ -30,13 +24,10 @@ export type SessionPhase =
   /** Signed in, but the profiles could not be read; `retry` asks again. */
   | { readonly kind: "unavailable"; readonly cause: unknown; readonly retry: () => void };
 
-/** Signed out: create the owner account on a server without one, otherwise sign in. */
 const signedOutPhase = (setup: QueryState<SetupStatus>, settingUp: boolean): SessionPhase => {
   // Convex reports the new owner before the sign-up resolves, so setup holds the form meanwhile.
   if (settingUp) return { kind: "createOwner" };
 
-  // Until the server says it has no owner, sign-in shows: signing out never waits on the
-  // question, and a server that cannot say still has sign-in, which reports its own trouble.
   return setup.status === "success" && !setup.data.hasOwner
     ? { kind: "createOwner" }
     : { kind: "signedOut" };
@@ -56,7 +47,6 @@ const phaseFor = (
   if (profiles.status === "loading") return { kind: "loading" };
 
   if (profiles.status === "error") {
-    // A revoked session flips the auth status next, which moves to sign-in.
     return isFailure(profiles.error, "Unauthenticated")
       ? { kind: "loading" }
       : { kind: "unavailable", cause: profiles.error, retry: profiles.retry };
@@ -100,7 +90,6 @@ const isSettled = (phase: SessionPhase): phase is SettledPhase =>
   phase.kind === "chooseProfile" ||
   phase.kind === "ready";
 
-/** Whether `next` shows the same screens as `last`: the same phase and, once ready, profile. */
 const sameScreens = (next: SettledPhase, last: SettledPhase | null): boolean => {
   if (last === null || next.kind !== last.kind) return false;
 

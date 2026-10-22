@@ -3,7 +3,6 @@ import { Schema } from "effect";
 
 import { ApiKeysScreen } from "@/components/keys/api-keys";
 
-/** `?dialog=create` opens Create key, so the command menu can start there. */
 const ApiKeysSearch = Schema.Struct({ dialog: Schema.optionalKey(Schema.String) });
 
 export const Route = createFileRoute("/_app/settings/api-keys")({

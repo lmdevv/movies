@@ -1,4 +1,3 @@
-/** Accounts, sessions, invites, API keys, and device sign-in. */
 import { Schema } from "effect";
 
 import { ApiKeyId, AuthSessionId, InviteId, UserId } from "../ids";

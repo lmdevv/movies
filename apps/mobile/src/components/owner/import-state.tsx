@@ -1,8 +1,3 @@
-/**
- * The import flow's memory (J01–J06): what was typed on Connect and the connected source with its
- * dry run, shared by Connect, Review, and the user and folder choices. It lives only while the
- * flow is open; the source's key never leaves it except to the media service.
- */
 import type { MigrationSource } from "@movies/contracts/models/jobs";
 import type {
   MigrationConnection,
@@ -36,7 +31,6 @@ export interface Preview {
   readonly report: MigrationReport;
 }
 
-/** The flow's state and the ways to change it. */
 interface ImportState {
   readonly form: SourceForm;
   readonly setForm: (form: SourceForm) => void;
@@ -155,10 +149,6 @@ export const useReview = (preview: Preview) => {
     if (failure !== null) throw new Error(failure.message);
   });
 
-  /**
-   * Maps source folder `from` to `to` here; resolves false when `to` is not a full path. Each
-   * folder's field runs it as its own task, so a failure shows under that folder only.
-   */
   const map = async (from: string, to: string): Promise<boolean> => {
     const mappings = mappingsWith(connection.pathMappings, from, to);
 

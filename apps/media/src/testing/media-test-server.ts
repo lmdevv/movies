@@ -1,9 +1,3 @@
-/**
- * The real media service on an ephemeral port for end-to-end tests: fixture library, in-memory
- * store (scanned at startup), recording playback reporter, and the production routes, request log, and
- * services. Configuration goes through the real environment decoding, `LOG_LEVEL` included, and
- * every log entry at that level and above is kept for the test to read.
- */
 import { createServer } from "node:http";
 
 import { NodeHttpServer, NodeServices } from "@effect/platform-node";
@@ -42,12 +36,7 @@ const MOVIES = LibraryId.make("movies");
 
 const SHOWS = LibraryId.make("shows");
 
-/** How a test changes the server beyond its environment. */
 interface Options {
-  /**
-   * The file system the service's own services use, from the real one: for a disk that is slow
-   * or fails at a chosen moment. The fixture workspace and the test itself keep the real one.
-   */
   readonly fileSystem?: (real: FileSystem.FileSystem) => FileSystem.FileSystem;
 }
 

@@ -1,9 +1,3 @@
-/**
- * The player's track menu on the dev bench (`/dev/tracks`), without a backend: it stays inside the
- * window above its trigger at any size, text size, and in full screen; it opens on the chosen
- * subtitle, well down a list of thirty-two; its headings stay put while each column's options
- * scroll on their own, by wheel, finger, and keyboard; and Escape closes it back to its trigger.
- */
 import { devices, expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
 
@@ -17,21 +11,16 @@ const HEADINGS = {
   "4": ["Version", "Audio", "Subtitles", "Quality"],
 } as const;
 
-/** The bench's first subtitle track. */
 const FIRST_SUBTITLE = "Off";
 
-/** The subtitle the bench starts on, well down the list. */
 const CHOSEN_SUBTITLE = "Українська";
 
-/** The track after it. */
 const NEXT_SUBTITLE = "Русский";
 
-/** The bench's last subtitle track. */
 const LAST_SUBTITLE = "简体中文";
 
 const FIRST_AUDIO = "English · Dolby TrueHD 7.1 Atmos";
 
-/** Opens the menu on the page as it is, once it has finished growing in. */
 const openMenu = async (page: Page): Promise<Locator> => {
   await page.getByRole("button", { name: LABEL }).click();
 
@@ -48,7 +37,6 @@ const open = async (page: Page, columns: keyof typeof HEADINGS): Promise<Locator
   return openMenu(page);
 };
 
-/** A finger dragging from one point to another, as Chromium's compositor scrolls for it. */
 const drag = async (
   page: Page,
   from: { readonly x: number; readonly y: number },
@@ -70,14 +58,9 @@ const drag = async (
   await cdp.detach();
 };
 
-/** The menu lies inside the window and above its trigger, clear of the controls under it. */
 const expectContained = async (page: Page, menu: Locator): Promise<void> =>
   expectAboveTrigger(page, menu, page.getByRole("button", { name: LABEL }));
 
-/**
- * Each heading comes whole into view inside the menu and the window, scrolling the columns
- * sideways if they are wider than the window.
- */
 const expectHeadings = async (menu: Locator, headings: ReadonlyArray<string>): Promise<void> => {
   const hidden = await menu.evaluate((popup, names) => {
     const bounds = popup.getBoundingClientRect();
@@ -104,7 +87,6 @@ const expectHeadings = async (menu: Locator, headings: ReadonlyArray<string>): P
   expect(hidden).toEqual([]);
 };
 
-/** No option's label is cut off: long ones wrap. */
 const expectNoClippedLabels = async (menu: Locator): Promise<void> => {
   const clipped = await menu
     .getByRole("radio")
@@ -120,7 +102,6 @@ const expectNoClippedLabels = async (menu: Locator): Promise<void> => {
 const subtitle = (menu: Locator, name: string): Locator =>
   menu.getByRole("radiogroup", { name: "Subtitles" }).getByRole("radio", { name, exact: true });
 
-/** The focused option shows its focus ring whole, inside the list it scrolls in. */
 const expectWholeFocusRing = async (page: Page): Promise<void> => {
   const ring = await page.evaluate(() => {
     const focused = document.activeElement;
@@ -157,7 +138,6 @@ for (const columns of ["1", "3", "4"] as const) {
     await expectHeadings(menu, HEADINGS[columns]);
     await expect(subtitle(menu, CHOSEN_SUBTITLE)).toBeChecked();
     await expect(subtitle(menu, CHOSEN_SUBTITLE)).toBeInViewport({ ratio: 1 });
-    // Thirty-two tracks are longer than the menu: the first wait above.
     await expect(subtitle(menu, FIRST_SUBTITLE)).not.toBeInViewport();
     await expectNoClippedLabels(menu);
   });
@@ -177,7 +157,6 @@ for (const { name, viewport } of WINDOWS) {
     const menu = await open(page, "4");
 
     await expectContained(page, menu);
-    // The heading scrolls the panel sideways only; the chosen track under it is already in view.
     await expectHeadings(menu, ["Subtitles"]);
     await expect(subtitle(menu, CHOSEN_SUBTITLE)).toBeInViewport({ ratio: 1 });
     await expectHeadings(menu, HEADINGS["4"]);
@@ -203,8 +182,6 @@ test("rotating a phone with the menu open keeps it inside and on the chosen subt
 test("text at double size keeps the menu inside the window and readable", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/dev/tracks?columns=4");
-  // What a browser's text size setting does: double the root size every rem follows, and the
-  // menu's text with it.
   await page.addStyleTag({
     content: `:root { font-size: 200%; --text-body: 30px; --leading-label: 36px;
       --text-caption: 24px; --leading-caption: 32px; }`,
@@ -242,7 +219,6 @@ test("a choice in another column keeps a scrolled column's place", async ({ page
   await page.mouse.wheel(0, -8000);
   await expect(subtitle(menu, FIRST_SUBTITLE)).toBeInViewport({ ratio: 1 });
 
-  // The bench, like the player, hands the subtitles over as a new array on every change.
   await menu.getByRole("radio", { name: "720p", exact: true }).click();
   await expect(menu.getByRole("radio", { name: "720p", exact: true })).toBeChecked();
   await expect(subtitle(menu, FIRST_SUBTITLE)).toBeInViewport({ ratio: 1 });
@@ -273,21 +249,18 @@ test("arrow keys bring each subtitle into view; Escape closes back to the trigge
 }) => {
   const menu = await open(page, "4");
 
-  // Focus starts on the first column's choice; Tab moves column to column.
   await expect(menu.getByRole("radio", { name: /^1080p Theatrical/u })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(menu.getByRole("radio", { name: FIRST_AUDIO })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(subtitle(menu, CHOSEN_SUBTITLE)).toBeFocused();
 
-  // The chosen track shows at the foot of the list; the next one scrolls up into view.
   await expect(subtitle(menu, NEXT_SUBTITLE)).not.toBeInViewport({ ratio: 1 });
   await page.keyboard.press("ArrowDown");
   await expect(subtitle(menu, NEXT_SUBTITLE)).toBeFocused();
   await expect(subtitle(menu, NEXT_SUBTITLE)).toBeInViewport({ ratio: 1 });
   await expectWholeFocusRing(page);
 
-  // From the first track, up wraps around to the last, and down back to the first.
   await page.mouse.move(0, 0);
   await subtitle(menu, NEXT_SUBTITLE).hover();
   await page.mouse.wheel(0, -8000);

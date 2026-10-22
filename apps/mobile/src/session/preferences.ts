@@ -1,7 +1,3 @@
-/**
- * This iPhone's app preferences (H05 App Settings), read from the keychain once and shared by every
- * screen: App Settings changes them, and the player reads the playback ones when it starts.
- */
 import { useSyncExternalStore } from "react";
 
 import { loadAppearance, saveAppearance } from "@/lib/appearance";

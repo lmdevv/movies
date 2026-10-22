@@ -1,13 +1,3 @@
-/**
- * Jellyfin and Plex migration. The media service talks to the source server; Convex records the
- * job and the imported watch state. Media files never move: [movies] adds the same folders in
- * place. The flow is connect, dry run (one summary), import (a resumable job), and status.
- *
- * Talking to a source server can fail in ways an admin fixes on the source side (wrong URL, bad
- * token, too old a server). Those outcomes are data, `MigrationSourceFailure`, so the Connect
- * screen can show "Couldn't connect" with its reason; command errors stay for [movies]' own
- * failures such as a missing admin scope or an expired connection.
- */
 import { Schema } from "effect";
 
 import { JobId, LibraryId, ProfileId, UserId } from "../ids";
@@ -15,10 +5,8 @@ import { EpochMillis } from "../units";
 import { LibraryKind, LibraryRoot } from "./catalog";
 import { Job, MigrationSource } from "./jobs";
 
-/** A folder as the source server reports it: POSIX, or Windows such as `D:\Movies`. */
 const SourcePath = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024));
 
-/** A secret the admin types or pipes in. Decoded values stay redacted. */
 const Secret = Schema.RedactedFromValue(
   Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096)),
 );

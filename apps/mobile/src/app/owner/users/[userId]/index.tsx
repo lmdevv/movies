@@ -1,9 +1,3 @@
-/**
- * I10 · a person in the household: their role, which libraries they see, Save Changes, and
- * Disable Account. A member's restricted libraries can be granted or taken away; libraries shared
- * with everyone, and every library of an admin, stay as they are. The owner and the signed-in
- * account cannot be changed here.
- */
 import type { LibraryId } from "@movies/contracts/ids";
 import { UserId } from "@movies/contracts/ids";
 import type { User } from "@movies/contracts/models/account";
@@ -200,7 +194,5 @@ export default function PersonScreen() {
     );
   }
 
-  // Keyed by account only: a role that saved while the access change failed keeps the edits and
-  // the failure on screen.
   return <Person key={user.id} user={user} libraries={libraries.data} />;
 }

@@ -1,4 +1,3 @@
-/** Profiles, browsing, history, my list, and playback: everything a viewer does on a profile. */
 import { Schema } from "effect";
 
 import { AgeRating } from "../content-rating";
@@ -46,13 +45,10 @@ import { mutation, query } from "./command";
 
 const OnProfile = { profileId: ProfileId };
 
-/** A year a title came out in, for filters. */
 const FilterYear = Schema.Int.check(Schema.isBetween({ minimum: 1800, maximum: 3000 }));
 
-/** A short free-text filter value, such as a genre or studio name. */
 const FilterText = Schema.Trimmed.check(Schema.isMinLength(1), Schema.isMaxLength(100));
 
-/** How many results a lookup returns, 1 to 50. */
 const ResultLimit = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 50 }));
 
 const TitleOnProfile = Schema.Struct({ ...OnProfile, titleId: TitleId });

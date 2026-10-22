@@ -1,8 +1,3 @@
-/**
- * Where a signed-in session's tokens live between runs. The SDK ships a memory store and an
- * adapter for key-value stores such as `localStorage` or React Native's AsyncStorage; the CLI
- * supplies a file-backed store.
- */
 import { Context, Effect, Layer, Option, Redacted, Ref, Schema } from "effect";
 
 /** A Convex Auth session: the short-lived JWT and the refresh token that renews it. */
@@ -58,7 +53,6 @@ export interface KeyValueStore {
   readonly removeItem: (key: string) => void | Promise<void>;
 }
 
-/** The serialized form of a stored session. */
 const SerializedSession = Schema.fromJsonString(
   Schema.Struct({ token: Schema.String, refreshToken: Schema.String }),
 );

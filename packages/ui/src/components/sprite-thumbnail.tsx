@@ -11,7 +11,6 @@ export interface SpriteTile {
   readonly sheetHeight: number;
 }
 
-/** Where the tile sits along one axis, as a CSS background percentage. */
 const offset = (start: number, size: number, sheet: number): string =>
   sheet <= size ? "0%" : `${String((start / (sheet - size)) * 100)}%`;
 

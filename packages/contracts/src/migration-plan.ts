@@ -1,10 +1,3 @@
-/**
- * The parts of a Jellyfin or Plex import every app decides the same way: the source names and how
- * a source failure reads and which field it belongs under, which profile each source user's
- * history goes to, how far a running import has come across its phases and the time it has left,
- * and the folder mappings to reconnect with after mapping one more folder. Each app lays out the
- * rest and words its own labels.
- */
 import { Match, Option, Schema } from "effect";
 
 import type { ProfileId, UserId } from "./ids";
@@ -76,13 +69,11 @@ export interface ProfileOption {
   readonly label: string;
 }
 
-/** A [movies] profile of the signed-in account. */
 interface OwnProfile {
   readonly id: ProfileId;
   readonly name: string;
 }
 
-/** A [movies] account by ID and name. */
 interface Account {
   readonly id: UserId;
   readonly name: string;
@@ -148,10 +139,6 @@ export const mappingsFor = (
     return { sourceUserId: row.sourceUserId, profileId: next === SKIP ? null : next };
   });
 
-/**
- * Each phase's share of a whole import, in phase order. Watch state is most of the work; scanning
- * new folders is the next largest. Job progress restarts at every phase, so the bar weighs them.
- */
 const PHASE_WEIGHTS: ReadonlyArray<readonly [MigrationPhase, number]> = [
   ["libraries", 0.05],
   ["scanning", 0.25],

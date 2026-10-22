@@ -135,7 +135,6 @@ export function LibraryDetailScreen({ libraryId }: { readonly libraryId: Library
   );
 }
 
-/** The library did not load: gone for good, or a failure worth another try. */
 function LibraryLoadError({
   error,
   onRetry,
@@ -166,7 +165,6 @@ function LibraryLoadError({
   );
 }
 
-/** Files that disappeared since the last scan, with a shortcut to review them. */
 function MissingNotice({
   counts,
   reviewing,
@@ -226,7 +224,6 @@ function ScanButton({
   );
 }
 
-/** The library's folders could not be read on the last scan, such as a NAS share gone offline. */
 function OfflineState({
   library,
   job,
@@ -314,7 +311,6 @@ function FileList({
   readonly counts: { readonly missingFiles: number; readonly unmatchedTitles: number } | null;
   readonly now: number;
 }) {
-  // Pages loaded so far belong to one filter; switching filters starts again from the first page.
   const [paging, setPaging] = useState<{
     readonly filter: LibraryFileFilter;
     readonly cursors: ReadonlyArray<string>;
@@ -538,7 +534,6 @@ function FileRow({
               No match
             </span>
           ) : (
-            // A wrong match is fixed from its title; only unmatched rows carry the button.
             <Link
               {...match}
               className="truncate font-sans text-label/label font-semibold text-text hover:underline"

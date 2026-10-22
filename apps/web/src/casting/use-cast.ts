@@ -1,10 +1,3 @@
-/**
- * Chromecast for the player: loads the Cast SDK in browsers that cast, follows whether a device is
- * around and connected, and runs a `CastPlayback` while one is. Connecting (from Chrome's device
- * picker) casts what is playing; disconnecting, from the page or from the TV, continues on the
- * page where the TV was. Leaving the player stops the TV but keeps the device connected, so the
- * next episode, or the next title opened, casts again by itself.
- */
 import { useMoviesRuntime } from "@movies/sdk/react";
 import { Result } from "effect";
 import {
@@ -27,7 +20,6 @@ import type { CastItem } from "./cast-profile";
 import { loadCastSdk } from "./cast-sdk";
 import type { CastSdk } from "./cast-sdk";
 
-/** The SDK's cast states. */
 type CastState = "NO_DEVICES_AVAILABLE" | "NOT_CONNECTED" | "CONNECTING" | "CONNECTED";
 
 const CAST_STATES: ReadonlySet<string> = new Set([
@@ -63,7 +55,6 @@ export interface Chromecast {
 
 const NONE = (): (() => void) => () => undefined;
 
-/** The cast state of `context`, following its changes. */
 const useCastState = (sdk: CastSdk | null, context: CastContext | null): CastState => {
   const subscribe = useCallback(
     (onChange: () => void) => {
@@ -99,7 +90,6 @@ export const useCast = (
   const [sdk, setSdk] = useState<CastSdk | null>(null);
   const [playback, setPlayback] = useState<CastPlayback | null>(null);
   const [starting, setStarting] = useState(false);
-  // Casting starts once per controller after it first played; later phases do not restart it.
   const [readyFor, setReadyFor] = useState<PlaybackController | null>(null);
 
   if (ready && controller !== null && readyFor !== controller) setReadyFor(controller);
@@ -151,10 +141,6 @@ export const useCast = (
     let current: CastPlayback | null = null;
     let cancelled = false;
 
-    /**
-     * Ends `cast` on the page's side: a disconnect continues on the page; leaving the player stops
-     * the TV but keeps the device connected for the next title.
-     */
     const end = (playing: CastPlayback): void => {
       const disconnected = stateRef.current !== "CONNECTED";
 

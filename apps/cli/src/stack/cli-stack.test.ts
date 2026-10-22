@@ -1,10 +1,3 @@
-/**
- * The built `movies` binary against a real self-hosted backend:
- *
- *   scripts/dev-stack.sh up && pnpm --filter @lmdevv/movies test:stack
- *
- * Skipped unless `MOVIES_STACK_TESTS=1`. Shares the owner accounts of the backend's stack suite.
- */
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -35,7 +28,6 @@ const id = Math.random().toString(36).slice(2, 8);
 
 const homes: Array<string> = [];
 
-/** A fresh config home: one CLI install. */
 const install = async (): Promise<Readonly<Record<string, string>>> => {
   const home = await makeTempDir("movies-cli-stack-");
 
@@ -44,7 +36,6 @@ const install = async (): Promise<Readonly<Record<string, string>>> => {
   return { XDG_CONFIG_HOME: home, HOME: home };
 };
 
-/** Decodes a command's JSON output with `schema`; unlisted fields are ignored. */
 const parse =
   <A>(schema: Schema.Codec<A, unknown>) =>
   (stdout: string): A =>
@@ -71,7 +62,6 @@ const InviteCode = parse(Schema.Struct({ code: Schema.String }));
 
 const RoomCreated = parse(Schema.Struct({ id: Schema.String }));
 
-/** A room's episode and next-episode countdown, from a next-episode command. */
 const NextOf = parse(
   Schema.Struct({
     episode: Schema.NullOr(Schema.Struct({ id: Schema.String })),
@@ -108,19 +98,16 @@ const ActiveSessions = parse(
   Schema.Array(Schema.Struct({ deviceId: Schema.String, fileId: Schema.String })),
 );
 
-/** One line of `rooms status --watch` in JSON mode. */
 const WatchLine = parse(
   Schema.Struct({ room: Schema.Struct({ clock: Schema.Struct({ status: Schema.String }) }) }),
 );
 
 let owner: Readonly<Record<string, string>>;
 
-/** Signs `env` in as the stack owner and returns the owner's email. */
 const loginOwner = async (env: Readonly<Record<string, string>>): Promise<string> => {
   const login = (email: string) =>
     runMovies(["login", "--server", url, "--email", email, "--password"], env, PASSWORD);
 
-  // The backend suite races two sign-ups for the owner; either may have won.
   if ((await login("owner-a@movies.test")).code === 0) return "owner-a@movies.test";
 
   if ((await login("owner-b@movies.test")).code === 0) return "owner-b@movies.test";
@@ -128,7 +115,6 @@ const loginOwner = async (env: Readonly<Record<string, string>>): Promise<string
   throw new Error("Could not sign in as the stack owner; use a fresh stack");
 };
 
-/** The config file of an install made by `install`. */
 const configPath = (env: Readonly<Record<string, string>>): string =>
   join(env["XDG_CONFIG_HOME"] ?? "", "movies", "config.json");
 
@@ -214,7 +200,6 @@ describe.skipIf(stack === undefined)("the movies CLI against a real stack", () =
 
     expect((await runMovies(["logout"], withKey)).code).toBe(ExitCode.ok);
 
-    // Put the old session back: the server must have ended it.
     await writeText(configPath(device), saved);
     expect((await runMovies(["whoami"], device)).code).toBe(ExitCode.unauthenticated);
   });
@@ -431,7 +416,6 @@ describe.skipIf(stack === undefined)("the movies CLI against a real stack", () =
     expect(moved.episode?.id).toBe(second?.id);
     expect(moved.next).toBeNull();
 
-    // The second episode is the last.
     expect((await runMovies(["rooms", "next"], owner)).code).toBe(ExitCode.notFound);
     expect((await runMovies(["rooms", "leave"], owner)).code).toBe(ExitCode.ok);
   }, 120_000);
@@ -486,7 +470,6 @@ describe.skipIf(stack === undefined)("the movies CLI against a real stack", () =
       "Theatrical",
     ]);
 
-    // No media service runs here, so negotiation fails after the session started on the file.
     const sessionFile = async (choice: string): Promise<string | undefined> => {
       await runMovies(["play", name, "--version", choice], owner);
 

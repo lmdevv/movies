@@ -1,8 +1,3 @@
-/**
- * The body of the title screens' native form sheets (D05 Seasons, D06 Choose Version, D07 Episode
- * Actions, D10 title actions): a 22pt heading with a close button, an optional muted line, then
- * 56pt rows 16pt apart on the raised surface. iOS draws the grabber and sizes the sheet to fit.
- */
 import { router } from "expo-router";
 import { X } from "lucide-react-native";
 import { useEffect, useRef } from "react";

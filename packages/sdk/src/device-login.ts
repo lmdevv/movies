@@ -1,8 +1,3 @@
-/**
- * Device sign-in for the CLI and TVs: request a code, show the short user code and a QR code of
- * the approval URL, watch `deviceAuth.status` until someone approves it from a signed-in session,
- * then sign in with the secret device code. The QR code holds the approval URL, never a credential.
- */
 import type { DeviceCodeState } from "@movies/contracts/models/account";
 import type { EpochMillis } from "@movies/contracts/units";
 import { Clock, Duration, Effect, Option, Redacted, Schedule, Schema, Stream } from "effect";
@@ -35,16 +30,10 @@ export interface DeviceLogin {
   readonly complete: Effect.Effect<void, DeviceLoginRefused | CallError | TokenStorageError>;
 }
 
-/** Time allowed past the server's expiry for clock differences before giving up locally. */
 const EXPIRY_GRACE_MS = 5_000;
 
-/**
- * The wait before watching the status again after a poll failed in transit or was rate limited.
- * Retries stop when the sign-in expires.
- */
 const STATUS_RETRY_SPACING = Duration.seconds(2);
 
-/** A status someone decided: anything but `pending`. */
 interface DecidedStatus {
   readonly state: Exclude<DeviceCodeState, "pending">;
 }

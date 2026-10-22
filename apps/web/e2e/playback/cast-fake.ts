@@ -11,7 +11,6 @@
  */
 import type { Page } from "@playwright/test";
 
-/** What the app asked the receiver to load. */
 interface FakeLoad {
   readonly contentId: string;
   readonly contentType: string;
@@ -348,7 +347,6 @@ const SDK = String.raw`
 })();
 `;
 
-/** The script Google's loader URL answers with: install the fake, then say casting is available. */
 const LOADER = "window.__installCastFake(); window.__onGCastApiAvailable(true);";
 
 /** Puts the fake SDK into every page of `page`'s context. */

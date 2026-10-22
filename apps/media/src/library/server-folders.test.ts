@@ -7,18 +7,11 @@ import { NotFound } from "@movies/contracts/errors";
 import { testConfigLayer } from "../testing/test-config.ts";
 import * as ServerFolders from "./server-folders.ts";
 
-/** Where the test tree lives: an approved root, a missing root, and a folder outside both. */
 class Tree extends Context.Service<
   Tree,
   { readonly root: string; readonly missing: string; readonly outside: string }
 >()("test/ServerFolders/Tree") {}
 
-/**
- * An approved root holding `Movies` (with `Extras` inside), `shows`, `many` (with 1,001 folders),
- * `thousand` (exactly 1,000 folders and a file after them by name), a hidden `.cache`, a file, a
- * link to `Movies` (`alias`), and a link to a folder outside the roots (`linked`); outside the
- * roots, a link to the root (`door`); and a second approved root that does not exist.
- */
 const testLayer = Layer.unwrap(
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;

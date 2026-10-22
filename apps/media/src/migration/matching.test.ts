@@ -97,7 +97,6 @@ describe("matchItems", () => {
   it("prefers the file path, then provider IDs", () => {
     const matches = matchItems(
       [
-        // Path wins even though the IDs point at another title.
         item("by-path", "movie", ["/data/movies/Heat (1995)/Heat.mkv"], {
           ids: { ...noIds, imdb: "tt0078748" },
         }),

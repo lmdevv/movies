@@ -11,7 +11,6 @@ import {
   reachableConvexUrl,
 } from "./discovery";
 
-/** A stand-in media service on a free port that answers `routes` with their JSON bodies. */
 const serve = async (routes: Readonly<Record<string, string>>): Promise<Server> => {
   const server = createServer((request, response) => {
     const body = routes[request.url ?? ""];

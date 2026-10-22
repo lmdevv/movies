@@ -1,8 +1,3 @@
-/**
- * Processes for the real-stack suite: the built media service, started against the worktree's
- * dev stack (`scripts/dev-stack.sh up`), and the built `movies` CLI. Imports nothing from Effect:
- * the repo's lint keeps raw Node process and file APIs out of Effect modules.
- */
 import { execFileSync, spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";

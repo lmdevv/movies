@@ -1,17 +1,9 @@
-/**
- * `PlaybackReporter` over Convex: every event is logged at once, and the mode each playback
- * session runs in (and any later change, such as a QSV failure falling back to software) is
- * recorded with `mediaService:recordPlaybackMode`. Convex writes go through a queue that a
- * background fiber drains, so negotiation never waits on Convex; a failed write is logged and
- * dropped, because the next negotiation records the mode again.
- */
 import type { CallError } from "@movies/sdk/effect";
 import { Effect, Layer, Queue, Stream } from "effect";
 
 import * as PlaybackReporter from "../playback/playback-reporter.ts";
 import * as MediaBackend from "./media-backend.ts";
 
-/** Events waiting to be written; beyond this, new events are dropped. */
 const QUEUE_CAPACITY = 1024;
 
 /** The reporter over the Convex connection; its writer lives as long as the layer. */

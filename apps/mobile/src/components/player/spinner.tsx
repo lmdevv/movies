@@ -1,4 +1,3 @@
-/** The player's loading glyph (F08, F14): Lucide's loader-circle turning once a second. */
 import { LoaderCircle } from "lucide-react-native";
 import { useEffect } from "react";
 import Animated, {
@@ -12,7 +11,6 @@ import Animated, {
 
 import { Icon } from "@/components/ui/icon";
 
-/** One turn, in milliseconds. */
 const TURN_MS = 1_000;
 
 /** A turning loader in white over video. */

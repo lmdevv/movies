@@ -21,14 +21,12 @@ import { signTestToken } from "../testing/test-config.ts";
 
 const hasFfmpeg = await ffmpegAvailable();
 
-/** A committed DVD subtitle track; see `testing/fixtures/README.md`. */
 const VOBSUB = join(import.meta.dirname, "..", "testing", "fixtures", "vobsub.mkv");
 
 const LIBRARY = LibraryId.make("picture-subtitles");
 
 const FILM = "Picture Subtitles (2020)/Picture Subtitles (2020).mkv";
 
-/** Chromium: plays H.264 and AAC through hls.js, Matroska not at all. */
 const chromium: ClientCapabilities = {
   containers: ["mp4"],
   videoCodecs: [{ codec: "h264", maxBitDepth: 8 }],
@@ -41,7 +39,6 @@ const chromium: ClientCapabilities = {
 
 const decodeNegotiation = Schema.decodeUnknownEffect(Schema.toCodecJson(NegotiateResponse));
 
-/** Eight seconds of 640x360 video with the DVD subtitles, a 720x576 canvas, muxed beside it. */
 const addFilm = Effect.gen(function* () {
   const workspace = yield* FixtureWorkspace.Service;
   const tools = yield* MediaTools.Service;
@@ -85,7 +82,6 @@ const addFilm = Effect.gen(function* () {
   return MemoryLibrary.fileIdOf(LIBRARY, FILM);
 });
 
-/** Negotiates the film, burning in `burnInSubtitle` when given. */
 const negotiate = Effect.fn(function* (
   token: string,
   burnInSubtitle?: string,
@@ -109,10 +105,6 @@ const negotiate = Effect.fn(function* (
   );
 });
 
-/**
- * Luma of the bottom third of the first picture in segment `index` of the playlist at
- * `playlistUrl`, as raw 8-bit samples, decoded by ffmpeg.
- */
 const bottomOfSegment = Effect.fn(function* (playlistUrl: string, index: number) {
   const server = yield* MediaTestServer.Service;
   const tools = yield* MediaTools.Service;
@@ -167,7 +159,6 @@ describe.skipIf(!hasFfmpeg)("image subtitles", () => {
           const fileId = yield* addFilm.pipe(Effect.orDie);
           const token = signTestToken({ fid: fileId, sid: "burn-in" });
 
-          // Without a request the film remuxes; the picture subtitle is offered, without a URL.
           const plain = yield* negotiate(token);
           const track = plain.subtitles.find((subtitle) => subtitle.kind === "bitmap");
 
@@ -182,14 +173,10 @@ describe.skipIf(!hasFfmpeg)("image subtitles", () => {
           assert.strictEqual(burned.burnedInSubtitle, track?.id);
           assert.deepStrictEqual([burned.video.width, burned.video.height], [640, 360]);
 
-          // Segment 2 starts at 2 s, within the first subtitle; the background is dark blue, so
-          // white text shows as bright samples, scaled from the 720x576 canvas onto 640x360.
           const withText = yield* bottomOfSegment(burned.url, 2);
 
           assert.isAbove(brightSamples(withText), 200);
 
-          // Started at 7 s, a seek back to 5 s needs a new run there. The second subtitle has
-          // been on screen since 4 s, so its packet lies before that run; it must still be drawn.
           const server = yield* MediaTestServer.Service;
           const late = yield* negotiate(token, track?.id, 7);
 
@@ -209,12 +196,10 @@ describe.skipIf(!hasFfmpeg)("image subtitles", () => {
 
           assert.strictEqual(moved.generation, 2);
 
-          // The plan around 7 s starts segments at 0, 4, 5, 6, and 8 s; segment 2 begins at 5 s.
           const afterSeek = yield* bottomOfSegment(moved.playlistUrl, 2);
 
           assert.isAbove(brightSamples(afterSeek), 200);
 
-          // Switching back to no subtitle returns to the copy.
           const back = yield* negotiate(token);
 
           assert.strictEqual(back.mode, "remux");

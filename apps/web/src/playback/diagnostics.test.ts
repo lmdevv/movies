@@ -10,7 +10,6 @@ import {
 import { PlaybackStep, PlaybackStop } from "./playback-policy";
 import { failureObservation } from "./stream-attachment";
 
-/** An element at `currentTime` holding `ranges`, as `[start, end]` seconds. */
 const element = (
   currentTime: number,
   ranges: ReadonlyArray<readonly [number, number]>,

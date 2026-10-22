@@ -1,8 +1,3 @@
-/**
- * The signed-in account on the owner screens: who it is and what this session may do. Owner
- * Settings opens for sessions holding `manage` (libraries, scans, matches) or `admin` (users,
- * invites, backups, import); each screen shows only what the session may use.
- */
 import type { Viewer } from "@movies/contracts/models/account";
 import { createContext, useContext } from "react";
 

@@ -16,14 +16,12 @@ import {
 
 const MAX_PATH = 128;
 
-/** `url` without its query or fragment, cut to `MAX_PATH` characters. */
 const pathOf = (url: string): string => {
   const path = url.split(/[?#]/u, 1)[0] ?? "";
 
   return path.length > MAX_PATH ? `${path.slice(0, MAX_PATH)}…` : path;
 };
 
-/** Whether `cause` holds a defect other than a response a handler answered with. */
 const died = (cause: Cause.Cause<unknown>): boolean =>
   cause.reasons.some(
     (reason) => Cause.isDieReason(reason) && !Response.isHttpServerResponse(reason.defect),

@@ -7,8 +7,6 @@
 @source "../**/*.{ts,tsx}";
 
 @custom-variant dark (&:is(.dark *));
-/* Windows too short for the player's full overlays, such as a phone held sideways or a squat
-   browser window, whatever the pointer: the next-episode card trims itself to fit them. */
 @custom-variant short (@media (height < 30rem));
 
 /* Tokens from the [movies] Paper file (01M4PMRM5T60Q4P0YYZ8DY580D), names unchanged.
@@ -87,7 +85,6 @@
   --color-glass: rgb(44 44 46 / 62%);
   --text-tab: 10px;
   --text-micro: 11px;
-  /* The centered wordmark over the device, sign-in, and setup pages. */
   --text-wordmark: 28px;
   --text-lead: 17px;
   --text-subtitle: 22px;
@@ -98,43 +95,26 @@
   --tracking-snug: -0.02em;
   --tracking-hero: -0.04em;
   --tracking-spread: 0.32em;
-  /* Small-caps column and section labels on 10 Admin. */
   --tracking-eyebrow: 0.08em;
   --shadow-overlay: 0 32px 80px var(--color-scrim);
   --shadow-glass: inset 0 1px 0 rgb(255 255 255 / 14%), 0 10px 30px rgb(0 0 0 / 45%);
   --radius-thumb: 10px;
-  /* Progress bars, slider tracks, skeleton lines, and focus rings on small links. */
   --radius-bar: 0.125rem;
-  /* Buttons and chips nested inside a panel or menu. */
   --radius-inner: 0.375rem;
-  /* The search field on phones. */
   --radius-search: 0.75rem;
-  /* Outlined controls: icon buttons, checkboxes, radios, invalid fields, dashed placeholders. */
   --border-width-control: 1.5px;
-  /* A checked radio: the accent ring around the white dot. */
   --border-width-radio-checked: 5px;
-  /* Chips, top-bar links, command rows, and the folder path field. */
   --text-small: 0.875rem;
-  /* Large and pill buttons. */
   --text-button: 1rem;
-  /* The command menu's input. */
   --text-command: 1.125rem;
-  /* The wordmark in the top bar. */
   --text-logo: 1.5rem;
-  /* An avatar's initial at medium size. */
   --text-avatar: 2.25rem;
-  /* Title-art headings: the hero and collection titles. */
   --font-weight-hero: 900;
-  /* The spaced uppercase line under a hero title. */
   --font-weight-tagline: 300;
-  /* Popover lists: the chapter list, the player's track and episode panels, and the command menu's
-     results. The track and episode panels are also held to the room above their triggers. */
   --spacing-chapter-list: 28rem;
   --spacing-track-panel: 28rem;
   --spacing-episode-panel: 28rem;
   --spacing-command-list: 30rem;
-  /* The player's next-episode card in the corner of the credits, wherever the window is wider than
-     a phone held upright or shorter than the `short` variant. */
   --spacing-next-card: 26rem;
   /* Paddings, gaps, margins, and offsets between the Paper spacing steps. The key is the step on
      Tailwind's 4px grid (`gap-1.5` reads `--spacing-1_5`), so classes keep their usual names, and
@@ -175,12 +155,9 @@
   --spacing-42: 10.5rem;
   --spacing-49: 12.25rem;
   --spacing-56: 14rem;
-  /* The page canvas: Paper draws light pages on bg, dark phone pages on dark-bg and dark desktop
-     pages on dark-surface (see the .dark rules below). */
   --color-page: var(--color-bg);
 }
 
-/* Dark mode is the default theme. Each dark token replaces its light role. */
 .dark {
   --color-bg: var(--color-dark-bg);
   --color-surface: var(--color-dark-surface);
@@ -200,7 +177,6 @@
   }
 }
 
-/* shadcn's semantic names resolve to Paper roles, so components follow the tokens. */
 @theme inline {
   --color-background: var(--color-bg);
   --color-foreground: var(--color-text);
@@ -224,8 +200,6 @@
   --radius: var(--radius-control);
 }
 
-/* Chrome over posters, backdrops and video stays white in both themes: inside `on-media` the text
-   and state roles resolve to their dark twins, so components keep using role tokens. */
 @utility on-media {
   --color-text: var(--color-dark-text);
   --color-text-muted: var(--color-dark-text-muted);
@@ -259,8 +233,6 @@
   body {
     @apply bg-background font-sans text-foreground antialiased;
   }
-  /* Subtitles from WebVTT tracks: the player's sans face, white over a soft shadow instead of a
-     box, as Netflix sets them. The browser keeps sizing cues to the video. */
   video::cue {
     font-family: var(--font-sans);
     color: var(--color-dark-text);
@@ -269,7 +241,6 @@
       0 0 4px var(--color-scrim),
       0 1px 2px var(--color-scrim);
   }
-  /* Paper draws no focus ring; the design note settles on 2px with a 2px offset, white on dark. */
   :focus-visible {
     outline: 2px solid var(--focus-ring, var(--color-text));
     outline-offset: 2px;

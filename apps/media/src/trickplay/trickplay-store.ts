@@ -1,11 +1,3 @@
-/**
- * Scrub thumbnails on disk, under `DATA_DIR/trickplay/<fileId>/<version>/`: the sprite sheets
- * (`0.jpg`, `1.jpg`, …) and `manifest.json`. Media files stay read-only; nothing is written next
- * to them. A new version is built in a hidden folder and renamed into place, so a reader never
- * sees half a set. Publishing keeps the file's other versions: two jobs for one file may both
- * publish, and only the catalog knows which one it accepted. The sweep removes what the catalog no
- * longer uses: thumbnails of files that are gone or missing, or of other contents.
- */
 import { type TrickplayManifest, TrickplayVersion } from "@movies/contracts/trickplay";
 import { Clock, Context, Duration, Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 
@@ -22,19 +14,15 @@ export class TrickplayStorageFailed extends Schema.TaggedError<TrickplayStorageF
   }
 }
 
-/** Names that may appear in a version folder: the manifest and numbered sheets. */
 const STORED_NAME = /^(?:manifest\.json|\d{1,5}\.jpg)$/u;
 
 /** Folder names of media file IDs (Convex IDs are lowercase letters and digits). */
 const FILE_ID = /^[0-9a-z]{1,64}$/u;
 
-/** Hidden build folders start with this; they are never served and swept once stale. */
 const BUILDING = ".building-";
 
-/** Folders younger than this are left to the job that may still be recording them. */
 const SWEEP_GRACE = Duration.hours(1);
 
-/** File IDs the sweep asks the catalog about at once. */
 const SWEEP_BATCH = 100;
 
 const storageFailed = (cause: unknown) => new TrickplayStorageFailed({ cause });
@@ -81,7 +69,6 @@ export class Service extends Context.Service<Service, Interface>()(
   "@movies/media/TrickplayStore",
 ) {}
 
-/** A store rooted at `root`. */
 const make = Effect.fn("TrickplayStore.make")(function* (root: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -132,8 +119,6 @@ const make = Effect.fn("TrickplayStore.make")(function* (root: string) {
         Effect.onError(() => removeQuietly(building)),
       );
 
-      // An earlier set of this version (a retry, an admin asking again) moves aside rather than
-      // going first, and comes back if the new set cannot take its place.
       const retired = path.join(parent, `${BUILDING}retired-${version}-${suffix}`);
       const replacing = yield* fs.exists(target).pipe(Effect.orElseSucceed(() => false));
 
@@ -159,10 +144,8 @@ const make = Effect.fn("TrickplayStore.make")(function* (root: string) {
       return manifest;
     }).pipe(Effect.withSpan("TrickplayStore.publish"));
 
-  /** Whether `folder` changed within the grace period, as a build being recorded may have. */
   const isRecent = (folder: string, now: number) =>
     fs.stat(folder).pipe(
-      // A missing time reads as 0, which is never recent.
       Effect.map((info) => now - modifiedAtMs(info) < Duration.toMillis(SWEEP_GRACE)),
       Effect.orElseSucceed(() => true),
     );

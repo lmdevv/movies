@@ -28,7 +28,6 @@ const env = { XDG_CONFIG_HOME: home, HOME: home };
 
 const movies = (...argv: ReadonlyArray<string>) => runInProcess(argv, env);
 
-/** A config home whose `home` profile is signed in to `convexUrl` with a key and a session. */
 const storedHome = (convexUrl = "https://home.example/convex") => {
   const dir = mkdtempSync(join(tmpdir(), "movies-stored-home-"));
   const path = join(dir, "movies", "config.json");
@@ -105,7 +104,6 @@ describe("the movies command", () => {
       ...diagnosticsCommands,
     ];
 
-    // `call` and `commands` are routed before any shortcut.
     const routed = new Set(["call", "commands"]);
 
     expect(implemented.map((command) => command.path).toSorted()).toStrictEqual(
@@ -189,7 +187,6 @@ describe("the movies command", () => {
   it("never sends a stored profile's credentials to another server in MOVIES_CONVEX_URL", async () => {
     const { home: other, path, stored } = storedHome();
     const overridden = { XDG_CONFIG_HOME: other, MOVIES_CONVEX_URL: "http://127.0.0.1:9" };
-    // Nothing listens on the discard port: any request at all fails as unavailable (exit 9).
     const run = await runInProcess(["whoami"], overridden);
     const use = await runInProcess(["profiles", "use", "Kids"], overridden);
     const login = await runInProcess(["login", "--api-key", "mk_other"], overridden);
@@ -239,10 +236,6 @@ describe("the movies command", () => {
   });
 });
 
-/**
- * Runs `run` against a stand-in media service answering with `handler`, signed in from a stored
- * profile whose Convex URL is the discard port: nothing here may reach Convex.
- */
 const withSignedInMedia = (
   handler: (request: IncomingMessage, response: ServerResponse) => void,
   run: (signedIn: (...argv: ReadonlyArray<string>) => Promise<CliRun>) => Promise<void>,
@@ -259,10 +252,6 @@ const withSignedInMedia = (
     }
   });
 
-/**
- * Text a player could have put in a log record: C0 escape, DEL, the C1 NEL and CSI, a
- * right-to-left override, a line separator, a left-to-right isolate, and a right-to-left mark.
- */
 const hostile = "a\u001b[2Jb\u007fc\u0085d\u009be\u202ef\u2028g\u2066h\u200fi";
 
 const hostileRecord = `${JSON.stringify({
@@ -316,7 +305,6 @@ const sessionList = [
   },
 ];
 
-/** Answers the log route with `hostileRecord` and the diagnostics routes with the values above. */
 const diagnosticsService = (request: IncomingMessage, response: ServerResponse) => {
   const body = { "/api/diagnostics/playback": timeline, "/api/diagnostics/sessions": sessionList };
 
@@ -334,7 +322,6 @@ const diagnosticsService = (request: IncomingMessage, response: ServerResponse) 
   }
 };
 
-/** Whether `text` holds a control character other than the newlines between lines. */
 const hasControl = (text: string): boolean =>
   /[\p{Cc}\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/u.test(text.replaceAll("\n", ""));
 

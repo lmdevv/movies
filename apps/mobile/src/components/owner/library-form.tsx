@@ -1,9 +1,3 @@
-/**
- * The library form of I03 Add Library, I15 Add Your First Library, and editing a library: a name,
- * Movies or Shows for a new one, the server folder typed or chosen on I16 Server Folders, and the
- * submit action. Folders are checked before saving: the shape here, then whether the server can
- * read them; one it cannot shows I17 (the danger line, and Choose Another Folder).
- */
 import { normalizeFolder } from "@movies/contracts/library-folder";
 import { useCommand } from "@movies/sdk/react";
 import { router, useLocalSearchParams, usePathname } from "expo-router";
@@ -34,7 +28,6 @@ import { OwnerScreen } from "./parts";
 
 const KINDS: ReadonlyArray<FormKind> = ["movies", "shows"];
 
-/** What the folder browser hands back: the folder and the field it is for. */
 type FolderPick = { folder?: string; field?: string; picked?: string };
 
 /** Props for `LibraryForm`. */
@@ -55,11 +48,6 @@ export interface LibraryFormProps {
   readonly back?: boolean;
 }
 
-/**
- * Whether the server can read each folder, by field, through the folder browser. Whether the
- * server can browse at all is asked once per form: an older media service, which cannot, would
- * answer every folder as not found, so its folders are left for saving to judge.
- */
 const useFolderCheck = () => {
   const folders = useCommand("libraries.folders");
   const browses = useRef<Promise<boolean> | null>(null);
@@ -73,7 +61,6 @@ const useFolderCheck = () => {
     );
 
     if (!(await browses.current)) {
-      // Asked again next time, in case it was the network rather than the server.
       browses.current = null;
 
       return [];
@@ -116,7 +103,6 @@ export function LibraryForm({
   const [busy, setBusy] = useState(false);
   const [applied, setApplied] = useState<string | null>(null);
 
-  // A folder chosen on Server Folders arrives as route parameters; take each choice once.
   const pickKey =
     pick.folder === undefined ? null : `${pick.picked ?? ""}:${pick.field ?? "0"}:${pick.folder}`;
 
@@ -227,7 +213,6 @@ export function LibraryForm({
       ) : null}
       {draft.folders.map((folder, field) => (
         <TextField
-          // Folders are edited in place and never reordered, so their position is their identity.
           key={`folder-${String(field)}`}
           label={field === 0 ? "Server Folder" : `Server Folder ${field + 1}`}
           value={folder}

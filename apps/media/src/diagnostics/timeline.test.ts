@@ -22,7 +22,6 @@ const record = (
   annotations: { sessionId: SESSION, userId: "user_a", ...annotations },
 });
 
-/** A player record logged at `loggedMs` about an event at `occurredMs`. */
 const player = (
   message: string,
   loggedMs: number,

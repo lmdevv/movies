@@ -1,11 +1,3 @@
-/**
- * Watch Together in the player (F15–F24). A room in the route is joined before playback: the
- * player asks first (F18), or says the room ended (F22) or is out of this profile's reach (F23).
- * Once joined, the stream starts at the room's live position and the SDK's room engine keeps it
- * on the shared timeline; the host controls it as anyone controls their own player, and a guest's
- * controls only show it. Starting a room (F15) keeps the stream playing; leaving or ending one keeps
- * it playing alone. Only the server decides who may join and who controls the timeline.
- */
 import type { EpisodeId, MediaFileId, RoomId } from "@movies/contracts/ids";
 import type { Room } from "@movies/contracts/models/rooms";
 import { Milliseconds } from "@movies/contracts/units";
@@ -75,13 +67,11 @@ export interface RoomGate {
   readonly serverNow: () => number;
 }
 
-/** The room `access` says this device is in with the active profile, or null. */
 const joinedRoom = (access: RoomAccess): Room | null =>
   access.kind === "member" || access.kind === "hostLeft" ? access.room : null;
 
 const NO_ROOM: RoomAccess = { kind: "loading" };
 
-/** Whether `room` plays what `params` opened. */
 const playsParams = (room: Room, params: WatchParams): boolean =>
   room.title.id === params.titleId && (room.episode?.id ?? undefined) === params.episodeId;
 
@@ -100,12 +90,10 @@ export const useRoomGate = (params: WatchParams): RoomGate => {
   const [opened, setOpened] = useState(roomId);
   const [admitted, setAdmitted] = useState(roomId === null);
 
-  // Leaving the room keeps the stream, which is this player's own from then on.
   if (roomId === null && opened !== null) setOpened(null);
 
   if (!admitted && roomId === null) setAdmitted(true);
 
-  // A room that plays something else than the route asks for opens on what it plays.
   const joined = joinedRoom(access);
   const elsewhere = !admitted && joined !== null && !playsParams(joined, params) ? joined : null;
 
@@ -135,21 +123,17 @@ export const useRoomGate = (params: WatchParams): RoomGate => {
   };
 };
 
-/** Closes the player for the screen under it. */
 const closePlayer = goBack;
 
-/** Closes the player and opens Switch Profile. */
 const switchProfile = (): void => {
   closePlayer();
   router.push("/switch-profile");
 };
 
-/** Plays on alone: the room leaves the route, and the stream stays. */
 const dropRoom = (): void => {
   router.setParams({ room: undefined });
 };
 
-/** F18 · Join: the room's host and what it plays, then Not Now or Join Room. */
 function JoinPopup({ room, onNotNow }: { readonly room: Room; readonly onNotNow: () => void }) {
   const { mediaUrl } = useServer();
   const { busy, error, join } = useJoinRoom(room.id);
@@ -181,28 +165,19 @@ function JoinPopup({ room, onNotNow }: { readonly room: Room; readonly onNotNow:
   );
 }
 
-/** What the popups for a room's state do. */
 interface RoomStateActions {
-  /** Leave Player, and the close button of a room this player cannot follow. */
   readonly onLeave: () => void;
-  /** Watch on Your Own, Not Now on a room to join again, and closing an ended room. */
   readonly onAlone: () => void;
   readonly onRetry: () => void;
-  /** Not Now and the close button on F18: before playback it leaves; in a session it plays on. */
   readonly onNotNow: () => void;
 }
 
-/**
- * The popup for where this device stands with its room, before playback and during it: Join
- * (F18), Room Ended (F22), Room Unavailable (F23), or a room that cannot be read. Null otherwise.
- */
 function RoomStatePopup({
   access,
   subtitle,
   actions,
 }: {
   readonly access: RoomAccess;
-  /** What plays, under an ended room's heading. */
   readonly subtitle: string | null;
   readonly actions: RoomStateActions;
 }) {
@@ -316,7 +291,6 @@ export function RoomEntry({
   );
 }
 
-/** A popup the viewer opened. */
 type OpenedPopup = "start" | "invite" | "end";
 
 /** What the session's room needs from the player. */
@@ -387,8 +361,6 @@ export const useSessionRoom = (options: SessionRoomOptions): SessionRoom => {
 
   if (current !== null && current !== last) setLast(current);
 
-  // While the room cannot be read for a moment, the player keeps following the room it knew, so a
-  // guest's controls never come back to a timeline that is still the host's.
   const held =
     last !== null && last.id === roomId && (access.kind === "failed" || access.kind === "loading")
       ? last
@@ -500,10 +472,6 @@ export const useSessionRoom = (options: SessionRoomOptions): SessionRoom => {
     );
   };
 
-  /**
-   * Drops the room and plays on alone. Playing waits until the room's engine has let go of the
-   * player, which would otherwise hold it on the room's paused clock.
-   */
   const playAlone = () => {
     setPane(false);
     show(null);
@@ -522,7 +490,6 @@ export const useSessionRoom = (options: SessionRoomOptions): SessionRoom => {
     return () => clearTimeout(timer);
   }, [resumeAlone, joined, resume]);
 
-  /** Leaves the room; the player closes, or plays on alone with `stay`. */
   const leaveWith = (stay: boolean) => {
     if (roomId !== null) void leaveRoom({ roomId, deviceId: device }).catch(() => undefined);
 
@@ -546,7 +513,6 @@ export const useSessionRoom = (options: SessionRoomOptions): SessionRoom => {
         <PlayerPopup
           title={`${hostName} left the room.`}
           onClose={() => {
-            // Closing waits for the host; the pane keeps the way to go on alone.
             setDismissed(`left:${roomKey}`);
             setPane(true);
           }}

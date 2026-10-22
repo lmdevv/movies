@@ -3,7 +3,6 @@ import { useEffect, useEffectEvent } from "react";
 import { chordFromEvent, stepKeymap } from "./keymap";
 import type { KeySequence, Keymap, Platform } from "./keymap";
 
-/** How long a started sequence such as `g …` waits for its next key. */
 const SEQUENCE_TIMEOUT_MS = 1000;
 
 /** The keyboard family of this browser, for resolving `mod` and drawing keycaps. */
@@ -39,7 +38,6 @@ export function useKeymap<Id extends string>(
   handlers: Partial<Record<Id, (event: KeyboardEvent) => void>>,
   enabled = true,
 ): void {
-  // The handlers of the latest render, without re-adding the listener when they change.
   const handlerFor = useEffectEvent((id: Id) => handlers[id]);
 
   useEffect(() => {
@@ -52,7 +50,6 @@ export function useKeymap<Id extends string>(
       keymap.entries.filter((entry) => entry.whileTyping === true).map((entry) => entry.id),
     );
 
-    // Inside text fields only `whileTyping` entries respond.
     const typingBindings = keymap.bindings.filter((binding) => live.has(binding.id));
 
     const onKeyDown = (event: KeyboardEvent): void => {

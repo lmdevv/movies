@@ -1,8 +1,3 @@
-/**
- * Picks the file a viewer plays for a movie or an episode, and lists the files on disk as versions
- * to choose from: the one the profile last played (its progress keeps the file), else the best the
- * device plays directly, else the best quality.
- */
 import type { Doc, Id } from "../_generated/dataModel";
 import { directPlayFile, playsDirectly } from "./directPlay";
 import type { ClientCapabilities } from "./directPlay";
@@ -18,10 +13,6 @@ export interface Playable {
 
 const primaryVideo = (file: Doc<"mediaFiles">) => file.probe.video[0];
 
-/**
- * Orders files best quality first: taller picture, then HDR, then higher bitrate, then larger.
- * Ties keep the older file first, so the order stays put as long as the files do.
- */
 const byQuality = (left: Doc<"mediaFiles">, right: Doc<"mediaFiles">): number =>
   (primaryVideo(right)?.height ?? 0) - (primaryVideo(left)?.height ?? 0) ||
   Number(right.hdr) - Number(left.hdr) ||

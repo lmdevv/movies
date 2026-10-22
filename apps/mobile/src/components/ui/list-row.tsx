@@ -1,8 +1,3 @@
-/**
- * A tappable row (A02 Nearby, settings lists): a 28pt icon slot, a 17pt title, optional muted
- * detail, and a 20pt chevron slot, at least 56pt tall. Slots keep their width when empty so
- * columns line up across rows.
- */
 import { ChevronRight } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import type { ReactNode } from "react";

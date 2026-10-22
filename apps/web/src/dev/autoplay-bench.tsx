@@ -6,7 +6,6 @@ import type { NextEpisode, NextEpisodeActions } from "@/components/player/autopl
 
 import { ART } from "./sample-art";
 
-/** The bench's next episode, with a synopsis as long as a real one. */
 const EPISODE: NextEpisode = {
   seasonNumber: 2,
   episodeNumber: 10,
@@ -16,11 +15,9 @@ const EPISODE: NextEpisode = {
   runtimeMs: Milliseconds.make(48 * 60_000),
 };
 
-/** A title long enough to need two lines and then some, as anthology and anime titles run. */
 const LONG_NAME =
   "The One Where Everybody Finds Out What Happened at the Lighthouse on the Night of the Longest Storm";
 
-/** The still variants: sample artwork, none at all, or an address that fails to load. */
 const STILLS = { art: ART.bear, none: undefined, broken: "/dev/missing-still.jpg" } as const;
 
 /** What the bench shows; see the `/dev/autoplay` route. */
@@ -32,7 +29,6 @@ export interface AutoplayBenchOptions {
   readonly role: "advance" | "follow" | "unavailable";
 }
 
-/** The card's actions for `role`, each reporting what it did through `done`. */
 const actionsFor = (
   role: AutoplayBenchOptions["role"],
   countdownMs: number,

@@ -32,7 +32,6 @@ export interface HlsCommand {
   readonly vaapiDevice: string;
 }
 
-/** What the stream arguments read: everything but where the input and the output are. */
 type EncodeSource = Omit<HlsCommand, "input" | "outputDirectory">;
 
 /** Everything one ffmpeg run that writes a whole file as MP4 needs, for a download. */
@@ -74,17 +73,14 @@ const seconds = (value: number): string => value.toFixed(6);
 
 type Encode = Extract<VideoPlan, { readonly _tag: "Encode" }>;
 
-/** A one-input chain for `-vf`, or a graph with the subtitle input for `-filter_complex`. */
 interface FilterGraph {
   readonly kind: "simple" | "complex";
   readonly graph: string;
 }
 
-/** Whether the source decodes on the GPU straight into the encoder's filters. */
 const decodesOnGpu = (command: EncodeSource, video: Encode): boolean =>
   video.encoder !== "software" && HARDWARE_DECODERS.has(command.videoCodec);
 
-/** Filters from frames in system memory to frames the GPU encoder takes, scaled to the target. */
 const gpuFilters = (command: EncodeSource, video: Encode, uploaded: boolean): string => {
   const size = `w=${String(video.width)}:h=${String(video.height)}`;
 
@@ -274,7 +270,6 @@ const SUBTITLE_LEAD = 30;
 /** DVD subtitles carry no canvas size; without one ffmpeg sizes them to the video and crops. */
 const DVD_CANVAS = "720x576";
 
-/** How a burned-in subtitle is read: its canvas size, and whether from a second reading. */
 const subtitleReading = (command: EncodeSource) => {
   const video = command.video;
   const burning = VideoPlan.$is("Encode")(video) && video.burnSubtitle !== undefined;
@@ -354,7 +349,6 @@ export const hlsCommandArgs = (command: HlsCommand): ReadonlyArray<string> => {
  * opens the finished file at once. Progress goes to `command.progress`.
  */
 export const mp4CommandArgs = (command: Mp4Command): ReadonlyArray<string> => {
-  // A whole-file run: no seek, no keyframes forced onto a segment plan, nothing burned in.
   const source: EncodeSource = {
     sourceStart: 0,
     from: 0,

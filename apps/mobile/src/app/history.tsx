@@ -1,7 +1,3 @@
-/**
- * H04 · Watch History: what this profile played, most recent first, under day headings. A row
- * plays or resumes; its More button opens the entry's actions (H31). Older pages load on scroll.
- */
 import type { HistoryEntry } from "@movies/contracts/models/catalog";
 import type { Cursor as CursorSchema } from "@movies/contracts/models/common";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
@@ -25,21 +21,14 @@ import { watchHref } from "@/lib/routes";
 import { useActiveProfile } from "@/session/active-profile";
 import { useServer } from "@/session/connection";
 
-/** Where a page of history starts. */
 type Cursor = typeof CursorSchema.Type;
 
-/** Entries per page; the first page stays live, older pages load once as the list scrolls. */
 const PAGE = 50;
 
-/** A row of the list: a day heading or an entry. */
 type Item =
   | { readonly kind: "heading"; readonly key: string; readonly title: string }
   | { readonly kind: "entry"; readonly key: string; readonly entry: HistoryEntry };
 
-/**
- * Older pages after the live first one, and where the next one starts. `reload` reads the loaded
- * ones again, so entries changed or removed from the entry's actions (H31) do not linger.
- */
 const useOlderPages = (firstCursor: Cursor | null) => {
   const { profile } = useActiveProfile();
   const list = useCommand("history.list");
@@ -52,7 +41,6 @@ const useOlderPages = (firstCursor: Cursor | null) => {
 
   const loading = useRef(false);
 
-  // Pages loaded after a different first page no longer follow it.
   const current =
     pages.after === firstCursor ? pages : { after: firstCursor, entries: [], next: firstCursor };
 
@@ -69,13 +57,11 @@ const useOlderPages = (firstCursor: Cursor | null) => {
         next: page.nextCursor,
       });
     } catch {
-      // Scrolling to the end again tries the page again.
     } finally {
       loading.current = false;
     }
   };
 
-  /** Reads entries from `cursor` on until there are `wanted` of them or history ends. */
   const readFrom = async (
     cursor: Cursor,
     wanted: number,
@@ -98,7 +84,6 @@ const useOlderPages = (firstCursor: Cursor | null) => {
 
       setPages({ after: firstCursor, ...read });
     } catch {
-      // The loaded pages stay as they were; the next visit reads them again.
     } finally {
       loading.current = false;
     }
@@ -187,13 +172,11 @@ export default function WatchHistory() {
     reloadOlder.current = older.reload;
   });
 
-  // Coming back from an entry's actions reads the older pages again; the first page is live.
   useFocusEffect(
     useCallback(() => {
       void reloadOlder.current();
     }, []),
   );
-  // The day headings follow the clock of the moment the list was read.
   const [now] = useState(Date.now);
 
   const items = useMemo((): ReadonlyArray<Item> => {

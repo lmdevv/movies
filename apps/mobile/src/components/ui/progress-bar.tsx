@@ -1,4 +1,3 @@
-/** A 4pt progress track with the red fill (episode rows, continue-watching cards). */
 import { View } from "react-native";
 
 /** Props for `ProgressBar`. */

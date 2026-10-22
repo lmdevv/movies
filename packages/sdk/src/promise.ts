@@ -172,7 +172,6 @@ export const createMovies = (options: MoviesOptions): MoviesSdk => {
   // disposing the runtime interrupts the fibers it started, not the ones forked into a scope.
   const workflows = Scope.makeUnsafe();
 
-  /** Runs `stream` in the background, calling `listener` per value; the result stops it. */
   const listen = <A, E>(
     stream: Stream.Stream<A, E, Movies.Services>,
     listener: (value: A) => void,
@@ -184,16 +183,13 @@ export const createMovies = (options: MoviesOptions): MoviesSdk => {
       ),
     );
 
-    // Interrupting needs no services, so stopping still works after `dispose`.
     return () => Effect.runPromise(Fiber.interrupt(fiber));
   };
 
-  /** Runs a scoped workflow and returns its result with a function that closes its scope. */
   const scoped = async <A, E>(
     workflow: Effect.Effect<A, E, Movies.Services | Scope.Scope>,
   ): Promise<{ readonly value: A; readonly stop: Stop }> => {
     const scope = Scope.forkUnsafe(workflows);
-    // Closing needs no services, so stopping still works after `dispose`.
     const stop: Stop = () => Effect.runPromise(Scope.close(scope, Exit.void));
 
     try {
@@ -249,7 +245,6 @@ export const createMovies = (options: MoviesOptions): MoviesSdk => {
       },
     },
     dispose: async () => {
-      // Workflows stop first, while the connection their finalizers may use is still open.
       await Effect.runPromise(Scope.close(workflows, Exit.void));
       await runtime.dispose();
     },

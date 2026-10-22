@@ -1,7 +1,3 @@
-/**
- * B05–B07 · Enter PIN before opening a PIN profile, from Who's Watching? or the switcher sheet.
- * Unlocking chooses the profile; leaving another profile locks that one behind it.
- */
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert } from "react-native";
 

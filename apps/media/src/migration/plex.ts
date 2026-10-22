@@ -133,7 +133,6 @@ const providerIds = (guids: Metadata["Guid"]): ProviderIds => {
   return { tmdb: lookup("tmdb"), imdb: lookup("imdb"), tvdb: lookup("tvdb") };
 };
 
-/** The current values of the fields an admin locked in Plex. */
 const overridesOf = (item: Metadata): MetadataOverrides => {
   const locked = new Set(
     (item.Field ?? []).flatMap((field) => (field.locked === true ? [field.name] : [])),
@@ -180,7 +179,6 @@ const libraryKind = (type: string): SourceLibrary["kind"] => {
 const seconds = (value: number | null | undefined): number | null =>
   value === null || value === undefined || value <= 0 ? null : Math.floor(value * 1000);
 
-/** The token owner's state for an item, from the listing's view fields. */
 const ownerStateOf = (item: Metadata): SourceItemState | null => {
   const playCount = Math.max(0, Math.floor(item.viewCount ?? 0));
   const positionMs = Math.max(0, Math.floor(item.viewOffset ?? 0));
@@ -205,7 +203,6 @@ const manifestFor = (url: URL): SourceManifest => ({
   permissions: { hosts: [url.host], methods: ["GET"], postPaths: [], paths: [] },
 });
 
-/** Reads every page of a Plex listing with `X-Plex-Container-Start` and `-Size`. */
 const metadataPages = (
   http: SourceHttp,
   operation: string,
@@ -228,7 +225,6 @@ const metadataPages = (
       ),
   );
 
-/** A library's movies, shows, and episodes as listed, before translation. */
 interface Listing {
   readonly library: SourceLibrary;
   readonly kind: SourceItem["kind"];
@@ -347,7 +343,6 @@ const openSession = Effect.fnUntraced(function* (target: SourceTarget) {
     ),
   );
 
-  /** Another account's plays, folded into watched marks, play counts, and last-played dates. */
   const historyStates = (user: SourceUser) =>
     allPages(PAGE_SIZE, (start) =>
       http

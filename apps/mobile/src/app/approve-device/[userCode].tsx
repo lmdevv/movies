@@ -1,8 +1,3 @@
-/**
- * H08 · Approve Sign-In: the device behind a code and the account it would sign in to, with
- * Approve and Deny. H09 · Device Approved follows approval; H10 · Device Code Invalid shows for a
- * code no device is waiting on, and expired or used codes say so.
- */
 import type { DeviceCodeLookup } from "@movies/contracts/models/account";
 import type { DeviceScope } from "@movies/contracts/scopes";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
@@ -22,14 +17,12 @@ import { Text } from "@/components/ui/text";
 import { formatUserCode } from "@/lib/device-code";
 import { describeFailure, isFailure } from "@/lib/failure";
 
-/** What an approved device may do: browse and watch, as the web approval page grants by default. */
 const APPROVED_SCOPES: ReadonlyArray<DeviceScope> = ["read", "play"];
 
 const enterAgain = () => (router.canGoBack() ? router.back() : router.replace("/approve-device"));
 
 const done = () => router.dismissTo("/you");
 
-/** A full-screen ending under a bare back button. */
 function Ending(props: {
   readonly icon: typeof Lock;
   readonly title: string;
@@ -56,7 +49,6 @@ function Decide({
   onDecided,
 }: {
   readonly device: DeviceCodeLookup;
-  /** A decision is on its way (true) or failed (false). */
   readonly onDeciding: (deciding: boolean) => void;
   readonly onDecided: (decision: "approved" | "denied") => void;
 }) {
@@ -127,11 +119,8 @@ export default function ApproveSignIn() {
   const params = useLocalSearchParams<{ userCode: string }>();
   const userCode = formatUserCode(params.userCode);
   const lookup = useCommandQuery("deviceAuth.lookup", userCode === null ? "skip" : { userCode });
-  // The code as it was when Approve or Deny was pressed: the live lookup turns approved or denied
-  // before the call returns, and the screen should not flash Code already used meanwhile.
   const [deciding, setDeciding] = useState<DeviceCodeLookup | null>(null);
 
-  // The decision made here, kept while the code's state moves on to used.
   const [decided, setDecided] = useState<{
     readonly decision: "approved" | "denied";
     readonly name: string;

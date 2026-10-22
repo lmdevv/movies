@@ -1,9 +1,3 @@
-/**
- * What this browser remembers between visits, besides the session tokens the SDK stores: the
- * profile last chosen on it, its device ID, and the stream quality chosen in the player. It lives
- * in `localStorage` and is parsed on read, so a cleared or edited entry falls back to no choice
- * rather than to a malformed value.
- */
 import { DeviceId, ProfileId } from "@movies/contracts/ids";
 import { Option, Schema } from "effect";
 

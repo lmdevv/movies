@@ -1,16 +1,3 @@
-/**
- * Trickplay jobs: a scan found a file new or changed, or an admin asked for a library's scrub
- * thumbnails. The job resolves the file like playback does (inside `LIBRARY_ROOTS`, still on
- * disk), builds its sheets into the data folder, and records the manifest with
- * `mediaService:recordTrickplay`. These jobs have their own slots (`TRICKPLAY_CONCURRENCY`, one by
- * default), so a library's worth of them never holds up scans, metadata, or backups.
- *
- * A file that is gone, has no video, or from which ffmpeg picks no frames fails for good (Convex
- * keeps the failure until an admin asks again). Anything that may pass (an unreachable catalog, an
- * unreadable share, a full data folder, ffmpeg exiting with an error) returns the job to the queue,
- * up to five attempts. With `TRICKPLAY=off` this service runs no trickplay jobs: they wait, and run
- * once it is turned on.
- */
 import { type TrickplayVersion, trickplayVersion } from "@movies/contracts/trickplay";
 import { Bytes, EpochMillis } from "@movies/contracts/units";
 import { Clock, Effect, FileSystem, Match } from "effect";
@@ -37,14 +24,11 @@ const generateFailure = Match.type<
   Match.tagsExhaustive({
     JobFailed: (error) => error,
     TrickplayUnavailable: (error) => new JobFailed({ message: error.message, retry: false }),
-    // A share that dropped, a full disk, or a killed process may pass; a corrupt file fails each
-    // of its five attempts in seconds.
     MediaToolFailed: (error) => new JobFailed({ message: error.message, retry: true }),
     TrickplayStorageFailed: (error) => new JobFailed({ message: error.message, retry: true }),
   }),
 );
 
-/** The size, modification time, and thumbnail version of the file at `path` as it is now. */
 const onDisk = Effect.fn("TrickplayJob.onDisk")(function* (path: string) {
   const fs = yield* FileSystem.FileSystem;
 
@@ -134,8 +118,6 @@ export const handlers: Effect.Effect<
         }),
       );
 
-      // The resolver caches a file's size and time for playback; a file replaced moments ago must
-      // be versioned by what ffmpeg is about to read.
       const { sizeBytes, modifiedAt, version } = yield* onDisk(file.path);
 
       yield* reportProgress({ done: 0, total: 1, message: "Making thumbnails" });

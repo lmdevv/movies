@@ -46,7 +46,6 @@ export const PlaybackTokenPayload = Schema.Struct({
 /** What a valid playback token authorizes. */
 export interface PlaybackTokenPayload extends Schema.Schema.Type<typeof PlaybackTokenPayload> {}
 
-/** The claims as signed, before the audience is checked. */
 const SignedClaims = Schema.fromJsonString(
   Schema.Struct({
     ...PlaybackTokenPayload.fields,
@@ -134,7 +133,6 @@ const hmacSha256 = (key: PlaybackTokenKey, message: string): Effect.Effect<Uint8
     (signature) => new Uint8Array(signature),
   );
 
-/** Compares two byte strings in time that depends only on their lengths. */
 const constantTimeEqual = (left: Uint8Array, right: Uint8Array): boolean => {
   let difference = left.length ^ right.length;
 

@@ -4,8 +4,6 @@ import { describe, expect, it } from "vitest";
 
 import { normalizeRoot } from "../convex/lib/roots";
 
-// Convex functions mirror the contracts' rules rather than importing them at run time (the
-// packaged backend ships without dev dependencies), so this keeps the two copies in step.
 describe("normalizeRoot", () => {
   it("agrees with the web app's normalizeFolder", () => {
     fc.assert(

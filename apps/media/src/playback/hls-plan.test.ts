@@ -25,8 +25,6 @@ describe("HLS segment plans", () => {
       0, 1, 2, 4, 6, 8, 12, 16, 20, 24, 28,
     ]);
 
-    // Resuming at 13.5 s: the cell it falls in and the next one are cut short; the grid elsewhere
-    // is the same as without a quick start, so every other boundary stays where it was.
     const resumed = planGridSegments(0, 30, { quickStart: 13.5 });
 
     expect(resumed.starts).toStrictEqual([0, 4, 8, 12, 13, 14, 16, 18, 20, 24, 28]);
@@ -36,7 +34,6 @@ describe("HLS segment plans", () => {
     expect(planGridSegments(0, 30, { quickStart: 29 }).starts.at(-1)).toBe(29);
     expect(planGridSegments(0, 1.2, { quickStart: 0 })).toStrictEqual({ starts: [0], end: 1.2 });
 
-    // A fractional start: quick and grid boundaries that are the same time stay one start.
     const start = 1.2377141149712325;
     const late = planGridSegments(start, 2000, { quickStart: start + 255 * 4 + 1 }).starts;
 
@@ -51,21 +48,17 @@ describe("HLS segment plans", () => {
       0, 2, 4, 6, 8, 12, 16, 20, 24, 28, 32, 36,
     ]);
 
-    // Resuming at 21 s: a segment starts on the keyframe at 20 s even though grouping from the
-    // beginning would not cut there.
     const resumed = planKeyframeSegments(keyframes, 0, 40, { quickStart: 21 }).starts;
 
     expect(resumed).toStrictEqual([0, 4, 8, 12, 16, 20, 22, 24, 26, 28, 32, 36]);
     expect(resumed.every((time) => keyframes.includes(time))).toBe(true);
 
-    // A keyframe every frame (all-intra sources): quick segments still last a second.
     const everyFrame = Array.from({ length: 24 * 20 }, (_, index) => index / 24);
 
     expect(planKeyframeSegments(everyFrame, 0, 20, { quickStart: 0 }).starts).toStrictEqual([
       0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16,
     ]);
 
-    // Audio primed 5 ms ahead puts the file's start before its first keyframe.
     expect(
       planKeyframeSegments(keyframes, -0.005, 40, { quickStart: -0.005 }).starts,
     ).toStrictEqual([0, 2, 4, 6, 8, 12, 16, 20, 24, 28, 32, 36]);

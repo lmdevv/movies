@@ -1,10 +1,3 @@
-/**
- * Best-effort disk cache under `DATA_DIR/cache`, one folder per namespace (provider responses,
- * keyframe indexes, converted subtitles). Entries hold text and the time it was stored; callers
- * parse what they read, as with any other external input. Read and write failures are logged
- * and treated as misses. A hit touches its file; `cache-pruner.ts` keeps the folder within
- * `CACHE_MAX_MB` by removing the least recently used entries.
- */
 import { createHash } from "node:crypto";
 
 import {
@@ -44,7 +37,6 @@ const decodeEntry = Schema.decodeUnknownEffect(Schema.fromJsonString(Entry));
 
 const encodeEntry = Schema.encodeEffect(Schema.fromJsonString(Entry));
 
-/** A cache rooted at `directory`. */
 const make = Effect.fn("DiskCache.make")(function* (directory: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -59,7 +51,6 @@ const make = Effect.fn("DiskCache.make")(function* (directory: string) {
   ) {
     const file = fileOf(namespace, key);
 
-    // Read without checking first: a missing entry is an ordinary miss, anything else is logged.
     const entry = yield* fs.readFileString(file).pipe(
       Effect.flatMap(decodeEntry),
       Effect.tapError((error) =>
@@ -77,7 +68,6 @@ const make = Effect.fn("DiskCache.make")(function* (directory: string) {
       (value) => now - value.fetchedAt < Duration.toMillis(maxAge),
     );
 
-    // The pruner removes the least recently used entries first, by modification time.
     if (Option.isSome(fresh)) {
       yield* markUsed(file).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.ignore);
     }

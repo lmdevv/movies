@@ -1,10 +1,3 @@
-/**
- * Stand-ins for `FFMPEG_PATH` and `FFPROBE_PATH` for tests that need the tools to misbehave in
- * ways real hardware and storage do: a Quick Sync run that dies partway through (a GPU hang, a
- * driver reset), an encoder that is slow to write its first segment, or a keyframe scan of a file
- * on a slow share. It is a small Node script that runs the real ffmpeg; nothing in the
- * service is replaced, only the process it starts.
- */
 import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,7 +19,6 @@ export interface FakeFfmpegBehavior {
   readonly hlsFromStartSeconds?: number;
 }
 
-/** Arguments of a Quick Sync run that have no software equivalent, each followed by a value. */
 const QSV_ONLY = [
   "-init_hw_device",
   "-filter_hw_device",

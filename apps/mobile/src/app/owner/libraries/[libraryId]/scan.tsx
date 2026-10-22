@@ -1,9 +1,3 @@
-/**
- * I06 · Scanning a library: how many files are done, what the scanner is doing, the titles found
- * so far and those that need a match, Keep Browsing, and Cancel Scan. It follows `jobId`, or the
- * library's latest scan, to the end: Done when it finished, and the folder trouble of I05 with
- * Retry Scan when it could not read the folder. During first run, leaving it goes Home (C13).
- */
 import { JobId, LibraryId } from "@movies/contracts/ids";
 import type { LibraryDetail } from "@movies/contracts/models/catalog";
 import type { Job } from "@movies/contracts/models/jobs";
@@ -27,7 +21,6 @@ const decodeLibraryId = Schema.decodeUnknownSync(LibraryId);
 
 const decodeJobId = Schema.decodeUnknownSync(JobId);
 
-/** The scan named by the route, or the library's latest (null when it has none yet). */
 const useScan = (libraryId: LibraryId, jobId: string | undefined): QueryState<Job | null> => {
   const named = useCommandQuery(
     "jobs.get",
@@ -46,7 +39,6 @@ const useScan = (libraryId: LibraryId, jobId: string | undefined): QueryState<Jo
   return { status: "success", data: recent.data[0] ?? null };
 };
 
-/** The line under the count, in the owner's words for a folder the scan could not read. */
 const lineFor = (job: Job): string => {
   const trouble = folderTrouble(job);
 

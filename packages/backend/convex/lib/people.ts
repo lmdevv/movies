@@ -1,8 +1,3 @@
-/**
- * People and their credits. A person is found by `personKey` (TMDB, then IMDb, then a normalized
- * name), so the same actor across titles is one row. Credits of a title, or of one episode, are
- * replaced as a set whenever their digest changes.
- */
 import type { Infer } from "convex/values";
 
 import type { Doc, Id } from "../_generated/dataModel";
@@ -13,7 +8,6 @@ import type { credit, externalIds, scannedCredit, scannedPerson } from "./valida
 
 type ExternalIds = Infer<typeof externalIds>;
 
-/** People of one name looked at when a credit's IDs find nobody. */
 const NAMESAKES = 10;
 
 /** Most credits a title or episode keeps; `CREDIT_BATCH_LIMIT` in contracts. */
@@ -38,7 +32,6 @@ export const personKeyOf = (person: {
       : `imdb:${person.externalIds.imdb}`
     : `tmdb:${person.externalIds.tmdb}`;
 
-/** Sorts by family name the way credits lists usually do: "Villeneuve denis". */
 const sortKeyOf = (name: string): string => {
   const parts = normalizeName(name).split(" ");
   const last = parts.at(-1) ?? "";
@@ -58,19 +51,12 @@ const mergeIds = (current: ExternalIds, found: ExternalIds): ExternalIds => ({
   tvdb: current.tvdb ?? found.tvdb,
 });
 
-/** Whether two sets of IDs could name one person: no provider gives them different IDs. */
 const compatible = (left: ExternalIds, right: ExternalIds): boolean =>
   (["tmdb", "imdb", "tvdb"] as const).every(
     (provider) =>
       left[provider] === null || right[provider] === null || left[provider] === right[provider],
   );
 
-/**
- * Finds or creates the person a credit names: by key, else someone of the same name whose IDs do
- * not contradict the credit's (an NFO actor without IDs, or a TMDB credit for someone an NFO
- * named with an IMDb ID). The person gains the credit's IDs (and a better key); a photo fills in
- * only where none is stored.
- */
 const upsertPerson = async (
   ctx: MutationCtx,
   person: Infer<typeof scannedPerson>,
@@ -153,7 +139,6 @@ export const replaceCredits = async (
 
   await Promise.all(previous.map((row) => ctx.db.delete(row._id)));
 
-  // In order: a person credited twice (director and writer) must be found, not created twice.
   return inSequence(credits.slice(0, CREDIT_LIMIT), async (entry) => {
     const person = await upsertPerson(ctx, entry.person);
 

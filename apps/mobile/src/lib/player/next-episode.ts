@@ -1,9 +1,3 @@
-/**
- * The next-episode card (F06), as the web player times it: it opens when an episode reaches its
- * credits while playing (its last tenth, at most 30 seconds, or its end), counts down ten seconds
- * as a watch room would, and plays the next episode at zero. Watch Credits closes it for this
- * episode; pausing holds the countdown away.
- */
 import { NEXT_EPISODE_COUNTDOWN_MS } from "@movies/contracts/clock";
 import type { Episode } from "@movies/contracts/models/catalog";
 
@@ -12,7 +6,6 @@ import { formatRuntime } from "../format";
 /** The countdown before the next episode plays, and how often it ticks. */
 export const NEXT_COUNTDOWN = { totalMs: NEXT_EPISODE_COUNTDOWN_MS, stepMs: 1_000 } as const;
 
-/** Where an episode's credits are assumed to start: its last tenth, at most 30 seconds. */
 const creditsSeconds = (durationSeconds: number): number => Math.min(30, durationSeconds * 0.1);
 
 /** Where playback is, as the card reads it. */
@@ -37,7 +30,6 @@ export const inCredits = ({
 export const secondsLeft = (countdownMs: number): number =>
   Math.max(0, Math.ceil(countdownMs / 1000));
 
-/** An episode's place in its show as the player spells it: `S2, E4`. */
 const seasonAndEpisode = (episode: Pick<Episode, "seasonNumber" | "episodeNumber">): string =>
   `S${String(episode.seasonNumber)}, E${String(episode.episodeNumber)}`;
 

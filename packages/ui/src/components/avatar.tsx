@@ -3,15 +3,10 @@ import { cn } from "@movies/ui/lib/utils";
 import { PencilIcon } from "lucide-react";
 
 const SIZES = {
-  /** 28px, the compact phone top bar. */
   xs: "size-7",
-  /** 32px, the desktop top bar, large titles and room members. */
   sm: "size-8",
-  /** 96px, PIN entry. */
   md: "size-24",
-  /** 112px, the profile editor. */
   lg: "size-28",
-  /** 160px, the profile picker. */
   xl: "size-40",
 } as const;
 

@@ -1,8 +1,3 @@
-/**
- * The avatar set profiles choose from. A profile stores the key; the art ships with the app under
- * `public/avatars/<key>.svg`. Unknown keys (from another client) draw the plain monogram tile.
- */
-
 /** Avatar keys in picker order. `red` is the backend's default for a new account's profile. */
 export const AVATAR_KEYS = ["red", "blue", "green", "plum", "teal", "slate", "kids"] as const;
 

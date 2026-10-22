@@ -1,7 +1,3 @@
-/**
- * G10 · Invite to Watch: the room's web link, copied, sent in Messages, or handed to the share
- * sheet. The link opens the room in the web app.
- */
 import { useCommandQuery } from "@movies/sdk/react";
 import { useLocalSearchParams } from "expo-router";
 import { Ellipsis, Link, Share as ShareIcon } from "lucide-react-native";

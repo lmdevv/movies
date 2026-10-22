@@ -1,7 +1,3 @@
-/**
- * What the owner does outside the browser in the stack suite: create invites through the SDK's
- * Promise facade, the way any other client would.
- */
 import type { CreatedInvite } from "@movies/contracts/models/account";
 import { createMovies } from "@movies/sdk/promise";
 

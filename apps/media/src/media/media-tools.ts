@@ -1,7 +1,3 @@
-/**
- * Runs ffprobe and ffmpeg through Effect's `ChildProcessSpawner`. Arguments are always built by
- * this service's callers from server-side state; nothing here accepts client-supplied arguments.
- */
 import { setPriority } from "node:os";
 
 import { Context, Duration, Effect, Fiber, Layer, Ref, type Scope, Schema, Stream } from "effect";
@@ -22,25 +18,13 @@ export class MediaToolFailed extends Schema.TaggedError<MediaToolFailed>()("Medi
   }
 }
 
-/** A long-running ffmpeg process owned by the scope it was started in. */
 interface RunningTool {
-  /** Waits for the process to exit; fails with `MediaToolFailed` on a non-zero exit. */
   readonly exit: Effect.Effect<void, MediaToolFailed>;
-  /** The latest standard error output, path-scrubbed. */
   readonly stderrTail: Effect.Effect<string>;
-  /**
-   * Stops (`SIGSTOP`) or continues (`SIGCONT`) the process, so a stream's encoder can wait for its
-   * player instead of filling the disk. A process that already exited is left alone.
-   */
   readonly suspend: (paused: boolean) => Effect.Effect<void>;
 }
 
-/** Options of a run to completion. */
 interface RunOptions {
-  /**
-   * Kill the tool and fail after this long; when absent, `PROBE_TIMEOUT_SECONDS`, or no limit for
-   * `ffmpegInBackground`.
-   */
   readonly timeout?: Duration.Duration;
 }
 
@@ -83,7 +67,6 @@ const STDERR_TAIL = 4096;
 /** The nicest CPU priority on Unix systems. */
 const LOWEST_PRIORITY = 19;
 
-/** Replaces absolute paths that appear in the arguments, so diagnostics do not leak them. */
 const scrubPaths = (text: string, args: ReadonlyArray<string>): string =>
   args
     .filter((arg) => arg.startsWith("/") && arg.length > 1)
@@ -119,7 +102,6 @@ export const toolEnvironment = (
     }),
   );
 
-/** Builds the media tools over a child process spawner. */
 const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -129,7 +111,7 @@ const make = Effect.gen(function* () {
     tool: "ffmpeg" | "ffprobe",
     args: ReadonlyArray<string>,
     killSignal: "SIGKILL" | "SIGTERM",
-    background = false,
+    background: boolean = false,
   ) {
     const failed = (exitCode: number | null, stderr: string, cause: unknown) =>
       new MediaToolFailed({ tool, exitCode, stderr: scrubPaths(stderr, args), cause });
@@ -199,8 +181,6 @@ const make = Effect.gen(function* () {
       options: RunOptions = {},
     ) {
       const running = yield* spawn(tool, args, "SIGKILL", background);
-      // Background work (scrub thumbnails of a whole film) runs as long as it needs, at the lowest
-      // priority; anything else a request or job waits on is bounded.
       const timeout = options.timeout ?? (background ? undefined : config.probeTimeout);
 
       if (timeout === undefined) return yield* running.exit;

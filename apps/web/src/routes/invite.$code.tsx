@@ -1,4 +1,5 @@
 import type { InviteLookup } from "@movies/contracts/models/account";
+import { PASSWORD_MIN_LENGTH } from "@movies/contracts/models/account";
 import { useAuth, useCommandQuery } from "@movies/sdk/react";
 import { Button } from "@movies/ui/components/button";
 import { buttonVariants } from "@movies/ui/lib/button-variants";
@@ -13,7 +14,6 @@ import { AuthPage, PageTitle, PasswordField } from "@/components/auth/auth-page"
 import { avatarImage } from "@/lib/avatars";
 import { describeFailure } from "@/lib/failure";
 import { facts, formatDaysFrom, formatShortDate } from "@/lib/format";
-import { MIN_PASSWORD_LENGTH } from "@/lib/password";
 import { BlankPage, Redirect } from "@/session/redirect";
 
 export const Route = createFileRoute("/invite/$code")({
@@ -23,7 +23,6 @@ export const Route = createFileRoute("/invite/$code")({
 
 type OpenInvite = Extract<InviteLookup, { readonly state: "open" | "used" | "expired" }>;
 
-/** Accepting an invite: create an account from an open invite, or see why the invite ended. */
 function InvitePage() {
   const { code } = Route.useParams();
   const { status } = useAuth();
@@ -48,7 +47,6 @@ function InvitePage() {
   return <AcceptInvite code={code} invite={invite} />;
 }
 
-/** The inviter's tile and the one-line context above an invite. */
 function InviteHeader({
   title,
   detail,
@@ -85,8 +83,8 @@ function AcceptInvite({ code, invite }: { readonly code: string; readonly invite
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
 
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(`Use at least ${MIN_PASSWORD_LENGTH} characters for the password.`);
+    if (password.length < PASSWORD_MIN_LENGTH) {
+      setError(`Use at least ${PASSWORD_MIN_LENGTH} characters for the password.`);
 
       return;
     }
@@ -153,7 +151,7 @@ function AcceptInvite({ code, invite }: { readonly code: string; readonly invite
             label="Choose a password"
             labelAction={
               <span className="text-label/caption text-text-muted">
-                {MIN_PASSWORD_LENGTH}+ characters
+                {PASSWORD_MIN_LENGTH}+ characters
               </span>
             }
             name="password"

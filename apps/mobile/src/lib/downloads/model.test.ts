@@ -125,7 +125,6 @@ describe("the download store", () => {
       showId,
     ]);
     expect(downloadsOf(store, kids)).toHaveLength(1);
-    // Each profile opens only its own: the kids' copy of the movie is theirs alone.
     expect(downloadFor(store, movieId, alex)?.profileId).toBe(alex);
     expect(downloadFor(store, showId, kids)).toBeUndefined();
     expect(downloadFor(store, null, alex)).toBeUndefined();
@@ -217,7 +216,6 @@ describe("the download store", () => {
         .downloads[0]?.receivedBytes,
     ).toBe(0);
 
-    // H21 asks for the whole file: nothing received carries over.
     const full = reduce(received, DownloadEvent.NoSpace({ id: movieId, totalBytes: 500 }));
 
     expect([full.downloads[0]?.receivedBytes, full.downloads[0]?.totalBytes]).toStrictEqual([
@@ -266,7 +264,6 @@ describe("the download store", () => {
 
     const [sent] = played.pendingProgress;
 
-    // A position played while the earlier one was on its way stays queued.
     const later = reduce(
       played,
       DownloadEvent.Played({ id: movieId, positionMs: 3_000, durationMs: 3_180_000, at: 30 }),
@@ -287,8 +284,6 @@ describe("the download store", () => {
     expect(parseStore(serializeStore(store))).toStrictEqual(store);
     expect(parseStore("{")).toStrictEqual(EMPTY_STORE);
 
-    // An entry another version wrote that cannot be read is dropped; the others stay, and
-    // fields added since read as their defaults.
     const [kept] = store.downloads;
     const { sessionId: _absent, ...older } = kept ?? fail();
     const mixed = JSON.stringify({ downloads: [older, { id: 1 }], pendingProgress: [] });

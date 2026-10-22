@@ -1,8 +1,3 @@
-/**
- * Profile PINs on the keypad (B05 Enter PIN, B12 Set Profile PIN): four digits, as Paper draws
- * them. The server accepts 4 to 8, so a PIN set elsewhere with more digits cannot be entered here.
- */
-
 /** Digits in a PIN set or entered from this app. */
 export const PIN_LENGTH = 4;
 

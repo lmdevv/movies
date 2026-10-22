@@ -25,7 +25,6 @@ export const Route = createFileRoute("/_app/collection/$collectionId")({
   component: CollectionPage,
 });
 
-/** A collection: its backdrop, overview, and titles in order. */
 function CollectionPage() {
   const { collectionId } = Route.useParams();
   const { profile } = useActiveProfile();

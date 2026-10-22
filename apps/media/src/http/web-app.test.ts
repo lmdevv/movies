@@ -10,7 +10,6 @@ import * as WebApp from "./web-app.ts";
 
 class Site extends Context.Service<Site, { readonly baseUrl: string }>()("test/WebAppSite") {}
 
-/** A built app in a temporary folder, plus a secret file and a link to it outside the folder. */
 const siteLayer = Layer.unwrap(
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;

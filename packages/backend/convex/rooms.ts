@@ -1,15 +1,3 @@
-/**
- * Watch rooms: a stored, anchored clock that members follow with their own streams. Only the
- * host's device changes the clock, and every change carries the revision the host last saw; an
- * older revision fails with `stale_revision`. Guests only join, heartbeat, and leave.
- *
- * Moving on to the next episode is the host's too. Near the end of an episode the host's player
- * starts a countdown the room stores (`next`), so every member counts down to the same server time;
- * a function scheduled for that time moves the room on, also when the host has gone. Those commands
- * are keyed on the episode the room plays rather than the clock's revision: whichever of the
- * countdown, the host's Play next, or a repeat comes first moves the room on, and the rest find it
- * already moved and change nothing.
- */
 import { v } from "convex/values";
 import type { Infer } from "convex/values";
 
@@ -55,11 +43,9 @@ type RoomPatch = Partial<
     | "fileDurationMs"
   >
 > & {
-  /** Undefined removes the room's countdown, as a change of media does. */
   next?: Doc<"rooms">["next"] | undefined;
 };
 
-/** What an away host's heartbeat writes to its room. */
 type AwayHostPatch = RoomPatch &
   Partial<Pick<Doc<"rooms">, "hostLastSeenAt" | "hostAway" | "revision">>;
 
@@ -71,11 +57,6 @@ const loadRoom = async (ctx: QueryCtx, roomId: Id<"rooms">): Promise<Doc<"rooms"
   return found;
 };
 
-/**
- * The room's next-episode countdown as members see it: the episode it moves on to, without any
- * profile's progress, as for the room's own episode. A pending countdown whose episode is gone has
- * nothing to show.
- */
 const presentNext = async (
   ctx: QueryCtx,
   doc: Doc<"rooms">,
@@ -108,9 +89,7 @@ const presentRoom = async (ctx: QueryCtx, doc: Doc<"rooms">): Promise<Infer<type
   return {
     id: doc._id,
     title: presentTitleCard(title),
-    episode:
-      // Without the host profile's progress: guests are other accounts.
-      episodeDoc === null ? null : presentEpisode(episodeDoc, null),
+    episode: episodeDoc === null ? null : presentEpisode(episodeDoc, null),
     fileId: doc.fileId,
     hostUserId: doc.hostUserId,
     hostProfileId: doc.hostProfileId,
@@ -129,14 +108,12 @@ const presentRoom = async (ctx: QueryCtx, doc: Doc<"rooms">): Promise<Infer<type
       joinedAt: member.joinedAt,
       lastSeenAt: member.lastSeenAt,
       presence: member.presence ?? "watching",
-      // A counted away heartbeat clears the drift, so an away member has none.
       driftMs: member.role === "guest" ? (member.driftMs ?? null) : null,
     })),
     createdAt: createdAt(doc),
   };
 };
 
-/** The viewer's memberships of the room, one per device it joined on. */
 const membershipsOf = async (
   ctx: QueryCtx,
   viewer: Viewer,
@@ -150,11 +127,6 @@ const membershipsOf = async (
   return members.filter((member) => member.userId === viewer.userId);
 };
 
-/**
- * Whether one of the profiles the viewer joined with, unlocked on this session, may still see the
- * room's title: the host can switch the room to a title a guest's profile may not see, and then
- * that guest stops seeing it.
- */
 const membersMaySee = async (
   ctx: QueryCtx,
   viewer: Viewer,
@@ -164,7 +136,6 @@ const membersMaySee = async (
   const libraryIds = await visibleLibraryIds(ctx, viewer);
   const profiles = await Promise.all(memberships.map((member) => ctx.db.get(member.profileId)));
 
-  // A profile joined on another session may have a PIN this session has not entered.
   return profiles.some(
     (profile) =>
       profile !== null &&
@@ -173,7 +144,6 @@ const membersMaySee = async (
   );
 };
 
-/** Whether the viewer, as a member, may read the room: see `membersMaySee`. */
 const memberMayRead = async (
   ctx: QueryCtx,
   viewer: Viewer,
@@ -186,10 +156,6 @@ const memberMayRead = async (
   );
 };
 
-/**
- * The live room `args.roomId` for a command from its host's account and device; anyone else fails
- * with `forbidden`, and an ended room with `conflict`.
- */
 const loadHostRoom = async (
   ctx: MutationCtx,
   args: { roomId: Id<"rooms">; deviceId: string },
@@ -206,10 +172,6 @@ const loadHostRoom = async (
   return { viewer, room };
 };
 
-/**
- * Applies a host command: requires the host's account and device, a live room, and the room's
- * current revision, then writes the change with the next revision.
- */
 const hostCommand = async (
   ctx: MutationCtx,
   args: {
@@ -222,7 +184,6 @@ const hostCommand = async (
 ): Promise<Infer<typeof roomClock>> => {
   const { room: current } = await loadHostRoom(ctx, args);
 
-  // A player still on the file the room moved on from must not move the new one's clock.
   if (args.revision !== current.revision || (args.fileId ?? current.fileId) !== current.fileId) {
     return fail("stale_revision", "The room changed; read its clock and try again");
   }
@@ -241,10 +202,6 @@ const hostCommand = async (
 
 const checkPosition = (positionMs: number): number => checkMilliseconds(positionMs, "Positions");
 
-/**
- * Keeps a device in one room at a time: before it hosts or joins a room, it leaves every other room
- * it is in, ending the ones it hosts.
- */
 const leaveOtherRooms = async (
   ctx: MutationCtx,
   viewer: Viewer,
@@ -348,14 +305,11 @@ export const get = query({
     if (memberships.length > 0) {
       if (await membersMaySee(ctx, viewer, memberships, title)) return presentRoom(ctx, found);
 
-      // A member out of reach of what the room plays learns only that it ended, never what it played.
       return found.status === "ended"
         ? fail("conflict", "This room has ended")
         : fail("not_found", "No such room");
     }
 
-    // Any profile that cannot be used here (another account's, or PIN-locked on this session)
-    // answers as a missing room does, so the reply never tells whether the room exists.
     const profile = profileId === undefined ? null : await ctx.db.get(profileId);
 
     if (profile?.userId !== viewer.userId || !isProfileUnlocked(viewer, profile)) {
@@ -388,7 +342,6 @@ export const current = query({
     const rooms = await Promise.all(memberships.map((member) => ctx.db.get(member.roomId)));
     const live = rooms.find((doc) => doc !== null && doc.status !== "ended");
 
-    // Read only as `rooms.get` would allow: a joined profile still unlocked that may see the title.
     return live === undefined || live === null || !(await memberMayRead(ctx, viewer, live))
       ? null
       : presentRoom(ctx, live);
@@ -437,7 +390,6 @@ export const join = mutation({
         watchedAt: now,
       });
     } else {
-      // Joining is opening the room's player, so a device that was browsing is watching again.
       await ctx.db.patch(existing._id, {
         profileId,
         lastSeenAt: now,
@@ -456,7 +408,6 @@ export const leave = mutation({
   returns: ok,
   handler: async (ctx, { roomId, deviceId }) => {
     const viewer = await authorize(ctx, "play");
-    // A missing room fails with not_found, as for every room command.
     await loadRoom(ctx, roomId);
 
     const member = await ctx.db
@@ -486,14 +437,6 @@ export const play = mutation({
     })),
 });
 
-/**
- * What a host's pause or seek to `positionMs` does to a pending countdown. Out of the credits (the
- * file's last tenth, at most 30 s, as the player counts them) it stops it, and the host's player
- * starts another when it plays the credits again. Within them it runs on: the host's player pauses
- * itself at the end of the file, wherever the stream ended, and pausing the credits does not hold
- * the room's countdown (Watch credits cancels it). A file of unknown length never stops it, and a
- * cancelled countdown stays cancelled.
- */
 const countdownAfter = (room: Doc<"rooms">, positionMs: number): RoomPatch => {
   const durationMs = room.fileDurationMs ?? 0;
   const creditsStartMs = durationMs - Math.min(30_000, durationMs * 0.1);
@@ -601,22 +544,16 @@ export const heartbeat = mutation({
       return fail("forbidden", "Join the room on this device first");
     const now = Date.now();
     const away = presence === "away";
-    // A row from before `watchedAt` heard only from its player: its last heartbeat is the player's.
     const watchedAt = member.watchedAt ?? member.lastSeenAt;
     const playerReported = now - watchedAt < PLAYER_SILENCE_MS;
 
     if (away && playerReported) {
-      // The device's player reports for it, keeping its place: nothing to write but a legacy
-      // row's last player report, so later away heartbeats cannot move it forward.
       if (member.watchedAt === undefined) await ctx.db.patch(member._id, { watchedAt });
 
       return presentRoomClock(found);
     }
 
     if (away) {
-      // Away clears any drift the device reported: it plays nothing. An away member's place is
-      // refreshed only every `AWAY_REFRESH_MS`, well inside the member timeout, so browsing
-      // members do not re-run the room's subscriptions on every heartbeat.
       if (member.presence !== "away" || now - member.lastSeenAt >= AWAY_REFRESH_MS) {
         await ctx.db.patch(member._id, {
           lastSeenAt: now,
@@ -626,7 +563,6 @@ export const heartbeat = mutation({
         });
       }
     } else {
-      // A guest that stopped reporting drift (buffering) clears the last value it reported.
       await ctx.db.patch(member._id, {
         lastSeenAt: now,
         presence: "watching",
@@ -638,15 +574,10 @@ export const heartbeat = mutation({
     if (member.role !== "host" || found.status === "ended") return presentRoomClock(found);
 
     if (away) {
-      // A room from before `fileDurationMs` reads its file's length once, while playing, and
-      // keeps it.
       const reading = found.fileDurationMs === undefined && found.status === "playing";
       const read = reading ? await ctx.db.get(found.fileId) : null;
-      // A missing file keeps 0, a length `awayHostClock` treats as unknown, so it is read once.
       const durationMs = found.fileDurationMs ?? read?.probe.durationMs ?? 0;
       const paused = awayHostClock(found, durationMs, now);
-      // An away host keeps a live room from being marked away; one the sweep already marked stays
-      // so for its guests until the host's player is back.
       const patch: AwayHostPatch = { hostLastSeenAt: now };
 
       if (reading) patch.fileDurationMs = durationMs;
@@ -658,7 +589,6 @@ export const heartbeat = mutation({
         patch.revision = found.revision + 1;
       }
 
-      // The host's presence too is refreshed only every `AWAY_REFRESH_MS`, inside the host timeout.
       const quiet = paused === null && !reading && now - found.hostLastSeenAt < AWAY_REFRESH_MS;
 
       if (quiet) return presentRoomClock(found);
@@ -671,7 +601,6 @@ export const heartbeat = mutation({
     const readAt =
       atServerTime === undefined ? undefined : checkMilliseconds(atServerTime, "Server times");
 
-    // A position read on a file the room moved on from says nothing about the new one.
     const reading =
       positionMs === undefined ||
       revision !== found.revision ||
@@ -731,18 +660,12 @@ export const setMedia = mutation({
       BEST_QUALITY,
     );
 
-    // `fileId` here is the file to switch to, not the one the host's player plays.
     const control = { roomId: args.roomId, deviceId: args.deviceId, revision: args.revision };
 
     return hostCommand(ctx, control, (_room, now) => mediaChange(playable, now));
   },
 });
 
-/**
- * Switching a room to `playable`: paused at its start until the host's player plays it, and
- * without the old media's countdown. Members' players see the new media and open it, each with a
- * stream and progress of its own; those slower to load join at the live position.
- */
 const mediaChange = (playable: Playable, now: number): RoomPatch => ({
   titleId: playable.title._id,
   episodeId: playable.episode?._id ?? null,
@@ -754,19 +677,12 @@ const mediaChange = (playable: Playable, now: number): RoomPatch => ({
   next: undefined,
 });
 
-/** Why a room cannot move on to its next episode. */
 type NextProblem = "movie" | "last_episode" | "missing_file";
 
-/** An episode to move a room on to, with the file it plays. */
 interface NextPlayable extends Playable {
   readonly episode: Doc<"episodes">;
 }
 
-/**
- * The episode after the one `room` plays, with the file it would play, or why there is none: a
- * movie, the last episode (specials last), or an episode with no file on disk. Its title is the
- * room's, so every member who may watch this episode may watch the next.
- */
 const nextPlayable = async (
   ctx: QueryCtx,
   room: Doc<"rooms">,
@@ -783,10 +699,6 @@ const nextPlayable = async (
   return file === undefined ? "missing_file" : { title, episode, file };
 };
 
-/**
- * What the room's pending countdown moves on to: the episode it named, with a file on disk. Null
- * when there is no pending countdown, or its episode has since gone or lost its files.
- */
 const pendingPlayable = async (ctx: QueryCtx, room: Doc<"rooms">): Promise<NextPlayable | null> => {
   if (room.next?.status !== "pending") return null;
   const episode = await ctx.db.get(room.next.episodeId);
@@ -798,7 +710,6 @@ const pendingPlayable = async (ctx: QueryCtx, room: Doc<"rooms">): Promise<NextP
   return file === undefined ? null : { title, episode, file };
 };
 
-/** `nextPlayable` for a host's command, failing when there is no next episode to move on to. */
 const requireNextPlayable = async (ctx: QueryCtx, room: Doc<"rooms">): Promise<NextPlayable> => {
   const found = await nextPlayable(ctx, room);
 
@@ -813,10 +724,6 @@ const requireNextPlayable = async (ctx: QueryCtx, room: Doc<"rooms">): Promise<N
   return found;
 };
 
-/**
- * Moves `room` on to `playable` with the next revision. The countdown's scheduled function goes
- * through here without a host, so it never checks one.
- */
 const moveOn = async (
   ctx: MutationCtx,
   room: Doc<"rooms">,
@@ -826,11 +733,6 @@ const moveOn = async (
   await ctx.db.patch(room._id, { ...mediaChange(playable, now), revision: room.revision + 1 });
 };
 
-/**
- * The arguments of the next-episode commands: the room, the host's device, and the episode the
- * host moves on from. A command for an episode the room no longer plays changes nothing, so
- * repeats, races with the countdown, and stale tabs act once, on the episode they meant.
- */
 const fromEpisodeArgs = {
   roomId: v.id("rooms"),
   deviceId: v.string(),
@@ -850,12 +752,10 @@ export const startNextCountdown = mutation({
   returns: roomResult,
   handler: async (ctx, args) => {
     const { viewer, room } = await loadHostRoom(ctx, args);
-    // The host profile still sees the room's title, as `setMedia` asks of what it plays.
     await loadVisibleTitle(ctx, await loadAudience(ctx, viewer, room.hostProfileId), room.titleId);
 
     if (room.episodeId === null) return fail("invalid_args", "A movie has no next episode");
 
-    // A room that moved on, or already counts down or was cancelled, stays as it is.
     if (room.episodeId !== args.fromEpisodeId || room.next !== undefined) {
       return presentRoom(ctx, room);
     }
@@ -887,7 +787,6 @@ export const cancelNextCountdown = mutation({
   handler: async (ctx, args) => {
     const { room } = await loadHostRoom(ctx, args);
 
-    // A cancel meant for an episode the room moved on from leaves the new one's countdown alone.
     if (room.episodeId === args.fromEpisodeId && room.next?.status !== "cancelled") {
       await ctx.db.patch(room._id, { next: { status: "cancelled" } });
     }
@@ -911,7 +810,6 @@ export const playNext = mutation({
     if (room.episodeId !== args.fromEpisodeId) return presentRoom(ctx, room);
     await loadVisibleTitle(ctx, await loadAudience(ctx, viewer, room.hostProfileId), room.titleId);
 
-    // The episode the countdown showed everyone, while it can play; otherwise the one after.
     const playable = (await pendingPlayable(ctx, room)) ?? (await requireNextPlayable(ctx, room));
 
     await moveOn(ctx, room, playable, Date.now());

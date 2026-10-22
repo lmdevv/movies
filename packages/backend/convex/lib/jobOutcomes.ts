@@ -1,8 +1,3 @@
-/**
- * How a job attempt ends when it does not complete. Both the worker reporting a failure and the
- * lease sweep finding a silent worker go through `failAttempt`, so a failed job always leaves the
- * same fields and settles a trickplay job's file the same way.
- */
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { MAX_JOB_ATTEMPTS } from "./jobs";

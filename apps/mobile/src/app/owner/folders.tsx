@@ -1,8 +1,3 @@
-/**
- * I16 · Server Folders: the media host's folders inside its approved library roots, one level per
- * screen. Choose This Folder returns it to the form that opened the browser (`returnTo`, for its
- * folder field `field`). With a single approved root, browsing starts inside it.
- */
 import type { ServerFolders } from "@movies/contracts/models/catalog";
 import { useCommand } from "@movies/sdk/react";
 import { router, useLocalSearchParams } from "expo-router";
@@ -20,7 +15,6 @@ type Listing =
   | { readonly status: "ready"; readonly listing: ServerFolders }
   | { readonly status: "failed"; readonly cause: unknown };
 
-/** The folders at `path`, or inside the only approved root when `path` is absent. */
 const useListing = (path: string | undefined) => {
   const folders = useCommand("libraries.folders");
   const [attempt, setAttempt] = useState(0);
@@ -70,7 +64,6 @@ export default function ServerFoldersScreen() {
   const choose = (folder: string) =>
     router.dismissTo({
       pathname: params.returnTo,
-      // `picked` tells choosing the same folder again from a stale choice.
       params: { folder, field: params.field ?? "0", picked: String(Date.now()) },
     });
 

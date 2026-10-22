@@ -1,7 +1,3 @@
-/**
- * Round 44pt icon buttons. `raised` is the back button on plain screens (A02), `glass` sits over
- * artwork and video (D01, F01) with the system's glass material where iOS has it.
- */
 import { BlurView } from "expo-blur";
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
 import type { LucideIcon } from "lucide-react-native";
@@ -59,7 +55,6 @@ export function IconButton({
         liquidGlass ? (
           <GlassView
             glassEffectStyle="regular"
-            // Glass sits over artwork and video, which stay dark in both appearances (C18).
             colorScheme="dark"
             style={StyleSheet.absoluteFill}
           />

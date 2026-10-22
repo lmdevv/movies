@@ -1,11 +1,5 @@
-/**
- * Whether a client plays a file as stored, for preferring the version a device plays without a
- * transcode. Mirrors `@movies/contracts/direct-play`, the rules the media service negotiates with;
- * the backend tests compare the two on generated files and clients.
- */
 import type { Doc } from "../_generated/dataModel";
 
-/** One value of `DynamicRange` in `@movies/contracts/media-playback`. */
 type DynamicRange = "sdr" | "hdr10" | "hlg" | "dolby-vision";
 
 /**

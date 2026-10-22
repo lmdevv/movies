@@ -9,7 +9,6 @@
  */
 import type { ClientCapabilities } from "./media-playback";
 
-/** Models that play 4K HDR. */
 const UHD_MODEL = /\b(?:ultra|google tv)\b/iu;
 
 const H264_PROFILES = ["Constrained Baseline", "Baseline", "Main", "High"];

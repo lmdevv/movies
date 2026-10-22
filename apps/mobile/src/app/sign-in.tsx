@@ -1,4 +1,3 @@
-/** A03 · Sign In and A04 · its wrong-password state, with the way to sign in with a code (A05). */
 import { useAuth } from "@movies/sdk/react";
 import { router } from "expo-router";
 import { Server } from "lucide-react-native";

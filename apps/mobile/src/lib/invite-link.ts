@@ -18,7 +18,6 @@ export interface InviteLink {
 
 const SCHEME = /^[a-z][a-z\d+.-]*:\/\//iu;
 
-/** `server` when it is a usable address, without trailing slashes; null otherwise. */
 const validServer = (server: string | null): string | null =>
   server === null || normalizeServerUrl(server) === null
     ? null
@@ -42,7 +41,6 @@ const validCode = (raw: string | null | undefined): string | null => {
     : code;
 };
 
-/** One query parameter's raw value. */
 const queryValue = (query: string, name: string): string | null => {
   for (const pair of query.split("&")) {
     const [key = "", ...rest] = pair.split("=");
@@ -58,7 +56,6 @@ const DEEP_LINK = /^movies:\/\/\/?invite(?:\/(?<path>[^?#]*))?(?:\?(?<query>[^#]
 const WEB_LINK =
   /^(?:(?<scheme>https?):\/\/)?(?<base>[^?#\s]+?)\/invite\/(?<code>[^/?#\s]+)\/?(?:[?#].*)?$/iu;
 
-/** `movies://invite?server=…&code=…`, or `movies://invite/<code>?server=…`. */
 const parseDeepLink = (text: string): InviteLink | null => {
   const groups = DEEP_LINK.exec(text)?.groups;
 
@@ -71,7 +68,6 @@ const parseDeepLink = (text: string): InviteLink | null => {
   return code === null || address === null ? null : { server: address, code };
 };
 
-/** `<server>/invite/<code>`, where the server may sit under a path prefix. */
 const parseWebLink = (text: string): InviteLink | null => {
   const groups = WEB_LINK.exec(text)?.groups;
 

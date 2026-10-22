@@ -1,7 +1,3 @@
-/**
- * A08 · Server Unavailable: the server did not answer, whether typed on Connect to Server or
- * remembered from before. Try Again asks again; Change Server goes back to choosing one.
- */
 import { Wifi } from "lucide-react-native";
 import type { ReactNode } from "react";
 

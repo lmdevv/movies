@@ -28,7 +28,6 @@ import { Caution, SectionLabel, Stat, Stats } from "./parts";
 
 type Ready = Extract<Preview, { readonly status: "ready" }>;
 
-/** A source user and the profile its history goes to, as a native select. */
 function UserMappingRow({
   row,
   disabled,
@@ -73,7 +72,6 @@ function UserMappingRow({
   );
 }
 
-/** A source folder not found on this host, with a field for where it is here. */
 function UnmappedFolder({
   sourcePath,
   disabled,
@@ -81,7 +79,6 @@ function UnmappedFolder({
 }: {
   readonly sourcePath: string;
   readonly disabled: boolean;
-  /** Maps the folder; resolves false when `to` is not a full path. */
   readonly onMap: (to: string) => Promise<boolean>;
 }) {
   const id = useId();
@@ -119,10 +116,6 @@ function UnmappedFolder({
   );
 }
 
-/**
- * Who a library the import adds is shared with: everyone, as on the source, or admins and the
- * imported people who could see it there. A source that does not say leaves it to admins.
- */
 const sharedWith = (access: PlannedLibraryAccess): string => {
   if (access.kind === "everyone") return "everyone";
   const people = access.sourceUserIds.length;
@@ -317,6 +310,5 @@ export function Review({
   );
 }
 
-/** `Home server · 10.10.3`, the line under the Review title. */
 const facts = (connection: MigrationConnection): string =>
   `${connection.serverName} · ${connection.version}`;

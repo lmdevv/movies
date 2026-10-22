@@ -1,4 +1,3 @@
-/** H23 · Device · Sign Out: the sheet that signs another device out of the account. */
 import { AuthSessionId } from "@movies/contracts/ids";
 import { useCommand } from "@movies/sdk/react";
 import { Option, Schema } from "effect";

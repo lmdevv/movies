@@ -1,13 +1,3 @@
-/**
- * The player: one `<video>` element, the playback controller behind it, and every state Paper's
- * 07 Playback and 08 Join watching pages draw around it. The frame renders at once over the
- * title's backdrop; the stream fills it when it arrives.
- *
- * Rooms: a room in the URL is joined first, then the stream starts at the room's live position and
- * the SDK's room engine keeps it there. The host controls the timeline as anyone controls their own
- * player (the engine publishes the changes); guests see the timeline but cannot move it, and the
- * server refuses them if they try. Leaving the room keeps the stream playing on its own.
- */
 import { targetPosition } from "@movies/contracts/clock";
 import { DRIFT_THRESHOLDS } from "@movies/contracts/clock";
 import type { EpisodeId, MediaFileId, RoomId, TitleId } from "@movies/contracts/ids";
@@ -119,33 +109,25 @@ import { useSubtitleDelay } from "./use-subtitle-delay";
 import { useRoomNext } from "./use-room-next";
 import { useWatchRoom } from "./use-watch-room";
 
-/** Seconds of buffer that count as a full buffering ring. */
 const BUFFER_TARGET_SECONDS = 4;
 
-/** A stall shorter than this shows no buffering ring. */
 const BUFFERING_GRACE_MS = 400;
 
-/** How long a keyboard seek shows its thumbnail. */
 const KEY_PREVIEW_MS = 1_200;
 
-/** The volume keys move by this much. */
 const VOLUME_STEP = 0.1;
 
-/** Where unmuting a TV that is silent returns to when this player never set its level. */
 const CAST_UNMUTE_LEVEL = 0.5;
 
-/** A volume from 0 to 1 in whole percent, so steps of a tenth land on silence exactly. */
 const volumeLevel = (value: number): number =>
   Math.round(Math.min(1, Math.max(0, value)) * 100) / 100;
 
 const OFF = "off";
 
-/** The tracks button and its popover: the version when there are several, audio, subtitles, and quality. */
 const TRACKS_LABEL = "Audio, subtitles, and quality";
 
 const NO_VERSIONS: ReadonlyArray<MediaVersion> = [];
 
-/** Where the start of an episode's credits is assumed to be: its last tenth, at most 30 s. */
 const creditsSeconds = (duration: number): number => Math.min(30, duration * 0.1);
 
 /** What the player was asked to play. */
@@ -168,14 +150,12 @@ const startChoice = (start: PlayerScreenProps["start"]): StartChoice => {
   return start === "resume" ? StartChoice.Resume() : StartChoice.Ask();
 };
 
-/** The player's URL search when it stays on the same stream: playback continues where it is. */
 interface WatchSearch {
   readonly episodeId?: EpisodeId;
   readonly room?: RoomId;
   readonly start: "resume";
 }
 
-/** The player's URL search for `episodeId` in `room`. */
 const watchSearch = (episodeId: EpisodeId | undefined, room: RoomId | undefined): WatchSearch => {
   if (episodeId === undefined)
     return room === undefined ? { start: "resume" } : { room, start: "resume" };
@@ -183,10 +163,8 @@ const watchSearch = (episodeId: EpisodeId | undefined, room: RoomId | undefined)
   return room === undefined ? { episodeId, start: "resume" } : { episodeId, room, start: "resume" };
 };
 
-/** A room's invite link. */
 const roomLink = (id: RoomId): string => `${window.location.origin}/r/${id}`;
 
-/** True after `value` has stayed true for `ms`. */
 const useSettled = (value: boolean, ms: number): boolean => {
   const [settled, setSettled] = useState(false);
 
@@ -223,7 +201,6 @@ export function PlayerScreen({
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
   const [overlays, setOverlays] = useState<HTMLDivElement | null>(null);
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
-  // The stream belongs to the room the page opened with; starting or leaving one later keeps it.
   const [openedRoom] = useState(roomId ?? null);
   const title = useCommandQuery("titles.get", { profileId: profile.id, titleId });
   const detail = title.status === "success" ? title.data : null;
@@ -234,12 +211,9 @@ export function PlayerScreen({
   const [menu, setMenu] = useState(false);
   const [info, setInfo] = useState(false);
   const [panel, setPanel] = useState(true);
-  // The layout the episode picker is open in: its button and the phone's pill are separate pickers,
-  // so a layout change closes it rather than opening the other one.
   const [episodesOpenIn, setEpisodesOpenIn] = useState<PlayerLayout | null>(null);
   const [volumeOpen, setVolumeOpen] = useState(false);
 
-  // The route keys the player by title and episode, so a dismissal ends with its episode.
   const [creditsDismissed, setCreditsDismissed] = useState(false);
 
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -249,33 +223,24 @@ export function PlayerScreen({
   const [menuQuery, setMenuQuery] = useState("");
   const [startDialog, setStartDialog] = useState<{ readonly roomId: RoomId | null } | null>(null);
 
-  // "Leave playback?" while open: whether Stay plays again. Where focus was when it opened outlives
-  // the dialog, which returns focus after it has closed.
   const [leaving, setLeaving] = useState<{ readonly resume: boolean } | null>(null);
   const focusBeforeLeaving = useRef<HTMLElement | null>(null);
 
-  // Asked for with `?together`: start a room once playback begins, once.
   const wantsTogether = useRef(together);
   const canSetVolume = useMemo(() => volumeIsSettable(), []);
 
   const watch = useWatchRoom(roomId ?? null, profile.id, deviceId);
 
-  // While the room plays something this profile may not watch, the device keeps its place, away.
   const outOfReach = watch?.join.status === "denied" && watch.join.denial.kind === "unavailable";
 
   useRoomPresence(outOfReach && roomId !== undefined ? { roomId, deviceId } : null);
 
-  // Leaving the room the stream belongs to drops it from the URL; the stream plays on alone.
   const leftRoom = openedRoom !== null && roomId === undefined;
   const joined = openedRoom === null || leftRoom || watch?.join.status === "joined";
   const roomReady = openedRoom === null || leftRoom || (joined && watch?.room !== null);
   const roomRecord = watch?.room ?? null;
-  // The room as of the latest commit, for the start position, which is asked for later.
   const latestRoom = useLatest(roomRecord);
 
-  // The versions of what plays, for switching outside rooms (a room plays the host's file). The
-  // session does not wait for them: without a version in the URL, the server picks the one this
-  // browser plays best from the capabilities it sends.
   const versionList = useCommandQuery(
     "titles.versions",
     openedRoom !== null
@@ -287,7 +252,6 @@ export function PlayerScreen({
 
   const versions = versionList.status === "success" ? versionList.data : NO_VERSIONS;
 
-  // Built only when a session starts (`playbackKey` changes), from that render's room and props.
   const buildRequest = roomReady
     ? (): PlaybackRequest => ({
         profileId: profile.id,
@@ -309,15 +273,10 @@ export function PlayerScreen({
                     : targetPosition(current.clock, EpochMillis.make(Date.now()));
                 },
               }),
-        // Read once per session; later changes go through `selectQuality`.
         quality: loadQualityChoice(),
       })
     : null;
 
-  // A room that switches only its file (another version of what plays) keeps the page, so its new
-  // file starts a new session here. Other media opens a page of its own (`useRoomNext`); until it
-  // does, this page keeps the file it had rather than start a session for media it will leave. A
-  // room started from this page plays this page's own stream, which starting it never restarts.
   const [pageFile, setPageFile] = useState("");
 
   const matchingFile =
@@ -346,7 +305,6 @@ export function PlayerScreen({
   const phase = snapshot?.phase ?? PlaybackPhase.Starting();
   const isPlaying = PlaybackPhase.$is("Playing")(phase);
   const player = controller?.player ?? null;
-  // Where the session plays: this element, or a cast device. Commands and the room go here.
   const output = controller?.output ?? null;
   const localMedia = useMediaState(video, player);
   const stream = snapshot?.stream ?? null;
@@ -381,11 +339,9 @@ export function PlayerScreen({
   const remotePlayback = useRemotePlayback(video);
   const pip = usePictureInPicture(video);
 
-  // While a TV plays, the controls show its position and state.
   const media =
     remote === null ? localMedia : { ...localMedia, ...remote, bufferedAheadSeconds: 0 };
 
-  // The room engine starts once the stream shows frames, so it never drives an empty element.
   const engine = useRoomSync(
     isPlaying && joined ? output : null,
     roomId === undefined || !joined ? null : { roomId, deviceId, fileId: started?.file.id },
@@ -428,10 +384,6 @@ export function PlayerScreen({
     [output, controlsTimeline, duration],
   );
 
-  /**
-   * Skips `by` seconds from the output's position now, which holds an earlier seek's target, rather
-   * than the last render's, so presses quicker than a render add up.
-   */
   const skip = useCallback(
     (by: number) => {
       if (output !== null) seekTo(output.positionMs() / 1000 + by);
@@ -443,7 +395,6 @@ export function PlayerScreen({
   const preloadThumbnails = scrubbing.preload;
   const keyPreviewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // A keyboard seek shows where it landed on the scrubber for a moment.
   const skipByKey = useCallback(
     (by: number) => {
       if (!controlsTimeline || output === null) return;
@@ -462,7 +413,6 @@ export function PlayerScreen({
 
   const currentChapter = chapterAt(scrubbing.chapters, media.positionSeconds);
 
-  // Plays from a user gesture: a stream that needs one resumes through the controller.
   const play = useCallback(() => {
     if (output === null || !controlsTimeline) return;
 
@@ -477,8 +427,6 @@ export function PlayerScreen({
     else output.pause();
   }, [output, controlsTimeline, snapshot?.needsGesture, casting, play]);
 
-  // Silence mutes and any other level unmutes, here and on a TV alike, so the mute button and the
-  // slider always agree.
   const setVolume = useCallback(
     (value: number) => {
       const level = volumeLevel(value);
@@ -497,9 +445,6 @@ export function PlayerScreen({
     [video, casting],
   );
 
-  // The last level the viewer settled on above silence, here and on each cast session, which
-  // unmuting from silence there returns to. A drag's passing levels do not count, so dragging down
-  // to nothing and unmuting restores where it started.
   const audibleHere = useRef<number | null>(null);
   const audibleCast = useRef(new WeakMap<object, number>());
   const levelNow = media.volume;
@@ -518,9 +463,6 @@ export function PlayerScreen({
     [casting],
   );
 
-  // A change starts from the level now (under mute, too): here only before the first change, since
-  // a drag moves it as it goes; on a TV every time, since its remote can change it meanwhile and a
-  // drag only reaches it where it settles.
   const rememberStart = useCallback(() => {
     if (levelNow > 0 && (casting !== null || audibleHere.current === null)) remember(levelNow);
   }, [levelNow, casting, remember]);
@@ -537,8 +479,6 @@ export function PlayerScreen({
     [rememberStart, remember, setVolume],
   );
 
-  // The slider follows the pointer here at once; a TV hears only where it settles, since each step
-  // of a drag would be a message to it.
   const followVolume = useCallback(
     (value: number) => {
       rememberStart();
@@ -548,15 +488,12 @@ export function PlayerScreen({
     [rememberStart, casting, setVolume],
   );
 
-  // The slider shows where the page can set the level: here, or on a TV that takes it. Elsewhere
-  // only mute applies, and a level of 0 the page cannot change is no silence it could undo.
   const volumeSettable = casting === null ? canSetVolume : (remote?.volumeSettable ?? false);
   const silent = volumeSettable && media.volume === 0;
 
   const setMuted = useCallback(
     (muted: boolean) => {
       if (!muted && silent) {
-        // Nothing settled on here yet: an element starts at full volume, and a TV at a moderate one.
         setVolume(remembered() ?? (casting === null ? 1 : CAST_UNMUTE_LEVEL));
       } else if (casting !== null) casting.player.setMuted(muted);
       else if (video !== null) video.muted = muted;
@@ -564,7 +501,6 @@ export function PlayerScreen({
     [video, casting, silent, remembered, setVolume],
   );
 
-  // Audio and subtitle choices from the file and the negotiated stream.
   const audioOptions = useMemo(
     (): ReadonlyArray<TrackOption> =>
       (started?.file.probe.audio ?? []).map((track, index) => ({
@@ -579,7 +515,6 @@ export function PlayerScreen({
   const subtitleOptions = useMemo(
     (): ReadonlyArray<TrackOption> => [
       { id: OFF, label: "Off" },
-      // Text tracks play as `<track>` elements; picture tracks are burned into the video.
       ...(stream?.subtitles ?? []).flatMap((track, index) =>
         track.url !== undefined || track.kind === "bitmap"
           ? [{ id: track.id, label: subtitleLabels[index] ?? track.id }]
@@ -639,8 +574,6 @@ export function PlayerScreen({
     [controller],
   );
 
-  // Another version of what plays, switched in place from where playback is. Not in a room, whose
-  // members play the file it started with, nor while a TV plays.
   const versionOptions = useMemo(
     (): ReadonlyArray<TrackOption> =>
       versions.length < 2 || openedRoom !== null || roomId !== undefined || casting !== null
@@ -655,7 +588,6 @@ export function PlayerScreen({
 
   const versionId = started?.file.id ?? "";
 
-  // The version picked last and the stream playing when it was picked, until another stream loads.
   const versionPick = useRef<{
     readonly id: MediaFileId;
     readonly before: NegotiateResponse | null;
@@ -671,8 +603,6 @@ export function PlayerScreen({
     [versions, controller, stream],
   );
 
-  // Once a stream loads after a pick, the URL names its version, so reloading keeps it; a version
-  // that could not start or stream gave way to the one before, and says so.
   useEffect(() => {
     const pick = versionPick.current;
 
@@ -693,16 +623,12 @@ export function PlayerScreen({
     });
   }, [started, stream, navigate, titleId]);
 
-  // Remember a quality once a stream negotiated with it has loaded, never a choice still being
-  // negotiated or one the service refused.
   const loadedQuality = snapshot?.loadedQuality ?? null;
 
   useEffect(() => {
     if (loadedQuality !== null) saveQualityChoice(loadedQuality);
   }, [loadedQuality]);
 
-  // Show the chosen subtitle track; the element keeps one text track per <track>. While a TV
-  // plays, it shows the subtitles and the paused element shows none.
   const shownSubtitle = casting === null ? subtitleId : null;
 
   useEffect(() => {
@@ -713,7 +639,6 @@ export function PlayerScreen({
     }
   }, [video, shownSubtitle, stream]);
 
-  // This viewer's subtitle delay: it moves the cues in this element only, never a room's clock.
   const subtitleDelay = useSubtitleDelay({
     controller,
     stream,
@@ -724,7 +649,6 @@ export function PlayerScreen({
     keycaps: layout === "desktop",
   });
 
-  // Rooms.
   const copyLink = useCallback((id: RoomId) => {
     void copyText(roomLink(id)).then(() => toast.success("Invite link copied"), toastFailure);
   }, []);
@@ -809,8 +733,6 @@ export function PlayerScreen({
     dropRoomFromUrl();
   }, [roomId, endRoom, deviceId, dropRoomFromUrl]);
 
-  // Escape with nothing else to close asks before leaving. Solo playback pauses while it asks; a room
-  // plays on, since its clock is everyone's.
   const askToLeave = useCallback(() => {
     const pause = roomId === undefined && output !== null && !output.isPaused();
 
@@ -845,9 +767,6 @@ export function PlayerScreen({
     return false;
   }, [frame]);
 
-  // Autoplay next: near the end of an episode. Not while "Leave playback?" asks, so a countdown
-  // cannot move on to the next episode behind it, nor while the viewer has paused the credits (a
-  // click on them pauses); playing again starts it over.
   const remaining = Math.max(0, duration - media.positionSeconds);
 
   const inCredits =
@@ -857,8 +776,6 @@ export function PlayerScreen({
     duration > 0 &&
     (media.ended || remaining <= creditsSeconds(duration));
 
-  // Alone, the player counts down itself. A page opened in a room never does, also while it joins:
-  // the room moves on together (`useRoomNext`), and never into a solo episode.
   const solo = roomId === undefined;
   const showNext = inCredits && solo && nextEpisode !== null && !creditsDismissed;
 
@@ -874,11 +791,8 @@ export function PlayerScreen({
   });
 
   const roomCard = leaving === null ? roomNext.card : null;
-  // A next-episode card, alone or in a room, holds the controls away while it shows.
   const nextShown = showNext || roomCard !== null;
 
-  // Another episode of this show, in the player; it resumes where the profile stopped, or starts
-  // over once watched.
   const playEpisode = useCallback(
     (id: EpisodeId) => {
       void navigate({
@@ -894,10 +808,8 @@ export function PlayerScreen({
     if (nextEpisode !== null) playEpisode(nextEpisode.id);
   }, [nextEpisode, playEpisode]);
 
-  // Next episode now: alone, this player opens it; a room's host moves the whole room on.
   const nextAction = solo ? (nextEpisode === null ? null : playNext) : roomNext.playNext;
 
-  // The episode before this one in its season, for the system's previous-track button.
   const seasonEpisodes = useCommandQuery(
     "titles.episodes",
     episode === null || guest
@@ -920,16 +832,12 @@ export function PlayerScreen({
     if (previousEpisode !== null) playEpisode(previousEpisode.id);
   }, [playEpisode, previousEpisode]);
 
-  // The episode picker: a show's episode, alone or for a room's host. A room plays one episode for
-  // everyone, so the host's pick moves the whole room (`useRoomNext`) and guests get no picker. Once
-  // left, the stream is this player's own again, and another episode starts without the room.
   const pickable = episode !== null && (solo || roomNext.pick !== null);
   const pickEpisode = roomNext.pick ?? playEpisode;
   const episodeIdNow = episode?.id ?? null;
   const seasonNow = episode?.seasonNumber ?? null;
   const seasons = detail?.seasons ?? null;
 
-  // Rebuilt only when what it shows changes, not with each position update.
   const picking = useMemo(
     () =>
       !pickable || episodeIdNow === null || seasonNow === null || seasons === null
@@ -944,16 +852,12 @@ export function PlayerScreen({
 
   const canPick = picking !== null;
 
-  // A picker for an episode that can no longer pick (a room, a movie), or open in another layout,
-  // is closed, so it never reopens by itself later. One that only waits for the title's details
-  // again stays open.
   if (episodesOpenIn !== null && (!pickable || episodesOpenIn !== layout)) {
     setEpisodesOpenIn(null);
   }
 
   const episodesShown = episodesOpenIn === layout && canPick;
 
-  // The current season's episodes for the menu, the ones that can play.
   const episodeOptions = useMemo(
     (): ReadonlyArray<TrackOption> =>
       !canPick || seasonEpisodes.status !== "success"
@@ -1025,7 +929,6 @@ export function PlayerScreen({
     };
   }, [showNext, runtime, playNext]);
 
-  // Guests catching up.
   const guestSyncing =
     guest &&
     (sync === null ||
@@ -1044,8 +947,6 @@ export function PlayerScreen({
   const roomPaused = room !== null && (room.clock.status !== "playing" || hostGone(room));
   const stalled = useSettled(isPlaying && media.buffering, BUFFERING_GRACE_MS);
 
-  // Stream info shows only in the desktop controls, once a stream has loaded; left open on a layout
-  // without it, it is hidden and holds nothing (it shows again on the desktop layout).
   const streamInfoAvailable = layout === "desktop" && stream !== null && started !== null;
   const infoShown = info && streamInfoAvailable;
 
@@ -1063,7 +964,6 @@ export function PlayerScreen({
 
   const controlsVisible = useControlsVisible(frame, hold);
 
-  // Keyboard.
   useKeymap(
     playerKeymap,
     {
@@ -1074,8 +974,6 @@ export function PlayerScreen({
       "player.forward-10": () => skipByKey(10),
       "player.back-5": () => skipByKey(-5),
       "player.forward-5": () => skipByKey(5),
-      // From the level under mute, which they unmute, as they always have.
-      // Where the level cannot be set, Up still unmutes, as it always has.
       "player.volume-up": () => {
         if (volumeSettable) commitVolume(media.volume + VOLUME_STEP);
         else if (media.muted) setMuted(false);
@@ -1084,13 +982,10 @@ export function PlayerScreen({
         if (volumeSettable) commitVolume(media.volume - VOLUME_STEP);
       },
       "player.fullscreen": toggleFullscreen,
-      // Silence counts as muted, as the button shows it: m then brings the sound back.
       "player.mute": () => setMuted(!(media.muted || silent)),
       "player.subtitles": toggleSubtitles,
       "player.subtitles-earlier": () => subtitleDelay.stepWithNotice(-1),
       "player.subtitles-later": () => subtitleDelay.stepWithNotice(1),
-      // One press does one thing: leaves full screen, closes Stream info, or asks to leave. Menus,
-      // popovers, and dialogs take Escape before it gets here.
       "player.exit": (event) => {
         if (takeEscape(event)) return;
 
@@ -1101,7 +996,6 @@ export function PlayerScreen({
     !menu && startDialog === null && leaving === null,
   );
 
-  // Commands the menu offers while the player is open.
   const commands = useMemo(
     (): PlayerCommands => ({
       playing: !media.paused,
@@ -1184,7 +1078,6 @@ export function PlayerScreen({
     player: commands,
   });
 
-  // A room link this profile cannot use shows its own page instead of the player.
   if (watch !== null && watch.join.status === "denied") {
     return (
       <RoomDenied
@@ -1278,7 +1171,6 @@ export function PlayerScreen({
       />
     );
 
-  // One menu for every way this browser plays elsewhere: Chromecast, AirPlay, its own picker.
   const castTargets = {
     chromecast: chromecast.available
       ? {
@@ -1388,7 +1280,6 @@ export function PlayerScreen({
           positionMs={room.clock.positionAtAnchorMs}
           onKeepWatching={() => {
             leaveAndStay();
-            // The room paused this player; the click lets it play again on its own.
             controller?.resumeWithGesture();
           }}
           onLeave={leaveAndExit}
@@ -1643,7 +1534,6 @@ export function PlayerScreen({
     <div
       ref={setFrame}
       data-testid="player"
-      // Focusable from script only, so focus can return to the player after a dialog.
       tabIndex={-1}
       className={cn(
         "fixed inset-0 flex bg-dark-bg text-text outline-none select-none",
@@ -1720,7 +1610,6 @@ export function PlayerScreen({
           onLeave={host || hostGone(room) ? undefined : leaveAndExit}
         />
       ) : null}
-      {/* Dialogs and the menu wait for their layer, so none ever renders outside the player. */}
       {overlays === null ? null : (
         <>
           <StartRoomDialog
@@ -1759,7 +1648,6 @@ export function PlayerScreen({
           />
         </>
       )}
-      {/* The overlays' layer: inside the frame, but with the cursor and text selection back. */}
       <div ref={setOverlays} className="contents cursor-auto select-text" />
     </div>
   );

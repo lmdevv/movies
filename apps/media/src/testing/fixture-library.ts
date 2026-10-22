@@ -1,8 +1,3 @@
-/**
- * Generates a small fake media library with ffmpeg: movies in several codec mixes, a show with
- * two seasons and specials, NFO files, artwork, and subtitles. Nothing here is committed; tests
- * and `scripts/generate-fixtures.ts` generate it into a folder of their choice.
- */
 import { execFile } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -77,7 +72,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,{\\b1}Bonjour{\\b0} le monde
 `;
 
-/** Chapters of the direct movie, in ffmpeg's metadata format (times in milliseconds). */
 const CHAPTERS = `;FFMETADATA1
 [CHAPTER]
 TIMEBASE=1/1000

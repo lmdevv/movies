@@ -1,6 +1,5 @@
 import type { LibraryFile } from "@movies/contracts/models/catalog";
 
-/** ffprobe codec names as people know them. */
 const CODEC_LABELS = new Map([
   ["h264", "H.264"],
   ["hevc", "HEVC"],
@@ -18,7 +17,6 @@ const HDR_LABELS = {
   dolby_vision: "DV",
 } as const;
 
-/** The resolution class of a video height, such as `1080p` or `2160p`. */
 const resolution = (height: number): string => {
   if (height >= 2000) return "2160p";
 

@@ -41,10 +41,8 @@ const KINDS: ReadonlyArray<{
   { kind: "shows", label: "Shows", icon: TvIcon },
 ];
 
-/** A folder row: what was typed and, after a failed save, why the server refused it. */
 type FolderRow = { readonly key: number; readonly path: string; readonly problem: string | null };
 
-/** First run, step 2: name the folder the server reads, then save and scan it. */
 function AddLibraryPage() {
   const viewer = useViewer();
 
@@ -98,7 +96,6 @@ function AddLibraryForm() {
       });
     } catch (cause) {
       const message = describeFailure(cause);
-      // The server names the folder it refused; mark that row, or the first one.
       const named = checked.find((row) => message.includes(normalizeFolder(row.path)));
       const target = named ?? checked[0];
 

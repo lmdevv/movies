@@ -1,4 +1,3 @@
-/** A09 · Connection Details: the media and account servers typed separately. */
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -16,7 +15,6 @@ export default function ConnectionDetails() {
 
   const submit = () => run(() => connectManually(mediaUrl, convexUrl), { filled });
 
-  // A failure shows under the field it is about, and editing either field clears it.
   const mediaError =
     failure === "unreachable" || (failure === "invalid" && normalizeServerUrl(mediaUrl) === null)
       ? describeConnectFailure(failure)

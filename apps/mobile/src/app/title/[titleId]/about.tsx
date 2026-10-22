@@ -1,7 +1,3 @@
-/**
- * D09 · About This Movie (or Show): the artwork, the title, the full overview, and its facts:
- * release, length, genres, rating, status, studio or network, scores, and who made it.
- */
 import type { TitleDetail } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { useLocalSearchParams } from "expo-router";
@@ -21,7 +17,6 @@ import { describeFailure, isFailure } from "@/lib/failure";
 import { useActiveProfile } from "@/session/active-profile";
 import { useServer } from "@/session/connection";
 
-/** The loaded title's facts. */
 function About({ title }: { readonly title: TitleDetail }) {
   const { mediaUrl } = useServer();
   const backdrop = artworkUrl(mediaUrl, title.artwork.backdrop ?? title.artwork.poster, "card");

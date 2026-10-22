@@ -10,7 +10,6 @@ import {
   subtitleTiming,
 } from "./subtitle-timing";
 
-/** A cue as WebVTT parsing leaves it, in seconds. */
 const cue = (startTime: number, endTime: number): CueLike => ({ startTime, endTime });
 
 /**
@@ -21,7 +20,6 @@ const cue = (startTime: number, endTime: number): CueLike => ({ startTime, endTi
 class FakeTrack implements TextTrackLike {
   mode: "disabled" | "showing" = "showing";
   kind = "subtitles";
-  /** The cues in the order their file has them. */
   loaded: Array<CueLike> = [];
 
   get cues(): Iterable<CueLike> | null {
@@ -42,7 +40,6 @@ class FakeTrack implements TextTrackLike {
   }
 }
 
-/** The track list, which fires `change` when a track's mode changes, and `addtrack`. */
 class FakeTrackList extends EventTarget implements Iterable<FakeTrack> {
   readonly #tracks: Array<FakeTrack> = [];
 
@@ -56,11 +53,9 @@ class FakeTrackList extends EventTarget implements Iterable<FakeTrack> {
   }
 }
 
-/** A media element with its track list; a `<track>` child loading fires `load` through it. */
 class FakeElement extends EventTarget implements RetimedElement {
   readonly textTracks = new FakeTrackList();
 
-  /** Loads `cues` into `track` and fires `load` as a `<track>` element does. */
   load(track: FakeTrack, cues: ReadonlyArray<CueLike>): void {
     track.loaded = [...cues];
     this.dispatchEvent(new Event("load"));
@@ -146,7 +141,6 @@ describe("subtitleTiming", () => {
   });
 });
 
-/** An element with one track of two cues, loaded, and a retimer on it. */
 const setup = () => {
   const element = new FakeElement();
   const track = new FakeTrack();
@@ -189,7 +183,6 @@ describe("SubtitleRetimer", () => {
   it("moves every cue when they change places in the track's live list", () => {
     const { track, retimer } = setup();
 
-    // The first cue, moved past the second, sorts after it while the list is read.
     retimer.set(30_000);
 
     expect(times(track)).toEqual([

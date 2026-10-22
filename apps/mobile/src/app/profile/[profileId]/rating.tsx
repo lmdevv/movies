@@ -1,4 +1,3 @@
-/** B10 · Maximum Rating: the highest rating the profile sees; the check keeps the choice. */
 import { router } from "expo-router";
 import { Check } from "lucide-react-native";
 import { useState } from "react";

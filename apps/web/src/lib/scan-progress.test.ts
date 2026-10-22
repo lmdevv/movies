@@ -31,7 +31,6 @@ describe("scan progress", () => {
   });
 
   it("estimates minutes left from the pace so far", () => {
-    // 100 of 400 files in 2 minutes: 6 minutes left.
     const progress = scanProgress(
       job({ progress: { done: 100, total: 400, message: null } }),
       120_000,

@@ -1,4 +1,3 @@
-/** H14 · Revoke Key: the sheet that revokes an API key and ends what it signed in. */
 import { ApiKeyId } from "@movies/contracts/ids";
 import { useCommand } from "@movies/sdk/react";
 import { Option, Schema } from "effect";

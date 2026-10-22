@@ -1,8 +1,3 @@
-/**
- * The command tree: every registry command at `movies <group> <action>`, the shortcuts built on
- * top of the registry, help text, the machine-readable catalog behind `movies commands`, and the
- * command reference of the agent skill.
- */
 import type { AnyCommand, CommandGroup } from "@movies/contracts/command";
 import { commands, isCommandName } from "@movies/contracts/commands";
 import type { CommandName } from "@movies/contracts/commands";
@@ -22,13 +17,11 @@ export interface RegistryEntry {
   readonly job: boolean;
 }
 
-/** Whether an encoded schema, or any member of a union such as `queued | failed`, has a `jobId`. */
 const hasJobId = (ast: SchemaAST.AST): boolean =>
   (SchemaAST.isObjects(ast) &&
     ast.propertySignatures.some((property) => property.name === "jobId")) ||
   (SchemaAST.isUnion(ast) && ast.types.some(hasJobId));
 
-/** Whether a result schema carries a `jobId` to follow. */
 const returnsJob = (command: AnyCommand): boolean =>
   hasJobId(SchemaAST.toEncoded(command.result.ast));
 
@@ -280,14 +273,12 @@ const positionalUsage = (spec: FlagSpec): string =>
     Json: () => `<${spec.flag}>`,
   });
 
-/** Required flags read as-is, optional and defaulted ones in brackets, boolean pairs in parentheses. */
 const synopsisPart = (spec: FlagSpec): string => {
   if (!spec.required || spec.defaulted) return `[${flagUsage(spec)}]`;
 
   return FlagType.$is("Boolean")(spec.type) ? `(${flagUsage(spec)})` : flagUsage(spec);
 };
 
-/** `movies rooms get <room-id>`, `movies libraries create --name <text> ...` */
 const synopsis = (entry: RegistryEntry): string => {
   const { flags, positional } = entry.flags;
 
@@ -310,7 +301,6 @@ const pad = (rows: ReadonlyArray<readonly [string, string]>): ReadonlyArray<stri
   );
 };
 
-/** The exit codes, one line. */
 const exitCodeLine = `Exit codes: ${Object.entries(ExitCode)
   .map(([name, code]) => `${String(code)} ${name}`)
   .join(", ")}.`;
@@ -464,7 +454,6 @@ export type CatalogEntry = {
   readonly args: Schema.Json;
 };
 
-/** JSON Schema generation only emits JSON values; a mismatch is a defect. */
 const toJson = Schema.decodeUnknownSync(Schema.Json);
 
 const dialect = "https://json-schema.org/draft/2020-12/schema";

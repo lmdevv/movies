@@ -1,9 +1,3 @@
-/**
- * The player's full-frame states from Paper's 07 Playback page: the resume prompt, preparing a
- * stream, buffering, trying another way to play, the calm stops (file missing, cannot play), and
- * the subtitle delay's notice.
- * Presentational: the player screen decides which one shows.
- */
 import { Button } from "@movies/ui/components/button";
 import { PlayGlyph } from "@movies/ui/components/icons";
 import { ProgressRing } from "@movies/ui/components/progress-ring";
@@ -15,7 +9,6 @@ import type { ReactNode } from "react";
 
 const timecode = (ms: number): string => formatTimecode(ms / 1000);
 
-/** A layer over the whole video frame. */
 function Layer({
   className,
   children,

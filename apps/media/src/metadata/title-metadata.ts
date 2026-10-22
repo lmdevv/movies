@@ -1,8 +1,3 @@
-/**
- * Merges what a file's name, its local NFO and artwork, and the metadata provider say about a
- * title or episode. Local values win field by field; the provider fills gaps; the file name is
- * the last resort. Provider failures never fail a scan: the title keeps its local metadata.
- */
 import { Cache, Context, Duration, Effect, Exit, Layer, Option, Schema } from "effect";
 
 import type { Artwork } from "../library/artwork.ts";
@@ -38,7 +33,6 @@ export const ImageRef = Schema.TaggedUnion({
 /** An image stored beside the media or hosted by a provider. */
 export type ImageRef = typeof ImageRef.Type;
 
-/** Where merged values came from. */
 const MetadataSource = Schema.Literals(["name", "nfo", "provider"]);
 
 /** A credited person with what they did, merged from the NFO and the provider. */
@@ -126,7 +120,6 @@ export const EpisodeMetadata = Schema.Struct({
 /** Merged episode metadata. */
 export interface EpisodeMetadata extends Schema.Schema.Type<typeof EpisodeMetadata> {}
 
-/** Local inputs for a movie or a show. */
 interface TitleInput {
   readonly kind: TitleKind;
   readonly title: string;
@@ -134,11 +127,9 @@ interface TitleInput {
   readonly nameIds: ExternalIds;
   readonly local: LocalMetadata | undefined;
   readonly artwork: Artwork;
-  /** Actor photos in the `.actors` folder, by actor name; paths relative to the library root. */
   readonly actorImages: (name: string) => string | undefined;
 }
 
-/** Local inputs for an episode. */
 interface EpisodeInput {
   readonly name: Extract<MediaName, { readonly _tag: "Episode" }>;
   readonly local: LocalMetadata | undefined;
@@ -147,7 +138,6 @@ interface EpisodeInput {
   readonly actorImages: (name: string) => string | undefined;
 }
 
-/** A merged title plus the provider ID needed for its episodes. */
 interface ResolvedTitle {
   readonly metadata: TitleMetadata;
   readonly providerId: string | undefined;
@@ -222,7 +212,6 @@ const normaliseName = (name: string): string =>
     .replaceAll(/\s+/gu, " ")
     .trim();
 
-/** Provider images the artwork store can fetch; others would only be broken links. */
 const PROVIDER_IMAGE_HOSTS: ReadonlySet<string> = new Set(["image.tmdb.org"]);
 
 const providerImage = (url: string | undefined): ImageRef | undefined => {
@@ -234,7 +223,6 @@ const providerImage = (url: string | undefined): ImageRef | undefined => {
     : undefined;
 };
 
-/** The local and provider people an NFO name stands for, matched by name. */
 interface CreditSources {
   readonly actorImages: (name: string) => string | undefined;
   readonly provider: ReadonlyArray<ProviderCredit>;
@@ -251,7 +239,6 @@ const fromProvider = (
   role: credit.role,
 });
 
-/** An NFO person, filled in from the provider's credit of the same name when there is one. */
 const fromNfo = (
   sources: CreditSources,
   kind: CreditKind,
@@ -259,8 +246,6 @@ const fromNfo = (
 ): Omit<MergedCredit, "order"> => {
   const wanted = normaliseName(person.name);
   const named = sources.provider.filter((credit) => normaliseName(credit.name) === wanted);
-  // The role comes only from a credit of the same kind (an actor's character is no writer's job);
-  // the person's ID and photo come from any of their credits.
   const sameKind = named.find((credit) => credit.kind === kind);
   const anyKind = sameKind ?? named[0];
 
@@ -382,7 +367,6 @@ export const mergeRatings = (
   };
 };
 
-/** Field-by-field merge: local NFO, then provider, then the file name. */
 const mergeTitle = (
   input: TitleInput,
   provider: ProviderTitle | undefined,
@@ -427,7 +411,6 @@ const mergeTitle = (
   };
 };
 
-/** Field-by-field merge for an episode: local NFO, then provider, then the file name. */
 const mergeEpisode = (
   input: EpisodeInput,
   provider: ProviderEpisode | undefined,
@@ -458,11 +441,9 @@ const mergeEpisode = (
 
 const LOOKUP_CACHE = { capacity: 4096, success: Duration.hours(1) };
 
-/** Keeps found results for an hour; misses and failures are retried on the next lookup. */
 const cacheSuccessesOnly = <A, E>(exit: Exit.Exit<Option.Option<A>, E>): Duration.Duration =>
   Exit.isSuccess(exit) && Option.isSome(exit.value) ? LOOKUP_CACHE.success : Duration.zero;
 
-/** A resolver over the active metadata plugin. */
 const make = Effect.gen(function* () {
   const plugin = yield* MetadataPlugin.Service;
   const omdb = yield* Omdb.Service;

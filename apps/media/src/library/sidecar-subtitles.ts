@@ -1,7 +1,3 @@
-/**
- * Finds subtitle files stored beside a media file, such as `Movie (2010).en.srt` or
- * `Movie (2010).fre.forced.ass`. Pure: callers pass the names in the media file's folder.
- */
 import { Schema } from "effect";
 
 import type { FolderListing } from "./artwork.ts";
@@ -77,7 +73,6 @@ const FORCED = new Set(["forced", "foreign"]);
 
 const HEARING_IMPAIRED = new Set(["sdh", "cc", "hi"]);
 
-/** Normalises a language name or code to ISO 639-2/B, or `undefined` when unrecognised. */
 const normaliseLanguage = (value: string): string | undefined => LANGUAGES.get(value.toLowerCase());
 
 /** Subtitle files in `listing` that belong to the media file at `mediaPath`. */

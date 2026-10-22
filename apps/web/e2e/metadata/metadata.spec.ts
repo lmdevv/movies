@@ -1,9 +1,3 @@
-/**
- * Rich metadata in the web app, from NFO files alone (the media service runs without a TMDB key):
- * a title page's scores, credits, studio, links, trailer, collection, and More like this; a person
- * page; genre pages and the grid's filters; collections; and people in the command menu. Runs on
- * the stack as the owner the core flows created, with its own library and media service.
- */
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,17 +19,14 @@ test.skip(stack === null, NO_STACK);
 
 test.describe.configure({ mode: "serial" });
 
-/** Generating the clips and bundling the service take a while on a cold machine. */
 const SETUP_TIMEOUT_MS = 180_000;
 
-/** How long the library's first scan may take. */
 const SCAN_TIMEOUT_MS = 60_000;
 
 const run = Date.now().toString(36);
 
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 
-/** The stack's media service without a metadata provider: everything here comes from NFO files. */
 const withoutProvider = (env: StackEnv): StackEnv => ({
   ...env,
   mediaEnv: Object.fromEntries(
@@ -129,7 +120,6 @@ let media: MediaService | undefined;
 
 let client: Client | undefined;
 
-/** Titles of the fixture library by name, once scanned. */
 const titles = new Map<string, TitleId>();
 
 const titleId = (name: string): TitleId => {
@@ -219,7 +209,6 @@ test.beforeEach(async ({ page }) => {
   if (client !== undefined) await useSession(page, client);
 });
 
-/** Saves a screenshot to `$E2E_SCREENSHOTS/<name>.png` when that folder is set, for design review. */
 const capture = async (page: Page, name: string, fullPage = false): Promise<void> => {
   const folder = process.env["E2E_SCREENSHOTS"];
 
@@ -268,7 +257,6 @@ test("a title page shows scores, credits, studio, links, the trailer, its collec
 
   const cast = page.getByRole("region", { name: "Cast & crew" });
 
-  // The avatar is decorative, so each card is named once: the person, then their role.
   await expect(cast.getByRole("link", { name: /Sigourney Weaver/u })).toHaveAccessibleName(
     "Sigourney Weaver Ripley",
   );
@@ -276,7 +264,6 @@ test("a title page shows scores, credits, studio, links, the trailer, its collec
     "Tom Skerritt Dallas",
   );
 
-  // Without a photo, the avatar shows the person's letter in its middle.
   const avatar = cast.getByRole("link", { name: /Tom Skerritt/u }).locator("[data-slot=avatar]");
 
   const [circle, letter] = await Promise.all([
@@ -323,7 +310,6 @@ test("a person page shows their photo, life, links, and titles in the library", 
   await expect(page).toHaveURL(/\/person\//u);
   await expect(page.getByRole("heading", { level: 1, name: "Sigourney Weaver" })).toBeVisible();
 
-  // The photo comes from the `.actors` folder next to the NFO.
   await expect(page.getByRole("img", { name: "Sigourney Weaver" })).toHaveAttribute(
     "style",
     /artwork/u,

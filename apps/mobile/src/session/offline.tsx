@@ -1,7 +1,3 @@
-/**
- * Offline: the server cannot be reached, and the downloads kept here are all there is. The root
- * stack shows only the Downloads list and what it opens; `leave` tries the server again.
- */
 import { createContext, useContext } from "react";
 
 /** The way back from offline. */

@@ -2,12 +2,6 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-/**
- * Components take every size from the theme in `globals.css`: a Paper token or a labelled Paper
- * literal (see `docs/decisions.md`, Web UI kit). These checks read the classes in the web app and
- * the UI kit, the sources `globals.css` hands to Tailwind.
- */
-
 // Vitest hands CSS imports to tests as empty strings, even with `?raw`.
 const css = readFileSync(
   new URL("../../../../packages/ui/src/styles/globals.css", import.meta.url),
@@ -32,22 +26,18 @@ const sources = Object.entries({
   ),
 }).map(([path, text]) => ({ path: path.replace(/^(\.\.\/)+/u, ""), text }));
 
-/** `--spacing-1_5` in the theme is the `1.5` step. */
 const spacingSteps = new Set(
   [...css.matchAll(/--spacing-([\d_]+):/gu)].map((match) => (match[1] ?? "").replace("_", ".")),
 );
 
 const definedVariables = new Set([...css.matchAll(/(--[\w-]+):/gu)].map((match) => match[1]));
 
-/** Utilities that read the spacing scale for a padding, margin, gap, or offset. */
 const SPACING_UTILITY =
   /(?<![\w-])-?(?:p[xytrblse]?|m[xytrblse]?|gap(?:-[xy])?|space-[xy]|inset(?:-[xy])?|top|right|bottom|left|start|end|translate-[xy]|scroll-[mp][xytrblse]?)-(\d+(?:\.\d+)?)(?![\w./-])/gu;
 
-/** Tailwind's own sizes, which Paper replaces with its tokens. */
 const TAILWIND_DEFAULT_SIZE =
   /(?<![\w-])(?:text-(?:xs|sm|base|lg|[2-9]?xl)|rounded(?:-[setrbl]{1,2})?-(?:xs|sm|md|lg|[2-4]?xl)|shadow-(?:2xs|xs|sm|md|lg|2?xl)|font-(?:thin|extralight|light|normal|extrabold|black)|leading-(?:none|tight|snug|normal|relaxed|loose)|tracking-(?:tighter|normal|wide|wider|widest))(?![\w-])/gu;
 
-/** An arbitrary value such as `max-h-[min(var(--spacing-chapter-list),70vh)]`. */
 const ARBITRARY_VALUE = /(?<![\w-])[\w:-]*-\[([^\]\s"'`]+)\]/gu;
 
 const findings = (pattern: RegExp, accept: (match: RegExpExecArray) => boolean) =>

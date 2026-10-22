@@ -1,7 +1,3 @@
-/**
- * Editing a library from I04's Server Folder or I05's Edit Folder: its name and folders, checked as
- * Add Library checks them (I17). Saving changed folders scans the library again.
- */
 import { LibraryId } from "@movies/contracts/ids";
 import type { LibraryDetail } from "@movies/contracts/models/catalog";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
@@ -27,13 +23,11 @@ function EditForm({ library }: { readonly library: LibraryDetail }) {
         const { name, roots } = submission(draft);
         const moved = roots.join("\n") !== library.roots.join("\n");
 
-        // New folders scan again; a rename alone does not.
         await update(
           moved ? { libraryId: library.id, name, roots } : { libraryId: library.id, name },
         );
 
         if (moved) {
-          // The update queued a scan of the new folders; the scan screen follows the latest.
           router.replace({
             pathname: "/owner/libraries/[libraryId]/scan",
             params: { libraryId: library.id },

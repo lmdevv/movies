@@ -1,9 +1,3 @@
-/**
- * Matches source items to [movies] files. File path comes first, after path mapping and
- * normalization; provider IDs come second (TMDB, then IMDb, then TVDB), with episodes matched
- * through their show and their season and episode numbers. Items that match neither way carry
- * the reason, and items in folders the import is about to add wait for that library's first scan.
- */
 import type { PathMapping, UnmatchedReason } from "@movies/contracts/models/migration";
 import type { CatalogFile } from "@movies/contracts/models/migration-service";
 import type { EpisodeId, MediaFileId, TitleId } from "@movies/contracts/ids";
@@ -112,7 +106,6 @@ export const indexCatalog = (files: ReadonlyArray<CatalogFile>): CatalogIndex =>
 
 const providerOrder = ["tmdb", "imdb", "tvdb"] as const;
 
-/** Where an item's paths land: local paths, and whether any lies in a folder the import adds. */
 const locate = (item: SourceItem, context: PathContext) => {
   const local = item.paths.flatMap((path) => {
     const mapped = toLocalPath(path, context.mappings, context.roots);

@@ -3,7 +3,6 @@ import { ConfigProvider, Context, Effect, Exit, Layer } from "effect";
 
 import * as MediaConfig from "./media-config.ts";
 
-/** The configuration decoded from `env` and the required names. */
 const decode = (env: Readonly<Record<string, string>>) =>
   Layer.build(
     MediaConfig.layer.pipe(

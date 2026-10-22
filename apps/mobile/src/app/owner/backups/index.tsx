@@ -1,7 +1,3 @@
-/**
- * I11 · Backups: Back Up Now and the backups kept, newest first. Choosing one asks to restore it
- * (I12). The server also backs up every night.
- */
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { router } from "expo-router";
 import { Server } from "lucide-react-native";

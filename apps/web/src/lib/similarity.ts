@@ -1,9 +1,3 @@
-/**
- * How alike two short strings are, for "Did you mean" after a search with no results: the Dice
- * coefficient of their letter pairs, ignoring case, accents, and punctuation. Swapped letters
- * (`dnue` for `dune`) keep most pairs, so typos still score well.
- */
-
 const fold = (text: string): string =>
   text
     .normalize("NFD")

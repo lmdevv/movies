@@ -12,7 +12,6 @@ import type { KeyValueStore } from "./token-storage";
 
 const KEY = "movies.session";
 
-/** A string store in memory, as `localStorage` would be. */
 const memoryStore = (): KeyValueStore & { readonly items: Map<string, string> } => {
   const items = new Map<string, string>();
 
@@ -33,10 +32,6 @@ const settle = (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
-/**
- * Runs `body` with a fake deployment and the Promise SDK over HTTP to it, storing the session in
- * `store`. The SDK is disposed afterwards; disposing it twice is harmless.
- */
 const withSdk = (
   store: KeyValueStore,
   body: (fake: FakeConvex.FakeConvex, sdk: MoviesSdk) => Promise<void>,

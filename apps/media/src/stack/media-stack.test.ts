@@ -1,14 +1,3 @@
-/**
- * The vertical slice against a real stack: the built media service, signed in to the worktree's
- * self-hosted Convex, scans a generated fixture library an admin added, serves direct, remuxed,
- * and transcoded playback, and follows progress, ended sessions, and job leases; then the same
- * through the built `movies` CLI.
- *
- *   scripts/dev-stack.sh up && pnpm --filter @movies/media test:stack
- *
- * Skipped unless `MOVIES_STACK_TESTS=1`. Shares the owner accounts of the other stack suites and
- * listens on the stack's media port, so stop any media service started with `pnpm dev` first.
- */
 import { artworkUrl } from "@movies/contracts/artwork";
 import {
   ClientDiagnosticsRequest,
@@ -77,10 +66,8 @@ const convexUrl = stack?.convexUrl ?? "";
 
 const mediaUrl = stack?.mediaUrl ?? "";
 
-/** Timings the slice measured, printed at the end. */
 const timings: Record<string, number> = {};
 
-/** A browser that plays MP4 with H.264 and AAC, plus AC-3 in HLS. */
 const browser: ClientCapabilities = {
   containers: ["mp4"],
   videoCodecs: [{ codec: "h264", maxBitDepth: 8 }],
@@ -91,7 +78,6 @@ const browser: ClientCapabilities = {
   mse: true,
 };
 
-/** The same browser on a screen too small for the fixtures, so video is transcoded. */
 const smallScreen: ClientCapabilities = {
   containers: browser.containers,
   videoCodecs: browser.videoCodecs,
@@ -151,12 +137,10 @@ const startService = async (): Promise<void> => {
 
 const open = () => openSession(convexUrl, mediaUrl, scope);
 
-/** Runs `effect` as the owner. */
 const asOwner = <A, E>(
   effect: Effect.Effect<A, E, Movies.Services | ConvexTransport.ConvexTransport>,
 ): Promise<A> => runIn(owner, effect);
 
-/** The title named `name` in `libraryId`. */
 const titleIn = (libraryId: LibraryId, name: string) =>
   Effect.gen(function* () {
     const movies = yield* client;
@@ -194,7 +178,6 @@ const decodeDiagnostics = Schema.decodeUnknownSync(
 
 const decodeNegotiated = Schema.decodeUnknownSync(Schema.toCodecJson(NegotiateResponse));
 
-/** Negotiates over HTTP the way a player does, and how long it took. */
 const negotiate = async (started: StartedPlayback, capabilities: ClientCapabilities) => {
   const begin = performance.now();
 
@@ -214,7 +197,6 @@ const negotiate = async (started: StartedPlayback, capabilities: ClientCapabilit
   return { stream: decodeNegotiated(body), elapsedMs: elapsed };
 };
 
-/** Fetches a playlist, its init segment, and its first media segment. */
 const fetchHls = async (playlistUrl: string): Promise<string> => {
   const playlist = await fetch(playlistUrl);
   const text = await playlist.text();
@@ -437,7 +419,6 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
 
       expect(await stored.json()).toStrictEqual(manifest);
 
-      // Without a token, with another file's token, or for another version, nothing is served.
       const other = await asOwner(titleIn(moviesLibrary, "Remux Fixture"));
       const otherStarted = await asOwner(startSession(other.id, "trickplay-other"));
 
@@ -914,7 +895,6 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
         ),
       );
 
-      // Another worker claims the job with a short lease and dies without renewing it.
       const crashed = await Effect.runPromise(
         Effect.gen(function* () {
           const session = yield* open();

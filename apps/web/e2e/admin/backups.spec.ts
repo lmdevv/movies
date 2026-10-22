@@ -1,7 +1,3 @@
-/**
- * Backups against the real media service: Back up now queues a job, the service runs `convex
- * export` into the stack's backup folder and records the archive, and the Backups screen lists it.
- */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,10 +13,8 @@ const stack = await ownedStack();
 
 test.skip(stack === null, NO_STACK);
 
-/** Bundling the service takes a while on a cold machine. */
 const SETUP_TIMEOUT_MS = 180_000;
 
-/** How long exporting the stack's database may take. */
 const BACKUP_TIMEOUT_MS = 120_000;
 
 let workspace = "";
@@ -34,8 +28,6 @@ test.beforeAll(async () => {
   buildMediaService();
   media = await startMediaService(stack, [workspace]);
 
-  // A backup queued earlier (the nightly cron with no service running) would be the one Back up
-  // now returns; let the service finish it first.
   const owner = await signInOwner(stack);
 
   const active = async () =>
@@ -64,7 +56,6 @@ test("an admin backs up now from the command menu and asks before restoring", as
     (await owner.sdk.query("jobs.list", { kind: "backup", limit: 100 })).map((job) => job.id),
   );
 
-  /** The backup job Back up now queued, once it exists. */
   const queued = async (): Promise<JobId | null> =>
     (await owner.sdk.query("jobs.list", { kind: "backup", limit: 100 })).find(
       (job) => !jobsBefore.has(job.id),

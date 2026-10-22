@@ -1,8 +1,3 @@
-/**
- * J03 · Importing and J04 · Import Complete: how far the import has come across its phases, then
- * what it wrote. The import runs on the server, so Keep Browsing leaves it to finish; a stopped
- * import says why and offers Start Again. During first run, leaving goes Home.
- */
 import type { MigrationPhase, MigrationRun } from "@movies/contracts/models/migration";
 import { SOURCE_NAMES, importFraction } from "@movies/contracts/migration-plan";
 import { useCommandQuery } from "@movies/sdk/react";
@@ -51,7 +46,6 @@ const DONE_ICONS: Readonly<Record<CountRow["key"], LucideIcon>> = {
   collections: LibraryIcon,
 };
 
-/** Leaves the import for Home, finishing first run when it is under way. */
 const useGoHome = () => {
   const phase = useSessionPhase();
   const finishSetup = useFinishSetup();
@@ -117,10 +111,6 @@ function Stopped({ run }: { readonly run: MigrationRun }) {
   );
 }
 
-/**
- * Back from the import's progress leaves the import flow, whose Connect would only open the
- * progress again: to Owner Settings, or to Add Your First Library during first run.
- */
 const useLeaveImport = () => {
   const phase = useSessionPhase();
 

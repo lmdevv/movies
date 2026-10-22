@@ -9,5 +9,4 @@ declare module "*.png" {
   export default source;
 }
 
-/** The Uniwind stylesheet, imported once by the root layout. */
 declare module "*.css";

@@ -68,14 +68,10 @@ export function SubtitleDelay({
   readonly className?: string;
 }) {
   const reasonId = useId();
-  // What the viewer has typed and not yet entered; the field shows `value` otherwise, so focusing it
-  // alone never enters an old value over a delay that changed meanwhile.
   const [draft, setDraft] = useState<string | null>(null);
   const disabled = unavailable !== undefined;
   const [wasDisabled, setWasDisabled] = useState(disabled);
 
-  // A field disabled while being typed in (subtitles turned off, casting started) drops the entry,
-  // as a disabled field may never blur; enabled again, it shows the delay, not the old entry.
   if (disabled !== wasDisabled) {
     setWasDisabled(disabled);
 
@@ -93,7 +89,6 @@ export function SubtitleDelay({
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
     if (event.key === "Enter") commit();
-    // Escape drops the entry; the popover then closes as it always does.
     else if (event.key === "Escape") setDraft(null);
   };
 

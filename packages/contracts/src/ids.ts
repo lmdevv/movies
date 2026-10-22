@@ -1,8 +1,3 @@
-/**
- * Branded identifiers. Convex document IDs travel as opaque strings; each schema names the Convex
- * table it points into through the `convexTable` annotation, which the backend's validator
- * equivalence test reads to match it against `v.id(table)`.
- */
 import { Schema } from "effect";
 
 /** Annotation key naming the Convex table an ID schema points into. */

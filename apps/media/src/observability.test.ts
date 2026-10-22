@@ -8,7 +8,6 @@ import { FetchHttpClient, HttpClient } from "effect/http";
 import * as Observability from "./observability.ts";
 import { testConfigLayer } from "./testing/test-config.ts";
 
-/** `text` as base64url, the encoding of signed tokens' parts. */
 const base64url = (text: string): string => Buffer.from(text, "utf8").toString("base64url");
 
 /**
@@ -25,7 +24,6 @@ const secrets = {
   password: "hunter2-password-value",
 };
 
-/** A failure whose message carries a secret, as a careless CLI error might. */
 class ImportFailed extends Schema.TaggedError<ImportFailed>()("ImportFailed", {
   output: Schema.String,
 }) {
@@ -34,7 +32,6 @@ class ImportFailed extends Schema.TaggedError<ImportFailed>()("ImportFailed", {
   }
 }
 
-/** Logs every secret the ways careless code might: in messages, annotations, and causes. */
 const logEverySecret = Effect.gen(function* () {
   yield* Effect.logWarning(
     "Request.failed",
@@ -61,7 +58,6 @@ const logEverySecret = Effect.gen(function* () {
   );
 });
 
-/** A console that keeps every line logged to it. */
 const recordingConsole = (lines: Array<string>): Console.Console => ({
   ...globalThis.console,
   log: (...args: ReadonlyArray<unknown>) => {
@@ -69,16 +65,11 @@ const recordingConsole = (lines: Array<string>): Console.Console => ({
   },
 });
 
-/** What a run wrote: to the console, and to the retained log files. */
 interface Written {
   readonly console: string;
   readonly retained: string;
 }
 
-/**
- * `effect` run with the observability layer for `env` (with a fresh `DATA_DIR`) and an HTTP
- * client, and the lines it wrote.
- */
 const runWriting = (
   effect: Effect.Effect<void, never, HttpClient.HttpClient>,
   env: Readonly<Record<string, string>>,
@@ -117,13 +108,11 @@ const runWriting = (
     return written;
   }).pipe(Effect.orDie, Effect.scoped);
 
-/** The console lines `effect` wrote, as `runWriting` runs it. */
 const runObserved = (
   effect: Effect.Effect<void, never, HttpClient.HttpClient>,
   env: Readonly<Record<string, string>>,
 ) => runWriting(effect, env).pipe(Effect.map((written) => written.console));
 
-/** A local OTLP/HTTP receiver that keeps every export it is sent and answers anything else. */
 const otlpReceiver = Effect.acquireRelease(
   Effect.callback<{ readonly url: string; readonly bodies: Array<string>; close: () => void }>(
     (resume) => {
@@ -215,7 +204,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("Observability", (it) =
         expect(output, name).not.toContain(secret);
       }
 
-      // Everything else stays readable.
       expect(output).toContain("Request.failed");
       expect(output).toContain("Backups.failed");
       expect(output).toContain("api.themoviedb.org/3/search/movie?query=x");

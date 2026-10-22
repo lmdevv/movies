@@ -19,18 +19,15 @@ const resource = { serviceName: "movies-media" };
 
 const REDACTED = "<redacted>";
 
-/** Field names whose values are always replaced, at any depth: names ending in a credential. */
 const SECRET_FIELD =
   /(?:token|secret|password|passwd|api[-_]?key|authorization|cookie|credentials?)$/i;
 
-/** Value shapes replaced inside any logged or exported string. */
 const SECRET_VALUES: ReadonlyArray<readonly [RegExp, string]> = [
   // Credential query parameters and assignments, as in `?token=…` or `X-Plex-Token=…`.
   [
     /\b((?:access_|x-plex-|x-emby-)?token|api_?key|key|secret|password)=[^\s&"',;\\]+/gi,
     `$1=${REDACTED}`,
   ],
-  // Quoted credential fields inside text, as in `import failed: {"password":"…"}`.
   [
     /(["']?)\b([\w.-]*?(?:token|secret|password|passwd|api[-_]?key|authorization|cookie|credentials?))\1(\s*[:=]\s*)(["'])(?:\\.|(?!\4)[^\\])*\4/gi,
     `$1$2$1$3$4${REDACTED}$4`,
@@ -40,7 +37,6 @@ const SECRET_VALUES: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bToken="[^"]*"/g, `Token="${REDACTED}"`],
   // Signed tokens with a base64url JSON header: JWTs and playback tokens.
   [/\beyJ[\w-]+\.[\w-]+(?:\.[\w-]+)?/g, REDACTED],
-  // [movies] API keys and the media service key.
   [/\bmk_[\w-]{16,}/g, REDACTED],
   // Convex admin keys: `<instance>|<hex>`.
   [/\b[\w-]+\|[0-9a-f]{32,}\b/g, REDACTED],
@@ -88,7 +84,6 @@ export const redactJsonText = (text: string): string =>
     onSome: (json) => JSON.stringify(redactJson(json)),
   });
 
-/** A string, redacted field by field when it holds a JSON object or array. */
 const redactString = (text: string): string =>
   /^\s*[[{]/.test(text) ? redactJsonText(text) : redactText(text);
 
@@ -96,7 +91,6 @@ const redactedLine = Logger.map(Logger.formatStructured, (structured) =>
   redactJsonText(Formatter.formatJson(structured)),
 );
 
-/** The redacted line on standard output and, the same line, in the retained log. */
 const teeLogger = (retained: RetainedLogs.Interface) =>
   Logger.withConsoleLog(
     Logger.make((options) => {
@@ -108,7 +102,6 @@ const teeLogger = (retained: RetainedLogs.Interface) =>
     }),
   );
 
-/** OTLP JSON bodies, redacted after serialization so every span and log attribute is covered. */
 const redactedSerialization = Layer.succeed(OtlpSerialization.OtlpSerialization, {
   traces: (data) => HttpBody.text(redactJsonText(JSON.stringify(data)), "application/json"),
   metrics: (data) => HttpBody.text(redactJsonText(JSON.stringify(data)), "application/json"),

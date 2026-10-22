@@ -1,8 +1,3 @@
-/**
- * Names of the log records playback diagnostics read. The service logs them with these messages
- * and session fields (`sessionId`, `userId`, `streamId`); the timeline (`timeline.ts`) matches
- * them by name, so renaming one here renames it on both sides.
- */
 import type { PlaybackGrant } from "../playback/playback-token.ts";
 
 /** Log messages of playback events. */

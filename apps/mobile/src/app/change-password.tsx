@@ -1,7 +1,3 @@
-/**
- * H03 · Change Password: the current password, the new one twice, and Save Password (or the check
- * in the header). A wrong current password or a short or mismatched new one shows under its field.
- */
 import { PASSWORD_MIN_LENGTH } from "@movies/contracts/models/account";
 import { useCommand } from "@movies/sdk/react";
 import * as Haptics from "expo-haptics";
@@ -19,10 +15,8 @@ import { Screen } from "@/components/ui/screen";
 import { TextField } from "@/components/ui/text-field";
 import { describeFailure, isFailure } from "@/lib/failure";
 
-/** Which field a refusal belongs under. */
 type Problem = { readonly field: "current" | "next" | "confirm"; readonly message: string };
 
-/** The first thing wrong with the form before asking the server; null when it may be sent. */
 const checkForm = (current: string, next: string, confirm: string): Problem | null => {
   if (current === "") return { field: "current", message: "Enter your current password" };
 

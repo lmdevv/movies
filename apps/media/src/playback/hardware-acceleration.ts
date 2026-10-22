@@ -1,11 +1,3 @@
-/**
- * Which GPU encoder video transcodes may use. `HARDWARE_ACCELERATION=qsv` or `vaapi` trusts the
- * setting; `auto` runs a one-second test encode on first use, Intel Quick Sync first and then
- * VA-API (Intel and AMD GPUs whose ffmpeg lacks Quick Sync), and remembers the answer; `none`
- * never uses the GPU. An encoder that fails during playback is marked unavailable for the rest of
- * the process, so later sessions try the next one, and finally software. It also knows whether
- * this ffmpeg can tone-map HDR in software, which needs the `zscale` and `tonemap` filters.
- */
 import { Context, Effect, Layer, Ref } from "effect";
 
 import * as MediaConfig from "../media-config.ts";
@@ -72,7 +64,6 @@ export const vaapiProbeArgs = (device: string): ReadonlyArray<string> => [
   ...testOutput,
 ];
 
-/** The encoders each `HARDWARE_ACCELERATION` setting may use, in the order they are tried. */
 const CANDIDATES: Readonly<
   Record<MediaConfig.Interface["hardwareAcceleration"], ReadonlyArray<HardwareEncoder>>
 > = {
@@ -82,13 +73,11 @@ const CANDIDATES: Readonly<
   none: [],
 };
 
-/** Builds the availability check from the configured mode. */
 const make = Effect.gen(function* () {
   const config = yield* MediaConfig.Service;
   const tools = yield* MediaTools.Service;
   const disabled = yield* Ref.make<ReadonlySet<HardwareEncoder>>(new Set());
 
-  /** Whether `encoder` works: trusted when configured explicitly, tested once in `auto`. */
   const probeOf = (encoder: HardwareEncoder, args: ReadonlyArray<string>) =>
     Effect.cached(
       config.hardwareAcceleration === encoder

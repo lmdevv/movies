@@ -1,3 +1,4 @@
+// Modified by [movies]: private helper comments removed (see ../../UPSTREAM.md).
 import { defineRule } from "@oxlint/plugins";
 
 import { staticMemberName } from "../../shared/ast.ts";
@@ -9,7 +10,6 @@ const PACKAGE = "@timmo001/effect-gh";
 
 const rawMethods = new Set(["execute", "json", "stream"]);
 
-/** Whether an identifier is bound by a named import of `name` from effect-gh. */
 function isEffectGhImport(
   sourceCode: SourceCode,
   identifier: ESTree.IdentifierReference,
@@ -36,7 +36,6 @@ function isEffectGhImport(
   );
 }
 
-/** Whether an expression is `yield* Gh` with Gh from effect-gh. */
 function isYieldGh(sourceCode: SourceCode, node: ESTree.Node | null): boolean {
   return (
     node?.type === "YieldExpression" &&
@@ -46,7 +45,6 @@ function isYieldGh(sourceCode: SourceCode, node: ESTree.Node | null): boolean {
   );
 }
 
-/** Whether an identifier is a variable initialised with `yield* Gh`. */
 function isGhBinding(
   sourceCode: SourceCode,
   identifier: ESTree.IdentifierReference,
@@ -61,7 +59,6 @@ function isGhBinding(
   );
 }
 
-/** Callee names that take an argv array to launch, such as `Bun.spawn` or `execFileSync`. */
 const launcherName = /spawn|exec|run|command/i;
 
 function calleeName(callee: ESTree.Expression): string | null {
@@ -70,12 +67,6 @@ function calleeName(callee: ESTree.Expression): string | null {
   return staticMemberName(callee);
 }
 
-/**
- * Whether a call launches gh: `"gh"` followed by its argv, as in
- * `run("gh", args)`, or an argv array starting with `"gh"` passed to a
- * spawn, exec, run or command function. Recording argv, as in
- * `calls.push(["gh", ...args])`, is not launching it.
- */
 function launchesGh(node: ESTree.CallExpression): boolean {
   const [command, argv] = node.arguments;
 

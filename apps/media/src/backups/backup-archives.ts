@@ -1,10 +1,3 @@
-/**
- * Backup archive names and retention, without I/O. An archive is a `convex export` ZIP in
- * `BACKUP_DIR` named `movies-<trigger>-<UTC time>.zip`, such as
- * `movies-nightly-2026-10-12T03-00-00-000Z.zip`, so the folder alone says when and why each was
- * taken. Any other visible `.zip` there (an archive an admin copied in) counts as a manual backup
- * taken at its modification time. Partial exports start with a dot and are never archives.
- */
 import type { BackupArchive } from "@movies/contracts/models/jobs";
 import { Bytes, EpochMillis } from "@movies/contracts/units";
 import { Duration, Option } from "effect";
@@ -14,7 +7,6 @@ export type BackupTrigger = BackupArchive["trigger"];
 
 const NAME = /^movies-(nightly|manual)-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z\.zip$/u;
 
-/** A visible ZIP file name without path separators. */
 const ARCHIVE = /^[^./\\][^/\\]*\.zip$/u;
 
 /** The file name of an archive taken at `takenAt` (milliseconds since the epoch). */

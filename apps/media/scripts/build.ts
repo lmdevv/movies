@@ -1,12 +1,3 @@
-/**
- * Bundles the media service into `dist/main.js`, a single ESM file that runs with `node`.
- *
- *   node scripts/build.ts           # one build
- *   node scripts/build.ts --watch   # rebuild on change and restart the service (`pnpm dev`)
- *
- * Watch mode runs the bundle with `--env-file-if-exists=.env.local`, so the per-worktree dev
- * environment is loaded; production never reads that file.
- */
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -34,7 +25,6 @@ const options: BuildOptions = {
   },
 };
 
-// `dist/` stays runnable when copied on its own, for example into a container image.
 await mkdir(new URL("../dist", import.meta.url), { recursive: true });
 
 await writeFile(

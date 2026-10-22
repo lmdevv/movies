@@ -1,10 +1,3 @@
-/**
- * The connection to Convex. Every Convex client the SDK runs on (the WebSocket `ConvexClient`, the
- * fetch-based `ConvexHttpClient`, and React's `ConvexReactClient`) is adapted to one small
- * Promise-based `ClientAdapter`; this module turns that into Effect calls and translates Convex's
- * thrown errors into the contracts' tagged errors. Clients call functions by path through
- * `makeFunctionReference`, so they never compile Convex server code.
- */
 import type { FunctionPath } from "@movies/contracts/command";
 import {
   CommandFailure,
@@ -83,34 +76,25 @@ export class ConvexTransport extends Context.Service<ConvexTransport, Interface>
   "@movies/sdk/ConvexTransport",
 ) {}
 
-/** The body Convex answers HTTP-level failures with, such as a rejected auth token. */
 const HttpFailure = Schema.Struct({ code: Schema.String, message: Schema.String });
 
 const decodeHttpFailure = Schema.decodeUnknownOption(Schema.fromJsonString(HttpFailure));
 
 const decodeCommandFailure = Schema.decodeUnknownResult(CommandFailure);
 
-/** HTTP failure codes Convex uses when it cannot verify the auth token. */
 const AUTH_FAILURE = /auth|token|jwt|identity/iu;
 
-/** Whether `error` is Convex rejecting the auth token itself, before any function ran. */
 const isTokenRejection = (error: Error): boolean => {
   const http = decodeHttpFailure(error.message);
 
   return Option.isSome(http) && AUTH_FAILURE.test(http.value.code);
 };
 
-/**
- * Convex rejecting an argument against a `v.id(table)` validator before the function runs, in the
- * self-hosted backend's two wordings: a string that is no ID at all, such as a mistyped or
- * truncated link, and an ID from another table.
- */
 const ID_VALIDATION_FAILURES = [
   /ArgumentValidationError[\s\S]*^Validator: v\.id\("[^"]+"\)$/mu,
   /ArgumentValidationError: Found ID "[^"]*" from table `[^`]*`, which does not match the table name in validator `v\.id\("[^"]+"\)`/u,
 ] as const;
 
-/** Whether Convex rejected one of the call's ID arguments. */
 const isRejectedId = (message: string): boolean =>
   ID_VALIDATION_FAILURES.some((pattern) => pattern.test(message));
 
@@ -206,7 +190,6 @@ export const reference = <Kind extends FunctionKind>(
 ): FunctionReference<Kind, "public", WireArgs, Schema.Json> =>
   makeFunctionReference<Kind, WireArgs, Schema.Json>(path);
 
-/** The one-shot calls every Convex client offers: `ConvexClient`, `ConvexHttpClient`, and React's. */
 interface OneShotClient {
   readonly query: (
     query: FunctionReference<"query", "public", WireArgs, Schema.Json>,
@@ -236,7 +219,6 @@ export const callByKind = (
   return client.action(reference("action", path), args);
 };
 
-/** Adapts the WebSocket client: subscriptions are pushed, and auth refreshes through `source`. */
 const webSocketAdapter = (client: ConvexClient): ClientAdapter => ({
   call: (kind, path, args) => callByKind(client, kind, path, args),
   subscribe: (path, args, onValue, onError) =>
@@ -337,7 +319,6 @@ const httpAdapter = (client: ConvexHttpClient, options: HttpOptions): ClientAdap
   };
 };
 
-/** Opens `adapter` for the layer's lifetime and closes it on release. */
 const layerFromAdapter = (
   acquire: () => ClientAdapter,
 ): Layer.Layer<ConvexTransport, TransportError> =>

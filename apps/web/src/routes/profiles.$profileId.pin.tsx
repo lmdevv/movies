@@ -37,7 +37,6 @@ export const Route = createFileRoute("/profiles/$profileId/pin")({
 
 const clock = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
 
-/** Unlocks a PIN profile for this session, then opens it. */
 function PinPage() {
   const { profileId } = Route.useParams();
   const profiles = useCommandQuery("profiles.list", {});
@@ -61,7 +60,6 @@ function PinEntry({ profile }: { readonly profile: Profile }) {
   const navigate = useNavigate();
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
-  // Guards against a second submit while one is checked; nothing on screen shows it.
   const checking = useRef(false);
   const target = safeRedirect(redirect);
   const art = profileArt(profile);
@@ -97,7 +95,6 @@ function PinEntry({ profile }: { readonly profile: Profile }) {
     }
   };
 
-  // A profile without a PIN, or one this session already unlocked, opens straight away.
   if (!profile.locked) return <OpenProfile onOpen={open} />;
 
   return (

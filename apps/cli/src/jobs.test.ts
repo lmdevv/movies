@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import { waitForJobs } from "./jobs";
 import { Output } from "./output";
 
-/** A scan job as `jobs.get` returns it on the wire. */
 const job = (id: string, status: "running" | "succeeded") => ({
   id,
   kind: "scan",
@@ -22,17 +21,11 @@ const job = (id: string, status: "running" | "succeeded") => ({
   finishedAt: null,
 });
 
-/** How many `jobs.get` subscriptions were open at once, at most. */
 interface Pollers {
   open: number;
   most: number;
 }
 
-/**
- * A Convex connection whose `jobs.get` reports each job running until its finish time on the
- * clock, then succeeded, however late the subscription starts, as the server does. It counts the
- * subscriptions open at once in `pollers`.
- */
 const jobsTransport = (
   finishAt: ReadonlyMap<string, number>,
   pollers: Pollers,
@@ -72,10 +65,6 @@ const jobsTransport = (
     },
   });
 
-/**
- * Waits for `jobIds` with a 10-second timeout while the test clock runs 20 seconds, and returns
- * the outcome, the progress lines, and the most `jobs.get` pollers open at once.
- */
 const waitWithClock = (finishAt: ReadonlyMap<string, number>, jobIds: ReadonlyArray<string>) => {
   const lines: Array<string> = [];
   const pollers: Pollers = { open: 0, most: 0 };
@@ -157,7 +146,6 @@ describe("waiting for several jobs", () => {
   it("polls at most four jobs at once, names each in its progress, and keeps one deadline", async () => {
     const ids = ["job-a", "job-b", "job-c", "job-d", "job-e", "job-f"];
 
-    // job-e and job-f start polling at 8 s, when a slot frees; job-f still ends past the deadline.
     const { result, lines, mostPollers } = await waitWithClock(
       new Map([
         ["job-a", 8000],

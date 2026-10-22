@@ -1,7 +1,3 @@
-/**
- * Playback diagnostics from the media service's retained logs. Admins read any session; others
- * read only their own, which the service checks against the account each record names.
- */
 import { Schema } from "effect";
 
 import { DiagnosedSession, PlaybackDiagnostics } from "../diagnostics";

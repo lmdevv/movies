@@ -1,7 +1,3 @@
-/**
- * Lucide glyphs (2pt strokes, as Paper draws them) in a text color role. Transport glyphs such as
- * play and pause are drawn filled.
- */
 import type { LucideIcon } from "lucide-react-native";
 
 import { useThemeColor } from "@/lib/theme-color";
@@ -43,7 +39,6 @@ const SIZES = {
   tile: 56,
 } as const;
 
-/** A step of the glyph size scale. */
 type IconSize = keyof typeof SIZES;
 
 /** Props for `Icon`. */

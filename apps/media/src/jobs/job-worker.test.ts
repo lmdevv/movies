@@ -26,22 +26,16 @@ const job: Job = {
   finishedAt: null,
 };
 
-/** A write the worker made, in order. */
 type Write =
   | { readonly name: "claim" }
   | { readonly name: "renew"; readonly progress: JobProgress | undefined }
   | { readonly name: "complete"; readonly message: string | undefined }
   | { readonly name: "fail"; readonly error: string; readonly retry: boolean };
 
-/** What a renewal answers, by how many renewals came before it. */
 type Renewal = (count: number) => Effect.Effect<{ readonly cancelled: boolean }, CallError>;
 
 const stillHeld: Renewal = () => Effect.succeed({ cancelled: false });
 
-/**
- * Starts a worker that sees one pending scan job and runs it with `run`; returns the worker's
- * writes so far. The worker lives as long as the test's scope.
- */
 const startWorker = Effect.fnUntraced(function* (
   run: JobWorker.JobHandler["run"],
   renewal: Renewal = stillHeld,
@@ -54,7 +48,6 @@ const startWorker = Effect.fnUntraced(function* (
 
   const backend = MemoryBackend.layer(
     {
-      // Convex grants the claim once; later claims find it held or finished.
       "mediaService.claimJob": () =>
         Ref.getAndSet(claimed, true).pipe(
           Effect.flatMap((already) =>
@@ -89,7 +82,6 @@ const startWorker = Effect.fnUntraced(function* (
   return { writes: Ref.get(writes) };
 });
 
-/** Lets every fiber that can run do so, then moves the test clock. */
 const advance = (duration: Duration.Input) =>
   Effect.gen(function* () {
     yield* Effect.yieldNow;

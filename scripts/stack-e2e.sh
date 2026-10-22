@@ -106,14 +106,11 @@ check "the image's CLI reports the release version" '[[ "$(in_movies movies --ve
 check "the image's CLI signs in to its own stack" \
   'printf %s stack-test-password | in_movies movies login --email owner@movies.test --password >/dev/null'
 check "the image's CLI calls its own stack" 'in_movies movies whoami | grep -qF "owner@movies.test"'
-# With MOVIES_PORT other than 8080 (the default 18080), the public URL does not answer inside the
-# container. The CLI negotiates at its own media URL and prints the public stream URL, which plays
-# from the host.
 played="$(in_movies movies play "Big Buck Fixture")" ||
   { echo "check failed: the image's CLI plays in its own stack" >&2; exit 1; }
 play_url="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).url)' "$played")"
-# The URL carries a playback token; print it without.
-echo "ok: the image's CLI plays in its own stack: ${play_url%%\?*}"
+stream_url_without_token="${play_url%%\?*}"
+echo "ok: the image's CLI plays in its own stack: ${stream_url_without_token}"
 check "the image's CLI plays at the public URL" '[[ "$play_url" == "$MOVIES_PUBLIC_URL/"* ]]'
 check "the printed stream URL plays from the host" \
   '[[ "$(curl -fsS -r 0-0 -o /dev/null -w "%{http_code}" "$play_url")" =~ ^20[06]$ ]]'
@@ -131,7 +128,6 @@ check "the retained log is private to the media user" \
   '[[ "$(in_movies stat -c "%u %a" /data/media/logs)" == "$PUID 700" ]] &&
     ! in_movies find /data/media/logs -type f ! -perm 600 | grep -q .'
 
-# An upgrade (another image version in /data/version) backs up before deploying the new functions.
 archives() { in_movies sh -c 'ls /data/backups | grep -c "^movies-.*\.zip$"' || true; }
 before="$(archives)"
 in_movies sh -c 'echo 0.0.0-previous > /data/version'
@@ -145,8 +141,6 @@ check "the restarted service keeps its secrets" 'healthy'
 
 check "a deployed upgrade clears its backup marker" '! in_movies test -e /data/upgrade-backup'
 
-# A retried upgrade does not export everything again: after a failed deploy the version file still
-# names the old version and the marker the version already backed up for.
 after="$(archives)"
 in_movies sh -c 'cp /data/version /data/upgrade-backup && echo 0.0.0-previous > /data/version'
 compose restart movies >/dev/null

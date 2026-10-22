@@ -1,7 +1,3 @@
-/**
- * The sections under a title's header (D01, D02): the About row, Cast & Crew rows that open each
- * person, the movie's Available Versions, and More Like This posters.
- */
 import type { ProfileId, TitleId } from "@movies/contracts/ids";
 import type { TitleCard, TitleDetail } from "@movies/contracts/models/catalog";
 import { Versions } from "@movies/sdk/effect";
@@ -20,10 +16,8 @@ import { useServer } from "@/session/connection";
 import { castAndCrew, defaultVersion } from "./title-model";
 import type { PersonLine } from "./title-model";
 
-/** How many similar titles More Like This asks for. */
 const SIMILAR_LIMIT = 12;
 
-/** A section heading such as Cast & Crew. */
 function SectionHeading({ children }: { readonly children: string }) {
   return (
     <Text variant="heading" accessibilityRole="header">
@@ -43,7 +37,6 @@ export function AboutRow({ title }: { readonly title: TitleDetail }) {
   );
 }
 
-/** A person: with a photo, a 56pt portrait and their role beneath; without, a row like Paper's. */
 function PersonRow({ person }: { readonly person: PersonLine }) {
   const { mediaUrl } = useServer();
   const photo = artworkUrl(mediaUrl, person.photo, "thumb");
@@ -128,7 +121,6 @@ export function AvailableVersions({ title }: { readonly title: TitleDetail }) {
   );
 }
 
-/** A similar title: its poster and name; tapping opens it. */
 function SimilarTitle({ title }: { readonly title: TitleCard }) {
   const { mediaUrl } = useServer();
   const poster = artworkUrl(mediaUrl, title.artwork.poster, "poster");

@@ -1,10 +1,3 @@
-/**
- * The downloads of the signed-in account on this server (C19 and the screens around it): the
- * engine for its store, fed the network and Download Settings. Signed out, there are none to
- * show; the files stay on the iPhone and come back when the same account signs in again (H15).
- * Offline, the account is the last one confirmed on this server, and nothing transfers until it
- * is confirmed again.
- */
 import { Profile } from "@movies/contracts/models/profiles";
 import { useAuth, useCommandQuery, useMoviesRuntime } from "@movies/sdk/react";
 import { Option, Schema } from "effect";
@@ -30,10 +23,8 @@ const DownloadsContext = createContext<DownloadEngine | null>(null);
 
 const serverKey = (mediaUrl: string): string => mediaUrl.replace(/[^\w.-]/gu, "_");
 
-/** Where the last account confirmed on a server is remembered, for offline launches. */
 const accountKey = (mediaUrl: string): string => `movies.downloads.account.${serverKey(mediaUrl)}`;
 
-/** Where the profile last used on a server is remembered, to show its downloads offline. */
 const profileKey = (mediaUrl: string): string => `movies.downloads.profile.${serverKey(mediaUrl)}`;
 
 const StoredProfile = Schema.fromJsonString(Profile);
@@ -42,7 +33,6 @@ const decodeProfile = Schema.decodeUnknownOption(StoredProfile);
 
 const encodeProfile = Schema.encodeSync(StoredProfile);
 
-/** The remembered profile of each server, read from the keychain once. */
 const rememberedProfiles = new Map<string, Profile | null>();
 
 const profileListeners = new Set<() => void>();
@@ -91,7 +81,6 @@ export const useOfflineProfile = (): Profile | null => {
     : null;
 };
 
-/** The network as transfers see it. */
 const networkOf = (state: Network.NetworkState): NetworkNow => ({
   connected: state.isConnected === true,
   wifi:
@@ -110,7 +99,6 @@ export function DownloadsProvider({ children }: { readonly children: ReactNode }
   const userId = status === "signedIn" ? (confirmed ?? remembered) : null;
   const settings = useDownloadSettings();
   const [engine, setEngine] = useState<DownloadEngine | null>(null);
-  // The settings an engine starts with; later changes reach it through `setSettings`.
   const [initialSettings] = useState(settings);
 
   useEffect(() => {
@@ -137,7 +125,6 @@ export function DownloadsProvider({ children }: { readonly children: ReactNode }
     return () => created.dispose();
   }, [runtime, mediaUrl, userId, initialSettings]);
 
-  // Transfers start only for the account the server confirms is signed in here.
   useEffect(() => {
     if (engine !== null && confirmed !== null && confirmed === userId) engine.start();
   }, [engine, confirmed, userId]);

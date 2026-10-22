@@ -1,7 +1,3 @@
-/**
- * The source's users on Review (J02): where each one's watch history goes, a profile here or
- * nowhere. Choosing runs the dry run again.
- */
 import { User } from "lucide-react-native";
 
 import { useImportState, useReview } from "@/components/owner/import-state";

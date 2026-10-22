@@ -1,4 +1,3 @@
-/** Shortcuts for finding and playing titles and reading progress. */
 import { commands } from "@movies/contracts/commands";
 import { NotFound } from "@movies/contracts/errors";
 import { EpisodeId, TitleId } from "@movies/contracts/ids";
@@ -27,7 +26,6 @@ import { episodeLabel, formatDuration } from "./render";
 import type { Connection } from "./session";
 import { connect } from "./session";
 
-/** Lowercase with accents and punctuation folded, for comparing titles. */
 const normalize = (text: string): string =>
   text
     .normalize("NFKD")
@@ -57,10 +55,8 @@ export const pickVersion = (
   );
 };
 
-/** `text` folded like `normalize`, without spaces, for matching version names. */
 const squash = (text: string): string => normalize(text).replaceAll(" ", "");
 
-/** What a Convex document ID looks like; such a query is tried as a title ID first. */
 const CONVEX_ID = /^[a-z0-9]{32}$/u;
 
 /** The best match for `query`: an exact name, then a name starting with it, then the first result. */
@@ -77,10 +73,6 @@ export const bestTitle = (
   );
 };
 
-/**
- * The title whose ID `query` is, when it looks like one and the profile may see it. Server
- * failures pass through; only a missing or malformed ID means "search by name instead".
- */
 const titleById = Effect.fn("Watch.titleById")(function* (
   connection: Connection,
   profileId: ProfileId,
@@ -99,7 +91,6 @@ const titleById = Effect.fn("Watch.titleById")(function* (
     );
 });
 
-/** The best name match for `query` on the profile. */
 const searchTitle = Effect.fn("Watch.searchTitle")(function* (
   connection: Connection,
   profileId: ProfileId,
@@ -127,7 +118,6 @@ export const findTitle = Effect.fn("Watch.findTitle")(function* (
   return Option.isSome(byId) ? byId.value : yield* searchTitle(connection, profileId, query);
 });
 
-/** Like `findTitle`, but always the title's detail: an ID lookup reads it once, a name match too. */
 const findTitleDetail = Effect.fn("Watch.findTitleDetail")(function* (
   connection: Connection,
   profileId: ProfileId,
@@ -143,7 +133,6 @@ const findTitleDetail = Effect.fn("Watch.findTitleDetail")(function* (
   );
 });
 
-/** What mpv, VLC, and similar desktop players can play: everything, so direct play wins. */
 const DESKTOP_PLAYER: ClientCapabilities = {
   containers: ["mp4", "mov", "mkv", "webm", "avi", "ts", "other"],
   videoCodecs: ["h264", "hevc", "av1", "vp9", "vp8", "mpeg4", "mpeg2video", "vc1"].map((codec) => ({
@@ -219,10 +208,12 @@ const play: ShortcutCommand = {
       const query = yield* requirePositional(invocation, "a title name or ID");
       const from = yield* positionFlag(invocation, "from");
       const rawVersion = invocation.tokens.values["version"];
-      const versionChoice = stringFlag(invocation.tokens, "version");
 
-      // `stringFlag` reads a blank value as no flag, which would quietly play the default version.
-      if (Predicate.isString(rawVersion) && Option.isNone(versionChoice)) {
+      const versionChoice = Predicate.isString(rawVersion)
+        ? Option.some(rawVersion.trim())
+        : Option.none();
+
+      if (Option.contains(versionChoice, "")) {
         return yield* usage(
           invocation,
           "--version expects a version name or its number, such as 2",
@@ -299,8 +290,6 @@ const play: ShortcutCommand = {
           }),
       });
 
-      // Playback API failures pass through the session wrapper as values, so a refreshed sign-in
-      // retries only the Convex calls, then become the CLI's playback error.
       const outcome = yield* connection.withSession(
         Playback.start({
           profileId,

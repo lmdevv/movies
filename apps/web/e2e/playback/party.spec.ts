@@ -1,13 +1,3 @@
-/**
- * Moving a watch room on to the next episode, with a host and two guests in three browsers: the
- * owner hosts, Sam (a member without the private library) and the owner's second device follow.
- * The host's credits start one countdown every member sees, a guest's Close hides only their card
- * and a reload picks the countdown up again, and the room moves on together, in the room. The
- * host's Play next racing a second Play next, ⌘K's Next episode, and the Episodes picker move it on
- * once; guests get none of them. Watch credits cancels for everyone; the last episode shows no
- * card; a next episode whose file is missing says so to the host only; and a guest whose profile
- * cannot see what the room moved to keeps their place until it comes back.
- */
 import { join } from "node:path";
 
 import type { EpisodeId, LibraryId, RoomId, TitleId } from "@movies/contracts/ids";
@@ -47,17 +37,14 @@ test.skip(stack === null, NO_STACK);
 
 test.describe.configure({ mode: "serial" });
 
-/** Encoding the clips and bundling the service take a while on a cold machine. */
 const SETUP_TIMEOUT_MS = 240_000;
 
-/** A countdown, a move to the next episode, and three players opening it. */
 const MOVE_ON_TIMEOUT_MS = 40_000;
 
 const run = Date.now().toString(36);
 
 const SHOW = "Tide Party";
 
-/** The show's episodes by season, in order; the last has no next episode. */
 const EPISODES = [
   { season: 1, episode: 1, name: "Ebb" },
   { season: 1, episode: 2, name: "Flood" },
@@ -65,13 +52,10 @@ const EPISODES = [
   { season: 2, episode: 2, name: "Spring" },
 ] as const;
 
-/** A show whose second episode's file goes missing after the scan. */
 const DRIFT = "Drift Line";
 
-/** The private film Sam's profile cannot see. */
 const PRIVATE = "Quiet Hours";
 
-/** How long each episode runs; its credits are the last four seconds. */
 const EPISODE_SECONDS = 40;
 
 const GUEST = { name: "Sam", email: `sam-party-${run}@movies.test`, password: "sam-password-1" };
@@ -88,10 +72,8 @@ let contexts: ReadonlyArray<BrowserContext> = [];
 
 let host: Page;
 
-/** Sam, a member: no grant to the private library. */
 let sam: Page;
 
-/** The owner's second device, which may see everything the host may. */
 let second: Page;
 
 let roomId: RoomId;
@@ -100,7 +82,6 @@ let showLibrary: LibraryId;
 
 const titles = new Map<string, TitleId>();
 
-/** The show's episode ids by name. */
 const episodes = new Map<string, EpisodeId>();
 
 let driftEpisodes: ReadonlyArray<EpisodeId> = [];
@@ -166,7 +147,6 @@ test.beforeAll(async ({ browser }) => {
       root: shows,
       access: "everyone",
     }),
-    // Members see a restricted library only when an admin grants it; Sam has no grant.
     scanLibrary(owner.sdk, {
       name: `Party private ${run}`,
       kind: "movies",
@@ -203,7 +183,6 @@ test.beforeAll(async ({ browser }) => {
     })
   ).map((each) => each.id);
 
-  // The drift show's second file goes missing, and a scan marks it so.
   await removePath(join(drift, "Season 01", `${DRIFT} - S01E02.mp4`));
 
   const rescan = await owner.sdk.mutate("libraries.scan", { libraryId: showLibrary });
@@ -270,17 +249,13 @@ const guests = (): ReadonlyArray<Page> => [sam, second];
 
 const everyone = (): ReadonlyArray<Page> => [host, sam, second];
 
-/** A page's next-episode card. */
 const card = (page: Page) => page.getByRole("region", { name: "Next episode" });
 
-/** The seconds a page's card shows. */
 const secondsOn = async (page: Page): Promise<number> =>
   Number(await card(page).locator('[data-slot="countdown-seconds"]').textContent());
 
-/** The room as the server has it now. */
 const roomNow = () => owner.sdk.query("rooms.get", { roomId });
 
-/** Every page plays `name` in the room, past half a second. */
 const expectEveryoneOn = async (name: string): Promise<void> => {
   const into = new RegExp(`episodeId=${episodeId(name)}`, "u");
 
@@ -293,16 +268,10 @@ const expectEveryoneOn = async (name: string): Promise<void> => {
   );
 };
 
-/** How far the player's `l` key seeks. */
 const SKIP_SECONDS = 10;
 
-/** Where the credits start: the last tenth of the episode, as the player counts them. */
 const CREDITS_AT = EPISODE_SECONDS * 0.9;
 
-/**
- * The host seeks into the credits, where the countdown starts. Only the last press lands there:
- * a press after the card opened would take focus from its Play next.
- */
 const hostToCredits = async (): Promise<void> => {
   await expectPlayingPast(host, 0.5);
 
@@ -317,7 +286,6 @@ const hostToCredits = async (): Promise<void> => {
     if (at + 2 * SKIP_SECONDS < CREDITS_AT) await skip();
   };
 
-  // Each press but the last stays before the credits.
   if ((await videoState(host)).currentTime + SKIP_SECONDS < CREDITS_AT) await skip();
   await player.press("l");
   await expect.poll(async () => (await videoState(host)).currentTime).toBeGreaterThan(CREDITS_AT);
@@ -334,7 +302,6 @@ test("the host starts a room on the first episode and two guests join it", async
     .click();
   await expect(host).toHaveURL(/[?&]room=/u);
 
-  // Starting the room keeps the host's stream: it plays on rather than starting over.
   await host.waitForTimeout(1_000);
   expect((await videoState(host)).currentTime).toBeGreaterThan(3);
   roomId = Schema.decodeSync(RoomIdSchema)(new URL(host.url()).searchParams.get("room") ?? "");
@@ -343,7 +310,6 @@ test("the host starts a room on the first episode and two guests join it", async
   await Promise.all(guests().map((page) => expectPlayingPast(page, 0.5)));
   await expect(host.getByText("Live · 3 watching")).toBeVisible({ timeout: 15_000 });
 
-  // Guests have no Next episode or Episodes control; the host has both.
   await revealControls(host);
   await expect(host.getByRole("button", { name: "Next episode" })).toBeVisible();
   await expect(host.getByRole("button", { name: "Episodes", exact: true })).toBeVisible();
@@ -360,7 +326,6 @@ test("the host starts a room on the first episode and two guests join it", async
 test("the host's credits start one countdown everyone sees, and the room moves on together", async () => {
   await hostToCredits();
 
-  // One countdown, at one server time: every member's card counts the same seconds.
   await Promise.all(everyone().map((page) => expect(card(page)).toBeVisible()));
   await expect(card(host).getByRole("button", { name: "Play next" })).toBeFocused();
   await expect(card(host).getByRole("button", { name: "Watch credits" })).toBeVisible();
@@ -383,21 +348,18 @@ test("the host's credits start one countdown everyone sees, and the room moves o
   await capture(host, "08-20-party-host-card");
   await capture(sam, "08-21-party-guest-card");
 
-  // Sam's Close hides only Sam's card; the countdown runs on for everyone else.
   await card(sam).getByRole("button", { name: "Close" }).click();
   await expect(card(sam)).toBeHidden();
   await capture(sam, "08-22-party-guest-closed");
   await expect(card(second)).toBeVisible();
   expect((await roomNow()).next).toMatchObject({ status: "pending" });
 
-  // A guest who reloads mid-countdown picks it up where everyone else is.
   await second.reload();
   await expect(card(second)).toBeVisible({ timeout: 15_000 });
   expect(Math.abs((await secondsOn(second)) - (await secondsOn(host)))).toBeLessThanOrEqual(1);
 
   await expectEveryoneOn("Flood");
 
-  // The same room, link, and members, on the next episode, without a countdown.
   const moved = await roomNow();
 
   expect(moved.id).toBe(roomId);
@@ -412,9 +374,6 @@ test("the host's Play next racing another moves the room on once, into the next 
 
   const before = await roomNow();
 
-  // The card's Play next sends its move without waiting for it; two more from the same episode, as
-  // a double click or a stale tab sends them, race it. All name the episode they move on from, so
-  // the room moves on once.
   const fromFlood = { roomId, deviceId: before.hostDeviceId, fromEpisodeId: episodeId("Flood") };
 
   await card(host).getByRole("button", { name: "Play next" }).click({ timeout: 5_000 });
@@ -434,7 +393,6 @@ test("Watch credits cancels the countdown for everyone, and the room stays on th
   await Promise.all(everyone().map((page) => expect(card(page)).toBeHidden()));
   expect((await roomNow()).next).toStrictEqual({ status: "cancelled" });
 
-  // Past when the countdown would have ended, everyone is still on this episode.
   await host.waitForTimeout(12_000);
   expect((await roomNow()).episode?.id).toBe(episodeId("Neap"));
 
@@ -465,7 +423,6 @@ test("⌘K's Next episode is the host's alone, and moves the whole room on", asy
 
 test("the last episode shows no card, and the host's Episodes picker moves the room back", async () => {
   await hostToCredits();
-  // Past the end of the last episode: nothing to count down to, for anyone.
   await host.waitForTimeout(4_000);
 
   await Promise.all(everyone().map((page) => expect(card(page)).toHaveCount(0)));
@@ -529,14 +486,12 @@ test("a guest whose profile cannot see what the room moved to keeps their place 
     titleId: titleId(PRIVATE),
   });
 
-  // Sam's profile has no grant to the private library: no player, and no hint of what plays.
   await expect(sam.getByRole("heading", { name: "Not available on this profile" })).toBeVisible({
     timeout: MOVE_ON_TIMEOUT_MS,
   });
   await expect(sam.getByText(PRIVATE)).toHaveCount(0);
   await capture(sam, "08-23-party-not-available");
 
-  // The owner's second device follows; Sam keeps a place in the room, away.
   await expect(second).toHaveURL(new RegExp(`/watch/${titleId(PRIVATE)}\\?room=${roomId}`, "u"), {
     timeout: MOVE_ON_TIMEOUT_MS,
   });
@@ -549,7 +504,6 @@ test("a guest whose profile cannot see what the room moved to keeps their place 
     )
     .toBe("away");
 
-  // Back on the show, Sam's player opens it again, in the room.
   const moved = await roomNow();
 
   await owner.sdk.mutate("rooms.setMedia", {

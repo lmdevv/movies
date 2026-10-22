@@ -1,10 +1,3 @@
-/**
- * The player's quality choice: `auto` lets the media service send the best this browser plays,
- * which is what playback did before there was a choice; `original` asks for the source as it is,
- * the same today, and stays so when `auto` learns to follow the connection; the others cap the
- * picture and the bitrate, so a source above them is transcoded down. Each browser remembers its
- * own choice (`device-storage`).
- */
 import type { PlaybackQuality } from "@movies/contracts/media-playback";
 import { Schema } from "effect";
 
@@ -26,10 +19,6 @@ export const QUALITY_OPTIONS: ReadonlyArray<{
   { id: "480p", label: "480p" },
 ];
 
-/**
- * Caps by choice. The bitrates sit above what the service encodes at each height (8, 4, and
- * 2 Mb/s), so a source that already fits plays as it is.
- */
 const CAPS: Readonly<Record<QualityChoice, PlaybackQuality | undefined>> = {
   auto: undefined,
   original: undefined,

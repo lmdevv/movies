@@ -1,7 +1,3 @@
-/**
- * Missing things, signed in as the owner: an unknown address inside the app keeps the shell, and a
- * link whose ID is mistyped or names a record of another table reads as missing, not as broken.
- */
 import { expect, test } from "@playwright/test";
 
 import { NO_STACK, ownedStack, signInOwner, useSession } from "./session";
@@ -13,7 +9,6 @@ test.skip(stack === null, NO_STACK);
 
 let owner: Client | undefined;
 
-/** A real Convex ID that names no title: the owner's first profile. */
 let otherTableId = "";
 
 test.beforeAll(async () => {

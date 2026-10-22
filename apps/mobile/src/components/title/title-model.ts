@@ -1,8 +1,3 @@
-/**
- * What a title's screens say, worked out from the server's data: the Play button, the facts line,
- * episode rows, season rows, the About list, the cast and crew rows, and the version offered first.
- * Pure, so it is tested without React Native.
- */
 import type { EpisodeId, PersonId } from "@movies/contracts/ids";
 import type {
   Credit,
@@ -18,11 +13,9 @@ import { MediaLabels } from "@movies/sdk/effect";
 
 import { facts, formatRemaining, formatRuntime } from "@/lib/format";
 
-/** `S2, E3`, how the title screens name an episode. */
 const episodeShort = (episode: Pick<Episode, "seasonNumber" | "episodeNumber">): string =>
   `S${episode.seasonNumber}, E${episode.episodeNumber}`;
 
-/** `1 Episode`, `10 Seasons`: a count with its noun in title case. */
 const countOf = (count: number, one: string, many: string): string =>
   `${count} ${count === 1 ? one : many}`;
 
@@ -84,7 +77,6 @@ export const playAction = (title: TitleDetail): PlayAction => {
   };
 };
 
-/** The best version's picture class, such as `4K`, for the facts line. */
 const pictureOf = (versions: ReadonlyArray<MediaVersion>): string | null => {
   const best = versions[0];
 
@@ -111,10 +103,6 @@ export const titleFacts = (title: TitleDetail): string =>
         title.certification,
       );
 
-/**
- * The first regular season, else the first listed (a show with only specials). Specials (season 0)
- * sort first on the server but come after the regular seasons in viewing order.
- */
 const firstSeason = (title: TitleDetail): number | undefined =>
   (title.seasons.find((season) => season.seasonNumber > 0) ?? title.seasons[0])?.seasonNumber;
 
@@ -265,7 +253,6 @@ export interface AboutRow {
   readonly value: string;
 }
 
-/** `IMDb 7.9 · RT 88% · MC 73 · TMDB 7.1`, the scores a title has. */
 const scoresOf = (ratings: TitleDetail["ratings"]): string =>
   facts(
     ratings.imdb === null ? null : `IMDb ${ratings.imdb.value.toFixed(1)}`,
@@ -274,7 +261,6 @@ const scoresOf = (ratings: TitleDetail["ratings"]): string =>
     ratings.tmdb === null ? null : `TMDB ${ratings.tmdb.value.toFixed(1)}`,
   );
 
-/** Names of the people credited as `kind`, once each, joined with commas. */
 const namesOf = (credits: ReadonlyArray<Credit>, kind: CreditKind): string =>
   [...new Set(credits.flatMap((credit) => (credit.kind === kind ? [credit.name] : [])))].join(", ");
 
@@ -335,7 +321,6 @@ const JOB_NAMES: Readonly<Partial<Record<CreditKind, string>>> = {
   director: "Director",
 };
 
-/** Actors the Cast & Crew list names before the creators and directors. */
 const CAST_LIMIT = 6;
 
 /** The billed cast, then the creators and directors, each person once. */

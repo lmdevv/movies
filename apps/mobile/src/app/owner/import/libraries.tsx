@@ -1,8 +1,3 @@
-/**
- * The source's libraries on Review (J02): each one used in place or added, its folders here, and
- * a field for each source folder this server does not have, to say where it is here. Mapping a
- * folder reconnects and runs the dry run again.
- */
 import { Folder } from "lucide-react-native";
 import { Fragment, useRef, useState } from "react";
 
@@ -23,7 +18,6 @@ function UnmappedFolder({
 }: {
   readonly from: string;
   readonly map: Review["map"];
-  /** Another folder's mapping is running; this one waits, so neither overwrites the other. */
   readonly blocked: boolean;
 }) {
   const task = useTask(map);
@@ -67,8 +61,6 @@ function UnmappedFolder({
 
 function LibraryList({ preview }: { readonly preview: Preview }) {
   const review = useReview(preview);
-  // One mapping at a time: each reconnects from the mappings as they stand, so two at once would
-  // each leave out the other's folder.
   const running = useRef(false);
   const [mapping, setMapping] = useState<string | null>(null);
 

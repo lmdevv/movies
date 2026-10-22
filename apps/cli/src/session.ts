@@ -1,8 +1,3 @@
-/**
- * The connection a command runs with: the SDK over HTTP (one-shot calls suit a short-lived
- * process), tokens kept in the config profile, and an API key from the profile or
- * `MOVIES_API_KEY` that signs in again when the cached session has ended.
- */
 import { createHash } from "node:crypto";
 import { hostname, userInfo } from "node:os";
 
@@ -33,7 +28,6 @@ export interface Connection {
   ) => Effect.Effect<A, CallError | ConfigFileError>;
 }
 
-/** A stable device ID for installs without a stored profile, such as environment-only agents. */
 const derivedDeviceId = (convexUrl: string): DeviceId =>
   DeviceId.make(
     `cli-${createHash("sha256")
@@ -119,9 +113,6 @@ export const connect = Effect.fn("Session.connect")(function* (
   const withSession = <A>(
     effect: Effect.Effect<A, MoviesClient.ClientError>,
   ): Effect.Effect<A, CallError | ConfigFileError> => {
-    // A configured media URL is how this install reaches the media service, such as the image's
-    // own `http://127.0.0.1:8080`, so playback requests go there too. The URLs the service
-    // answers with stay its public ones.
     const attempt = effect.pipe(
       Effect.provideService(MediaOrigin, target.mediaUrl),
       Effect.catchTag("TokenStorageError", (error) =>

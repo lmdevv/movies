@@ -31,12 +31,10 @@ export const Route = createFileRoute("/setup/scan")({
   ),
 });
 
-/** Poster slots under "Just matched". */
 const POSTER_SLOTS = 6;
 
 const clock = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
 
-/** First run, step 3: the library's first scan, live, with its failure state. */
 function FirstScanPage() {
   const { jobId, libraryId } = Route.useSearch();
   const job = useCommandQuery("jobs.get", { jobId });
@@ -138,7 +136,6 @@ function ScanView({
   );
 }
 
-/** The line beside the percentage: when it stopped, done, waiting, or the time left if known. */
 const scanStatus = (job: Job, stopped: boolean, minutesLeft: number | null): string | null => {
   if (stopped)
     return job.finishedAt === null ? "stopped" : `stopped ${clock.format(job.finishedAt)}`;
@@ -150,7 +147,6 @@ const scanStatus = (job: Job, stopped: boolean, minutesLeft: number | null): str
   return minutesLeft === null ? null : `~${minutesLeft} min left`;
 };
 
-/** The large percentage with its status line, over the progress bar. */
 function ScanMeter({
   percent,
   status,
@@ -193,7 +189,6 @@ function ScanMeter({
   );
 }
 
-/** Why the scan stopped: cancelled, or the error it hit. */
 function ScanFailure({ job }: { readonly job: Job }) {
   return (
     <div role="alert" className="flex items-start gap-2.5 rounded-control bg-accent/10 p-3.5">
@@ -210,7 +205,6 @@ function ScanFailure({ job }: { readonly job: Job }) {
   );
 }
 
-/** After a stopped scan: retry it, or go on with the titles found so far. */
 function StoppedActions({
   retrying,
   onRetry,
@@ -247,7 +241,6 @@ function Stat({ label, value }: { readonly label: string; readonly value: number
   );
 }
 
-/** The newest posters of the library as they arrive, through the account's first open profile. */
 function JustMatched({ libraryId }: { readonly libraryId: LibraryId }) {
   const profiles = useCommandQuery("profiles.list", {});
   const profile = profiles.status === "success" ? profiles.data.find((p) => !p.locked) : undefined;

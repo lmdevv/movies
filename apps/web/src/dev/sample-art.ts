@@ -1,7 +1,3 @@
-/**
- * Placeholder artwork for the development gallery: diagonal gradients standing in for posters,
- * backdrops and avatars, matching the swatches drawn in the Paper file. Development only.
- */
 const gradient = (stops: ReadonlyArray<string>, angle = 135): string => {
   const radians = ((angle - 90) * Math.PI) / 180;
   const x = Math.cos(radians) / 2;

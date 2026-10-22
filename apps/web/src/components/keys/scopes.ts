@@ -9,7 +9,6 @@ export const SCOPE_DESCRIPTIONS: Readonly<Record<DeviceScope, string>> = {
   admin: "Users, invites, backups and migration",
 };
 
-/** Grantable scopes in the order the screens list them. */
 const SCOPE_ORDER: ReadonlyArray<DeviceScope> = ["read", "play", "account", "manage", "admin"];
 
 /** `scopes` sorted into {@link SCOPE_ORDER}. */

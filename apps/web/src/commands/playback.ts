@@ -1,9 +1,3 @@
-/**
- * Player commands in the menu: play or pause, skip, subtitles and their delay, audio, quality, and the version (when
- * a title has several files) as nested lists, stream info, full screen, the next episode, and the
- * playing season's episodes. They exist only while the player is open; the player screen passes
- * what they act on as the context's `player`.
- */
 import type { CommandItem, CommandPage } from "@movies/ui/lib/command-menu";
 import type { TrackOption } from "@movies/ui/components/track-popover";
 import {
@@ -54,7 +48,6 @@ const trackPage = (
   ],
 });
 
-/** Earlier, Later, and (with a delay set) Reset, while a text subtitle shows. */
 const subtitleDelayItems = (delay: PlayerCommands["subtitleDelay"]): ReadonlyArray<CommandItem> => {
   if (delay === null) return [];
 
@@ -101,7 +94,6 @@ const subtitleDelayItems = (delay: PlayerCommands["subtitleDelay"]): ReadonlyArr
 export const playbackCommands = (player: PlayerCommands | null): CommandContribution => {
   if (player === null) return { groups: [] };
 
-  // Guests follow the room's timeline, so only those who move it get transport and the next episode.
   const timeline: ReadonlyArray<CommandItem> = player.controlsTimeline
     ? [
         {

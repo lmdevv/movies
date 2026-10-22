@@ -1,20 +1,3 @@
-/**
- * One movie or episode playing on this iPhone: the imperative shell of native playback, over the
- * session `usePlaybackSession` started (and reports progress for) through this controller's port.
- *
- * Each stream plays in its own AVPlayer, created with its source and start position so AVPlayer
- * asks for the right segment first. HLS seeks beyond what AVPlayer holds go through
- * `Playback.seekStream`, and a new generation loads in a new player at the target. Failures follow
- * `policy`: a replaced generation reloads its playlist, a lost stream or an expired token
- * renegotiates, a path AVPlayer cannot play is dropped and the next tried, and a missing file
- * stops with its own state. Tokens renew by renegotiating five minutes before they expire. Audio
- * tracks, the quality cap, and picture subtitles (burned in by the media service) renegotiate at
- * the current position; text subtitles are drawn by the screen and switch in place. A streamed
- * session also reports what AVPlayer saw (`diagnostics`): stalls, each stream attached, AVPlayer
- * failures, and every recovery.
- *
- * Every SDK call runs on the app's SDK runtime and comes back as a value; nothing here throws.
- */
 import { PlayerObservation } from "@movies/contracts/diagnostics";
 import type { ClientCapabilities, NegotiateResponse } from "@movies/contracts/media-playback";
 import { Milliseconds } from "@movies/contracts/units";
@@ -47,7 +30,6 @@ import { clampSubtitleDelay } from "@/lib/player/subtitle-delay";
 import { NATIVE_SEEKER, VideoPort, withinBuffer } from "@/lib/player/video-port";
 import type { StreamSeeker } from "@/lib/player/video-port";
 
-/** The app's SDK runtime. */
 type Runtime = ReturnType<typeof useMoviesRuntime>;
 
 /** Where the player stands. */
@@ -79,19 +61,15 @@ export interface PlayerSnapshot {
   readonly rate: number;
 }
 
-/** A subtitle delay and the text track it was set for. */
 interface SubtitleDelay {
   readonly trackId: string;
   readonly ms: number;
 }
 
-/** Renew the token and the stream this long before the token expires. */
 const RENEW_BEFORE_MS = 5 * 60 * 1000;
 
-/** How long a replaced player lives on, so the video view lets go of it first. */
 const RETIRE_AFTER_MS = 1_000;
 
-/** How often the native player reports the position. */
 const TIME_UPDATE_SECONDS = 0.25;
 
 const STOPPED = PlaybackStop.Interrupted({ message: STOPPED_MESSAGE });
@@ -101,10 +79,6 @@ const sleep = (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
-/**
- * Runs `effect` and returns its success or failure; defects, interruption, and an SDK that could
- * not open become `null`.
- */
 const runSdk = async <A, E>(
   runtime: Runtime,
   effect: Effect.Effect<A, E, Movies.Services>,
@@ -114,7 +88,6 @@ const runSdk = async <A, E>(
   return Exit.isSuccess(exit) ? exit.value : null;
 };
 
-/** `playback` continued in the generation a seek started, at its playlist. */
 const inGeneration = (
   playback: Playback.Playback,
   moved: { readonly generation: number; readonly playlistUrl: string },
@@ -141,35 +114,25 @@ export class PlayerController {
   readonly #runtime: Runtime;
   readonly #options: PlayerControllerOptions;
   #capabilities: ClientCapabilities = IOS_CAPABILITIES;
-  /** The stream the session started with; the reporter stops it when the session ends. */
   #original: Playback.Playback | null = null;
   #playback: Playback.Playback | null = null;
   #video: VideoPlayer | null = null;
-  /** Records what AVPlayer sees for a streamed session, and the scope that sends it. */
   #diagnostics: {
     readonly recorder: PlayerDiagnostics.Recorder;
     readonly scope: Scope.Closeable;
   } | null = null;
   readonly #videoSubscriptions = new Map<VideoPlayer, { remove(): void }>();
-  /** Bumped by every new stream, so late callbacks of an older one do nothing. */
   #generation = 0;
-  /** Bumped by every negotiation and stop, so only the latest negotiation's answer is used. */
   #negotiation = 0;
   #recoveries = 0;
   #renewTimer: ReturnType<typeof setTimeout> | undefined;
-  /** The picture subtitle the stream should burn in, or null. */
   #burnIn: string | null = null;
   #delay: SubtitleDelay | null = null;
   #volume = 1;
-  /** Bumped by every seek the viewer makes, so a negotiation started before one is not loaded. */
   #seeks = 0;
-  /** Where the HLS generation playing starts, in seconds; it holds nothing before that. */
   #generationStart = 0;
-  /** Whether the stream playing was reloaded after AVPlayer failed it, since it last played. */
   #reloadedAfterError = false;
-  /** Whether the video view showed a frame of this session yet. */
   #frameShown = false;
-  /** What the lock screen and Control Center show for the next stream. */
   #metadata: VideoMetadata = {};
   #disposed = false;
   #snapshot: PlayerSnapshot = {
@@ -197,7 +160,6 @@ export class PlayerController {
     });
   }
 
-  /** Whether `dispose` ran, read afresh after an await. */
   #isDisposed(): boolean {
     return this.#disposed;
   }
@@ -266,7 +228,6 @@ export class PlayerController {
     this.#diagnostics?.recorder.record(observation);
   }
 
-  /** Stops recording and sends what was recorded since the last batch. */
   #closeDiagnostics(): void {
     const diagnostics = this.#diagnostics;
 
@@ -289,7 +250,6 @@ export class PlayerController {
     this.port.seek(positionMs);
   }
 
-  /** Loads `playback`'s stream in a new native player at `positionMs`, playing as the viewer wanted. */
   #load(playback: Playback.Playback, positionMs: number): void {
     const generation = ++this.#generation;
     const { stream } = playback;
@@ -331,7 +291,6 @@ export class PlayerController {
     this.#scheduleRenewal(stream);
   }
 
-  /** Lets a replaced player go once the video view shows the next one. */
   #retire(video: VideoPlayer | null): void {
     if (video === null) return;
 
@@ -369,7 +328,6 @@ export class PlayerController {
     void this.#follow(step, this.port.positionMs(), message ?? "AVPlayer failed");
   }
 
-  /** Seeks an HLS stream beyond what AVPlayer holds through the media service. */
   #hlsSeeker(): StreamSeeker {
     return {
       reaches: (positionMs) => {
@@ -397,7 +355,6 @@ export class PlayerController {
           Playback.seekStream(playback, Milliseconds.make(positionMs)),
         );
 
-        // A newer seek, a negotiation, or a stop took over meanwhile.
         if (
           signal.aborted ||
           this.#isDisposed() ||
@@ -428,19 +385,12 @@ export class PlayerController {
     };
   }
 
-  /**
-   * Continues `playback` in the generation a seek returned, or just seeks when it is the same: the
-   * service produces the segments from there in the current generation.
-   */
   #moveTo(
     playback: Playback.Playback,
     moved: Option.Option<{ readonly generation: number; readonly playlistUrl: string }>,
     positionMs: number,
   ): void {
     if (Option.isNone(moved) || moved.value.generation === playback.stream.generation) {
-      // The service keeps a generation only for a target within (or just past) what it produced,
-      // so this range is contiguous; the floor still moves here, so a seek back from it asks the
-      // service again rather than trusting segments AVPlayer never loaded.
       this.#generationStart = positionMs / 1000;
 
       if (this.#video !== null) this.#video.currentTime = positionMs / 1000;
@@ -451,7 +401,6 @@ export class PlayerController {
     this.#load(inGeneration(playback, moved.value), positionMs);
   }
 
-  /** Carries out a recovery step at `positionMs`, after a failure `reason` describes. */
   async #follow(step: PlaybackStep, positionMs: number, reason: string): Promise<void> {
     if (this.#disposed) return;
 
@@ -498,7 +447,6 @@ export class PlayerController {
     });
   }
 
-  /** Loads the stream's current generation at `positionMs`, renegotiating if that fails. */
   async #reloadPlaylist(playback: Playback.Playback, positionMs: number): Promise<void> {
     const ticket = this.#negotiation;
 
@@ -507,7 +455,6 @@ export class PlayerController {
       Playback.seekStream(playback, Milliseconds.make(positionMs)),
     );
 
-    // A negotiation or a stop took over meanwhile.
     if (this.#isDisposed() || playback !== this.#playback || ticket !== this.#negotiation) return;
 
     if (moved !== null && Result.isSuccess(moved)) {
@@ -529,7 +476,6 @@ export class PlayerController {
     this.#update({ phase: PlayerPhase.Stopped({ stop }) });
   }
 
-  /** The quality cap and burned-in subtitle every negotiation asks for. */
   #choices(): Playback.StreamChoices {
     return {
       quality: Option.fromNullishOr(qualityCap(this.#snapshot.quality)),
@@ -537,10 +483,6 @@ export class PlayerController {
     };
   }
 
-  /**
-   * Negotiates a new stream of the session at `positionMs` and swaps it in. `revert` undoes a
-   * choice the viewer just made when the service cannot honour it; the current stream plays on.
-   */
   async #renegotiate(positionMs: number, revert?: () => void): Promise<void> {
     const playback = this.#playback;
 
@@ -560,15 +502,12 @@ export class PlayerController {
       ),
     );
 
-    // The latest negotiation of this session wins, even when a stream loaded meanwhile; a stream
-    // nobody will play is stopped so its encoder does not run until the idle timeout.
     if (this.#isDisposed() || ticket !== this.#negotiation) {
       if (renewed !== null && Result.isSuccess(renewed)) this.#stopUnused(renewed.success);
 
       return;
     }
 
-    // The viewer moved while it negotiated: a stream from the old position is not wanted.
     if (seeks !== this.#seeks) {
       if (renewed !== null && Result.isSuccess(renewed)) this.#stopUnused(renewed.success);
 
@@ -598,12 +537,10 @@ export class PlayerController {
     this.#load(renewed.success, positionMs);
   }
 
-  /** Ends a negotiated stream that will not play. */
   #stopUnused(playback: Playback.Playback): void {
     void runSdk(this.#runtime, Playback.stop(playback));
   }
 
-  /** Drops the quality cap and burned-in subtitle after a refusal; false when there were none. */
   #dropChoices(): boolean {
     if (this.#snapshot.quality === "auto" && this.#burnIn === null) return false;
 
@@ -696,7 +633,6 @@ export class PlayerController {
   /** Tries again from where playback stopped (F09 Retry, F13 Try Again). */
   retry(): void {
     this.#recoveries = 0;
-    // Once a frame showed, the new stream's loading shows as buffering over the video.
     this.#update({ phase: this.#frameShown ? PlayerPhase.Playing() : PlayerPhase.Preparing() });
 
     const positionMs = this.port.positionMs();
@@ -732,7 +668,6 @@ export class PlayerController {
 
     this.#closeDiagnostics();
 
-    // Before releasing the players: the exit report reads the port afterwards.
     this.port.dispose();
 
     const current = this.#playback;
@@ -741,7 +676,6 @@ export class PlayerController {
       void runSdk(this.#runtime, Playback.stop(current));
     }
 
-    // Released a moment later, as a replaced player is, so the video view lets go of it first.
     this.#retire(this.#video);
 
     for (const subscription of this.#videoSubscriptions.values()) subscription.remove();

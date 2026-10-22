@@ -1,10 +1,3 @@
-/**
- * Keeping this device's place in its watch room while it browses outside the room's player. The
- * server drops a guest silent for `MEMBER_PRESENCE_TIMEOUT_MS` and pauses a room whose host is
- * silent for `HOST_PRESENCE_TIMEOUT_MS`; only the player's room engine sent heartbeats, so a viewer
- * who browsed away for a minute left the room without asking to. These heartbeats say `away`: the
- * device keeps its place, plays nothing, reports no drift, and counts as present but not watching.
- */
 import { HEARTBEAT_INTERVAL_MS } from "@movies/contracts/clock";
 import type { DeviceId, RoomId } from "@movies/contracts/ids";
 import { Cause, Duration, Effect, Predicate, Schedule } from "effect";
@@ -35,7 +28,6 @@ export const keepAway = Effect.fn("RoomPresence.keepAway")(function* (
 
   const beat = client.mutate("rooms.heartbeat", { roomId, deviceId, presence: "away" }).pipe(
     Effect.asVoid,
-    // The membership or the room gone, until the caller stops: expected, so not a warning.
     Effect.catch((error: CallError) =>
       (Predicate.isTagged(error, "Forbidden") || Predicate.isTagged(error, "NotFound")
         ? Effect.logDebug("RoomPresence.heartbeatRefused", error)
@@ -44,7 +36,6 @@ export const keepAway = Effect.fn("RoomPresence.keepAway")(function* (
     ),
   );
 
-  // One heartbeat's defect is reported and the next tries again, as for a failure.
   const kept = beat.pipe(
     Effect.catchCauseIf(
       (cause) => !Cause.hasInterrupts(cause),

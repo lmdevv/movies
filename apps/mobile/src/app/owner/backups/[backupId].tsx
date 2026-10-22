@@ -1,7 +1,3 @@
-/**
- * I12 · Restore Backup: the sheet that confirms replacing the library database with a backup.
- * Restoring ends every session, this one included, so it signs out here once the server is done.
- */
 import { BackupId } from "@movies/contracts/ids";
 import { useCommand } from "@movies/sdk/react";
 import { Option, Schema } from "effect";
@@ -15,7 +11,6 @@ import { useSignOut } from "@/session/viewer";
 
 const decodeBackupId = Schema.decodeUnknownOption(BackupId);
 
-/** The sheet for a backup named by a link that is not one: nothing to restore, only a way out. */
 function NoSuchBackup() {
   const exit = useSheetExit();
 

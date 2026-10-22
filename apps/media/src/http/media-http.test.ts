@@ -56,7 +56,6 @@ const withDolbyAudio: ClientCapabilities = {
   mse: true,
 };
 
-/** A small screen forces a downscale, so even H.264 sources are transcoded. */
 const smallScreen: ClientCapabilities = {
   containers: [],
   videoCodecs: browser.videoCodecs,
@@ -69,7 +68,6 @@ const smallScreen: ClientCapabilities = {
 
 const decodeHealth = Schema.decodeUnknownEffect(HealthResponse);
 
-/** A JSON request body sent to the control API. */
 interface RequestBody {
   readonly token: string;
   readonly capabilities?: ClientCapabilities;
@@ -79,7 +77,6 @@ interface RequestBody {
   readonly positionSeconds?: number;
 }
 
-/** A diagnostics batch as a player sends it, or a malformed one. */
 interface WireBatch {
   readonly token: string;
   readonly platform: string;
@@ -90,10 +87,8 @@ interface WireBatch {
   }>;
 }
 
-/** Decodes a negotiation body the way an HttpApi client does. */
 const decodeNegotiation = Schema.decodeUnknownEffect(Schema.toCodecJson(NegotiateResponse));
 
-/** The path and query of a URL the service built with its public base URL. */
 const local = (baseUrl: string, url: string): string => {
   const parsed = new URL(url);
 
@@ -137,7 +132,6 @@ const negotiated = Effect.fn(function* (body: Parameters<typeof negotiate>[0]) {
   return yield* decodeNegotiation(result.body).pipe(Effect.orDie);
 });
 
-/** Probes bytes with ffprobe after writing them to a temporary file. */
 const probeBytes = Effect.fn(function* (data: Uint8Array) {
   const fs = yield* FileSystem.FileSystem;
   const tools = yield* MediaTools.Service;
@@ -158,7 +152,6 @@ const probeBytes = Effect.fn(function* (data: Uint8Array) {
   return yield* parseFfprobeJson(output, file);
 });
 
-/** Width and height of an image, read with ffprobe. */
 const probeImage = Effect.fn(function* (data: Uint8Array) {
   const fs = yield* FileSystem.FileSystem;
   const tools = yield* MediaTools.Service;
@@ -184,7 +177,6 @@ const probeImage = Effect.fn(function* (data: Uint8Array) {
   )(output).pipe(Effect.map((probe) => probe.streams[0]));
 });
 
-/** Fetches the init segment and media segment `index` of an HLS playlist URL. */
 const fetchSegment = Effect.fn(function* (playlistUrl: string, index: number) {
   const playlist = new URL(playlistUrl);
   const init = yield* get(new URL(`init.mp4${playlist.search}`, playlist).toString());
@@ -528,7 +520,6 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           ["h264", 212, 120],
         );
 
-        // Segment 0 was never produced by generation 1: the request starts generation 2.
         const before = yield* fetchSegment(firstPlaylist, 0);
 
         assert.strictEqual(before.segment.status, 410);

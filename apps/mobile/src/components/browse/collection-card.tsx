@@ -1,7 +1,3 @@
-/**
- * A collection as a wide card: in Home's row (C02, 264 × 148 with the name under it) or on the
- * Collections page (C07, full width × 180 with a 28pt name and the title count).
- */
 import type { Collection } from "@movies/contracts/models/collections";
 import { router } from "expo-router";
 import { Pressable, View } from "react-native";
@@ -12,7 +8,6 @@ import { artworkUrl } from "@/lib/artwork";
 import { titleCount } from "@/lib/browse";
 import { useServer } from "@/session/connection";
 
-/** The collection's own backdrop, else the first of its titles that has one. */
 const backdropOf = (collection: Collection): string | null =>
   collection.artwork.backdrop ??
   collection.titles.find((title) => title.artwork.backdrop !== null)?.artwork.backdrop ??

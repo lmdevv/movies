@@ -7,7 +7,6 @@ import { HttpClient, HttpRouter, HttpServer, HttpServerResponse } from "effect/h
 
 import * as Outbound from "./outbound.ts";
 
-/** A server whose one route redirects to another host. */
 const redirecting = HttpRouter.serve(
   HttpRouter.add(
     "GET",

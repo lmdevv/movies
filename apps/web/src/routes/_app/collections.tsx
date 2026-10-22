@@ -15,7 +15,6 @@ export const Route = createFileRoute("/_app/collections")({
   component: CollectionsPage,
 });
 
-/** Every collection with a title the profile may see, by name. */
 function CollectionsPage() {
   const { profile } = useActiveProfile();
   const collections = useCommandQuery("collections.list", { profileId: profile.id });

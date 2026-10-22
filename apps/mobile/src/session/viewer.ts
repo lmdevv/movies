@@ -1,4 +1,3 @@
-/** Signing out of the account. */
 import { useAuth } from "@movies/sdk/react";
 import { useCallback } from "react";
 
@@ -9,8 +8,6 @@ export const useSignOut = (): (() => Promise<void>) => {
   const { signOut } = useAuth();
   const { choose } = useProfileChoice();
 
-  // The local session ends even when the server cannot be told, so the profile choice is
-  // forgotten either way.
   return useCallback(async () => {
     try {
       await signOut();

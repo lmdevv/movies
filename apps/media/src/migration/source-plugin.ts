@@ -1,13 +1,3 @@
-/**
- * The typed contract every migration-source plugin implements (plugin role `migration-source`).
- * A plugin reads one Jellyfin or Plex server, read-only: it sends only GET requests, plus the one
- * sign-in POST a password login needs, and never touches media files. Its manifest lists the one
- * host it may reach (the server the admin named); `guardSourceHost` enforces that list and the
- * allowed methods on the HTTP client the plugin is given.
- *
- * Plugins translate their server's data into the source-neutral records below, so matching,
- * planning, and importing never see Jellyfin or Plex shapes.
- */
 import type { MigrationCredentials } from "@movies/contracts/models/migration";
 import type { MetadataOverrides } from "@movies/contracts/models/catalog";
 import type { MigrationSource } from "@movies/contracts/models/jobs";
@@ -15,13 +5,10 @@ import type { SourceFailureReason } from "@movies/contracts/models/migration";
 import { Effect, Match, Schema } from "effect";
 import { HttpClient, type HttpClientError } from "effect/http";
 
-/** What a migration-source plugin may access: one server, with GET (and a sign-in POST). */
 const SourcePermissions = Schema.Struct({
   hosts: Schema.Array(Schema.String),
   methods: Schema.Array(Schema.Literals(["GET", "POST"])),
-  /** Paths the plugin POSTs to; every other request must be a GET. */
   postPaths: Schema.Array(Schema.String),
-  /** Local paths the plugin may touch: none. Media files are never read, moved, or copied. */
   paths: Schema.Array(Schema.String),
 });
 

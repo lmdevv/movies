@@ -1,10 +1,3 @@
-/**
- * C19 · Downloads and C20 · Downloads · Empty: the profile's downloads counted and added up, one
- * row each, then Download Settings, with `…` in the header; with nothing downloaded, a glyph,
- * `Nothing downloaded yet.`, and a way forward. In the Downloads tab (`chrome: "native"`) the
- * tab's native header draws the large title and holds `…`; offline, outside the tabs
- * (`chrome: "own"`), the list draws its own large title and compact bar.
- */
 import { router, Stack } from "expo-router";
 import { Download, Ellipsis, Settings2 } from "lucide-react-native";
 import type { ReactNode } from "react";
@@ -38,7 +31,6 @@ const openSettings = () => router.push("/download-settings");
 
 const openMenu = () => router.push("/download-settings/menu");
 
-/** The rows, or C20 when there are none. */
 function DownloadsBody({
   engine,
   snapshot,

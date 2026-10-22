@@ -28,24 +28,18 @@ const START = 1_760_000_000_000;
 
 const KEY = "movies.session";
 
-/** A token that stays valid well past every test. */
 const FRESH = jwtExpiringAt(START + 3_600_000, "alex");
 
-/** A token inside the renewal margin. */
 const EXPIRING = jwtExpiringAt(START + 30_000, "alex");
 
-/** A token that expired ten minutes ago. */
 const EXPIRED = jwtExpiringAt(START - 600_000, "alex");
 
-/** The token the refresh hands out, and the refresh token it rotates to. */
 const RENEWED = jwtExpiringAt(START + 3_600_000, "alex-renewed");
 
 const ROTATED = "refresh-2";
 
-/** A token store in memory whose writes can be made to fail. */
 interface MemoryStore {
   readonly store: KeyValueStore;
-  /** The session the store holds now, as plain tokens. */
   readonly saved: () => Option.Option<{ readonly token: string; readonly refreshToken: string }>;
   readonly failWrites: (failing: boolean) => void;
   readonly failClears: (failing: boolean) => void;
@@ -101,14 +95,9 @@ interface Fixture {
   readonly fake: FakeConvex.FakeConvex;
   readonly memory: MemoryStore;
   readonly auth: Auth.Interface;
-  /** Everything logged so far, each entry rendered in full, causes included. */
   readonly logs: () => ReadonlyArray<string>;
 }
 
-/**
- * Runs `body` on the test clock with the SDK over HTTP to a fake deployment, starting from the
- * stored session `stored` (signed out when none).
- */
 const withAuth = <A, E>(
   stored: Option.Option<{ token: string; refreshToken: string }>,
   body: (fixture: Fixture) => Effect.Effect<A, E, Movies.Services | Scope.Scope>,
@@ -155,7 +144,6 @@ const tokens = (token: string, refreshToken: string): Reply =>
 const reveal = (token: Option.Option<Redacted.Redacted>): string | null =>
   Option.match(token, { onNone: () => null, onSome: Redacted.value });
 
-/** The refresh tokens each refresh request sent, in order. */
 const refreshRequests = (fake: FakeConvex.FakeConvex) =>
   Effect.map(fake.requestsTo("auth:signIn"), (requests) =>
     requests.flatMap((request) =>
@@ -163,7 +151,6 @@ const refreshRequests = (fake: FakeConvex.FakeConvex) =>
     ),
   );
 
-/** Holds every refresh until `release`, signalling `arrived` when the first one reaches the server. */
 const gateRefresh = (fake: FakeConvex.FakeConvex, reply: Reply) =>
   Effect.gen(function* () {
     const arrived = yield* Deferred.make<void>();
@@ -269,7 +256,6 @@ describe("Auth", () => {
         const refreshing = yield* Effect.forkChild(auth.accessToken(true));
 
         yield* Deferred.await(gate.arrived);
-        // Sign-out finishes while the refresh is still waiting on the server.
         yield* auth.signOut;
         yield* Deferred.succeed(gate.release, undefined);
 
@@ -360,7 +346,6 @@ describe("Auth", () => {
         const failure = yield* Effect.flip(auth.accessToken(false));
 
         expect(failure).toMatchObject({ _tag: "TokenStorageError", operation: "save" });
-        // The server rotated the refresh token, so the next refresh has to send the new one.
         expect(reveal(yield* auth.accessToken(false))).toBe(RENEWED);
         yield* Effect.exit(auth.accessToken(true));
         expect(yield* refreshRequests(fake)).toStrictEqual(["refresh-1", ROTATED]);
@@ -396,7 +381,6 @@ describe("Auth", () => {
         expect(yield* auth.currentStatus).toBe("signedOut");
         expect(memory.saved()).toStrictEqual(Option.none());
 
-        // The server sign-out gives up on a hung server instead of waiting forever.
         yield* TestClock.adjust(60_000);
         yield* Fiber.join(signingOut);
       }),
@@ -485,7 +469,6 @@ describe("Auth", () => {
 
         expect(yield* Fiber.join(refreshing)).toStrictEqual(Option.none());
 
-        // The renewed session is ended in the background; give it a moment on the real clock.
         for (let tries = 0; tries < 20; tries += 1) {
           if ((yield* fake.requestsTo("auth:signOut")).length >= 2) break;
           yield* TestClock.withLive(Effect.sleep(20));
@@ -513,7 +496,6 @@ describe("Auth", () => {
             yield* Deferred.succeed(arrived, undefined);
             yield* Deferred.await(release);
 
-            // A blip: the first refresh never gets an answer.
             return Reply.Drop();
           }),
         );

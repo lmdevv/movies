@@ -1,11 +1,3 @@
-/**
- * The SDK against a real self-hosted Convex backend:
- *
- *   scripts/dev-stack.sh up && pnpm --filter @movies/sdk test:stack
- *
- * Skipped unless `MOVIES_STACK_TESTS=1`. Shares the owner accounts of the backend's stack suite,
- * so the two suites can run against one stack in either order.
- */
 import { targetPosition } from "@movies/contracts/clock";
 import type { CommandError } from "@movies/contracts/errors";
 import { DeviceId } from "@movies/contracts/ids";
@@ -40,7 +32,6 @@ const id = Math.random().toString(36).slice(2, 8);
 
 type Session = Context.Context<Movies.Services | ConvexTransport.ConvexTransport>;
 
-/** Opens an SDK instance with its own memory token store. */
 const open = (connection: "websocket" | "http") =>
   Layer.build(
     Movies.layerWithTransport({ convexUrl: url, mediaUrl: Option.none() }).pipe(
@@ -72,7 +63,6 @@ const password = (email: string, flow: "signIn" | "signUp", inviteCode?: string)
 const signIn = (credentials: Auth.Credentials) =>
   Effect.flatMap(Auth.Auth, (auth) => auth.signIn(credentials));
 
-/** The failure tag an effect ends with, or `succeeded`. */
 const outcome = <A, R>(
   effect: Effect.Effect<A, CallError | CommandError | TokenStorage.TokenStorageError, R>,
 ) =>
@@ -81,7 +71,6 @@ const outcome = <A, R>(
     Effect.catch((error) => Effect.succeed(Struct.get(error, "_tag"))),
   );
 
-/** Signs in as the stack's owner, creating it on an empty backend. */
 const ownerSession = Effect.gen(function* () {
   const session = yield* open("websocket");
   const status = yield* clientOf(session).query("setup.status", {});
@@ -151,7 +140,6 @@ const scannedItem = (path: string, name: string) => ({
 
 const UpsertArgs = mediaServiceFunctions["mediaService.upsertScanned"].args;
 
-/** Adds a library with one movie, scanned in by the media service's credential. */
 const seedTitle = (owner: Session, ownerProfile: ProfileId) =>
   Effect.gen(function* () {
     const ownerClient = clientOf(owner);

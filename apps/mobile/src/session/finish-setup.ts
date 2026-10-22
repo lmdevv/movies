@@ -1,4 +1,3 @@
-/** Leaving owner setup for Home. */
 import { useCallback } from "react";
 
 import { useFirstRun } from "./first-run";
@@ -21,8 +20,6 @@ export const useFinishSetup = (): (() => Promise<void>) => {
     const [only, ...others] = phase.profiles;
 
     if (only !== undefined && others.length === 0 && !only.locked) {
-      // Any profile this device remembers belongs to another server, so it is forgotten rather
-      // than locked. A choice that cannot be saved leaves Who's Watching? to ask instead.
       await choose(null)
         .then(() => choose(only.id))
         .catch(() => undefined);

@@ -1,7 +1,3 @@
-/**
- * A three-column poster grid (C08, C09, C11, My List): the posters with 13pt names under a header,
- * blanks that keep the last row's posters at a third of the width, and room for the home indicator.
- */
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import type { ReactElement } from "react";
 import { ActivityIndicator, FlatList, View } from "react-native";

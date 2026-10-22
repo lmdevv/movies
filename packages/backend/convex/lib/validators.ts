@@ -1,7 +1,3 @@
-/**
- * Convex validators for every command's arguments and results. Each mirrors a schema in
- * `@movies/contracts`; `test/registry.test.ts` checks that they describe the same wire values.
- */
 import { v } from "convex/values";
 import type { Validator } from "convex/values";
 
@@ -22,8 +18,6 @@ export const pageArgs = {
 /** A page of `item`; `nextCursor` is null on the last page. */
 export const page = <T, FieldPaths extends string>(item: Validator<T, "required", FieldPaths>) =>
   v.object({ items: v.array(item), nextCursor: nullable(v.string()) });
-
-// Accounts and sessions.
 
 /** Mirrors `Role` in `@movies/contracts`. */
 export const role = v.union(
@@ -98,7 +92,6 @@ export const sessionInfo = v.object({
 /** Mirrors `SetupStatus` in `@movies/contracts`. */
 export const setupStatus = v.object({ hasOwner: v.boolean(), hasLibraries: v.boolean() });
 
-/** Mirrors `InviteState` in `@movies/contracts`. */
 const inviteState = v.union(
   v.literal("open"),
   v.literal("used"),
@@ -173,8 +166,6 @@ export const deviceCodeLookup = v.object({
   expiresAt: v.number(),
 });
 
-// Profiles.
-
 /** Mirrors `Profile` in `@movies/contracts`. */
 export const profile = v.object({
   id: v.id("profiles"),
@@ -193,8 +184,6 @@ export const unlockResult = v.union(
   v.object({ status: v.literal("wrong_pin"), attemptsLeft: v.number() }),
   v.object({ status: v.literal("locked_out"), retryAt: v.number() }),
 );
-
-// Catalog.
 
 /** Mirrors `LibraryKind` in `@movies/contracts`. */
 export const libraryKind = v.union(v.literal("movies"), v.literal("shows"), v.literal("mixed"));
@@ -304,7 +293,6 @@ export const personCard = v.object({
   knownFor: nullable(v.string()),
 });
 
-/** Mirrors `CollectionRef` in `@movies/contracts`. */
 const collectionRef = v.object({ id: v.id("collections"), name: v.string() });
 
 /** Mirrors `GenreCount` in `@movies/contracts`. */
@@ -327,7 +315,6 @@ const titleCardFields = {
 /** Mirrors `TitleCard` in `@movies/contracts`. */
 export const titleCard = v.object(titleCardFields);
 
-/** Mirrors `HdrFormat` in `@movies/contracts`. */
 const hdrFormat = v.union(
   v.literal("none"),
   v.literal("hdr10"),
@@ -336,7 +323,6 @@ const hdrFormat = v.union(
   v.literal("dolby_vision"),
 );
 
-/** Mirrors `VideoStream` in `@movies/contracts`. */
 const videoStream = v.object({
   index: v.number(),
   codec: v.string(),
@@ -388,7 +374,6 @@ export const libraryFileSummary = v.object({
   unmatchedTitles: v.number(),
 });
 
-/** Mirrors `AudioStream` in `@movies/contracts`. */
 const audioStream = v.object({
   index: v.number(),
   codec: v.string(),
@@ -402,7 +387,6 @@ const audioStream = v.object({
   bitRate: nullable(v.number()),
 });
 
-/** Mirrors `SubtitleStream` in `@movies/contracts`. */
 const subtitleStream = v.object({
   index: v.number(),
   codec: v.string(),
@@ -492,7 +476,6 @@ export const mediaFile = v.object({
   trickplay: nullable(trickplayManifest),
 });
 
-/** Mirrors `DynamicRange` in `@movies/contracts/media-playback`. */
 const dynamicRange = v.union(
   v.literal("sdr"),
   v.literal("hdr10"),
@@ -665,8 +648,6 @@ export const metadataField = v.union(
   v.literal("ageRating"),
 );
 
-// Playback.
-
 /** Mirrors `PlaybackMode` in `@movies/contracts`. */
 export const playbackMode = v.union(
   v.literal("direct"),
@@ -727,8 +708,6 @@ export const progressEvent = v.union(
 /** Mirrors `ProgressReceipt` in `@movies/contracts`. */
 export const progressReceipt = v.object({ applied: v.boolean(), watched: v.boolean() });
 
-// Rooms.
-
 /** Mirrors `RoomStatus` in `@movies/contracts`. */
 export const roomStatus = v.union(
   v.literal("playing"),
@@ -755,7 +734,6 @@ export const roomRole = v.union(v.literal("host"), v.literal("guest"));
  */
 export const roomPresence = v.union(v.literal("watching"), v.literal("away"));
 
-/** Mirrors `RoomMember` in `@movies/contracts`. */
 const roomMember = v.object({
   userId: v.id("users"),
   profileId: v.id("profiles"),
@@ -769,7 +747,6 @@ const roomMember = v.object({
   driftMs: nullable(v.number()),
 });
 
-/** Mirrors `RoomNext` in `@movies/contracts`. */
 const roomNext = v.union(
   v.object({ status: v.literal("pending"), episode, nextAt: v.number() }),
   v.object({ status: v.literal("cancelled") }),
@@ -809,8 +786,6 @@ export const hostControlArgs = {
   positionMs: v.number(),
   fileId: v.optional(v.id("mediaFiles")),
 };
-
-// Jobs and backups.
 
 /** Mirrors `JobKind` in `@movies/contracts`. */
 export const jobKind = v.union(
@@ -892,8 +867,6 @@ export const backup = v.object({
   createdAt: v.number(),
 });
 
-// The media service seam.
-
 /** Arguments naming a job and the worker that holds its lease; mirrors `LeaseArgs` in contracts. */
 export const leaseArgs = { jobId: v.id("jobs"), workerId: v.string() };
 
@@ -964,7 +937,6 @@ export const scannedEpisode = v.object({
   seasonExternalIds: v.optional(externalIds),
 });
 
-/** Mirrors `ScannedFile` in `@movies/contracts`. */
 const scannedFile = v.object({
   path: v.string(),
   sizeBytes: v.number(),

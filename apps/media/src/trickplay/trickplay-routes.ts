@@ -1,11 +1,3 @@
-/**
- * `GET /media/trickplay/:fileId/:version/:name`: a file's scrub thumbnail sheets (`<n>.jpg`) and
- * manifest (`manifest.json`). Thumbnails are frames of the film, so they are authorized like the
- * stream: the `token` query parameter must carry a playback token for this file whose session is
- * still active. The version in the path names the file's contents, so responses never change and
- * are cached as immutable; they are private because the URL carries the token. Unknown files,
- * versions, and names answer 404; token failures answer with the playback API's error bodies.
- */
 import { PlaybackSessionEnded } from "@movies/contracts/media-playback";
 import { PlaybackTokenInvalid } from "@movies/contracts/playback-token";
 import { Effect, Layer, Match, Option, Schema } from "effect";
@@ -15,7 +7,6 @@ import { playbackTokenOf } from "../http/playback-token-param.ts";
 import * as PlaybackToken from "../playback/playback-token.ts";
 import * as TrickplayStore from "./trickplay-store.ts";
 
-/** The token is valid but for another file. */
 class TrickplayAccessDenied extends Schema.TaggedError<TrickplayAccessDenied>()(
   "TrickplayAccessDenied",
   {},
@@ -25,7 +16,6 @@ class TrickplayAccessDenied extends Schema.TaggedError<TrickplayAccessDenied>()(
   }
 }
 
-/** No stored thumbnails at this path. */
 class TrickplayNotFound extends Schema.TaggedError<TrickplayNotFound>()("TrickplayNotFound", {}) {
   override get message(): string {
     return "Trickplay not found";
@@ -50,7 +40,6 @@ const statusOf = Match.valueTags<RouteError, Record<RouteError["_tag"], () => nu
   TrickplayNotFound: () => 404,
 });
 
-/** A year: the version in the path changes whenever the thumbnails do. */
 const CACHE_CONTROL = "private, max-age=31536000, immutable";
 
 const errorResponse = (error: RouteError) =>

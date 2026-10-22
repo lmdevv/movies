@@ -23,11 +23,9 @@ const laggingReceiver = ({ muted = false }: { readonly muted?: boolean } = {}) =
   let receiverMuted = muted;
   let mirrorMuted = muted;
   let muteCommands = 0;
-  // The receiver's state after each command, in order, until the mirror reports it.
   const unreported: Array<boolean> = [];
   let toggles = 0;
 
-  /** The Cast SDK's mirror of the receiver's player. */
   class FakeRemotePlayer implements RemotePlayer {
     readonly isConnected = true;
     readonly isMediaLoaded = true;
@@ -46,7 +44,6 @@ const laggingReceiver = ({ muted = false }: { readonly muted?: boolean } = {}) =
     volumeLevel = 1;
   }
 
-  /** Commands reach the receiver at once; the mirror hears about them later. */
   class FakeController implements RemotePlayerController {
     playOrPause(): void {
       toggles += 1;
@@ -88,7 +85,6 @@ const laggingReceiver = ({ muted = false }: { readonly muted?: boolean } = {}) =
 
   return {
     framework,
-    /** The mirror reports the receiver's next state, if one is on its way. */
     deliverOne: () => {
       const next = unreported.shift();
 
@@ -97,7 +93,6 @@ const laggingReceiver = ({ muted = false }: { readonly muted?: boolean } = {}) =
 
       for (const handler of handlers) handler({ field: "isPaused", value: next });
     },
-    /** The mirror reports every state on its way. */
     deliver: () => {
       for (const next of unreported.splice(0)) {
         if (next === mirrorPaused) continue;
@@ -106,7 +101,6 @@ const laggingReceiver = ({ muted = false }: { readonly muted?: boolean } = {}) =
         for (const handler of handlers) handler({ field: "isPaused", value: next });
       }
     },
-    /** The last command never reached the receiver. */
     loseLast: () => {
       unreported.pop();
       receiverPaused = !receiverPaused;
@@ -114,7 +108,6 @@ const laggingReceiver = ({ muted = false }: { readonly muted?: boolean } = {}) =
     receiverPaused: () => receiverPaused,
     receiverMuted: () => receiverMuted,
     muteCommands: () => muteCommands,
-    /** The mirror reports whether the receiver is muted now. */
     deliverMute: () => {
       if (mirrorMuted === receiverMuted) return;
       mirrorMuted = receiverMuted;
@@ -148,7 +141,6 @@ describe("CastPlayer", () => {
     await player.play();
     expect(receiver.toggles()).toBe(1);
 
-    // The pause shows; the player is asked to play, so it toggles back, once.
     receiver.deliverOne();
     expect(receiver.toggles()).toBe(2);
     receiver.deliver();
@@ -170,7 +162,6 @@ describe("CastPlayer", () => {
     receiver.deliverOne();
     receiver.deliver();
 
-    // The room engine counts one echo per pause it asks for; this pause's must arrive.
     expect(events).toEqual(["paused", "playing"]);
   });
 
@@ -259,7 +250,6 @@ describe("CastPlayer", () => {
 
     player.pause();
     await player.play();
-    // The pause's report arrives; the play's is still on its way.
     receiver.deliverOne();
     await player.play();
     receiver.deliver();
@@ -312,7 +302,6 @@ describe("CastPlayer", () => {
     const receiver = laggingReceiver({ muted: true });
     const player = castPlayer(receiver.framework);
 
-    // A slider drag: each step sets the volume while the mirror still says muted.
     player.setVolume(0.2);
     player.setVolume(0.3);
     expect(receiver.receiverMuted()).toBe(false);
@@ -339,7 +328,6 @@ describe("CastPlayer", () => {
     const receiver = laggingReceiver({ muted: true });
     const player = castPlayer(receiver.framework);
 
-    // m, then m again before the mirror has caught up: each press reads what the state says.
     player.setMuted(!player.getState().muted);
     expect(player.getState().muted).toBe(false);
     player.setMuted(!player.getState().muted);

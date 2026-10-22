@@ -22,11 +22,9 @@ const command = (audio: AudioPlan, audioCodec: string): HlsCommand => ({
   vaapiDevice: "/dev/dri/renderD129",
 });
 
-/** The audio arguments: from `-map 0:1` up to the metadata options. */
 const audioPart = (args: ReadonlyArray<string>): ReadonlyArray<string> =>
   args.slice(args.indexOf("0:1") - 1, args.indexOf("-map_metadata"));
 
-/** An encode to 1080p at 8 Mb/s on `encoder`. */
 const encode = (
   encoder: "qsv" | "vaapi" | "software",
   options: { readonly toneMap?: boolean; readonly burnSubtitle?: number },
@@ -40,7 +38,6 @@ const encode = (
     burnSubtitle: options.burnSubtitle,
   });
 
-/** A software encode burning in DVD subtitle stream 3, from `from` seconds. */
 const dvd = (from: number) =>
   hlsCommandArgs({
     ...command(AudioPlan.Copy({ index: 1 }), "aac"),
@@ -49,7 +46,6 @@ const dvd = (from: number) =>
     video: encode("software", { burnSubtitle: 3 }),
   });
 
-/** The argument after the first `flag`. */
 const after = (args: ReadonlyArray<string>, flag: string): string | undefined =>
   args[args.indexOf(flag) + 1];
 
@@ -181,8 +177,6 @@ describe("hlsCommandArgs", () => {
     );
     expect(after(software, "-map")).toBe("[video]");
 
-    // HDR on VA-API: decoded, tone-mapped, and scaled on the GPU first, so the subtitle is drawn
-    // on 8-bit SDR frames and never tone-mapped itself.
     const vaapi = hlsCommandArgs({
       ...command(AudioPlan.Copy({ index: 1 }), "aac"),
       videoCodec: "hevc",
@@ -226,7 +220,6 @@ describe("hlsCommandArgs", () => {
       expect.stringContaining("[0:3]scale=1920:1080[subtitle]"),
     ]);
 
-    // From 61.4 s: the picture from there, the subtitle from 30 s before it.
     const seeked = dvd(61.4);
 
     expect(seeked.slice(seeked.indexOf("-ss"), seeked.indexOf("-filter_complex"))).toStrictEqual([
@@ -247,7 +240,6 @@ describe("hlsCommandArgs", () => {
   });
 });
 
-/** The MP4 arguments for a file with a DTS track converted to AAC, its video planned as `video`. */
 const mp4 = (video: VideoPlan) =>
   mp4CommandArgs({
     input: "/media/Film (2021).mkv",

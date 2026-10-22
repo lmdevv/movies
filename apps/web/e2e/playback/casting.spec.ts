@@ -1,10 +1,3 @@
-/**
- * Chromecast, watch rooms while casting, and the system's media controls, against the real media
- * service. Google's Cast SDK is replaced by a scripted fake (`cast-fake.ts`) installed in the
- * browser, so the app's loader, its negotiation for the device, and its commands run for real; the
- * test plays the receiver. Media Session handlers are read from `navigator.mediaSession` through a
- * recorder installed the same way. Runs after the scrubbing suite on the same stack.
- */
 import { join } from "node:path";
 
 import { RoomId } from "@movies/contracts/ids";
@@ -45,19 +38,15 @@ test.describe.configure({ mode: "serial" });
 
 const SETUP_TIMEOUT_MS = 240_000;
 
-/** The volume levels the TV was sent, in order. */
 const levels = (commands: FakeReceiver["commands"]) =>
   commands.filter(([command]) => command === "setVolumeLevel").map(([, value]) => value);
 
 const run = Date.now().toString(36);
 
-/** The player's tracks button and its popover. */
 const TRACKS = "Audio, subtitles, and quality";
 
-/** Plays directly on a Chromecast; has English subtitles. */
 const DIRECT = "Lantern Pier";
 
-/** H.264 in Matroska: a Chromecast plays it as remuxed fMP4 HLS. */
 const REMUX = "Salt Road";
 
 const SRT = `1
@@ -85,7 +74,6 @@ const titleId = (name: string): TitleId => {
   return id;
 };
 
-/** Records the handlers the app gives the system's media controls, for the tests to press. */
 const MEDIA_SESSION_RECORDER = `
 (() => {
   const handlers = {};
@@ -157,7 +145,6 @@ test.afterAll(async () => {
   await removePath(workspace);
 });
 
-/** Opens the cast menu and connects to the fake Chromecast. */
 const castToTv = async (target: Page): Promise<void> => {
   await revealControls(target);
   await target.getByRole("button", { name: "Cast" }).click();
@@ -166,11 +153,9 @@ const castToTv = async (target: Page): Promise<void> => {
     .getByRole("button", { name: /Chromecast/u })
     .click();
   await expect(target.getByTestId("casting-state")).toHaveText("Playing on Living Room TV");
-  // The receiver reports its state a moment after a load, as a real one does.
   await expect.poll(async () => (await receiver(target)).playerState).toBe("PLAYING");
 };
 
-/** The reported position of the newest session playing `name`, as Convex has it. */
 const reportedSeconds = async (name: string): Promise<number> => {
   const sessions = await owner.sdk.query("playback.active", {});
 
@@ -192,7 +177,6 @@ test("a Chromecast on the network gets a cast button, and casting loads the sess
   await revealControls(page);
   await page.getByRole("button", { name: "Cast" }).click();
 
-  // The stack's media service answers on 127.0.0.1, which no Chromecast can reach.
   const menu = page.getByRole("dialog", { name: "Play on" });
 
   await expect(menu.getByRole("note")).toContainText("can't reach");
@@ -226,7 +210,6 @@ test("a Chromecast on the network gets a cast button, and casting loads the sess
     .toEqual([206]);
   expect(local.paused).toBe(true);
   await expect(page.getByRole("dialog", { name: "Play on" })).toBeHidden();
-  // The TV shows the subtitles; the paused page shows none.
   expect(
     await page
       .getByTestId("player-video")
@@ -238,7 +221,6 @@ test("a Chromecast on the network gets a cast button, and casting loads the sess
   ).toBe(0);
   await capture(page, "casting");
 
-  // The TV loads its own copy of the subtitles, which this page cannot retime.
   await revealControls(page);
   await page.getByRole("button", { name: TRACKS }).click();
 
@@ -271,7 +253,6 @@ test("the controls drive the receiver, and progress follows it", async () => {
   );
   expect(seen.trackChanges.at(-1)).toEqual([]);
 
-  // The volume slider: the TV hears where a drag settles, once, and unmutes there.
   const sent = levels(seen.commands).length;
 
   await revealControls(page);
@@ -335,11 +316,8 @@ test("while Chrome connects to a device, the menu waits for it rather than offer
 test("an MKV casts as fMP4 HLS, and a seek past what it produced moves the stream first", async () => {
   await page.goto(`/watch/${titleId(REMUX)}?start=0`);
   await expectPlayingPast(page, 1);
-  // A reload starts the fake SDK over, as a new page starts Google's.
   await castFake(page, "devicesAppear");
 
-  // The media service keeps one stream per playback session: once the TV has it, the page must
-  // not negotiate again (its player would otherwise replace the TV's stream).
   const negotiations: Array<string> = [];
 
   page.on("request", (request) => {
@@ -351,7 +329,6 @@ test("an MKV casts as fMP4 HLS, and a seek past what it produced moves the strea
 
   await advanceReceiver(page, 5);
   await expect.poll(async () => (await receiver(page)).fetches.length).toBeGreaterThanOrEqual(2);
-  // The page let go of its stream: its element holds nothing to play.
   expect((await videoState(page)).readyState).toBe(0);
   await castFake(page, "refetch");
   expect((await receiver(page)).fetches.map(({ status }) => status)).toEqual([200, 200, 200, 200]);
@@ -374,7 +351,6 @@ test("an MKV casts as fMP4 HLS, and a seek past what it produced moves the strea
 
   if (box === null) throw new Error("The scrubber is not on screen");
 
-  // The receiver cannot move the stream itself, so the page asks the media service first.
   const seekRequest = page.waitForRequest(
     (request) => request.method() === "POST" && request.url().endsWith(MEDIA_ROUTES.seek),
   );
@@ -382,8 +358,6 @@ test("an MKV casts as fMP4 HLS, and a seek past what it produced moves the strea
   await page.mouse.click(box.x + box.width * 0.9, box.y + box.height / 2);
   await seekRequest;
 
-  // Then either the stream started a new generation there and the receiver reloads it, or that
-  // part was already produced and the receiver seeks in place.
   await expect
     .poll(async () => {
       const seen = await receiver(page);
@@ -395,8 +369,6 @@ test("an MKV casts as fMP4 HLS, and a seek past what it produced moves the strea
     })
     .toBe(true);
 
-  // Leaving the player stops the TV but keeps the device, so the next title casts by itself. The
-  // app navigates in place, as it does to the next episode; a reload would start the fake over.
   await page.evaluate(
     (path) => {
       window.history.pushState({}, "", path);
@@ -409,18 +381,15 @@ test("an MKV casts as fMP4 HLS, and a seek past what it produced moves the strea
 });
 
 test("leaving the player while casting saves where the TV was", async () => {
-  // A page load starts the fake over, disconnected.
   await page.goto(`/watch/${titleId(DIRECT)}?start=0`);
   await expectPlayingPast(page, 1);
   await castFake(page, "devicesAppear");
   await castToTv(page);
   await advanceReceiver(page, 70);
-  // A pause reports the TV's position at once, like the reporter's ticks do every ten seconds.
   await page.getByTestId("player").press("k");
   await expect.poll(async () => (await receiver(page)).isPaused).toBe(true);
   await expect.poll(() => reportedSeconds(DIRECT)).toBeCloseTo(70, 0);
   await advanceReceiver(page, 75);
-  // Back in the app, as a viewer leaves: the player closes and reports where the session stopped.
   await revealControls(page);
   await page.getByRole("button", { name: "Back to details" }).click();
   await expect(page).toHaveURL(new RegExp(`/title/${titleId(DIRECT)}$`, "u"));
@@ -447,7 +416,6 @@ test("a TV whose media fails hands playback back to the page", async () => {
   await castToTv(page);
   await advanceReceiver(page, 20);
 
-  // The receiver goes idle with an error (a download failed); the cast session stays connected.
   await castFake(page, "fail");
   await expect(page.getByText("The TV stopped playing this. Continuing here.")).toBeVisible();
   await expect(page.getByTestId("casting-state")).toBeHidden();
@@ -461,8 +429,6 @@ test("audio changes in quick succession leave the TV on the stream the media ser
   await castFake(page, "devicesAppear");
   await castToTv(page);
 
-  // The first change's negotiation reaches the media service after the second's: run side by
-  // side, the service would keep the first's stream and drop the one the TV plays.
   let held = false;
 
   await page.route(`**${MEDIA_ROUTES.negotiate}`, async (route) => {
@@ -485,7 +451,6 @@ test("audio changes in quick succession leave the TV on the stream the media ser
   await panel.getByRole("radio", { name: "English" }).click();
   await page.keyboard.press("Escape");
 
-  // Both changes reach the TV in order, and the stream it ends on is still served.
   await expect
     .poll(async () => (await receiver(page)).loads.length, { timeout: 15_000 })
     .toBe(before + 2);
@@ -516,7 +481,6 @@ test("a quality chosen while casting reaches the TV's stream", async () => {
   await page.getByRole("dialog", { name: TRACKS }).getByRole("radio", { name: "480p" }).click();
   await page.keyboard.press("Escape");
 
-  // The TV gets a stream negotiated with the cap, not just the page's menu.
   await expect
     .poll(async () => (await receiver(page)).loads.length, { timeout: 15_000 })
     .toBe(before + 1);

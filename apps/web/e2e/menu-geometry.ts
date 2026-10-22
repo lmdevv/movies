@@ -1,7 +1,3 @@
-/**
- * Where a player menu sits, for the track menu bench and the playback suites: measured once it has
- * finished growing in, it lies inside the window and above its trigger, clear of the controls.
- */
 import { expect } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
 

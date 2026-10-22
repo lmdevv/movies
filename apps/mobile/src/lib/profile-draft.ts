@@ -1,9 +1,3 @@
-/**
- * The profile editor's draft (B03 Edit Profile, B11 Create Profile): what the form holds while
- * someone picks an avatar (B04), a maximum rating (B10), and a PIN (B12, B13) on their own
- * screens, and the commands that save it. The server's rules apply here too: a kids profile always
- * has an age limit, and PINs set from this app have four digits.
- */
 import { AgeRating, KIDS_DEFAULT_MAX_AGE } from "@movies/contracts/content-rating";
 import type { CreateProfileArgs, Profile } from "@movies/contracts/models/profiles";
 import { Schema } from "effect";
@@ -19,7 +13,6 @@ export interface RatingChoice {
   readonly maxAgeRating: AgeRating | null;
 }
 
-/** Maximum Rating's choices as Paper lists them, strictest first. */
 const RATING_CHOICES: ReadonlyArray<RatingChoice> = [
   { label: "G", maxAgeRating: age(0) },
   { label: "PG", maxAgeRating: KIDS_DEFAULT_MAX_AGE },
@@ -136,7 +129,6 @@ export const pinToSave = (hasPin: boolean, change: PinChange): string | null | u
   return change.kind === "clear" && hasPin ? null : undefined;
 };
 
-/** Most profiles one account may have; the server enforces it too. */
 const MAX_PROFILES = 10;
 
 /** Whether an account with `count` profiles may add another. */

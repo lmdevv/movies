@@ -3,13 +3,8 @@
 # apps/web/public. Colors come from the Paper tokens in packages/ui/src/styles/globals.css, so rerun
 # this after the tokens change and commit the outputs.
 #
-#   scripts/app-icons.sh
-#
 # Needs ImageMagick 7 with its librsvg delegate; without `magick` on PATH it reruns itself in a
 # `nix shell` with the repo flake's pinned nixpkgs.
-#
-# Two drawings of the same mark: the small one sits on a 16-unit pixel grid so the favicon stays
-# crisp at 16, 32 and 48 pixels; the large one has heavy strokes and round arches for the app icons.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -23,7 +18,6 @@ public="$root/apps/web/public"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# The hex value of a color token defined once in globals.css, such as `accent` for --color-accent.
 token() {
   local value
   value="$(sed -n "s/^ *--color-$1: *\(#[0-9a-fA-F]\{6\}\);.*/\1/p" "$tokens" | head -n 1)"
@@ -39,7 +33,6 @@ token() {
 accent="$(token accent)"
 dark_bg="$(token dark-bg)"
 
-# The large mark on a 64-unit grid: both brackets and a heavy lowercase m.
 large_mark() {
   cat <<EOF
 <g fill="none" stroke="$accent" stroke-width="6">
@@ -49,8 +42,6 @@ large_mark() {
 EOF
 }
 
-# An app icon: the large mark at `scale` of the canvas, centered on dark-bg. `radius` rounds the
-# corners as a fraction of the size; 0 leaves the square full-bleed for the platform to mask.
 app_icon() {
   local scale="$1" radius="$2"
   local offset
@@ -66,7 +57,6 @@ $(large_mark)
 EOF
 }
 
-# favicon.svg: the small mark, transparent, for any tab color.
 cat >"$public/favicon.svg" <<EOF
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges">
   <path fill="$accent" d="M1 1h3v1H2v12h2v1H1zM14 1h-3v1h2v12h-2v1h3zM5 6h4v1H8v7H7V7H6v7H5zM9 7h1v7H9z"/>

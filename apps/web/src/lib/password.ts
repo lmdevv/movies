@@ -1,6 +1,5 @@
-/** The shortest password the server accepts for a new account. */
-export const MIN_PASSWORD_LENGTH = 8;
+import { PASSWORD_MIN_LENGTH } from "@movies/contracts/models/account";
 
 /** The `14 characters` check line under a new password, once it is long enough. */
 export const passwordHint = (password: string): string | undefined =>
-  password.length >= MIN_PASSWORD_LENGTH ? `${password.length} characters` : undefined;
+  password.length >= PASSWORD_MIN_LENGTH ? `${password.length} characters` : undefined;

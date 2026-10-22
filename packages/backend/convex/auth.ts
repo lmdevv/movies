@@ -1,16 +1,3 @@
-/**
- * Convex Auth with three providers:
- *
- * - `password`: email and password. The first account becomes the owner; later sign-ups need an
- *   invite. Sessions hold every scope the role allows.
- * - `apikey`: `{ key }`. All sign-ins with one key share one session, bound to the key's scopes;
- *   revoking the key deletes that session. The media service signs in this way.
- * - `device`: `{ deviceCode }`. Consumes an approved device code once and binds a new session to
- *   the scopes chosen at approval.
- *
- * Sign-in params arrive untyped from the client. Each provider passes them to an internal function
- * whose `v` validator parses them, so no provider trusts their shape.
- */
 import { ConvexCredentials } from "@convex-dev/auth/providers/ConvexCredentials";
 import { convexAuth, createAccount, retrieveAccount } from "@convex-dev/auth/server";
 import type { ConvexAuthConfig } from "@convex-dev/auth/server";
@@ -25,10 +12,8 @@ import type { Id } from "./_generated/dataModel";
 import { PASSWORD_MIN } from "./lib/bounds";
 import { fail } from "./lib/errors";
 
-/** Sign-in params as the client sent them. */
 type SignInParams = Partial<Record<string, Value | undefined>>;
 
-/** Password params after `authParams:password` validated them. */
 interface PasswordParams {
   readonly flow: "signUp" | "signIn";
   readonly email: string;
@@ -37,7 +22,6 @@ interface PasswordParams {
   readonly inviteCode?: string;
 }
 
-/** What a password sign-up hands to `createOrUpdateUser`; a type alias, so it is a Convex `Value`. */
 type SignUpProfile = {
   email: string;
   role: "member";
@@ -45,13 +29,11 @@ type SignUpProfile = {
   inviteCode?: string;
 };
 
-/** A sign-in the redeem mutations allow: the account and the session it joins. */
 interface Redeemed {
   readonly userId: Id<"users">;
   readonly sessionId: Id<"authSessions">;
 }
 
-// These references take raw params on purpose: the target functions' validators parse them.
 const parsePasswordParams = makeFunctionReference<"query", SignInParams, PasswordParams>(
   "authParams:password",
 );
@@ -64,7 +46,6 @@ const redeemDeviceCode = makeFunctionReference<"mutation", SignInParams, Redeeme
   "deviceAuth:redeem",
 );
 
-/** The profile Convex Auth hands to `createOrUpdateUser`, untyped beyond its email. */
 type CallbackProfile = Parameters<
   NonNullable<NonNullable<ConvexAuthConfig["callbacks"]>["createOrUpdateUser"]>
 >[1]["profile"];
@@ -75,10 +56,6 @@ const createUserFromSignUp = makeFunctionReference<"mutation", CallbackProfile, 
 
 const scrypt = new Scrypt();
 
-/**
- * The profile `createOrUpdateUser` receives. Its role is a placeholder: `users:createFromSignUp`
- * makes the first account the owner and gives later ones their invite's role.
- */
 const signUpProfile = (email: string, parsed: PasswordParams): SignUpProfile => {
   const profile: SignUpProfile = { email, role: "member" };
 

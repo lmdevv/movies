@@ -26,15 +26,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # A release tag must name the version the image records, which decides when an upgrade backs
-      # up: bump every package's version first (docs/operations.md, Releasing).
       - name: Release tag matches the package version
         if: startsWith(github.ref, 'refs/tags/v')
         run: scripts/check-version.sh "$GITHUB_REF_NAME"
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      # The amd64 image, loaded into Docker for the packaged-stack smoke test. Pull requests read
-      # the build cache but only main and tags write it, so a pull request cannot seed a publish.
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
@@ -49,8 +45,6 @@ jobs:
           size="$(docker image inspect movies:ci --format '{{.Size}}')"
           echo "movies:ci is $((size / 1024 / 1024)) MiB" | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # The smoke test generates its fixture library with ffmpeg and drives the stack with the
-      # repository's SDK, CLI, and Vitest.
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -63,7 +57,6 @@ jobs:
         env:
           IMAGE: movies:ci
 
-  # Only main and tags get a token that can push, and only after the smoke test passed.
   publish:
     name: publish to GHCR
     needs: image
@@ -76,10 +69,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Every v* tag, for scripts/release-channel.sh.
           fetch-depth: 0
-      # Only the highest stable version is latest, as on npm and the GitHub Release: a backport
-      # such as v0.2.5 after v0.3.0 does not move it.
       - id: channel
         name: Release channel
         run: |
@@ -110,7 +100,6 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ steps.channel.outputs.latest == 'true' }}
             type=sha
-      # JavaScript builds on the runner's platform; only the runtime stage runs under QEMU.
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .

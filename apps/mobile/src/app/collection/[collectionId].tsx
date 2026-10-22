@@ -1,7 +1,3 @@
-/**
- * C08 · Collection: the name, how many titles it holds, Play for the first one in collection order,
- * and the titles in a grid.
- */
 import { CollectionId } from "@movies/contracts/ids";
 import { useCommandQuery } from "@movies/sdk/react";
 import { router, useLocalSearchParams } from "expo-router";

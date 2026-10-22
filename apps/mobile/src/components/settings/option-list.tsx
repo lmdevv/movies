@@ -1,7 +1,3 @@
-/**
- * A preference picker (H22 Appearance, H26 Streaming Quality, H27 Mobile Data, and the audio and
- * subtitle languages): one row per choice, the chosen one marked `Selected`. Choosing saves at once.
- */
 import { View } from "react-native";
 
 import { ListRow } from "@/components/ui/list-row";

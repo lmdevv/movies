@@ -16,13 +16,11 @@ test("a device's code is approved in the browser, the device signs in, and the c
   const login = await device.sdk.auth.startDeviceLogin("Living room TV");
   const signedIn = login.complete();
 
-  // The QR code holds the approval URL; the page also accepts the code typed by hand.
   expect(new URL(login.verificationUrl).searchParams.get("code")).toBe(login.userCode);
 
   await useSession(page, owner);
   await page.goto("/device");
   await expect(page.getByRole("heading", { name: "Enter the code on your device" })).toBeVisible();
-  // Typing advances box by box, as on a TV remote's keyboard.
   await page.getByRole("textbox").first().click();
   await page.keyboard.type(login.userCode.replace("-", "").toLowerCase());
   await expect(page).toHaveURL(new RegExp(`code=${login.userCode}`, "u"));
@@ -48,13 +46,11 @@ test("a device's code is approved in the browser, the device signs in, and the c
     scopes: ["read", "play"],
   });
 
-  // The device is listed under Devices with what it was allowed.
   await page.getByRole("link", { name: "Manage devices" }).click();
   await expect(page.getByRole("row").filter({ hasText: "Living room TV" }).first()).toContainText(
     "Device",
   );
 
-  // The code is spent.
   await page.goto(`/device?code=${login.userCode}`);
   await expect(page.getByRole("heading", { name: "That code was already used" })).toBeVisible();
   await expect(page.getByText(`${login.userCode} is used up`)).toBeVisible();
@@ -72,7 +68,6 @@ test("a device can be denied", async ({ page }) => {
     (cause: unknown) => (cause instanceof Error ? cause.message : "refused"),
   );
 
-  // The code typed into the command menu opens its approval.
   await useSession(page, owner);
   await page.goto("/settings/devices");
   await expect(page.getByRole("button", { name: "Search", exact: true })).toBeVisible();

@@ -1,12 +1,3 @@
-/**
- * The media host's folders inside the approved library roots (`LIBRARY_ROOTS`), one level at a
- * time, for choosing a library's folder (`libraries.folders`). Paths come back as the caller wrote
- * them, joined with each folder's name, so a library keeps the path its owner chose rather than
- * where a link resolves. Only folders that can be opened in turn are listed: a link leading out of
- * the roots is left out. A folder outside the roots (as written or as it resolves), gone,
- * unreadable, or written with `.` or `..` answers `NotFound` alike, so the listing never tells
- * what exists outside them. Plain files cost nothing; only links are followed.
- */
 import { normalizeFolder } from "@movies/contracts/library-folder";
 import { NotFound } from "@movies/contracts/errors";
 import type { ServerFolder, ServerFolders } from "@movies/contracts/models/catalog";
@@ -16,13 +7,10 @@ import * as MediaConfig from "../media-config.ts";
 import { listEntries } from "../platform/node-directories.ts";
 import { approvedRoots } from "../playback/file-resolver.ts";
 
-/** Most folders one listing returns; a share with more is not browsed by hand. */
 const MAX_FOLDERS = 1000;
 
-/** Most links one listing follows, so a folder of many links answers quickly. */
 const MAX_LINKS = 1000;
 
-/** Links checked at once; on a network share each check is a round trip. */
 const CHECK_CONCURRENCY = 16;
 
 const byName = (a: string, b: string): number =>
@@ -31,18 +19,15 @@ const byName = (a: string, b: string): number =>
 const unavailable = (folder: string) =>
   new NotFound({ message: `${folder} isn’t available to the server` });
 
-/** Whether `path` is a directory now, following links; false when it cannot be read. */
 const isDirectory = (fs: FileSystem.FileSystem, path: string) =>
   fs.stat(path).pipe(
     Effect.map((info) => info.type === "Directory"),
     Effect.orElseSucceed(() => false),
   );
 
-/** Whether `folder` names a step up or the same folder, which a library path never does. */
 const hasDotSegments = (folder: string): boolean =>
   folder.split("/").some((segment) => segment === "." || segment === "..");
 
-/** Whether `folder`, as written, is `root` or inside it. */
 const isWithin = (root: string, folder: string): boolean =>
   folder === root || folder.startsWith(root === "/" ? "/" : `${root}/`);
 
@@ -68,7 +53,6 @@ export const list = Effect.fn("ServerFolders.list")(function* (folder: string | 
 
   const requested = normalizeFolder(folder);
 
-  // As written and as it resolves: a path outside the roots that links into one is refused too.
   if (hasDotSegments(requested) || !roots.some((root) => isWithin(root, requested))) {
     return yield* unavailable(requested);
   }
@@ -85,7 +69,6 @@ export const list = Effect.fn("ServerFolders.list")(function* (folder: string | 
 
   const visible = entries.filter((entry) => !entry.name.startsWith("."));
 
-  // A folder inside the resolved folder is inside the roots; only a link needs following.
   const folders = visible.flatMap((entry) => (entry.kind === "directory" ? [entry.name] : []));
   const links = visible.flatMap((entry) => (entry.kind === "symlink" ? [entry.name] : []));
   const followed = links.toSorted(byName).slice(0, MAX_LINKS);

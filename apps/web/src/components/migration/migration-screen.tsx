@@ -19,7 +19,6 @@ import { Done, Importing } from "./import-progress";
 import { EMPTY_FORM } from "./migration-model";
 import { Review } from "./review";
 
-/** Where the admin is before an import starts. */
 type Step =
   | { readonly kind: "connect"; readonly failure: MigrationSourceFailure | null }
   | { readonly kind: "review"; readonly preview: Extract<Preview, { readonly status: "ready" }> };

@@ -1,10 +1,3 @@
-/**
- * Playback events the media service reports outward: the mode each per-device session started
- * in, mode changes such as a QSV failure falling back to software, and stream endings. Every
- * reporter also logs each event (`Stream.started`, `Stream.mode_changed`, `Stream.ended`) with its
- * session, for the retained log that playback diagnostics read. The Convex reporter forwards modes
- * to Convex; standalone mode only logs them, and tests record them.
- */
 import { PlaybackMode } from "@movies/contracts/models/playback";
 import { Context, Effect, Layer, Ref, Schema } from "effect";
 
@@ -13,10 +6,6 @@ import { StreamId } from "@movies/contracts/media-playback";
 
 import { LogEvent } from "../diagnostics/log-events.ts";
 
-/**
- * Why an HLS stream closed. `session-ended` follows the playback session ending in Convex;
- * `abandoned` is a negotiation whose caller went away before the first segment was ready.
- */
 const StreamEndReason = Schema.Literals([
   "stopped",
   "abandoned",

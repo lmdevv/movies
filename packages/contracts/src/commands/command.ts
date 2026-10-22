@@ -1,8 +1,3 @@
-/**
- * Command definitions. A command is one user action: the web app, the command menu, the CLI, and
- * the agent skill all call it through the SDK by name. Convex commands name the public Convex
- * function that implements them; `media` commands name the media service HTTP route.
- */
 import type { Schema } from "effect";
 
 import type { CommandAccess } from "../scopes";
@@ -38,7 +33,6 @@ export type WireSchema = Schema.Codec<unknown>;
 /** Arguments are always an object, matching Convex's object argument validators. */
 export type ArgsSchema = WireSchema & { readonly fields: Schema.Struct.Fields };
 
-/** Fields every command shares. */
 interface CommandBase<Args extends ArgsSchema, Result extends WireSchema> {
   /** One line for the command menu and CLI help. */
   readonly summary: string;

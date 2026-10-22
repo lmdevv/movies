@@ -1,8 +1,3 @@
-/**
- * The folder browser the media service serves: `libraries.folders` (`POST /api/libraries/folders`)
- * lists the media host's folders inside the approved library roots for a session holding the
- * `manage` scope, so an admin can choose a library's folder instead of typing it.
- */
 import { Layer, Effect } from "effect";
 import type { FileSystem, Path } from "effect";
 import type { HttpRouter } from "effect/http";

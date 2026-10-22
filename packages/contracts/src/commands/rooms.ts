@@ -1,8 +1,3 @@
-/**
- * Watch rooms. Only the host's device controls the timeline; every control carries the revision
- * the host last saw and fails with `stale_revision` when the room moved on. The next-episode
- * commands are keyed on what the room plays instead, so a repeat or a race moves it on once.
- */
 import { Schema } from "effect";
 
 import { DeviceId, EpisodeId, MediaFileId, ProfileId, RoomId, TitleId } from "../ids";

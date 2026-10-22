@@ -1,7 +1,3 @@
-/**
- * Reads Kodi/Jellyfin-style NFO files: `movie.nfo` or `<file>.nfo` for movies, `tvshow.nfo` for
- * shows, and `<episode file>.nfo` for episodes. Local NFO values win over metadata providers.
- */
 import { YOUTUBE_KEY_PATTERN } from "@movies/contracts/models/catalog";
 import { Schema } from "effect";
 
@@ -97,7 +93,6 @@ export const NfoActor = Schema.Struct({
 /** One `<actor>` of an NFO. */
 export interface NfoActor extends Schema.Schema.Type<typeof NfoActor> {}
 
-/** An NFO `<set>`: the collection a movie belongs to. */
 const NfoSet = Schema.Struct({
   name: Schema.String,
   overview: Schema.optional(Schema.String),
@@ -105,7 +100,6 @@ const NfoSet = Schema.Struct({
   tmdb: Schema.optional(Schema.String),
 });
 
-/** An NFO `<set>`. */
 interface NfoSet extends Schema.Schema.Type<typeof NfoSet> {}
 
 /** Metadata read from an NFO file. Every field is optional; absent means "not stated locally". */
@@ -201,13 +195,11 @@ const ratingOf = (element: XmlElement): number | undefined => {
   return decimal(childText(element, "rating"));
 };
 
-/** Scales a score to 0–100, from its `max` (10 when unstated). */
 const percent = (value: number, max: number): number =>
   Math.round(Math.min(100, Math.max(0, (value / max) * 100)));
 
 const tenths = (value: number, max: number): number => Math.round((value / max) * 100) / 10;
 
-/** The site a `<rating name="…">` names, if it is one [movies] shows. */
 const siteOf = (name: string): keyof SiteRatings | undefined => {
   const folded = name.toLowerCase().replaceAll(/\s+/gu, "");
 

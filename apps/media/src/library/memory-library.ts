@@ -1,9 +1,3 @@
-/**
- * An in-memory file store implementing both `LibrarySink` and `FileResolver`, with an inspection
- * interface. Tests use it as a faithful store; standalone mode (no `CONVEX_URL`) serves the
- * approved library roots from it. File IDs derive from the library and the path inside its
- * folder, so each library holds one folder here.
- */
 import { createHash } from "node:crypto";
 
 import { MediaFileId, type LibraryId } from "@movies/contracts/ids";

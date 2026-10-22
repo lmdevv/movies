@@ -1,4 +1,3 @@
-/** Runtime configuration of the media service, read once from the environment at startup. */
 import { isAbsolute, resolve } from "node:path";
 
 import { DEFAULT_TRICKPLAY_INTERVAL_SECONDS } from "@movies/contracts/trickplay";
@@ -16,37 +15,20 @@ import {
 
 import { MIN_LOG_BYTES } from "./logging/log-files.ts";
 
-/** How the service may use the GPU for video transcoding. */
 type HardwareAccelerationMode = "auto" | "qsv" | "vaapi" | "none";
 
-/**
- * How libraries notice changes: file system events, polling, or `auto` (events on local disks,
- * polling on network file systems, which send no events).
- */
 type LibraryWatchMode = "auto" | "events" | "poll";
 
-/** Scrub thumbnail generation. */
 interface TrickplaySettings {
-  /** Whether `trickplay` jobs make thumbnails; when off they fail with a message saying so. */
   readonly enabled: boolean;
-  /** Time between thumbnails. */
   readonly interval: Duration.Duration;
-  /** Files whose thumbnails are made at once, besides the other jobs. */
   readonly concurrency: number;
 }
 
-/** Retained service logs: rotating NDJSON files under `DATA_DIR/logs`. */
 interface LogSettings {
-  /** The least severe level logged, to standard output and to the files alike. */
   readonly level: LogLevel.LogLevel;
-  /** Folder of the log files. */
   readonly directory: string;
-  /** Files last written longer ago than this are deleted. */
   readonly retention: Duration.Duration;
-  /**
-   * All files together never grow past this size: each holds at most an eighth of it (64 MiB at
-   * most), and the oldest go before a write would pass it.
-   */
   readonly maxBytes: number;
 }
 
@@ -140,16 +122,10 @@ const LOG_LEVELS = {
   error: "Error",
 } as const satisfies Record<string, LogLevel.LogLevel>;
 
-/**
- * The retained log's size cap in MiB: at least `MIN_LOG_BYTES` (8), so it holds eight files of
- * 1 MiB, and at most
- * 1 TiB.
- */
 const LogMaxMb = Schema.Int.check(
   Schema.isBetween({ minimum: MIN_LOG_BYTES / MEBIBYTE, maximum: 1_048_576 }),
 );
 
-/** One thumbnail a second at most, one every ten minutes at least. */
 const TrickplayIntervalSeconds = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 600 }));
 
 const absolute = (path: string): string => (isAbsolute(path) ? path : resolve(path));
@@ -165,7 +141,6 @@ export const layer: Layer.Layer<Service, Config.ConfigError> = Layer.effect(
     const host = yield* Config.option(Config.NonEmptyString("HOST"));
     const mediaBaseUrl = yield* Config.URL("MEDIA_BASE_URL");
 
-    // No approved roots means every library scan is refused; the service still starts.
     const libraryRoots = yield* Config.Array(Schema.NonEmptyString, "LIBRARY_ROOTS").pipe(
       Config.withDefault([]),
     );

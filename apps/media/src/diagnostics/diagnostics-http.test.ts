@@ -1,7 +1,3 @@
-/**
- * The log and diagnostics routes over HTTP, against a real retained log and an authorizer that
- * knows three bearer tokens: an admin's, a member's (who owns `session_a`), and another member's.
- */
 import { createServer } from "node:http";
 
 import { NodeHttpServer, NodeServices } from "@effect/platform-node";
@@ -53,7 +49,6 @@ const VIEWERS: ReadonlyMap<string, Viewer> = new Map([
   ["other-token", viewer("user_b", "member")],
 ]);
 
-/** Authorizes the three known tokens with the role scopes, as Convex would. */
 const authLayer = Layer.succeed(
   ViewerAuth.Service,
   ViewerAuth.Service.of({
@@ -87,7 +82,6 @@ const line = (
     spans: {},
   });
 
-/** `count` lines `make` writes, flushed to the log. */
 const appendMany = (count: number, make: (index: number) => string) =>
   Effect.gen(function* () {
     const { logs } = yield* Server;
@@ -113,7 +107,6 @@ const SEED = [
   line("Main.started", 3000, {}),
 ];
 
-/** The running routes, and the retained log behind them. */
 class Server extends Context.Service<
   Server,
   { readonly baseUrl: string; readonly logs: RetainedLogs.Interface; readonly directory: string }
@@ -148,10 +141,8 @@ const serverLayer = Layer.unwrap(
   }),
 ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, FetchHttpClient.layer)));
 
-/** A request body: a log query or command arguments. */
 type Body = Readonly<Record<string, string | number | boolean>>;
 
-/** POSTs `body` to `path` with `token` as the bearer, when there is one. */
 const post = (path: string, token: Option.Option<string>, body: Body) =>
   Effect.gen(function* () {
     const { baseUrl } = yield* Server;
@@ -172,7 +163,6 @@ const OTHER = Option.some("other-token");
 
 const text = (response: Response) => Effect.promise(() => response.text());
 
-/** A response body decoded as JSON with `schema`. */
 const decoded = <A>(schema: Schema.Codec<A, unknown>) => {
   const decode = Schema.decodeUnknownSync(Schema.fromJsonString(schema));
 
@@ -411,7 +401,6 @@ layer(serverLayer, { timeout: 30_000 })("log routes without a log folder", (it) 
       const { directory } = yield* Server;
       const fs = yield* FileSystem.FileSystem;
 
-      // Unmounted, or replaced by something the service cannot list.
       yield* fs.remove(directory, { recursive: true });
       yield* fs.writeFileString(directory, "");
 

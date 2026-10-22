@@ -1,4 +1,3 @@
-/** Marks the scrolling track of a media row; {@link moveRowFocus} walks these in page order. */
 const MEDIA_ROW_ATTRIBUTE = "data-media-row";
 
 const FOCUSABLE = "a[href], button:not([disabled]), [tabindex]:not([tabindex='-1'])";

@@ -110,7 +110,6 @@ const room = (change: Partial<Room> = {}): Room => ({
   ...change,
 });
 
-/** The room's clock with another status. */
 const clockAt = (status: Room["clock"]["status"]): Room["clock"] => ({
   status,
   positionAtAnchorMs: Milliseconds.make(5_598_000),

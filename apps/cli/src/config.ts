@@ -1,12 +1,3 @@
-/**
- * The CLI's configuration in `$XDG_CONFIG_HOME/movies/config.json` (mode 0600). It holds named
- * profiles, each a server plus its credentials: the Convex and media URLs, this install's device
- * ID, the default viewing profile, an optional API key, and the cached session tokens.
- *
- * `MOVIES_CONVEX_URL`, `MOVIES_MEDIA_URL`, `MOVIES_API_KEY`, and `MOVIES_PROFILE` override the file;
- * `--profile` overrides `MOVIES_PROFILE`, which overrides the stored default. A stored profile only
- * serves its own server: when `MOVIES_CONVEX_URL` names another, its credentials stay unused.
- */
 import { join } from "node:path";
 
 import { TokenStorage } from "@movies/sdk/effect";

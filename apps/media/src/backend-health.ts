@@ -1,11 +1,6 @@
-/**
- * Whether the media service is connected to Convex, for `GET /api/health`. The Convex connection
- * provides its live state; standalone mode (no `CONVEX_URL`) reports `standalone`.
- */
 import type { HealthResponse } from "@movies/contracts/media-playback";
 import { Context, Effect, Layer } from "effect";
 
-/** The backend connection's state. */
 type BackendStatus = HealthResponse["backend"];
 
 /** Reports the backend connection's state. */

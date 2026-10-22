@@ -36,8 +36,6 @@ export function ProfileChoiceProvider({ children }: { readonly children: ReactNo
     (next: ProfileId | null) => {
       const previous = current.current;
 
-      // Signing out (null) ends the session and every unlock with it. Leaving one profile for
-      // another completes only once the one left behind is locked, so a failed lock keeps its PIN.
       if (previous === null || next === null || previous === next) {
         commit(next);
 

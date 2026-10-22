@@ -1,9 +1,3 @@
-/**
- * Moving a watch room on to its next episode, from the player. The server keeps the countdown and
- * carries it out; this hook starts it from the host's player when the credits begin, turns the
- * room's record into the card each member sees, gives the host Play next and the Episodes picker
- * through the room, and opens whatever the room plays next on every member's player, in the room.
- */
 import type { DeviceId, EpisodeId, RoomId, TitleId } from "@movies/contracts/ids";
 import type { Episode } from "@movies/contracts/models/catalog";
 import type { Room } from "@movies/contracts/models/rooms";
@@ -69,13 +63,10 @@ export interface RoomNext {
   readonly pick: ((episodeId: EpisodeId) => void) | null;
 }
 
-/** The reason a card gives when the next episode has no file to play. */
 const FILE_MISSING = "File missing";
 
-/** Refusals that stand: trying the countdown again would only meet them again. */
 const REFUSALS = ["Conflict", "NotFound", "Forbidden", "InvalidArgs"] as const;
 
-/** How long the host's player waits before starting the countdown again after a failure. */
 const RETRY_MS = 2_000;
 
 /**
@@ -101,18 +92,13 @@ export const useRoomNext = ({
   const latestRoom = useLatest(room);
   const roomId: RoomId | null = room?.id ?? null;
   const next = room?.next ?? null;
-  // Why the host's countdown could not start, for the card; cleared with each episode.
   const [problem, setProblem] = useState<{ readonly from: EpisodeId; readonly reason: string }>();
-  // Starting the countdown again after a failure that may pass, such as the network.
   const [attempt, setAttempt] = useState(0);
-  // The countdown (by its due time) or unavailable card this screen closed.
   const [closed, setClosed] = useState<string | null>(null);
 
   const hosting = role === "host" && roomId !== null;
   const nextPlays = nextEpisode?.available === true;
 
-  // The host's player reached the credits: start the room's countdown, once per episode. The
-  // server keeps a countdown already running or cancelled, so a reload or a repeat changes nothing.
   const shouldStart =
     hosting &&
     credits &&
@@ -126,11 +112,8 @@ export const useRoomNext = ({
     if (!shouldStart) return undefined;
 
     let retry: ReturnType<typeof setTimeout> | undefined;
-    // An answer after the episode or the room changed is for a countdown this player left.
     let active = true;
 
-    // The next episode playing was checked before; a refusal now (its file went missing since, or
-    // the room ended) says why in the server's words. Anything else may pass: try again shortly.
     startCountdown({ roomId, deviceId, fromEpisodeId: episodeId }).catch((cause: unknown) => {
       if (!active) return;
 
@@ -149,8 +132,6 @@ export const useRoomNext = ({
     };
   }, [shouldStart, roomId, episodeId, deviceId, startCountdown, attempt]);
 
-  // Whatever the room plays is what this player opens, in the room: the host's Play next, the
-  // countdown, and the host's pick all arrive this way, for the host's own player too.
   const roomTitle = room?.title.id ?? null;
   const roomEpisode = room?.episode?.id;
 
@@ -168,14 +149,11 @@ export const useRoomNext = ({
   const playNext = useCallback(() => {
     if (roomId === null || episodeId === null) return;
 
-    // From the episode this player shows: a room that already moved on stays where it is.
     moveOn({ roomId, deviceId, fromEpisodeId: episodeId }).catch((cause: unknown) => {
       setProblem({ from: episodeId, reason: describeFailure(cause) });
     });
   }, [roomId, episodeId, deviceId, moveOn]);
 
-  // The card shows what the room holds, so a cancel that fails leaves it counting down on screen;
-  // one failure that may pass is tried again at once.
   const cancel = useCallback(() => {
     if (roomId === null || episodeId === null) return;
     const args = { roomId, deviceId, fromEpisodeId: episodeId };
@@ -200,7 +178,6 @@ export const useRoomNext = ({
           episodeId: picked,
         });
 
-      // A heartbeat may move the revision on between reading and switching: read it and retry once.
       switchTo(current.clock.revision)
         .catch((cause: unknown) =>
           Predicate.isTagged(cause, "StaleRevision")
@@ -227,7 +204,6 @@ export const useRoomNext = ({
         : { kind: "countdown", episode: next.episode, nextAt: next.nextAt, role };
     }
 
-    // Only the host learns the next episode cannot play: guests have no countdown to miss.
     if (!hosting || !credits || nextEpisode === null || next !== null) return null;
 
     if (closed === `unavailable:${String(episodeId)}`) return null;

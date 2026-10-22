@@ -1,7 +1,3 @@
-/**
- * B02 · Manage Profiles: each profile with its pencil to edit it, and Add Profile. Reached from
- * Who's Watching? and from the profile switcher inside the app.
- */
 import type { Profile } from "@movies/contracts/models/profiles";
 import { router } from "expo-router";
 import { Check, Pencil, Plus } from "lucide-react-native";

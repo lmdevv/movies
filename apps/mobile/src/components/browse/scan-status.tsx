@@ -1,7 +1,3 @@
-/**
- * The scanning rows at the top of Home while a library scans (C13): which library, how far it is
- * when this session may see scan jobs, and the progress line.
- */
 import type { Job } from "@movies/contracts/models/jobs";
 import type { Library } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
@@ -11,10 +7,8 @@ import { View } from "react-native";
 import { ListRow } from "@/components/ui/list-row";
 import { ProgressBar } from "@/components/ui/progress-bar";
 
-/** Recent scan jobs read to find the running ones. */
 const JOB_WINDOW = 20;
 
-/** A scan's count and fraction, once the worker knows how many files there are. */
 const progressOf = (
   job: Job | undefined,
 ): { readonly detail: string; readonly value: number } | null => {

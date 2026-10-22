@@ -1,7 +1,3 @@
-/**
- * Finds local artwork next to media using the Kodi/Jellyfin/Plex file names. Pure: callers pass
- * the names in a folder; results are paths relative to the library root.
- */
 import { Schema } from "effect";
 
 /** Local images for a title, season, or episode, as paths relative to the library root. */
@@ -27,7 +23,6 @@ const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "tbn"];
 
 const join = (folder: string, name: string): string => (folder === "" ? name : `${folder}/${name}`);
 
-/** The first existing image among `bases` (without extension), compared case-insensitively. */
 const findImage = (listing: FolderListing, bases: ReadonlyArray<string>): string | undefined => {
   const byLowerName = new Map(listing.names.map((name) => [name.toLowerCase(), name]));
 

@@ -1,7 +1,3 @@
-/**
- * C17 · Return to Room: the pill under Home's title while this device is in a watch room, with how
- * many are in it. It opens the room's page, where the artwork leads back into the player.
- */
 import { router } from "expo-router";
 import { ChevronRight } from "lucide-react-native";
 import { Pressable, View } from "react-native";

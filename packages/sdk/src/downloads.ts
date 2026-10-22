@@ -1,16 +1,3 @@
-/**
- * Downloading a movie or an episode to keep on this device: start a download session in Convex
- * (`downloads.start`, with playback's checks on the profile, its age limit, and its libraries),
- * then `prepare` it with the media service until it answers `Ready`, and fetch the ready URL with
- * byte ranges, so an interrupted transfer resumes. `Preparing` means the service is still writing
- * an MP4 for this device; ask again in a few seconds. End the session with `downloads.end` once
- * the file is kept or the download is cancelled. Progress made playing the file offline is saved
- * later with `downloads.recordProgress`.
- *
- * The session's token expires like a playback token; `renew` signs a fresh one and keeps the
- * session from ending as idle. Failures are the playback API's tagged errors, so
- * `Playback.recoveryFor` applies.
- */
 import type { DeviceId, EpisodeId, MediaFileId, ProfileId, TitleId } from "@movies/contracts/ids";
 import {
   type ClientCapabilities,

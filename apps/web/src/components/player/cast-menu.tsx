@@ -1,7 +1,3 @@
-/**
- * Playing on another screen: the player's cast menu (Chromecast, AirPlay, and the browser's own
- * device picker, whichever this browser offers) and what the player shows while a TV plays.
- */
 import { Popover } from "@base-ui/react/popover";
 import { cn } from "@movies/ui/lib/utils";
 import { AirplayIcon, CastIcon, MonitorSmartphoneIcon } from "lucide-react";
@@ -57,7 +53,6 @@ function MenuRow({
   );
 }
 
-/** The Chromecast row and, for a local address, why a Chromecast cannot reach it. */
 function ChromecastRow({
   chromecast,
   choose,

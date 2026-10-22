@@ -130,7 +130,6 @@ const input = (overrides: Partial<PlanInput>): PlanInput => ({
   ...overrides,
 });
 
-/** A [movies] progress row for a movie. */
 const local = (titleId: string, lastPlayedAt: number, positionMs: number): LocalProgress => ({
   titleId: TitleId.make(titleId),
   episodeId: null,
@@ -139,7 +138,6 @@ const local = (titleId: string, lastPlayedAt: number, positionMs: number): Local
   lastPlayedAt: EpochMillis.make(lastPlayedAt),
 });
 
-/** Alice's state for the movie in the folder the import adds. */
 const fresh = (extra: Partial<SourceItemState>) =>
   new Map([["u1", [state("fresh", { lastPlayedAt: 4_000, ...extra })]]]);
 
@@ -209,9 +207,7 @@ describe("planMigration", () => {
       plan.libraries.map((library) => [library.name, library.access]),
       [
         ["Movies", { kind: "everyone" }],
-        // Bob is not imported, so only Alice's account is granted the library.
         ["Kids", { kind: "users", sourceUserIds: ["u1"] }],
-        // The source does not say who sees it: admins only.
         ["Lost", { kind: "users", sourceUserIds: [] }],
       ],
     );

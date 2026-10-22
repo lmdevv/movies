@@ -32,7 +32,6 @@ const registry = [
   { id: "help", keys: "?" },
 ] as const;
 
-/** Feed chords through the matcher the way the global listener does and collect the matches. */
 const run = (
   keys: ReadonlyArray<KeyChord>,
   platform: "mac" | "other" = "mac",

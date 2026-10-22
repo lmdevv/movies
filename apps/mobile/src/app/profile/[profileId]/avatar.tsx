@@ -1,4 +1,3 @@
-/** B04 · Choose Avatar: the avatar set in a three-column grid; the check keeps the choice. */
 import { router } from "expo-router";
 import { Check } from "lucide-react-native";
 import { useState } from "react";
@@ -13,7 +12,6 @@ import { AVATAR_KEYS, avatarLabel } from "@/lib/avatars";
 
 const COLUMNS = 3;
 
-/** The keys in rows of three, the last row padded so tiles keep their columns. */
 const ROWS = Array.from({ length: Math.ceil(AVATAR_KEYS.length / COLUMNS) }, (_row, row) =>
   Array.from({ length: COLUMNS }, (_cell, column) => AVATAR_KEYS[row * COLUMNS + column] ?? null),
 );

@@ -130,7 +130,6 @@ export function RoomPill({
     render,
     props: mergeProps<"button">(
       {
-        // A bare pill is a plain button, never a form's submit button.
         type: render === undefined ? "button" : undefined,
         className: cn(
           "flex h-7 shrink-0 cursor-pointer items-center rounded-pill border border-accent font-sans transition-colors hover:bg-accent/15",

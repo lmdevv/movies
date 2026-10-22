@@ -1,11 +1,3 @@
-/**
- * The subtitle delay against the real media service, with subtitle files whose cues sit at known
- * times: Earlier, Later, a typed entry, and Reset move the cues both ways, also while paused; the
- * delay holds through seeks, playing, and a quality change to a transcode that plays through
- * hls.js; another track starts at zero, Off keeps it, and picture subtitles burned into the video
- * cannot be delayed. In a watch room each viewer's delay moves only their own subtitles and never
- * the room's clock.
- */
 import { join } from "node:path";
 
 import type { RoomId, TitleId } from "@movies/contracts/ids";
@@ -42,18 +34,14 @@ test.skip(stack === null, NO_STACK);
 
 test.describe.configure({ mode: "serial" });
 
-/** Encoding the clips and bundling the service take a while on a cold machine. */
 const SETUP_TIMEOUT_MS = 240_000;
 
 const run = Date.now().toString(36);
 
-/** Plays directly; 720p, so 480p transcodes it. English and French subtitle files beside it. */
 const FILM = "Tide Clock";
 
-/** A DVD subtitle track (VobSub), which only shows burned into a transcode. */
 const PICTURES = "Paper Kite";
 
-/** English cues, in seconds: what each says and where its file puts it. */
 const ENGLISH = [
   { text: "Ten seconds.", start: 10, end: 12 },
   { text: "Thirty seconds.", start: 30, end: 32 },
@@ -71,7 +59,6 @@ const srt = (
 
 const FRENCH = [{ text: "Dix secondes.", start: 10, end: 12 }] as const;
 
-/** DVD subtitles (VobSub) the media service tests carry; see their fixtures README. */
 const VOBSUB = join(
   import.meta.dirname,
   "..",
@@ -87,7 +74,6 @@ const VOBSUB = join(
 /** `HTMLMediaElement.HAVE_CURRENT_DATA`: the element has the frame at its position. */
 const HAVE_CURRENT_DATA = 2;
 
-/** The player's tracks button and its popover. */
 const TRACKS = "Audio, subtitles, and quality";
 
 const GUEST = {
@@ -198,7 +184,6 @@ function titleId(name: string): TitleId {
   return id;
 }
 
-/** The subtitle track showing: its label, where its cues start (ms), and what shows now. */
 const showing = (target: Page) =>
   target.getByTestId("player-video").evaluate((element) => {
     if (!(element instanceof HTMLVideoElement)) return null;
@@ -214,10 +199,8 @@ const showing = (target: Page) =>
     };
   });
 
-/** Where the file's English cues start, `delayMs` later. */
 const englishStarts = (delayMs: number) => ENGLISH.map((cue) => cue.start * 1000 + delayMs);
 
-/** Moves the paused element to `seconds`, a position a direct file always reaches. */
 const seekElement = async (target: Page, seconds: number): Promise<void> => {
   await target.getByTestId("player-video").evaluate(async (element, to) => {
     if (!(element instanceof HTMLVideoElement)) return;
@@ -231,7 +214,6 @@ const seekElement = async (target: Page, seconds: number): Promise<void> => {
   }, seconds);
 };
 
-/** The track popover, opened from the controls when it is not open yet. */
 const tracksPanel = async (target: Page): Promise<Locator> => {
   const panel = target.getByRole("dialog", { name: TRACKS });
 
@@ -243,13 +225,11 @@ const tracksPanel = async (target: Page): Promise<Locator> => {
   return panel;
 };
 
-/** Closes the track popover with Escape and waits until it has gone. */
 const closeTracks = async (target: Page): Promise<void> => {
   await target.keyboard.press("Escape");
   await expect(target.getByRole("dialog", { name: TRACKS })).toBeHidden();
 };
 
-/** The subtitle delay control in the open track popover. */
 const delayControl = (panel: Locator): Locator =>
   panel.getByRole("group", { name: "Subtitle delay" });
 
@@ -259,7 +239,6 @@ const chooseSubtitle = async (target: Page, name: string): Promise<void> => {
   await panel.getByRole("radiogroup", { name: "Subtitles" }).getByRole("radio", { name }).click();
 };
 
-/** Types `seconds` into the delay field and presses Enter. */
 const enterDelay = async (target: Page, seconds: string): Promise<void> => {
   const field = delayControl(await tracksPanel(target)).getByRole("textbox", {
     name: "Subtitle delay in seconds",
@@ -269,14 +248,12 @@ const enterDelay = async (target: Page, seconds: string): Promise<void> => {
   await field.press("Enter");
 };
 
-/** Does `act` `times` times, each after the one before has finished. */
 const repeat = async (times: number, act: () => Promise<void>): Promise<void> => {
   if (times === 0) return;
   await act();
   await repeat(times - 1, act);
 };
 
-/** Opens `name` from the beginning, plays it past half a second, and pauses it. */
 const openPaused = async (target: Page, name: string): Promise<void> => {
   await target.goto(`/watch/${titleId(name)}?start=0`);
   await expectPlayingPast(target, 0.5);
@@ -298,17 +275,14 @@ test("Earlier, Later, a typed delay, and Reset move the cues both ways while pau
   await expect(control.getByRole("button", { name: "Earlier" })).toHaveText("G");
   await expect(control.getByRole("button", { name: "Later" })).toHaveText("H");
 
-  // At 9 s nothing shows yet: the first cue starts at 10 s.
   await seekElement(page, 9);
   await expect.poll(() => showing(page)).toMatchObject({ active: [] });
 
-  // Later by a second: the cue now starts at 11 s.
   await repeat(10, () => control.getByRole("button", { name: "Later" }).click());
 
   await expect(field).toHaveValue("+1.0");
   await expect.poll(() => showing(page)).toMatchObject({ starts: englishStarts(1000), active: [] });
 
-  // 1.5 s earlier than the file: the first cue runs 8.5 to 10.5 s and shows at 9 s, paused.
   await enterDelay(page, "-1.5");
   await expect(field).toHaveValue("−1.5");
   await expect
@@ -316,7 +290,6 @@ test("Earlier, Later, a typed delay, and Reset move the cues both ways while pau
     .toMatchObject({ starts: englishStarts(-1500), active: ["Ten seconds."] });
   await capture(page, "subtitle-delay-earlier");
 
-  // An entry that is no number leaves the delay as it was; one past the range stops at its end.
   await enterDelay(page, "soon");
   await expect(field).toHaveValue("−1.5");
   await enterDelay(page, "45");
@@ -327,7 +300,6 @@ test("Earlier, Later, a typed delay, and Reset move the cues both ways while pau
   await expect(field).toHaveValue("0.0");
   await expect.poll(() => showing(page)).toMatchObject({ starts: englishStarts(0), active: [] });
 
-  // G and H step from the keyboard with the popover closed, and say where the delay is.
   await closeTracks(page);
 
   const player = page.getByTestId("player");
@@ -345,7 +317,6 @@ test("Earlier, Later, a typed delay, and Reset move the cues both ways while pau
     "−0.2 s",
   );
 
-  // ⌘K offers the same steps under Playback, with their keys, and Reset once a delay is set.
   const menu = page.getByRole("dialog", { name: "Command menu" });
   const playback = menu.getByRole("group", { name: "Playback" });
 
@@ -359,13 +330,11 @@ test("Earlier, Later, a typed delay, and Reset move the cues both ways while pau
   await playback.getByRole("option", { name: /^Reset subtitle delay/u }).click();
   await expect.poll(() => showing(page)).toMatchObject({ starts: englishStarts(0) });
 
-  // Back where the next test expects it.
   await repeat(2, () => player.press("g"));
   await expect.poll(() => showing(page)).toMatchObject({ starts: englishStarts(-200) });
 });
 
 test("the delay holds through seeks, playing, and a quality change to an hls.js transcode", async () => {
-  // A seek through the player and back.
   const player = page.getByTestId("player");
 
   await player.press("ArrowRight");
@@ -375,12 +344,10 @@ test("the delay holds through seeks, playing, and a quality change to an hls.js 
     .poll(() => showing(page))
     .toMatchObject({ starts: englishStarts(-200), active: ["Ten seconds."] });
 
-  // Playing on; the quality change below happens while it plays.
   await player.press("k");
   await expectPlayingPast(page, 10.5);
   await expect.poll(() => showing(page)).toMatchObject({ starts: englishStarts(-200) });
 
-  // 480p transcodes the 720p file to HLS, which this browser plays through hls.js.
   const before = streams.length;
   const panel = await tracksPanel(page);
 
@@ -394,7 +361,6 @@ test("the delay holds through seeks, playing, and a quality change to an hls.js 
   await expectPlayingPast(page, 11);
   await page.getByTestId("player").press("k");
 
-  // Paused with the picture there: a stream the player is still swapping in reads 0 for a moment.
   await expect
     .poll(async () => {
       const state = await videoState(page);
@@ -410,8 +376,6 @@ test("the delay holds through seeks, playing, and a quality change to an hls.js 
   await expect(field).toHaveValue("−0.2");
   await expect.poll(() => showing(page)).toMatchObject({ starts: englishStarts(-200) });
 
-  // Where the transcode paused, a delay that puts the first cue around it shows the cue there,
-  // and one that moves it past shows nothing: the cues move on the hls.js stream too.
   const at = (await videoState(page)).currentTime;
   const around = Math.round((at - 11) * 100) / 100;
 
@@ -420,7 +384,6 @@ test("the delay holds through seeks, playing, and a quality change to an hls.js 
   await enterDelay(page, String(around + 3));
   await expect.poll(() => showing(page)).toMatchObject({ active: [] });
 
-  // Auto again, which later tests and visits expect.
   const back = streams.length;
 
   await (
@@ -441,19 +404,16 @@ test("another track starts at zero, Off keeps the delay, and the control says wh
   const control = delayControl(await tracksPanel(page));
   const field = control.getByRole("textbox", { name: "Subtitle delay in seconds" });
 
-  // French starts from its file's timing.
   await chooseSubtitle(page, "French");
   await expect(field).toHaveValue("0.0");
   await expect
     .poll(() => showing(page))
     .toMatchObject({ label: "French", starts: [FRENCH[0].start * 1000] });
 
-  // Back to English, which is another track again: zero as well.
   await chooseSubtitle(page, "English");
   await expect(field).toHaveValue("0.0");
   await expect.poll(() => showing(page)).toMatchObject({ starts: englishStarts(0) });
 
-  // Off disables the control and says why; the same track again has its delay back.
   await enterDelay(page, "-0.7");
   await chooseSubtitle(page, "Off");
   await expect(control).toContainText("Subtitles are off");
@@ -470,7 +430,6 @@ test("another track starts at zero, Off keeps the delay, and the control says wh
   await expect(field).toHaveValue("−0.7");
   await expect.poll(() => showing(page)).toMatchObject({ starts: englishStarts(-700) });
 
-  // A reload is a new playback: no delay.
   await page.reload();
   await expectPlayingPast(page, 0.5);
   await chooseSubtitle(page, "English");
@@ -523,7 +482,6 @@ test("in a room each viewer's delay moves only their own subtitles, never the ro
   await page.goto(`/watch/${titleId(FILM)}?start=0`);
   await expectPlayingPast(page, 1);
 
-  // Start a room from the controls.
   await revealControls(page);
   await page.getByRole("button", { name: "Watch together" }).click();
 
@@ -553,7 +511,6 @@ test("in a room each viewer's delay moves only their own subtitles, never the ro
   await expect.poll(() => showing(guest)).toMatchObject({ starts: englishStarts(-1000) });
   await expect.poll(() => showing(page)).toMatchObject({ starts: englishStarts(2000) });
 
-  // The guest, who cannot move the room's timeline, has the control as anyone does.
   await capture(guest, "subtitle-delay-guest");
 
   const states = await Promise.all([page, guest].map((target) => videoState(target)));

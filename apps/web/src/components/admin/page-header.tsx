@@ -37,7 +37,6 @@ export function PageHeader({
         {crumbs === undefined ? null : (
           <nav aria-label="Breadcrumb" className="flex items-center gap-1.5">
             {crumbs.map((crumb, index) => (
-              // Crumbs are fixed for a page, so their position is their identity.
               <Fragment key={index}>
                 {crumb}
                 <ChevronRightIcon

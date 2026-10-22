@@ -131,9 +131,7 @@ describe("follow", () => {
         fc.boolean(),
         fc.integer({ min: 1, max: 2 }),
         (clock, gap, ahead, lateness) => {
-          // A player outside the band, or inside it right after its clock changed.
           let settling = gap <= DEFAULT_TUNABLES.inSyncMs;
-          // Correction ticks, possibly late, until the player stops nudging.
           const tickMs = DEFAULT_TUNABLES.correctionIntervalMs * lateness;
           let offset = ahead ? gap : -gap;
           let rate = clock.playbackRate;
@@ -152,7 +150,6 @@ describe("follow", () => {
             offset += (rate - clock.playbackRate) * tickMs;
           }
 
-          // One step past the settle band at most: the step the last nudge took.
           const step = clock.playbackRate * DEFAULT_TUNABLES.nudgeRate * tickMs;
 
           expect(rate).toBe(clock.playbackRate);
@@ -170,7 +167,6 @@ describe("follow", () => {
         fc.integer({ min: DEFAULT_TUNABLES.settleMs + 1, max: DEFAULT_TUNABLES.inSyncMs }),
         fc.boolean(),
         (clock, gap, ahead) => {
-          // Nudging toward where the old clock was, which the new one leaves on the other side.
           const away = clock.playbackRate * (1 + (ahead ? 1 : -1) * DEFAULT_TUNABLES.nudgeRate);
           const player = { ...at(clock, ahead ? gap : -gap, false), playbackRate: away };
           const decision = follow(clock, NOW, player, false, true, DEFAULT_TUNABLES);

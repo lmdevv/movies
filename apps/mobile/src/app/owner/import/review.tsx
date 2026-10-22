@@ -1,8 +1,3 @@
-/**
- * J02 · Review Import: what the dry run found before anything is written: the libraries it uses in
- * place or adds, the users whose history comes along, their watch history, what is in progress,
- * and favorites. Libraries and Users open their choices. Start Import queues the import (J03).
- */
 import { router } from "expo-router";
 import {
   Bookmark,
@@ -41,7 +36,6 @@ const OPENS: Partial<Record<CountRow["key"], "/owner/import/libraries" | "/owner
   users: "/owner/import/users",
 };
 
-/** What the import leaves out or keeps, as muted lines. */
 const cautions = (preview: Preview): ReadonlyArray<string> => {
   const { summary, users } = preview.report;
   const skipped = users.filter((user) => user.action !== "import");

@@ -41,7 +41,6 @@ void SplashScreen.preventAutoHideAsync();
 
 export { ErrorBoundary } from "expo-router";
 
-/** React Navigation's colors from the theme tokens, so native headers and sheets match. */
 function NavigationTheme({ children }: { readonly children: ReactNode }) {
   const { theme } = useUniwind();
   const background = useThemeColor("--color-bg");
@@ -63,16 +62,8 @@ function NavigationTheme({ children }: { readonly children: ReactNode }) {
   );
 }
 
-/**
- * Phones browse upright like the Apple TV app; only the player turns sideways. iPad follows the
- * device.
- */
 const browseOrientation = Platform.OS === "ios" && Platform.isPad ? "default" : "portrait_up";
 
-/**
- * Every screen, grouped by the phase that may show it. Changing phase sends the stack to the
- * first screen the new phase allows.
- */
 function RootStack({ phase }: { readonly phase: SessionPhase["kind"] | "offline" }) {
   const invite = usePendingInvite();
   const { theme } = useUniwind();
@@ -159,7 +150,6 @@ function RootStack({ phase }: { readonly phase: SessionPhase["kind"] | "offline"
       <Stack.Protected guard={phase === "offline"}>
         <Stack.Screen name="offline" options={{ animation: "fade" }} />
       </Stack.Protected>
-      {/* Downloads and the player work without the server too. */}
       <Stack.Protected guard={phase === "ready" || phase === "offline"}>
         <Stack.Screen name="download/[downloadId]" />
         <Stack.Screen name="download/[downloadId]/actions" options={sheet} />
@@ -195,10 +185,8 @@ function HideSplash() {
   return null;
 }
 
-/** How long the session may load before the screen offers a way out. */
 const SLOW_LOAD_MS = 8000;
 
-/** Whether `loading` has lasted longer than `SLOW_LOAD_MS`. */
 const useSlowLoad = (loading: boolean): boolean => {
   const [slow, setSlow] = useState(false);
 
@@ -214,11 +202,6 @@ const useSlowLoad = (loading: boolean): boolean => {
   return slow;
 };
 
-/**
- * A08 · Server Unavailable for the remembered server, shown instead of the splash when the session
- * cannot load, such as when the account server is unreachable or the stored session was revoked:
- * try again, go to the downloads kept on this iPhone, pick another server, or sign out.
- */
 function ConnectionTrouble({
   description,
   retry,
@@ -260,10 +243,6 @@ function ConnectionTrouble({
   );
 }
 
-/**
- * The connected app: the SDK on the server, the profile choice, and the phase's screens. Trouble
- * covers the screens rather than replacing them, so Try Again returns to where people were.
- */
 function ConnectedApp() {
   const phase = useLiveSessionPhase();
   const settled = useSettledPhase(phase);
@@ -275,7 +254,6 @@ function ConnectedApp() {
   const slow = useSlowLoad(phase.kind === "loading");
   const active = settled?.kind === "ready" ? settled.active.profile : null;
 
-  // The profile on screen is the one whose downloads show when the server is out of reach.
   useEffect(() => {
     if (active !== null) rememberProfile(mediaUrl, active);
   }, [active, mediaUrl]);
@@ -333,7 +311,6 @@ function ConnectedApp() {
           </CurrentRoomProvider>
         </TitleStatesProvider>
         {trouble === null ? null : (
-          // Modal for VoiceOver too, so the covered screens can't be reached underneath.
           <View className="absolute inset-0" accessibilityViewIsModal>
             {trouble}
           </View>
@@ -359,7 +336,6 @@ function App() {
     <SdkProvider key={connection.convexUrl} connection={connection}>
       <ProfileChoiceProvider>
         <FirstRunProvider>
-          {/* Above the phases: downloads stay reachable while the server is not. */}
           <DownloadsProvider>
             <ConnectedApp />
           </DownloadsProvider>

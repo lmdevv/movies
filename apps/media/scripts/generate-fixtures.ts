@@ -1,9 +1,3 @@
-/**
- * Generates the fixture library (tiny ffmpeg clips, NFO files, artwork, subtitles) into a folder,
- * for trying the service by hand. Media is generated, never committed.
- *
- *   node scripts/generate-fixtures.ts /tmp/movies-fixtures
- */
 import { resolve } from "node:path";
 
 import { generateFixtureLibrary } from "../src/testing/fixture-library.ts";

@@ -1,7 +1,3 @@
-/**
- * Signing in to the worktree's stack as its owner, for the real-stack suites: one SDK session per
- * suite, the owner accounts the stack suites share, and waiting for a job to finish.
- */
 import type { JobId } from "@movies/contracts/ids";
 import type { Job } from "@movies/contracts/models/jobs";
 import { Auth, ConvexTransport, Movies, MoviesClient, TokenStorage } from "@movies/sdk/effect";
@@ -41,7 +37,6 @@ export const runIn = <A, E>(
 /** The session's command client. */
 export const client = Effect.map(MoviesClient.MoviesClient, (service) => service);
 
-/** Password credentials for a stack test account. */
 const password = (email: string, flow: "signIn" | "signUp") =>
   Auth.Credentials.Password({
     flow,

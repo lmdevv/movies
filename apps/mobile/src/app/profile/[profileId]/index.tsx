@@ -1,8 +1,3 @@
-/**
- * B03/B09 · Edit Profile and B11 · Create Profile: the avatar with its pencil, the name, Kids
- * Profile, Profile PIN (editing only), and Maximum Rating. The check saves; Create Profile also
- * has its button under the form. Deleting asks first on its own sheet.
- */
 import { router } from "expo-router";
 import { Check, Clapperboard, Lock, Pencil, ShieldCheck } from "lucide-react-native";
 import { useRef, useState } from "react";
@@ -32,7 +27,6 @@ export default function ProfileForm() {
   const hasPin = willHavePin(profile?.hasPin ?? false, draft.pin);
 
   const submit = async () => {
-    // The check and the keyboard's Done can both fire before `saving` renders.
     if (!ready || inFlight.current) return;
     inFlight.current = true;
     setSaving(true);

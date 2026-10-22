@@ -5,7 +5,6 @@ import { ChevronRightIcon } from "lucide-react";
 import { useId } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 
-/** Move between cards with ←/→ (and Home/End) inside a row track. */
 const onTrackKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
   const items = rowItems(event.currentTarget);
   const index = items.findIndex((item) => item === document.activeElement);

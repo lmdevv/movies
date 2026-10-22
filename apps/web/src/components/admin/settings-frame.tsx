@@ -62,7 +62,6 @@ function NavLink({ entry }: { readonly entry: NavEntry }) {
   );
 }
 
-/** The settings sections: the account's own, then the server sections its scopes open. */
 function SettingsNav({ className }: { readonly className?: string }) {
   const scopes = useScopes();
   const manage = scopes.has("manage");

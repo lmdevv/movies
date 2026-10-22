@@ -1,9 +1,3 @@
-/**
- * Verifies the playback tokens Convex issues with the shared verifier in
- * `@movies/contracts/playback-token` (format in `docs/decisions.md`), then refuses tokens whose
- * playback session has ended. Tokens are `Redacted` from the HTTP boundary to here and never
- * appear in errors or logs.
- */
 import type { MediaFileId, PlaybackSessionId, ProfileId, UserId } from "@movies/contracts/ids";
 import { PlaybackSessionEnded } from "@movies/contracts/media-playback";
 import {
@@ -72,7 +66,6 @@ export const make = Effect.fn("PlaybackTokenVerifier.make")(function* (
   const key = yield* importPlaybackTokenSecret(secret);
   const ended = yield* EndedSessions.Service;
 
-  /** The grant of a token signed with the secret for one of `purposes`, ended or not. */
   const grantOf = Effect.fnUntraced(function* (
     token: Redacted.Redacted,
     purposes: ReadonlyArray<TokenPurpose>,

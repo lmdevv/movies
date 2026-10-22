@@ -1,9 +1,3 @@
-/**
- * Scrub thumbnails and chapters against the real media service: a scanned clip gets its sprite
- * sheets from a trickplay job, hovering, dragging, or keyboard-seeking the scrubber shows the frame
- * and chapter for that time, and the Chapters menu plays from a chapter's start. Runs after the
- * player suite on the same stack, signed in as its owner.
- */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -96,7 +90,6 @@ test.beforeAll(async ({ browser }) => {
   if (id === undefined) throw new Error(`${MOVIE} was not scanned`);
   titleId = id;
 
-  // The scan queued the file's thumbnails; they are ready once the file carries its manifest.
   const profile = await adultProfile(owner.sdk);
 
   await expect
@@ -122,7 +115,6 @@ test.afterAll(async () => {
   await rm(workspace, { recursive: true, force: true });
 });
 
-/** Plays the movie from the start, then pauses it so the controls stay on screen. */
 const openPaused = async (target: Page): Promise<void> => {
   await target.goto(`/watch/${titleId}?start=0`);
   await expectPlayingPast(target, 0.5);
@@ -130,7 +122,6 @@ const openPaused = async (target: Page): Promise<void> => {
   await revealControls(target);
 };
 
-/** Points at `fraction` of the scrubber's width. */
 const hoverScrubber = async (target: Page, fraction: number): Promise<void> => {
   const box = await target.locator('[data-slot="scrubber"]').boundingBox();
 
@@ -139,7 +130,6 @@ const hoverScrubber = async (target: Page, fraction: number): Promise<void> => {
   await target.mouse.move(box.x + box.width * fraction, box.y + box.height / 2);
 };
 
-/** The style of the thumbnail shown over the scrubber. */
 const thumbnailStyle = (target: Page) =>
   target
     .locator('[data-slot="scrubber-hover"] [data-slot="sprite-thumbnail"]')
@@ -156,7 +146,6 @@ test("hovering the scrubber shows the frame, chapter, and time under the pointer
   await openPaused(page);
   await expect(page.locator('[data-slot="scrubber-chapter-mark"]')).toHaveCount(2);
 
-  // Halfway is 0:50: thumbnail 5 (row 0, column 5) of the first sheet, in the "Storm" chapter.
   await hoverScrubber(page, 0.5);
 
   const hover = page.locator('[data-slot="scrubber-hover"]');
@@ -169,7 +158,6 @@ test("hovering the scrubber shows the frame, chapter, and time under the pointer
   expect(style.image).toMatch(
     /\/media\/trickplay\/[a-z0-9]+\/[0-9a-z]+-[0-9a-z]+\/0\.jpg\?token=v1\./u,
   );
-  // Column 4 or 5 of ten 320-pixel tiles on a 3200-pixel sheet, depending on the pixel hit.
   expect(style.position).toMatch(/^(44\.4|55\.5)\d*% 0%$/u);
 
   const sheet = await page.evaluate(
@@ -184,7 +172,6 @@ test("hovering the scrubber shows the frame, chapter, and time under the pointer
   expect(sheet).toEqual({ status: 200, type: "image/jpeg" });
   await capture(page, "scrub-thumbnail");
 
-  // The first tenth is the "Arrival" chapter.
   await hoverScrubber(page, 0.1);
   await expect(hover.locator('[data-slot="scrubber-chapter"]')).toHaveText("Arrival");
 });
@@ -238,7 +225,6 @@ test("dragging the phone scrubber shows the thumbnail", async ({ browser }) => {
 
   if (box === null) throw new Error("The phone scrubber is not on screen");
 
-  // A press and a drag along the bar, as a thumb scrubs.
   await handset.mouse.move(box.x + 4, box.y + box.height / 2);
   await handset.mouse.down();
   await handset.mouse.move(box.x + box.width * 0.75, box.y + box.height / 2, { steps: 5 });

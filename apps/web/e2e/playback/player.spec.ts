@@ -1,12 +1,3 @@
-/**
- * Playback against the real media service, one clip per rung of the ladder as Chromium meets it:
- * an MP4 plays directly, an MPEG-TS file remuxes to HLS, AC-3 audio is converted, and HEVC is
- * transcoded in software. Around them: the keyboard, progress landing in Continue watching, the
- * resume prompt, subtitles and audio switching, a seek outside what a transcode produced, autoplay
- * of the next episode, a stall that reaches the playback diagnostics, and a file gone from disk.
- * Runs after the admin suites on the same stack, signed in as their owner; first-frame times per
- * mode go to the test's annotations.
- */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,7 +44,6 @@ test.skip(stack === null, NO_STACK);
 
 test.describe.configure({ mode: "serial" });
 
-/** Encoding the clips and bundling the service take a while on a cold machine. */
 const SETUP_TIMEOUT_MS = 240_000;
 
 const run = Date.now().toString(36);
@@ -67,7 +57,6 @@ The lighthouse keeper climbs the stairs.
 The lamp turns all night.
 `;
 
-/** The suite's movies: one per playback path, plus one whose file goes missing. */
 const MOVIES = {
   direct: "Lighthouse Keeper",
   remux: "Signal Box",
@@ -77,7 +66,6 @@ const MOVIES = {
   pictures: "Paper Lantern",
 } as const;
 
-/** DVD subtitles (VobSub) the media service tests carry; see their fixtures README. */
 const VOBSUB = join(
   import.meta.dirname,
   "..",
@@ -90,26 +78,19 @@ const VOBSUB = join(
   "vobsub.mkv",
 );
 
-/** The player's tracks button and its popover. */
 const TRACKS = "Audio, subtitles, and quality";
 
 const SHOW = "Tide Tables";
 
 const EPISODES = ["Low Water", "Slack Tide", "Spring Tide"] as const;
 
-/**
- * The second episode carries what the next-episode card shows: a still, a runtime, and a synopsis
- * as long as a real one. The third has none of them, for the card's fallbacks.
- */
 const SLACK_TIDE = {
   plot: "The harbor master's daughter comes home to the lighthouse; the ferry crew argues over the night timetable; the keeper's log goes missing.",
   runtimeMinutes: 48,
 } as const;
 
-/** The show's second season, for browsing seasons in the player's episode picker. */
 const SEASON_TWO = ["Neap Tide"] as const;
 
-/** How long each episode runs; autoplay offers the next one in its last tenth. */
 const EPISODE_SECONDS = 30;
 
 let workspace = "";
@@ -130,7 +111,6 @@ const episodes: Array<EpisodeId> = [];
 
 const seasonTwo: Array<EpisodeId> = [];
 
-/** First-frame times by mode, reported once the suite ends. */
 const firstFrames: Array<{ readonly mode: string; readonly ms: number }> = [];
 
 test.beforeAll(async ({ browser }) => {
@@ -146,7 +126,6 @@ test.beforeAll(async ({ browser }) => {
   const showFolder = join(shows, `${SHOW} (2020)`, "Season 01");
 
   await Promise.all([
-    // Plays directly; the French track is not the default, so choosing it needs HLS.
     encodeClip(join(folder(MOVIES.direct), `${MOVIES.direct} (2021).mp4`), {
       seconds: 120,
       video: "h264",
@@ -171,7 +150,6 @@ test.beforeAll(async ({ browser }) => {
       video: "hevc",
       audio: [{ codec: "aac", language: "eng" }],
     }),
-    // 720p with a DVD subtitle track, which only a transcode can show.
     encodeClip(join(folder(MOVIES.pictures), `${MOVIES.pictures} (2021).mkv`), {
       seconds: 30,
       video: "h264",
@@ -275,7 +253,6 @@ test.afterAll(async () => {
     description: firstFrames.map(({ mode, ms }) => `${mode} ${String(ms)} ms`).join(", "),
   });
 
-  // The numbers the milestone report quotes.
   console.log(`First frame by mode: ${JSON.stringify(firstFrames)}`);
   await context.close();
   await owner.sdk.dispose();
@@ -291,7 +268,6 @@ function titleId(name: string): TitleId {
   return id;
 }
 
-/** Opens the player at the beginning and waits for the first frame of `mode`. */
 const playFromStart = async (name: string, mode: PlaybackMode): Promise<void> => {
   const before = streams.length;
 
@@ -301,7 +277,6 @@ const playFromStart = async (name: string, mode: PlaybackMode): Promise<void> =>
   firstFrames.push({ mode, ms: await firstFrameMs(page) });
 };
 
-/** The subtitle track the player shows, with its cue count, or null when none shows. */
 const showingSubtitle = () =>
   page.getByTestId("player-video").evaluate((element) => {
     if (!(element instanceof HTMLVideoElement)) return null;
@@ -311,16 +286,12 @@ const showingSubtitle = () =>
     return track === undefined ? null : { label: track.label, cues: track.cues?.length ?? 0 };
   });
 
-/** How late each segment arrives while the stall test holds them, as over a congested link. */
 const CONGESTED_SEGMENT_DELAY_MS = 4_000;
 
-/** Where the stall test seeks: 96 s into the two-minute remux. */
 const SEEK_FRACTION = 0.8;
 
-/** A position the stall test reaches only with segments that arrived late. */
 const PAST_THE_HELD_SEGMENTS_SECONDS = 100;
 
-/** The playback timeline of the web session the logs saw last, or null before there is one. */
 const latestWebTimeline = async () => {
   const [session] = await owner.sdk.media("diagnostics.sessions", {});
 
@@ -337,7 +308,6 @@ test("a direct file plays, answers the keyboard, and lands in Continue watching"
 
   const player = page.getByTestId("player");
 
-  // j and l move ten seconds, the arrows five.
   const at = (await videoState(page)).currentTime;
 
   await player.press("l");
@@ -349,8 +319,6 @@ test("a direct file plays, answers the keyboard, and lands in Continue watching"
   await player.press("ArrowLeft");
   await expectPositionNear(page, at, 1.5);
 
-  // Presses quicker than a render add up: the second counts from where the first landed.
-  // Read in the same task, before playback moves on.
   const quick = await page.getByTestId("player-video").evaluate((element) => {
     if (!(element instanceof HTMLVideoElement)) throw new Error("The player is not a video");
 
@@ -367,13 +335,11 @@ test("a direct file plays, answers the keyboard, and lands in Continue watching"
   await player.press("j");
   await expectPositionNear(page, at, 1.5);
 
-  // k and Space pause and play.
   await player.press("k");
   await expect.poll(async () => (await videoState(page)).paused).toBe(true);
   await player.press(" ");
   await expect.poll(async () => (await videoState(page)).paused).toBe(false);
 
-  // The volume keys and mute.
   await player.press("ArrowDown");
   await expect.poll(async () => (await videoState(page)).volume).toBeCloseTo(0.9, 2);
   await player.press("ArrowUp");
@@ -383,21 +349,18 @@ test("a direct file plays, answers the keyboard, and lands in Continue watching"
   await player.press("m");
   await expect.poll(async () => (await videoState(page)).muted).toBe(false);
 
-  // Stream info names the rung; codec details live only there.
   await revealControls(page);
   await capture(page, "07-01-playing");
   await page.getByRole("button", { name: "Stream info" }).click();
   await expect(activeRung(page)).toHaveText("Direct");
   await page.getByRole("button", { name: "Close stream info" }).click();
 
-  // Watch to past twenty seconds, then leave: the session ends where it stopped.
   await player.press("l");
   await player.press("l");
   await expectPlayingPast(page, 21);
   await leaveWithEscape(page);
   await expect(page).toHaveURL(new RegExp(`/title/${titleId(MOVIES.direct)}$`, "u"));
 
-  // In the app, as a viewer would: a reload would cut off the report of where playback stopped.
   await page.getByRole("link", { name: "[movies] home" }).click();
 
   const row = page.getByRole("region", { name: /^Continue watching/u });
@@ -438,7 +401,6 @@ test("subtitles show from the track popover and toggle with c; another audio tra
   await page.getByTestId("player").press("c");
   await expect.poll(showingSubtitle).toEqual({ label: "English", cues: 2 });
 
-  // A track the browser cannot pick from the file needs the media service to remux it.
   const before = streams.length;
   const position = (await videoState(page)).currentTime;
 
@@ -450,7 +412,6 @@ test("subtitles show from the track popover and toggle with c; another audio tra
   await expectPlayingPast(page, position);
   await expect(panel.getByRole("radio", { name: "French" })).toBeChecked();
 
-  // Leaving stops the remuxed stream, which replaced the direct one the session started with.
   const streamId = streams.at(-1)?.streamId;
 
   if (streamId === undefined) throw new Error("The remux has no stream id");
@@ -488,7 +449,6 @@ test("⌘K lists the player's audio, subtitles, and quality, and switches them a
 
   await capture(page, "07-11-command-menu-playback");
 
-  // Audio lists both tracks with the playing one checked; French remuxes, as from the track menu.
   await playback.getByRole("option", { name: /^Audio/u }).click();
 
   const audio = menu.getByRole("listbox", { name: "Audio" });
@@ -508,7 +468,6 @@ test("⌘K lists the player's audio, subtitles, and quality, and switches them a
   ).toBeChecked();
   await page.keyboard.press("Escape");
 
-  // Subtitles: Off is checked until the English track is chosen, which then shows.
   await page.keyboard.press("ControlOrMeta+k");
   await playback.getByRole("option", { name: /^Subtitles/u }).click();
 
@@ -519,7 +478,6 @@ test("⌘K lists the player's audio, subtitles, and quality, and switches them a
   await subtitles.getByRole("option", { name: "English" }).click();
   await expect.poll(showingSubtitle).toEqual({ label: "English", cues: 2 });
 
-  // Quality shows the current choice. Escape goes back a level, then closes; neither leaves.
   await page.keyboard.press("ControlOrMeta+k");
   await playback.getByRole("option", { name: /^Quality/u }).click();
   await expect(
@@ -532,7 +490,6 @@ test("⌘K lists the player's audio, subtitles, and quality, and switches them a
   await expect(leaveDialog(page)).toBeHidden();
   await expect(page).toHaveURL(onPlayer);
 
-  // Full screen: the menu opens inside the player, and its commands work there.
   await page.getByTestId("player").press("f");
   await expect
     .poll(() => page.evaluate(() => document.fullscreenElement?.getAttribute("data-testid")))
@@ -549,8 +506,6 @@ test("⌘K lists the player's audio, subtitles, and quality, and switches them a
     )
     .toBe(true);
 
-  // Full screen ending under the open menu (as the browser's own Escape does) leaves it open, with
-  // the keyboard still in its input.
   const search = menu.getByRole("combobox");
 
   await expect(search).toBeFocused();
@@ -563,7 +518,6 @@ test("⌘K lists the player's audio, subtitles, and quality, and switches them a
   await expect(menu).toBeHidden();
   await expect(leaveDialog(page)).toBeHidden();
 
-  // Back to full screen: the menu's commands work there.
   await page.getByTestId("player").press("f");
   await expect
     .poll(() => page.evaluate(() => document.fullscreenElement?.getAttribute("data-testid")))
@@ -572,13 +526,11 @@ test("⌘K lists the player's audio, subtitles, and quality, and switches them a
   await playback.getByRole("option", { name: /^Pause/u }).click();
   await expect.poll(async () => (await videoState(page)).paused).toBe(true);
 
-  // Escape leaves full screen and nothing more: the player stays, and nothing asks.
   await page.getByTestId("player").press("Escape");
   await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
   await expect(leaveDialog(page)).toBeHidden();
   await expect(page).toHaveURL(onPlayer);
 
-  // Away from the player the menu has no player commands.
   await leaveWithEscape(page);
   await expect(page.getByRole("heading", { name: MOVIES.direct, level: 1 })).toBeVisible();
   await page.keyboard.press("ControlOrMeta+k");
@@ -597,7 +549,6 @@ test("Escape asks before leaving: open layers close first, Stay plays on, Leave 
   const onPlayer = new RegExp(`/watch/${titleId(MOVIES.remux)}`, "u");
   const paused = async () => (await videoState(page)).paused;
 
-  // With nothing open, Escape asks and pauses, with focus on Stay. Escape again plays on.
   await player.press("Escape");
   await expect(leave).toBeVisible();
   await expect(stay).toBeFocused();
@@ -609,7 +560,6 @@ test("Escape asks before leaving: open layers close first, Stay plays on, Leave 
   await expect(player).toBeFocused();
   await expect.poll(paused).toBe(false);
 
-  // From a focused control, focus goes back to that control.
   const streamInfo = page.getByRole("button", { name: "Stream info" });
 
   await revealControls(page);
@@ -620,7 +570,6 @@ test("Escape asks before leaving: open layers close first, Stay plays on, Leave 
   await expect(leave).toBeHidden();
   await expect(streamInfo).toBeFocused();
 
-  // Stay and a click outside the dialog play on too.
   await player.press("Escape");
   await stay.click();
   await expect(leave).toBeHidden();
@@ -631,7 +580,6 @@ test("Escape asks before leaving: open layers close first, Stay plays on, Leave 
   await expect(leave).toBeHidden();
   await expect.poll(paused).toBe(false);
 
-  // Paused before asking, Stay keeps it paused.
   await player.press("k");
   await expect.poll(paused).toBe(true);
   await player.press("Escape");
@@ -642,7 +590,6 @@ test("Escape asks before leaving: open layers close first, Stay plays on, Leave 
   await player.press("k");
   await expect.poll(paused).toBe(false);
 
-  // An open layer takes Escape first, even held down.
   const panel = page.getByRole("dialog", { name: TRACKS });
 
   await revealControls(page);
@@ -672,7 +619,6 @@ test("Escape asks before leaving: open layers close first, Stay plays on, Leave 
   await expect(page).toHaveURL(onPlayer);
   await expect.poll(paused).toBe(false);
 
-  // Held with nothing open, Escape asks once, and the dialog stays.
   await player.focus();
 
   await holdKey(page, "Escape", 4);
@@ -680,7 +626,6 @@ test("Escape asks before leaving: open layers close first, Stay plays on, Leave 
   await page.waitForTimeout(500);
   await expect(leave).toBeVisible();
 
-  // From the keyboard: Tab moves from Stay to Leave, Enter leaves, and the stream stops once.
   const stops: Array<string> = [];
 
   const onRequest = (request: Request) => {
@@ -696,7 +641,6 @@ test("Escape asks before leaving: open layers close first, Stay plays on, Leave 
   page.off("request", onRequest);
   expect(stops).toHaveLength(1);
 
-  // The visible Back button leaves without asking.
   await playFromStart(MOVIES.remux, "remux");
   await revealControls(page);
   await page.getByRole("button", { name: "Back to details" }).click();
@@ -709,7 +653,6 @@ test("a picture subtitle burns into a transcode and back out; a lower quality tr
 
   const panel = page.getByRole("dialog", { name: TRACKS });
 
-  // The panel closes with the controls while a stream plays, so each choice opens it again.
   const openPanel = async () => {
     if (await panel.isVisible()) return;
     await revealControls(page);
@@ -731,14 +674,12 @@ test("a picture subtitle burns into a transcode and back out; a lower quality tr
   expect(streams.at(-1)?.burnedInSubtitle).toMatch(/^e\d+$/u);
   await expectPlayingPast(page, 1);
 
-  // Off returns to the copy, without a burned-in subtitle.
   before = streams.length;
   await choose("Off");
   await expect
     .poll(() => streams.slice(before).at(-1))
     .toMatchObject({ mode: "remux", burnedInSubtitle: undefined });
 
-  // 480p transcodes the 720p source down, and the browser remembers the choice.
   before = streams.length;
   await choose("480p");
   await expect
@@ -753,7 +694,6 @@ test("a picture subtitle burns into a transcode and back out; a lower quality tr
   await openPanel();
   await expect(panel.getByRole("radio", { name: "480p" })).toBeChecked();
 
-  // Auto plays the source again; later tests expect it.
   before = streams.length;
   await choose("Auto");
   await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe("remux");
@@ -768,7 +708,6 @@ test("a quality the media service cannot encode now gives way to the stream that
     await page.getByRole("button", { name: TRACKS }).click();
   };
 
-  // Every transcode slot is taken, and the first refusal comes late, after the second choice.
   await refuseQualityCaps(page, 1_000);
   await playFromStart(MOVIES.pictures, "remux");
   await openPanel();
@@ -776,8 +715,6 @@ test("a quality the media service cannot encode now gives way to the stream that
   await openPanel();
   await panel.getByRole("radio", { name: "480p" }).click();
 
-  // Neither choice can play; the menu returns to the quality of the stream still playing, not to
-  // the 720p that never loaded.
   await expect
     .poll(async () => {
       await openPanel();
@@ -787,7 +724,6 @@ test("a quality the media service cannot encode now gives way to the stream that
     .toBe(true);
   await expectPlayingPast(page, 1);
 
-  // A remembered 480p the service cannot encode now plays the source instead of stopping.
   await page.unroute(`**${MEDIA_ROUTES.negotiate}`);
   await openPanel();
   await panel.getByRole("radio", { name: "480p" }).click();
@@ -891,8 +827,6 @@ test("the next episode plays itself after the countdown; Watch credits cancels i
     timeout: 10_000,
   });
 
-  // A compact card names the next episode, with its still, runtime, and synopsis, and Play next
-  // has focus, while the credits keep the whole frame.
   const card = page.getByRole("region", { name: "Next episode" });
   const still = card.locator('[data-slot="next-episode-still"]');
   const image = still.locator('[data-slot="next-episode-image"]');
@@ -913,7 +847,6 @@ test("the next episode plays itself after the countdown; Watch credits cancels i
   await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"), { timeout: 20_000 });
   await expectPlayingPast(page, 0.5);
 
-  // On the second episode, Watch credits keeps playing to the end instead.
   await player.press("l");
   await player.press("l");
   await player.press("ArrowRight");
@@ -922,13 +855,10 @@ test("the next episode plays itself after the countdown; Watch credits cancels i
 
   await expect(credits).toBeVisible({ timeout: 10_000 });
 
-  // The last episode has no still: its tile keeps its place with a glyph.
   await expect(card.getByRole("heading", { name: EPISODES[2] })).toBeVisible();
   await expect(image).toHaveCount(0);
   await expect(still.locator("svg")).toBeVisible();
 
-  // A click on the credits pauses them, and the countdown with them: the card gives way to the
-  // controls until they play again, and then counts down from the start.
   const video = page.getByTestId("player-video");
   const onCredits = { position: { x: 200, y: 450 } } as const;
 
@@ -940,7 +870,6 @@ test("the next episode plays itself after the countdown; Watch credits cancels i
   await video.click(onCredits);
   await expect(credits).toBeVisible();
 
-  // While "Leave playback?" asks, the ten-second countdown waits instead of moving on behind it.
   await player.press("Escape");
   await expect(leaveDialog(page)).toBeVisible();
   await page.waitForTimeout(11_000);
@@ -955,7 +884,6 @@ test("the next episode plays itself after the countdown; Watch credits cancels i
   await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"));
 });
 
-/** The bottom controls, which fade out while the viewer is idle unless something holds them. */
 const controlsShown = (target: Page) =>
   target.locator('[data-slot="player-controls"]').evaluate((element) => {
     const { opacity } = getComputedStyle(element);
@@ -963,7 +891,6 @@ const controlsShown = (target: Page) =>
     return opacity === "1";
   });
 
-/** Idle for longer than the controls wait before hiding. */
 const IDLE_MS = 4_000;
 
 test("hovering the volume button opens a slider that sets the level live and stays in step with mute", async () => {
@@ -981,7 +908,6 @@ test("hovering the volume button opens a slider that sets the level live and sta
   await expect(slider).toBeVisible();
   await expect(slider).toHaveAttribute("aria-valuetext", "100%");
 
-  // From the button onto the slider, it stays open, and holds the controls while the pointer rests.
   const box = await control.boundingBox();
 
   if (box === null) throw new Error("The volume slider is not on screen");
@@ -999,7 +925,6 @@ test("hovering the volume button opens a slider that sets the level live and sta
   expect(await controlsShown(page)).toBe(true);
   await capture(page, "07-13-volume-slider");
 
-  // Dragging sets the level as it moves, without pausing or renegotiating the stream.
   await page.mouse.down();
   await page.mouse.move(at(0.6).x, at(0.6).y, { steps: 4 });
   await expect.poll(async () => (await videoState(page)).volume).toBeLessThan(0.75);
@@ -1012,7 +937,6 @@ test("hovering the volume button opens a slider that sets the level live and sta
   expect(level).toBeGreaterThan(0.2);
   await expect(slider).toHaveAttribute("aria-valuetext", `${String(Math.round(level * 100))}%`);
 
-  // Mute and the slider agree: muted reads 0, and unmuting returns to the level.
   await mute.click();
   await expect.poll(async () => (await videoState(page)).muted).toBe(true);
   await expect(slider).toHaveAttribute("aria-valuetext", "Muted");
@@ -1020,7 +944,6 @@ test("hovering the volume button opens a slider that sets the level live and sta
   await expect.poll(async () => (await videoState(page)).muted).toBe(false);
   expect((await videoState(page)).volume).toBeCloseTo(level, 2);
 
-  // Down to nothing mutes; unmuting returns to the level it was dragged from.
   await page.mouse.move(at(0.3).x, at(0.3).y);
   await page.mouse.down();
   await page.mouse.move(at(0).x, box.y + box.height + 8, { steps: 6 });
@@ -1031,7 +954,6 @@ test("hovering the volume button opens a slider that sets the level live and sta
   await expect.poll(async () => (await videoState(page)).volume).toBeCloseTo(level, 2);
   expect((await videoState(page)).muted).toBe(false);
 
-  // Away from the button and the slider, it closes and stops holding the controls.
   const frame = await page.getByTestId("player").boundingBox();
 
   if (frame === null) throw new Error("The player is not on screen");
@@ -1040,7 +962,6 @@ test("hovering the volume button opens a slider that sets the level live and sta
   await expect(slider).toHaveCount(0);
   await expect.poll(() => controlsShown(page), { timeout: IDLE_MS + 2_000 }).toBe(false);
 
-  // From the keyboard: tabbing to the button opens it, Tab reaches it, arrows step it.
   await revealControls(page);
   await page.getByRole("button", { name: "Forward 10 seconds" }).focus();
   await page.keyboard.press("Tab");
@@ -1061,13 +982,11 @@ test("hovering the volume button opens a slider that sets the level live and sta
     .poll(async () => Math.round((await videoState(page)).volume * 100))
     .toBe(Math.min(100, keyed + 1) - 10);
 
-  // The player's other keys still work from the slider: k pauses and plays.
   await page.keyboard.press("k");
   await expect.poll(async () => (await videoState(page)).paused).toBe(true);
   await page.keyboard.press("k");
   await expect.poll(async () => (await videoState(page)).paused).toBe(false);
 
-  // Escape closes the slider and nothing more; focus returns to the button.
   await page.keyboard.press("Escape");
   await expect(slider).toHaveCount(0);
   await expect(mute).toBeFocused();
@@ -1093,13 +1012,11 @@ test("the episode picker browses seasons and plays earlier and later episodes in
   const picker = page.getByRole("dialog", { name: "Episodes" });
   const current = picker.locator('[aria-current="true"]');
 
-  // Next episode stays beside it.
   await revealControls(page);
   await expect(page.getByRole("button", { name: "Next episode" })).toBeVisible();
   await button.click();
   await expect(picker).toBeVisible();
 
-  // It opens on the season playing, the current episode marked and focused.
   await expect(picker.getByRole("button", { name: "Season 1", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -1112,12 +1029,10 @@ test("the episode picker browses seasons and plays earlier and later episodes in
   await expect(current).toContainText(EPISODES[1]);
   await expect(current).toBeFocused();
 
-  // It holds the controls while open.
   await page.waitForTimeout(IDLE_MS);
   expect(await controlsShown(page)).toBe(true);
   await capture(page, "07-14-episode-picker");
 
-  // Arrows move between episodes without seeking or changing the volume.
   const volume = (await videoState(page)).volume;
 
   await page.keyboard.press("ArrowDown");
@@ -1127,14 +1042,12 @@ test("the episode picker browses seasons and plays earlier and later episodes in
   await expect(picker.getByRole("button", { name: new RegExp(EPISODES[0], "u") })).toBeFocused();
   expect((await videoState(page)).volume).toBe(volume);
 
-  // Escape closes the picker and nothing more: playback goes on, nothing asks.
   await page.keyboard.press("Escape");
   await expect(picker).toBeHidden();
   await expect(leaveDialog(page)).toBeHidden();
   await expect(page).toHaveURL(new RegExp(`episodeId=${second}`, "u"));
   expect((await videoState(page)).paused).toBe(false);
 
-  // A later season's episode plays from the picker.
   await revealControls(page);
   await button.click();
   await picker.getByRole("button", { name: "Season 2", exact: true }).click();
@@ -1146,7 +1059,6 @@ test("the episode picker browses seasons and plays earlier and later episodes in
   await expect(page).toHaveURL(new RegExp(`episodeId=${later}`, "u"));
   await expectPlayingPast(page, 0.5);
 
-  // It opens on that season now; an earlier episode plays from Season 1, in full screen too.
   await player.press("f");
   await expect
     .poll(() => page.evaluate(() => document.fullscreenElement?.getAttribute("data-testid")))
@@ -1165,7 +1077,6 @@ test("the episode picker browses seasons and plays earlier and later episodes in
     )
     .toBe(true);
 
-  // Escape closes the picker first; full screen stays until the next press.
   await page.keyboard.press("Escape");
   await expect(picker).toBeHidden();
   expect(await page.evaluate(() => document.fullscreenElement !== null)).toBe(true);
@@ -1177,7 +1088,6 @@ test("the episode picker browses seasons and plays earlier and later episodes in
   await expectPlayingPast(page, 0.5);
   await page.evaluate(() => document.exitFullscreen().catch(() => undefined));
 
-  // A movie has no picker.
   await playFromStart(MOVIES.direct, "direct");
   await revealControls(page);
   await expect(page.getByRole("button", { name: "Mute", exact: true })).toBeVisible();
@@ -1193,7 +1103,6 @@ test("touch: a tap opens the volume slider before muting, and the picker plays a
 
   if (first === undefined || second === undefined) throw new Error("The show has no episodes");
 
-  // A tablet keeps the desktop controls, with touch.
   const tablet = await browser.newContext({ ...devices["Galaxy Tab S9 landscape"] });
   const touch = await tablet.newPage();
 
@@ -1212,7 +1121,6 @@ test("touch: a tap opens the volume slider before muting, and the picker plays a
   await touch.getByRole("button", { name: "Unmute", exact: true }).tap();
   await expect.poll(async () => (await videoState(touch)).muted).toBe(false);
 
-  // Left alone, the slider a tap opened closes, and lets the controls hide again.
   await expect(slider).toHaveCount(0, { timeout: 6_000 });
 
   await touch.getByRole("button", { name: "Episodes", exact: true }).tap();
@@ -1225,7 +1133,6 @@ test("touch: a tap opens the volume slider before muting, and the picker plays a
   await expectPlayingPast(touch, 0.5);
   await tablet.close();
 
-  // A phone has an Episodes pill under the scrubber.
   const phone = await browser.newContext({ ...devices["iPhone 13 landscape"] });
   const handset = await phone.newPage();
 
@@ -1240,7 +1147,6 @@ test("touch: a tap opens the volume slider before muting, and the picker plays a
   await expect(phonePicker.locator('[aria-current="true"]')).toContainText(EPISODES[1]);
   await expect(phonePicker).toHaveCSS("opacity", "1");
 
-  // On a screen this short it stays above the pill, within the screen, and its list scrolls.
   const pill = await handset.getByRole("button", { name: "Episodes", exact: true }).boundingBox();
   const panel = await phonePicker.boundingBox();
 
@@ -1264,7 +1170,6 @@ test("a file gone from disk says so instead of playing", async () => {
 test("a phone plays in its own layout, with brightness and volume sliders", async ({ browser }) => {
   if (stack === null) return;
 
-  // Paper's iOS player: an iPhone held sideways, 390 points tall.
   const phone = await browser.newContext({ ...devices["iPhone 13 landscape"] });
   const handset = await phone.newPage();
 
@@ -1277,7 +1182,6 @@ test("a phone plays in its own layout, with brightness and volume sliders", asyn
   await expect(handset.getByRole("button", { name: "Close player" })).toBeVisible();
   await capture(handset, "07-10-ios-player");
 
-  // Close is already deliberate, so it leaves without asking.
   await handset.getByRole("button", { name: "Close player" }).tap();
   await expect(handset).toHaveURL(new RegExp(`/title/${titleId(MOVIES.direct)}$`, "u"));
   await expect(leaveDialog(handset)).toHaveCount(0);

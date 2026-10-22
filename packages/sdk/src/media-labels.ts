@@ -1,7 +1,3 @@
-/**
- * How every client names a file's technical facts, so the web app and the CLI agree: `4K`,
- * `HDR10`, `HEVC`, `EAC3 5.1`, and sizes such as `41.2 GB`.
- */
 import type { HdrFormat } from "@movies/contracts/models/catalog";
 import { Match } from "effect";
 

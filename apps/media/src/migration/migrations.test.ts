@@ -67,7 +67,6 @@ describe("suggestProfile", () => {
     assert.deepStrictEqual(suggestProfile({ name: "Stranger", email: null }, TARGETS), {
       kind: "invite",
     });
-    // An account without profiles has nowhere to put history.
     assert.deepStrictEqual(suggestProfile({ name: "x", email: "empty@example.com" }, TARGETS), {
       kind: "invite",
     });

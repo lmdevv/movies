@@ -1,12 +1,3 @@
-/**
- * Registry `media` commands over HTTP (`@movies/contracts/commands`, kind `media`): each answers
- * at its command's route, takes the command's arguments as a JSON body, and requires the caller's
- * Convex auth token as a bearer token holding the command's scope. Results are encoded with the
- * command's result schema; expected failures answer `{ code, message }` with the status of their
- * code, the same body Convex uses, so clients handle both alike.
- *
- * Route groups register their commands with `commandRoute`; see `metadata-routes.ts`.
- */
 import type { CommandArgs, CommandResult } from "@movies/contracts/commands";
 import { commands } from "@movies/contracts/commands";
 import type { CommandNameOfKind } from "@movies/contracts/commands";
@@ -28,7 +19,6 @@ export type CommandHandler<Name extends MediaCommandName> = (
   viewer: Viewer,
 ) => Effect.Effect<CommandResult<Name>, CallError>;
 
-/** The wire code and HTTP status of each failure. */
 const failureOf = Match.type<CallError>().pipe(
   Match.tagsExhaustive({
     Unauthenticated: (error) => ({ code: "unauthenticated", status: 401, message: error.message }),

@@ -1,8 +1,3 @@
-/**
- * Person jobs: someone opened a person whose biography nobody fetched yet (`people.requestDetails`).
- * The job looks the person up at the metadata provider by their TMDB ID and writes their
- * biography, dates, birthplace, department, and photo with `mediaService:applyPerson`.
- */
 import type { ScannedPersonDetails } from "@movies/contracts/models/scan";
 import { Effect, Match, Option } from "effect";
 
@@ -23,11 +18,6 @@ const providerFailure = Match.type<MetadataPlugin.MetadataError>().pipe(
   }),
 );
 
-/**
- * Whether the provider will never describe this person: it has no key, or it answers 404 for
- * someone it no longer has. The person is then recorded as fetched with nothing more to show, so
- * their page stops waiting and nobody queues the lookup again.
- */
 const isFinal = Match.type<MetadataPlugin.MetadataError>().pipe(
   Match.tagsExhaustive({
     MetadataProviderUnavailable: () => true,
@@ -36,7 +26,6 @@ const isFinal = Match.type<MetadataPlugin.MetadataError>().pipe(
   }),
 );
 
-/** Convex failures return the job to the queue. */
 const backendFailure = (error: { readonly message: string }) =>
   new JobFailed({ message: error.message, retry: true });
 

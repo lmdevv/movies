@@ -1,8 +1,3 @@
-/**
- * A watch room's next episode, as the web player moves a room on: the server keeps the countdown
- * (`room.next`) and carries it out, the host's player starts it when the credits begin, and every
- * member's player shows the same card and opens whatever the room plays next, in the room.
- */
 import type { EpisodeId } from "@movies/contracts/ids";
 import type { Episode } from "@movies/contracts/models/catalog";
 import type { Room } from "@movies/contracts/models/rooms";

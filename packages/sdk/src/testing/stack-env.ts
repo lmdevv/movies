@@ -1,8 +1,3 @@
-/**
- * Finds the local dev stack for the real-stack suites. `scripts/dev-stack.sh up` writes the Convex
- * URL to `packages/backend/.env.local` and the media service's key to `apps/media/.env.local`;
- * environment variables of the same names override them.
- */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 

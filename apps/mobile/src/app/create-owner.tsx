@@ -1,8 +1,4 @@
-/**
- * I14 · Create Owner Account: on a server without an owner, the first account made here owns it.
- * Create Account goes on to Add Your First Library (I15); Import from Jellyfin or Plex creates the
- * same account and opens the import (J01) instead.
- */
+import { PASSWORD_MIN_LENGTH } from "@movies/contracts/models/account";
 import { useAuth } from "@movies/sdk/react";
 import { useRef, useState } from "react";
 import type { ComponentRef } from "react";
@@ -18,9 +14,6 @@ import { useConnection } from "@/session/connection";
 import { useFirstRun } from "@/session/first-run";
 import type { SetupStart } from "@/session/first-run";
 
-/** The shortest password the server accepts for a new account. */
-const MIN_PASSWORD_LENGTH = 8;
-
 export default function CreateOwnerAccount() {
   const { signInWithPassword } = useAuth();
   const { disconnect } = useConnection();
@@ -30,20 +23,17 @@ export default function CreateOwnerAccount() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  /** A password too short, shown under Password. */
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  /** Why the server refused the account, shown over the buttons. */
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<SetupStart | null>(null);
-  // Set before any state or await, so a second tap of either button cannot start another sign-up.
   const submitting = useRef(false);
   const ready = name.trim() !== "" && email.trim() !== "" && password !== "" && busy === null;
 
   const create = async (start: SetupStart) => {
     if (!ready || submitting.current) return;
 
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setPasswordError(`Use at least ${MIN_PASSWORD_LENGTH} characters.`);
+    if (password.length < PASSWORD_MIN_LENGTH) {
+      setPasswordError(`Use at least ${PASSWORD_MIN_LENGTH} characters.`);
 
       return;
     }
@@ -51,7 +41,6 @@ export default function CreateOwnerAccount() {
     submitting.current = true;
     setBusy(start);
     setError(null);
-    // Setup holds this screen while the account is made, then opens its next step.
     firstRun.begin(start);
 
     try {

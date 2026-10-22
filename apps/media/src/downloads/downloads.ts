@@ -1,15 +1,3 @@
-/**
- * Downloads a device keeps: `prepare` verifies the download session's token, resolves its file,
- * and chooses what the device gets (`decideDownload`). The original file is ready at once at its
- * direct URL; anything else is an MP4 that ffmpeg writes once into `TRANSCODE_DIR/downloads`, one
- * at a time and at the lowest CPU priority, so playback always comes first. Until it is written,
- * `prepare` answers its progress. Every device asking for the same file, quality, and plan shares
- * one MP4, which is deleted six hours after its last request (or when the service restarts, as
- * `TRANSCODE_DIR` is emptied then). Each download session holds one MP4 at a time; one that waits
- * or is written is abandoned and its ffmpeg stopped once no live session asks for it. Until it is
- * written its estimate is reserved in `TranscodeSpace`. A failure is answered for ten minutes
- * before a request tries again.
- */
 import { createHash, randomBytes } from "node:crypto";
 
 import type { MediaFileId, PlaybackSessionId } from "@movies/contracts/ids";
@@ -61,7 +49,6 @@ import * as TranscodeSpace from "../playback/transcode-space.ts";
 import { mp4CommandArgs } from "../playback/transcode-command.ts";
 import { decideDownload, DownloadPlan } from "./download-plan.ts";
 
-/** Failures `prepare` reports. */
 type PrepareError =
   | PlaybackTokenInvalid
   | PlaybackSessionEnded
@@ -84,73 +71,46 @@ export interface Interface {
 /** The downloads service. */
 export class Service extends Context.Service<Service, Interface>()("@movies/media/Downloads") {}
 
-/** A finished MP4 nobody asked for in this long is deleted. */
 const KEEP_UNUSED = Duration.hours(6);
 
-/**
- * A queued or running MP4 is abandoned and its ffmpeg stopped once its last download session asked
- * for something else, once no live session has asked for it within `ENDED_GRACE`, or once nobody
- * asked about it for as long as a token lives (its app went away), so it holds the queue no longer.
- */
 const ABANDONED_AFTER = Duration.millis(PLAYBACK_TOKEN_LIFETIME_MS);
 
-/**
- * How long a queued or running MP4 waits for a new session after its sessions ended: a download
- * started again ends its earlier session first, and its first `prepare` follows within seconds.
- */
 const ENDED_GRACE = Duration.minutes(2);
 
-/** A running MP4 whose ffmpeg writes no further for this long has hung, and fails. */
 const STALLED_AFTER = Duration.minutes(10);
 
-/** A failed MP4 answers its failure for this long before a request tries it again. */
 const FAILED_COOLDOWN = Duration.minutes(10);
 
 const SWEEP_EVERY = Duration.minutes(1);
 
-/** How much of the end of ffmpeg's progress file is read; its last report is in there. */
 const PROGRESS_TAIL_BYTES = 4096;
 
-/** How often a running job's progress is read. */
 const PROGRESS_EVERY = Duration.seconds(1);
 
-/** A job writes at most this far before it is finished, so `Preparing` never reads 100 percent. */
 const MOST_PROGRESS = 0.99;
 
-/** A finished MP4's name: 24 hex characters and `.mp4`. */
 const OUTPUT_NAME = /^([a-f0-9]{24})\.mp4$/u;
 
-/** ffmpeg stopped writing a download's MP4 without exiting. */
 class Mp4Stalled extends Data.TaggedError("Mp4Stalled") {}
 
-/** Where one MP4 job stands. */
 type JobState = Data.TaggedEnum<{
   Queued: {};
   Running: {};
   Finished: { readonly sizeBytes: number };
-  /** `at` is when it failed, in milliseconds since the epoch. */
   Failed: { readonly error: TranscodeFailed; readonly at: number };
 }>;
 
 const JobState = Data.taggedEnum<JobState>();
 
-/** One MP4 being written or kept. */
 interface Job {
-  /** The file and plan it writes; one job per key at a time. */
   readonly key: string;
-  /**
-   * Its own random name, also naming its space reservation: a plan written again gets another,
-   * so a transfer that resumes never mixes bytes of two runs.
-   */
   readonly name: string;
   readonly fileId: MediaFileId;
   readonly output: string;
   readonly estimatedBytes: number;
   readonly progress: Ref.Ref<number>;
   readonly state: Ref.Ref<JobState>;
-  /** Milliseconds since the epoch of the last `prepare` or byte request. */
   readonly lastUsed: Ref.Ref<number>;
-  /** The fiber writing it, to stop once abandoned. */
   readonly writer: Ref.Ref<Option.Option<Fiber.Fiber<void>>>;
 }
 
@@ -162,7 +122,6 @@ export const progressSeconds = (text: string): number | undefined => {
   return last === undefined ? undefined : Number(last) / 1_000_000;
 };
 
-/** The key of a plan for one version of a file: a hash of the file and the plan. */
 const keyOf = (file: CheckedMediaFile, plan: DownloadPlan): string =>
   createHash("sha256")
     .update(JSON.stringify([file.fileId, file.sizeBytes, file.modifiedAtMs, plan]))
@@ -181,9 +140,7 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const scope = yield* Effect.scope;
   const jobs = yield* Ref.make<ReadonlyMap<string, Job>>(new Map());
-  // Each download session holds at most one job: the one its latest `prepare` asked for.
   const held = yield* Ref.make<ReadonlyMap<PlaybackSessionId, Job>>(new Map());
-  // One MP4 at a time: each reads a whole file and may encode it.
   const queue = yield* Semaphore.make(1);
   const root = path.join(config.transcodeDir, "downloads");
 
@@ -199,7 +156,6 @@ const make = Effect.gen(function* () {
   const touch = (job: Job) =>
     Clock.currentTimeMillis.pipe(Effect.flatMap((now) => Ref.set(job.lastUsed, now)));
 
-  /** Writes `job`'s MP4: waits for the queue, runs ffmpeg, and keeps the file once it is whole. */
   const write = (
     job: Job,
     file: CheckedMediaFile,
@@ -228,7 +184,6 @@ const make = Effect.gen(function* () {
 
     const run = Effect.gen(function* () {
       yield* Ref.set(job.state, JobState.Running());
-      // Written now: streams count it as used until it is on disk.
       yield* space.reserve(job.name, job.estimatedBytes);
       yield* fs.makeDirectory(path.dirname(job.output), { recursive: true });
 
@@ -248,7 +203,6 @@ const make = Effect.gen(function* () {
         Effect.ignore,
       );
 
-      // A stuck read (a NAS gone quiet) or a hung ffmpeg would hold the queue for good.
       const watchdog = Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis;
 
@@ -290,8 +244,6 @@ const make = Effect.gen(function* () {
       yield* Ref.set(job.state, JobState.Finished({ sizeBytes: Number(info.size) }));
     }).pipe(Effect.scoped);
 
-    // Cleanup runs however the run ends, also when an abandoned job is stopped, and before the
-    // permit is released.
     const cleanup = <E>(exit: Exit.Exit<void, E>) =>
       Effect.gen(function* () {
         yield* fs.remove(progress).pipe(Effect.ignore);
@@ -312,7 +264,6 @@ const make = Effect.gen(function* () {
             error: new TranscodeFailed({
               streamId: job.name,
               mode: plan.mode,
-              // ffmpeg's output has its paths scrubbed; other failures may name them.
               detail:
                 failure instanceof MediaToolFailed
                   ? failure.stderr.trim().slice(-400)
@@ -329,7 +280,6 @@ const make = Effect.gen(function* () {
       .pipe(Effect.ignore);
   };
 
-  /** Stops a queued or running job: its ffmpeg is killed and its partial file deleted. */
   const abandon = Effect.fnUntraced(function* (job: Job, reason: "ended" | "replaced" | "idle") {
     yield* forget(job);
     yield* Effect.logInfo("Downloads.mp4_abandoned").pipe(
@@ -341,7 +291,6 @@ const make = Effect.gen(function* () {
     if (Option.isSome(writer)) yield* Fiber.interrupt(writer.value);
   });
 
-  /** Whether a session in `sessions` asks for `job`. */
   const heldBy = (sessions: ReadonlyMap<PlaybackSessionId, Job>, job: Job) =>
     [...sessions.values()].includes(job);
 
@@ -350,11 +299,6 @@ const make = Effect.gen(function* () {
       Effect.map((state) => JobState.$is("Queued")(state) || JobState.$is("Running")(state)),
     );
 
-  /**
-   * Records that `sessionId` now asks for `job` (none for an original file). The job it asked for
-   * before is stopped when nobody else asks for it and it is not written yet, so one download
-   * session keeps at most one job in the queue.
-   */
   const hold = Effect.fnUntraced(function* (sessionId: PlaybackSessionId, job: Job | undefined) {
     const [previous, now] = yield* Ref.modify(
       held,
@@ -378,7 +322,6 @@ const make = Effect.gen(function* () {
     if (yield* unsettled(previous)) yield* abandon(previous, "replaced");
   });
 
-  /** The job writing or holding this plan's MP4, started when there is none. */
   const jobFor = Effect.fnUntraced(function* (
     file: CheckedMediaFile,
     plan: Extract<DownloadPlan, { _tag: "Mp4" }>,
@@ -389,8 +332,6 @@ const make = Effect.gen(function* () {
 
     if (existing !== undefined) return existing;
 
-    // The queued MP4s are written one after another into the same space; the running one is
-    // reserved already.
     const queued = yield* Effect.filter(known.values(), (job) =>
       Ref.get(job.state).pipe(Effect.map(JobState.$is("Queued"))),
     );
@@ -413,8 +354,6 @@ const make = Effect.gen(function* () {
       writer: yield* Ref.make(Option.none<Fiber.Fiber<void>>()),
     };
 
-    // Registering the job and forking its run happen together, so no job waits for a run that
-    // never started.
     return yield* Effect.uninterruptible(
       Effect.gen(function* () {
         const [job, started] = yield* Ref.modify(
@@ -470,7 +409,6 @@ const make = Effect.gen(function* () {
 
     const base = config.mediaBaseUrl;
 
-    // Text tracks only: picture subtitles do not download. Built once the download is ready.
     const subtitles = () =>
       subtitleViews(file, base, request.token).flatMap((view) =>
         view.url === undefined ? [] : [{ ...view, url: view.url }],
@@ -516,7 +454,6 @@ const make = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
     const before = yield* Ref.get(found.state);
 
-    // A failure is answered for a while, then the next request writes the MP4 again.
     const retry =
       JobState.$is("Failed")(before) && now - before.at >= Duration.toMillis(FAILED_COOLDOWN);
 
@@ -578,11 +515,6 @@ const make = Effect.gen(function* () {
     return Option.some(job.output);
   });
 
-  /**
-   * Deletes finished and failed MP4s nobody asked for within `KEEP_UNUSED`, and stops queued and
-   * running ones no live download session asked for within `ENDED_GRACE` or that nobody asked
-   * about within `ABANDONED_AFTER`. Sessions that ended let go of their jobs.
-   */
   const sweep = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
 
@@ -600,7 +532,6 @@ const make = Effect.gen(function* () {
       const idle = now - (yield* Ref.get(job.lastUsed));
 
       if (yield* unsettled(job)) {
-        // A download started again ends its session first; the new one asks again within seconds.
         if (!heldBy(live, job) && idle > Duration.toMillis(ENDED_GRACE)) {
           yield* abandon(job, "ended");
         } else if (idle > Duration.toMillis(ABANDONED_AFTER)) yield* abandon(job, "idle");

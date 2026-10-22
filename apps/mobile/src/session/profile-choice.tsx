@@ -1,8 +1,3 @@
-/**
- * The profile chosen on this device. Switching to another profile locks the one left behind on
- * this session, so a PIN keeps guarding it: unlocks live on the server session, which every
- * profile on this device shares.
- */
 import type { ProfileId } from "@movies/contracts/ids";
 import { useCommand } from "@movies/sdk/react";
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
@@ -39,17 +34,12 @@ export function ProfileChoiceProvider({ children }: { readonly children: ReactNo
     async (next: ProfileId | null) => {
       const previous = current.current;
 
-      // Signing out (null) ends the session and every unlock with it.
       if (previous === null || next === null || previous === next) {
         commit(next);
 
         return;
       }
 
-      // Switch first, so the screen never shows the profile left behind as locked while it is
-      // still chosen (which would flash Who's Watching?), then lock it; if locking fails, go back
-      // to it, still unlocked, unless another profile was chosen meanwhile. A remembered profile that no longer exists, or belongs to another
-      // account, has nothing left to lock.
       commit(next);
 
       try {
@@ -57,7 +47,6 @@ export function ProfileChoiceProvider({ children }: { readonly children: ReactNo
       } catch (cause) {
         if (isFailure(cause, "NotFound") || isFailure(cause, "Forbidden")) return;
 
-        // Someone who has moved on to another profile since keeps it.
         if (current.current === next) commit(previous);
         throw cause;
       }

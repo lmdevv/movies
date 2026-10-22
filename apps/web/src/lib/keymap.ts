@@ -2,10 +2,6 @@ import { createKeymap } from "@movies/ui/lib/keymap";
 import type { KeymapEntry } from "@movies/ui/lib/keymap";
 import { detectPlatform } from "@movies/ui/lib/use-keymap";
 
-/**
- * Every global keyboard shortcut, listed once. The command menu draws keycaps from here, so a
- * shortcut changes in one place.
- */
 const SHORTCUTS = [
   { id: "menu.toggle", keys: "mod+k", whileTyping: true, title: "Search or jump to…" },
   { id: "search.open", keys: "/", title: "Search" },
@@ -27,10 +23,6 @@ const platform = detectPlatform();
 /** The global shortcut registry resolved for this browser's keyboard. */
 export const keymap = createKeymap<ShortcutId>(SHORTCUTS, platform);
 
-/**
- * The player's shortcuts, active only on the player, where they replace the browsing keys (`j` and
- * `k` move through rows elsewhere). `mod+k` still opens the command menu.
- */
 const PLAYER_SHORTCUTS = [
   { id: "menu.toggle", keys: "mod+k", whileTyping: true, title: "Search or jump to…" },
   { id: "player.toggle", keys: "space", title: "Play or pause" },

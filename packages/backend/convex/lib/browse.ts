@@ -17,10 +17,6 @@ import { fail } from "./errors";
 import { genreKey } from "./genres";
 import type { ReadCtx } from "./viewer";
 
-/**
- * Documents one page reads at most; past it the page comes back short with a cursor to continue.
- * A genre page reads a genre row and its title for each entry, so it reads half as many entries.
- */
 const READ_BUDGET = 1000;
 
 /** The orders `titles.list` offers: by name ascending, newest added, or newest year. */
@@ -36,32 +32,24 @@ export interface TitleScope {
   readonly filter: TitleFilter;
 }
 
-/** A row read in sort order: a title, or a genre row carrying its title's sort fields. */
 type Positioned = Pick<Doc<"titles">, "sortKey" | "addedAt" | "year" | "_creationTime">;
 
-/** One row read, with the title it stands for; a genre row's title may be gone. */
 interface Entry {
   readonly position: Positioned;
   readonly title: Doc<"titles"> | null;
 }
 
-/** Where a page ended: the last title's sort value and creation time. */
 interface Position<Value> {
   readonly value: Value;
   readonly creationTime: number;
 }
 
-/**
- * Reads up to `count` rows in order after the position a cursor names, or from the start. A
- * cursor is the last row's creation time and its sort value, as `<creationTime>:<value>`.
- */
 type Reader = (cursor: string | null, count: number) => Promise<ReadonlyArray<Entry>>;
 
 const CURSOR = /^(?<time>\d+(?:\.\d+)?):(?<value>.*)$/su;
 
 const invalidCursor = (): never => fail("invalid_args", "This page cursor is not valid");
 
-/** Splits a cursor into its creation time and the sort value's text. */
 const parseCursor = (cursor: string): Position<string> => {
   const groups = CURSOR.exec(cursor)?.groups;
   const time = Number(groups?.["time"]);
@@ -81,10 +69,6 @@ const parseNumber = (text: string): number => {
 const cursorOf = (row: Positioned, value: string): string =>
   `${String(row._creationTime)}:${value}`;
 
-/**
- * Where a range starts: the beginning, titles with the cursor's value created after its title,
- * or titles past the cursor's value.
- */
 type Bound<Value> =
   | { readonly kind: "start" }
   | { readonly kind: "tie"; readonly value: Value; readonly time: number }
@@ -94,13 +78,10 @@ const titlesOf = (ctx: ReadCtx) => ctx.db.query("titles");
 
 const genreRowsOf = (ctx: ReadCtx) => ctx.db.query("titleGenres");
 
-/** A query over titles with an index range chosen, before its order. */
 type TitlesQuery = ReturnType<ReturnType<typeof titlesOf>["fullTableScan"]>;
 
-/** A query over genre rows with an index range chosen, before its order. */
 type GenreQuery = ReturnType<ReturnType<typeof genreRowsOf>["fullTableScan"]>;
 
-/** Which genre rows a page reads: one genre's, in one library, of one kind, or everywhere. */
 interface GenreScope {
   readonly kind: Doc<"titles">["kind"] | undefined;
   readonly libraryId: Id<"libraries"> | undefined;
@@ -120,13 +101,11 @@ interface SortSpec<Value> {
   readonly genreRange: (ctx: ReadCtx, scope: GenreScope, bound: Bound<Value>) => GenreQuery;
 }
 
-/** How a page reads rows in one order, and the cursor that resumes after a row. */
 interface SortPlan {
   readonly reader: (ctx: ReadCtx, scope: TitleScope) => Reader;
   readonly cursorAfter: (row: Positioned) => string;
 }
 
-/** Reads from the start, or the cursor's ties and then the rows past its value. */
 const planOf = <Value>(spec: SortSpec<Value>): SortPlan => ({
   reader: (ctx, scope) => {
     const { genre } = scope.filter;
@@ -166,26 +145,19 @@ const planOf = <Value>(spec: SortSpec<Value>): SortPlan => ({
   cursorAfter: (row) => cursorOf(row, spec.text(row)),
 });
 
-/** A title or genre-row field a page sorts by. */
 type SortField = "sortKey" | "addedAt" | "year";
 
-/** An index range fixed on its scope fields, whose next field is `Field`, then creation time. */
 interface SortRange<Field extends SortField, Value> extends IndexRange {
   eq(field: Field, value: Value): TieRange;
   gt(field: Field, value: Value): IndexRange;
   lt(field: Field, value: Value): IndexRange;
 }
 
-/** A range fixed on the sort value too, whose next field is creation time. */
 interface TieRange extends IndexRange {
   gt(field: "_creationTime", value: number): IndexRange;
   lt(field: "_creationTime", value: number): IndexRange;
 }
 
-/**
- * Narrows a range fixed on its scope fields to the rows from a bound on, in `order`: every row
- * from the start, the rows tied with the cursor's value created after it, or the rows past it.
- */
 const fromBound =
   <Field extends SortField, Value>(field: Field, order: "asc" | "desc") =>
   (q: SortRange<Field, Value>, bound: Bound<Value>): IndexRange => {
@@ -284,7 +256,6 @@ const byAdded = planOf<number>({
 
 const yearFrom = fromBound<"year", number | null>("year", "desc");
 
-// Titles without a year sort below every year, so they come last; an empty value is no year.
 const byYear = planOf<number | null>({
   order: "desc",
   parse: (text) => (text === "" ? null : parseNumber(text)),
@@ -349,8 +320,6 @@ export const listTitles = async (
 
   const filtered = isFiltered(scope.filter);
 
-  // A genre page in one library reads that library's rows of every kind, so its titles are
-  // checked against the kind; every page checks the library too, which costs nothing.
   const wanted = (title: Doc<"titles"> | null): title is Doc<"titles"> =>
     title !== null &&
     canSee(audience, title) &&
@@ -358,8 +327,6 @@ export const listTitles = async (
     (scope.libraryId === undefined || title.libraryId === scope.libraryId) &&
     (!filtered || matchesFilter(scope.filter, title));
 
-  // The first batch reads one row past a full page, which a profile that sees everything fills
-  // while still telling whether more follow; later batches read more, as filtering is likely.
   const batchSize = Math.max(numItems * 2, 50);
 
   const step = async (

@@ -1,7 +1,3 @@
-/**
- * React bindings for web playback: a `PlaybackController` per request and element, and the
- * element's own state (time, buffering, volume) for the controls.
- */
 import { useMoviesRuntime } from "@movies/sdk/react";
 import { useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from "react";
 

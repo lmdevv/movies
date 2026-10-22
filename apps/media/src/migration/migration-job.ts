@@ -1,22 +1,3 @@
-/**
- * Runs one claimed migration job. The job is a durable workflow over Convex: its plan and
- * checkpoint live in the job's `migrations` row, every phase writes in batches of at most 100,
- * and a checkpoint follows each batch. A job whose worker died returns to the queue when its
- * lease expires and resumes at its checkpoint; a batch written but not yet checkpointed is
- * written again, which the import mutations make harmless (they are idempotent).
- *
- * The job's counts are what it imported, counted from the plan as the dry run counts them, so a
- * batch written again after a crash counts once and the Done screen matches the Review screen.
- * Only `keptLocal` (items where newer [movies] progress won) comes from Convex.
- *
- * Phases: `libraries` (find or add each library), `scanning` (wait for new libraries' first
- * scans), then `watchState`, `collections`, and `overrides` from a plan computed against the
- * scanned catalog, then `done`. The source is read again on resume; it is only ever read.
- *
- * The job worker (`jobs/job-worker.ts`) claims the job and renews its lease. When an admin
- * cancels, the worker's next renewal interrupts the job where it is; a checkpoint that reports the
- * cancellation first waits for that.
- */
 import type { JobProgress } from "@movies/contracts/models/jobs";
 import type { MigrationImported, MigrationPhase } from "@movies/contracts/models/migration";
 import {
@@ -38,13 +19,10 @@ import { countImports, type MigrationPlan, type ResolvedUser } from "./planner.t
 import type { SourceError } from "./source-plugin.ts";
 import { openSource } from "./sources.ts";
 
-/** How often the job checks whether new libraries finished their first scan. */
 const SCAN_POLL = Duration.seconds(5);
 
-/** How long the job waits for first scans before importing what already matches. */
 const SCAN_WAIT = Duration.hours(6);
 
-/** Everything that can end a job early. */
 type MigrationJobError = SourceError | CallError | CredentialsUnreadable;
 
 /** Tunables, for tests; production uses the defaults. */
@@ -64,7 +42,6 @@ const PHASE_MESSAGES: Readonly<Record<MigrationPhase, string>> = {
   done: "Imported",
 };
 
-/** A batch of items and the index of its first item. */
 interface Batch<Item> {
   readonly start: number;
   readonly items: ReadonlyArray<Item>;
@@ -116,7 +93,6 @@ const isBefore = (phase: MigrationPhase, other: MigrationPhase): boolean => {
   return order.indexOf(phase) < order.indexOf(other);
 };
 
-/** One line of what was imported, for the job's final message. */
 const doneMessage = (imported: MigrationImported): string =>
   [
     `${String(imported.watched)} watched`,
@@ -158,7 +134,6 @@ export const runMigrationJob = Effect.fn("MigrationJob.run")(function* (
   const checkpoint = yield* Ref.make<MigrationCheckpoint>(state.checkpoint);
   const imported = yield* Ref.make<MigrationImported>(state.imported);
 
-  /** Records a step; stops when the job was cancelled. */
   const save = Effect.fnUntraced(function* (
     next: MigrationCheckpoint,
     done: number,
@@ -171,7 +146,6 @@ export const runMigrationJob = Effect.fn("MigrationJob.run")(function* (
 
     const cancelled = yield* backend.saveCheckpoint(lease, next, yield* Ref.get(imported), current);
 
-    // Cancelled: the worker's next lease renewal sees it too and interrupts the job.
     yield* cancelled ? Effect.never : Effect.void;
   });
 
@@ -188,7 +162,6 @@ export const runMigrationJob = Effect.fn("MigrationJob.run")(function* (
       unmatched: counts.unmatched ?? current.unmatched,
     }));
 
-  // Libraries: one unit per planned library.
   const libraryIds = new Set(state.libraryIds);
   const libraries = state.plan.libraries;
 
@@ -201,7 +174,6 @@ export const runMigrationJob = Effect.fn("MigrationJob.run")(function* (
 
       for (const libraryId of ensured.libraryIds) libraryIds.add(libraryId);
 
-      // `ensureLibrary` counts added libraries on the migration row itself.
       if (ensured.created) yield* add({ librariesAdded: 1 });
       yield* save({ phase: "libraries", unit: unit + 1, cursor: 0 }, unit + 1, libraries.length);
     }
@@ -209,7 +181,6 @@ export const runMigrationJob = Effect.fn("MigrationJob.run")(function* (
     yield* save({ phase: "scanning", unit: 0, cursor: 0 }, 0, null);
   }
 
-  // Scanning: wait for the libraries' scans so new files match by path.
   if (isBefore((yield* Ref.get(checkpoint)).phase, "watchState")) {
     yield* Effect.gen(function* () {
       while ((yield* backend.scansPending([...libraryIds])) > 0) {
@@ -241,7 +212,6 @@ export const runMigrationJob = Effect.fn("MigrationJob.run")(function* (
 
   const total = watchTotal + plan.collections.length + plan.overrides.length;
 
-  // Watch state: one unit per mapped user, in source user order.
   if (isBefore((yield* Ref.get(checkpoint)).phase, "collections")) {
     const start = yield* Ref.get(checkpoint);
 
@@ -299,7 +269,6 @@ export const runMigrationJob = Effect.fn("MigrationJob.run")(function* (
 
     for (const batch of batchesOf(plan.overrides, from, MigrationBackend.BATCH_SIZE)) {
       yield* backend.importOverrides(lease, batch.items);
-      // Entries that only carry provider IDs are not overrides.
       yield* add({
         overrides: batch.items.filter((item) => Object.keys(item.overrides).length > 0).length,
       });
@@ -318,14 +287,12 @@ export const runMigrationJob = Effect.fn("MigrationJob.run")(function* (
   return yield* Ref.get(imported);
 });
 
-/** Whether a failure may pass if the job runs again later. */
 const isTransient: (error: MigrationJobError) => boolean = Match.type<MigrationJobError>().pipe(
   Match.tags({
     SourceUnreachable: () => true,
     TransportError: () => true,
     Internal: () => true,
     RateLimited: () => true,
-    // The lease moved to another worker or expired; whoever holds it carries on.
     Conflict: () => true,
   }),
   Match.orElse(() => false),

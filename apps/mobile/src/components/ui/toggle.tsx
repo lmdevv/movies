@@ -1,7 +1,3 @@
-/**
- * The iOS switch in Paper's colors (B03 Kids Profile): the hairline track when off, the accent
- * when on, and a white thumb.
- */
 import { Switch, View } from "react-native";
 
 import { useThemeColor } from "@/lib/theme-color";

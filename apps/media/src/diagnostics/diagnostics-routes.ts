@@ -1,14 +1,3 @@
-/**
- * The diagnostics commands the media service serves, from its retained log:
- * `diagnostics.playback` (`POST /api/diagnostics/playback`), one session's timeline, and
- * `diagnostics.sessions` (`POST /api/diagnostics/sessions`), the sessions the log mentions. A
- * session holding the `admin` scope reads every session; any other reads only sessions whose
- * records all name its own account, and another account's session is `NotFound`, as if it did
- * not exist. Both read at `INFO` and above, where every playback event is, so `DEBUG` records never
- * crowd a session's events out of the read limit. A read can scan the whole retained log, so an
- * account without the `admin` scope may read a few times a minute; admins, who may read the log
- * itself, are not limited.
- */
 import { type LogQuery, MAX_LOG_LIMIT } from "@movies/contracts/diagnostics";
 import { NotFound, RateLimited } from "@movies/contracts/errors";
 import { EpochMillis } from "@movies/contracts/units";
@@ -23,13 +12,10 @@ import * as LogReader from "../logging/log-reader.ts";
 import * as RetainedLogs from "../logging/retained-logs.ts";
 import { ownersOf, sessionsOf, timelineOf } from "./timeline.ts";
 
-/** How far back `diagnostics.sessions` looks without `since`. */
 const RECENT = Duration.days(1);
 
-/** The most sessions `diagnostics.sessions` lists. */
 const MAX_SESSIONS = 50;
 
-/** Reads one account may make at once, and how many more each second after that. */
 const READ_BUDGET = { burst: 10, perSecond: 0.2 };
 
 const isAdmin = (viewer: Viewer): boolean => viewer.scopes.includes("admin");
@@ -117,7 +103,6 @@ export const layer: Layer.Layer<
         yield* allowRead(viewer);
         const now = yield* Clock.currentTimeMillis;
 
-        // A member's records all carry its account ID, so other accounts' traffic is skipped.
         const found = yield* read({
           since: since ?? EpochMillis.make(Math.max(0, now - Duration.toMillis(RECENT))),
           grep: isAdmin(viewer) ? '"sessionId"' : viewer.user.id,

@@ -1,8 +1,3 @@
-/**
- * I04 · a library: its folder, size, and last scan, Scan Library, its recent scans, and the files
- * that need a match. I05 when the last scan could not read the folder (a NAS gone offline) or the
- * server refused it: what happened, Retry Scan, and Edit Folder. `…` edits or removes (I18) it.
- */
 import { LibraryId } from "@movies/contracts/ids";
 import type { LibraryDetail, LibraryFileSummary } from "@movies/contracts/models/catalog";
 import type { Job } from "@movies/contracts/models/jobs";
@@ -45,7 +40,6 @@ import { folderTrouble, isActive, scanStateLabel } from "@/lib/scans";
 
 const decodeLibraryId = Schema.decodeUnknownSync(LibraryId);
 
-/** Scans listed under Recent Scans. */
 const RECENT = 3;
 
 const SCAN_ICONS: Readonly<Record<Job["status"], LucideIcon>> = {
@@ -71,7 +65,6 @@ const openScan = (library: LibraryDetail, job: Job | undefined) =>
 const edit = (library: LibraryDetail) =>
   router.push({ pathname: "/owner/libraries/[libraryId]/edit", params: { libraryId: library.id } });
 
-/** I05: the last scan could not read the folder, or the server refused it. */
 function FolderTrouble({
   library,
   trouble,

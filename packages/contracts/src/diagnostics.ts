@@ -96,7 +96,6 @@ export const LOG_TRUNCATED_HEADER = "x-movies-log-truncated";
  */
 export const LOG_UNAVAILABLE_SINCE_HEADER = "x-movies-log-unavailable-since";
 
-/** How long before sending the batch an event happened, in milliseconds; at most ten minutes. */
 const AgeMs = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 600_000 }));
 
 const Seconds = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
@@ -123,7 +122,6 @@ export const RecoveryAction = Schema.Literals([
 /** What a player did to get playing again. */
 export type RecoveryAction = typeof RecoveryAction.Type;
 
-/** What ended a wait for data: playback went on, the viewer paused, or the player closed. */
 const WaitEndedBy = Schema.Literals(["playing", "paused", "closed"]);
 
 /** Something a player saw. */
@@ -267,7 +265,6 @@ export const DiagnosticsCounts = Schema.Struct({
 /** Totals over a session's timeline. */
 export interface DiagnosticsCounts extends Schema.Schema.Type<typeof DiagnosticsCounts> {}
 
-/** A measurement the timeline cannot give, and why. */
 const NotMeasured = Schema.Struct({
   status: Schema.Literal("not-measured"),
   reason: Schema.String,

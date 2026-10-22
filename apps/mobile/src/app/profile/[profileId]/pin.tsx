@@ -1,4 +1,3 @@
-/** B12 · Set Profile PIN: four digits, then Confirm PIN asks for them again. */
 import { useState } from "react";
 import { View } from "react-native";
 

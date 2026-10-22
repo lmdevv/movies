@@ -1,7 +1,3 @@
-/**
- * A labeled field from Paper's foundations board: a 15pt muted label over a 56pt surface field
- * with 17pt text and the red cursor, and a short danger line under it when the value is refused.
- */
 import { useEffect } from "react";
 import type { ComponentRef, Ref } from "react";
 import { AccessibilityInfo, TextInput, View } from "react-native";

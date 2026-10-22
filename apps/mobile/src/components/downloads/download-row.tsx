@@ -1,9 +1,3 @@
-/**
- * A download in C19: a 128 × 76 picture with a play glyph, `3. Who Is Alive?` and its state
- * (`Severance · Ready to Play`, `Downloading · 64%`, `Waiting for Wi-Fi`), the red transfer line
- * under it while it downloads, and `…` for its actions. The picture plays a ready download; the
- * row opens it (H17, or H19 when it was interrupted).
- */
 import { router } from "expo-router";
 import { Ellipsis, Play } from "lucide-react-native";
 import { Pressable, View } from "react-native";

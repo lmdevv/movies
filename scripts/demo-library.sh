@@ -47,7 +47,6 @@ archive="https://archive.org/download"
 
 log() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 
-# download URL DEST [MAX_BYTES]: resumable download; MAX_BYTES fetches only the start of the file.
 download() {
   local url="$1" dest="$2" max="${3:-}"
   [[ -s "$dest" ]] && return 0
@@ -64,7 +63,6 @@ download() {
   done
   case "$dest" in
     *.mp4 | *.mkv | *.mov | *.ogv)
-      # Checked once, when the download finishes: a file ffmpeg can't decode is useless here.
       local codec
       codec="$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 \
         "$dest.part" 2>/dev/null || true)"
@@ -78,8 +76,6 @@ download() {
   mv "$dest.part" "$dest"
 }
 
-# ff OUTPUT FFMPEG_ARGS...: runs ffmpeg into a temporary file next to OUTPUT, then renames it, so an
-# interrupted run never leaves a truncated file that a rerun would keep. Skips existing outputs.
 ff() {
   local out="$1"
   shift
@@ -90,7 +86,6 @@ ff() {
   mv "$tmp" "$out"
 }
 
-# The large files, fetched in parallel before anything else: KEY -> "URL|FILE[|MAX_BYTES]".
 declare -A sources=(
   [bbb]="$archive/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4|big_buck_bunny_720p_surround.mp4"
   [ed]="$blender/ED/elephantsdream-1024-h264-st-aac.mov|elephantsdream-1024-h264-st-aac.mov"
@@ -109,7 +104,6 @@ declare -A sources=(
   [p6]="$archive/pioneer-one-ep.-6-war-of-the-world-3mp-4_202608/PIONEER%20ONE%20Ep.6%20War%20of%20the%20World3mp4.mp4|pioneer-one-s01e06.mp4"
 )
 
-# fetch KEY: downloads one of the sources above into the cache and prints its path.
 fetch() {
   local url file max
   IFS='|' read -r url file max <<<"${sources[$1]}"
@@ -117,8 +111,8 @@ fetch() {
   echo "$cache/$file"
 }
 
-# prefetch KEY...: fetches several sources at once. archive.org is slow per connection, so its
-# files download in parallel; download.blender.org refuses parallel requests, so its files queue.
+# archive.org is slow per connection, so its files download in parallel; download.blender.org
+# refuses parallel requests, so its files queue.
 prefetch() {
   local key pids=() failed=0 queued=()
   for key in "$@"; do
@@ -137,7 +131,6 @@ prefetch() {
   ((failed == 0)) || { echo "some downloads failed; rerun the script to resume" >&2; exit 1; }
 }
 
-# unzip_one ZIP DEST: extracts the single video inside a Blender zip.
 unzip_one() {
   local zip="$1" dest="$2"
   [[ -s "$dest" ]] && return 0
@@ -149,7 +142,6 @@ unzip_one() {
 
 duration() { ffprobe -v error -show_entries format=duration -of csv=p=0 "$1" | cut -d. -f1; }
 
-# artwork VIDEO FOLDER [PREFIX]: poster (2:3) and fanart (16:9) frames from the film itself.
 artwork() {
   local video="$1" folder="$2" prefix="${3:-}" length
   length="$(duration "$video")"
@@ -159,7 +151,6 @@ artwork() {
   ff "$fanart" -ss "$((length / 4))" -i "$video" -frames:v 1 -vf "scale=1920:-2" -q:v 3
 }
 
-# thumb VIDEO DEST: an episode still.
 thumb() {
   local video="$1" dest="$2" length
   [[ -s "$dest" ]] && return 0
@@ -167,16 +158,12 @@ thumb() {
   ff "$dest" -ss "$((length / 3))" -i "$video" -frames:v 1 -vf "scale=1280:-2" -q:v 3
 }
 
-# place SOURCE DEST: hard-links (or copies) a finished download into the library.
 place() {
   [[ -e "$2" ]] && return 0
   ln "$1" "$2" 2>/dev/null && return 0
   cp "$1" "$2.part"
   mv "$2.part" "$2"
 }
-
-# ---------------------------------------------------------------------------------------------
-# Movies
 
 big_buck_bunny() {
   local folder="$movies/Big Buck Bunny (2008)" src
@@ -243,8 +230,6 @@ EOF
 }
 
 sintel_source() {
-  # The standard and full sets download Sintel whole; minimal fetches only enough of the
-  # Matroska file for the five-minute Feature Test cut.
   if [[ "$set_name" == "minimal" ]]; then fetch sintel_head; else fetch sintel; fi
 }
 
@@ -290,7 +275,6 @@ tears_of_steel() {
   unzip_one "$zip" "$src"
   place "$src" "$folder/Tears of Steel (2012).mov"
   artwork "$src" "$folder"
-  # Official subtitles, as sidecar files in many languages.
   local pair code file
   for pair in en:TOS-en de:TOS-de es:TOS-es fr:TOS-fr-orig it:TOS-it nl:TOS-nl no:TOS-no \
     ru:TOS-ru ja:TOS-JP pt.Brazil:TOS-PT-BR pt:TOS-PT-PT cs:TOS-CZ da:TOS-Dansk el:TOS-GK \
@@ -365,16 +349,14 @@ cosmos_laundromat() {
 EOF
 }
 
-# xml_attr VALUE: VALUE escaped for an XML attribute.
 xml_attr() {
   local value="$1"
   value="${value//&/&amp;}" value="${value//</&lt;}" value="${value//>/&gt;}"
   printf '%s' "${value//\"/&quot;}"
 }
 
-# image_subtitle VIDEO OUT: renders VIDEO's English text subtitle as a VobSub track in OUT. ffmpeg
-# can't turn text into bitmaps, so spumux (dvdauthor) renders the SRT onto a DVD stream and ffmpeg
-# lifts the subtitle track out.
+# ffmpeg can't turn text into bitmaps, so spumux (dvdauthor) renders the SRT onto a DVD stream and
+# ffmpeg lifts the subtitle track out.
 image_subtitle() {
   local video="$1" out="$2" font srt="$cache/feature-test-en.srt" dvd="$cache/feature-test-dvd.mpg"
   command -v spumux >/dev/null && command -v fc-match >/dev/null || return 1
@@ -408,7 +390,6 @@ EOF
   return "$status"
 }
 
-# The Feature Test: the first five minutes of Sintel in several versions of one title.
 feature_test() {
   local folder="$movies/[movies] Feature Test (2010)" src cut="$cache/feature-test-cut.mkv"
   local base="$folder/[movies] Feature Test (2010)"
@@ -447,17 +428,14 @@ END=300000
 title=The Chase
 EOF
 
-  # Direct play in every browser: H.264 + AAC stereo in MP4 with chapters, plus sidecar subtitles.
   log "Feature Test: Direct Play"
   ff "$base {edition-Direct Play}.mp4" -i "$cut" -i "$chapters" -map 0:v:0 -map 0:a:0 \
     -map_chapters 1 -c:v copy -c:a aac -ac 2 -b:a 192k -movflags +faststart
-  # Sidecars are picked by the track's language tag, not its position.
   local pair
   for pair in de:ger en:eng es:spa fr:fre it:ita nl:dut pl:pol pt:por ru:rus vi:vie; do
     ff "$base {edition-Direct Play}.${pair%%:*}.srt" -i "$cut" -map "0:s:m:language:${pair#*:}"
   done
 
-  # Forces a transcode with HDR→SDR tone mapping: HEVC Main 10 tagged as HDR10 (PQ, BT.2020).
   if [[ ! -s "$base {edition-HDR10 HEVC}.mkv" ]]; then
     log "Feature Test: HDR10 HEVC (takes a few minutes)"
     # Converts the SDR film into real PQ/BT.2020 when ffmpeg has zimg; otherwise only tags it.
@@ -474,14 +452,11 @@ EOF
       -c:a copy -metadata:s:a:0 "title=Surround 5.1"
   fi
 
-  # An English image (VobSub) subtitle, which must be burned in. Any failure here only costs the
-  # Feature Test its image subtitle.
   local vobsub="$cache/feature-test-en.vobsub.mkv" image_subs=()
   [[ -s "$vobsub" ]] || image_subtitle "$cut" "$vobsub" ||
     log "Couldn't render the image subtitle (needs spumux from dvdauthor and fontconfig); skipping it"
   if [[ -s "$vobsub" ]]; then
     image_subs=(-i "$vobsub")
-    # Versions built on an earlier run without the image subtitle are rebuilt with it.
     local version
     for version in "Multi-Audio and Subtitles" "SD Interlaced MPEG-2"; do
       local file="$base {edition-$version}.mkv" codecs
@@ -491,8 +466,6 @@ EOF
     done
   fi
 
-  # Audio and subtitle choices: AC3 5.1 (needs an audio transcode in most browsers), an AAC
-  # stereo downmix, every text subtitle, and the image subtitle on a canvas smaller than the video.
   log "Feature Test: Multi-Audio and Subtitles"
   local image_map=()
   ((${#image_subs[@]} > 0)) && image_map=(-map 2:s:0 -metadata:s:s:10 "title=English (image)"
@@ -504,9 +477,7 @@ EOF
     -metadata:s:a:1 title=Stereo -metadata:s:a:1 language=eng \
     -disposition:a:0 default -disposition:a:1 0
 
-  # A DVD rip: interlaced PAL MPEG-2 (25 frames, 50 fields a second) with MP2 audio and the
-  # VobSub subtitle, which must be deinterlaced, transcoded, and burned in. `interlace` weaves
-  # pairs of frames, so it needs 50 progressive frames a second in.
+  # `interlace` weaves pairs of frames, so it needs 50 progressive frames a second in.
   log "Feature Test: SD Interlaced MPEG-2"
   local sd_map=()
   ((${#image_subs[@]} > 0)) && sd_map=(-map 1:s:0 -c:s copy -metadata:s:s:0 language=eng)
@@ -536,9 +507,6 @@ EOF
 </movie>
 EOF
 }
-
-# ---------------------------------------------------------------------------------------------
-# Shows
 
 caminandes() {
   local folder="$shows/Caminandes (2013)" season
@@ -594,7 +562,6 @@ pioneer_one() {
   local folder="$shows/Pioneer One (2010)" season
   season="$folder/Season 01"
   mkdir -p "$season"
-  # Episode titles follow the Internet Archive items the files come from.
   local titles=("Earthfall" "The Man from Mars" "Alone in the Night" "Triangular Diploma"
     "Sea Change" "War of the World")
   local number name src

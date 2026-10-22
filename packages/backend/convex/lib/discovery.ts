@@ -1,7 +1,3 @@
-/**
- * Browsing by metadata: title filters, genre counts, and "more like this". Everything here works
- * on titles the caller already loaded; the audience check stays with the caller.
- */
 import type { Doc } from "../_generated/dataModel";
 import { genreKey } from "./genres";
 
@@ -16,11 +12,9 @@ export interface TitleFilter {
 
 const folded = (text: string): string => text.trim().toLowerCase();
 
-/** The score the rating filter and sorting use: IMDb when known, else TMDB. */
 const communityScore = (title: Doc<"titles">): number | null =>
   title.ratings?.imdb?.value ?? title.ratings?.tmdb?.value ?? null;
 
-/** The year a title shows, after admin overrides. */
 const yearOf = (title: Doc<"titles">): number | null => title.overrides?.year ?? title.year;
 
 /** Whether any filter is set. */

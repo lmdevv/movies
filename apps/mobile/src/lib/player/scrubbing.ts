@@ -1,8 +1,3 @@
-/**
- * What the scrubber (F12) and Chapters (F05) show for the file playing: the scrub thumbnail at a
- * time, cut from the file's trickplay sprite sheets (loaded with the session's playback token), and
- * the file's chapters.
- */
 import type { Chapter, MediaFile } from "@movies/contracts/models/catalog";
 import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { trickplaySheetUrl, trickplayTile } from "@movies/contracts/trickplay";

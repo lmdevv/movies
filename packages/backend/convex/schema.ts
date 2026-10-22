@@ -188,8 +188,6 @@ export default defineSchema({
     addedAt: v.number(),
     updatedAt: v.number(),
     searchText: v.string(),
-    // Rich metadata. Optional so titles written before it existed stay valid; every list is
-    // bounded by the media service (`TITLE_LIST_LIMIT`, `TITLE_TAG_LIMIT` in contracts).
     originalName: v.optional(nullable(v.string())),
     releaseDate: v.optional(nullable(v.string())),
     status: v.optional(nullable(showStatus)),
@@ -210,7 +208,6 @@ export default defineSchema({
     .index("by_kind_tmdb", ["kind", "externalIds.tmdb"])
     .index("by_library", ["libraryId"])
     .index("by_library_status", ["libraryId", "matchStatus"])
-    // `titles.list` filtered by library, in each of its orders.
     .index("by_library_sort", ["libraryId", "sortKey"])
     .index("by_library_added", ["libraryId", "addedAt"])
     .index("by_library_year", ["libraryId", "year"])
@@ -395,7 +392,6 @@ export default defineSchema({
     .index("by_status_report", ["status", "lastReportAt"])
     .index("by_user_status", ["userId", "status"])
     .index("by_auth_session", ["authSessionId"])
-    // Ending the playback of a removed library's titles.
     .index("by_title_status", ["titleId", "status"]),
 
   rooms: defineTable({
@@ -423,7 +419,6 @@ export default defineSchema({
     endedAt: v.optional(v.number()),
   })
     .index("by_status", ["status"])
-    // Ending the rooms of a removed library's titles.
     .index("by_title_status", ["titleId", "status"]),
 
   roomMembers: defineTable({

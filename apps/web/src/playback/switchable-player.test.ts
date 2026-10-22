@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { SwitchablePlayer } from "./switchable-player";
 
-/** A player that records commands and emits events on demand. */
 class RecordingPlayer implements PlayerPort {
   readonly commands: Array<string> = [];
   position = 0;

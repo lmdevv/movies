@@ -1,4 +1,3 @@
-/** The in-repo migration-source plugins, by source. */
 import type { MigrationSource } from "@movies/contracts/models/jobs";
 import { Effect } from "effect";
 import type { HttpClient } from "effect/http";

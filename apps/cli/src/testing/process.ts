@@ -1,7 +1,3 @@
-/**
- * Runs the built CLI as a separate process, the way users and agents run it. Imports nothing from
- * Effect: the repo's lint keeps raw Node process and file APIs out of Effect modules.
- */
 import { execFileSync, spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -9,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
-/** The package root, `apps/cli`. */
 const packageRoot = join(import.meta.dirname, "..", "..");
 
 const binary = join(packageRoot, "dist", "movies.js");

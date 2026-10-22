@@ -1,8 +1,3 @@
-/**
- * A player that plays nothing but keeps time faithfully: while playing and not stalled its
- * position advances with Effect's clock at its rate, so `TestClock` moves it. Engine commands and
- * simulated user input change its state and emit the same events a `<video>` element would.
- */
 import { Clock, Effect } from "effect";
 
 import type { PlayerEvent, PlayerPort } from "../room-sync/player-port";
@@ -36,7 +31,6 @@ export const makeFakePlayer = Effect.fn("FakePlayer.make")(function* (positionMs
   const position = (): number =>
     paused || stalled ? base : base + (clock.currentTimeMillisUnsafe() - since) * rate;
 
-  /** Freezes the running position into `base` before a state change. */
   const settle = (): void => {
     base = position();
     since = clock.currentTimeMillisUnsafe();

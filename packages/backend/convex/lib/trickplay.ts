@@ -1,27 +1,15 @@
-/**
- * Scrub thumbnails per file. A scan that finds a file new or changed queues a `trickplay` job for
- * it (when its library allows); the media service makes the sprite sheets and records them with
- * `mediaService:recordTrickplay`. A file's `trickplay` field follows its job: `pending` while one
- * is queued or running (with the size and modification time it was queued for), `ready` with the
- * manifest players read, `failed` once the job gave up, and absent when none was asked for or the
- * job was cancelled. A changed file (another size or modification time) is queued again, replacing
- * a job queued for its old contents; a failed one only when an admin asks.
- */
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { enqueueJob } from "./jobs";
 
-/** Whether `file` can have thumbnails: present, with video and a known length. */
 const hasFrames = (file: Doc<"mediaFiles">): boolean =>
   !file.missing && file.probe.video.length > 0 && file.probe.durationMs > 0;
 
-/** Whether `file`'s recorded state (thumbnails, a failure, a queued job) is for its contents now. */
 const forCurrent = (file: Doc<"mediaFiles">): boolean =>
   file.trickplay !== undefined &&
   file.trickplay.sizeBytes === file.sizeBytes &&
   file.trickplay.mtimeMs === file.mtimeMs;
 
-/** The job of `file`'s pending state while it is still queued or running. */
 const activeJob = async (
   ctx: MutationCtx,
   file: Doc<"mediaFiles">,
@@ -32,10 +20,6 @@ const activeJob = async (
   return job !== null && (job.status === "pending" || job.status === "running") ? job : null;
 };
 
-/**
- * Cancels `file`'s queued or running trickplay job, if any; a running worker sees it on its next
- * lease renewal and stops.
- */
 const cancelJobOf = async (ctx: MutationCtx, file: Doc<"mediaFiles">): Promise<void> => {
   const job = await activeJob(ctx, file);
 

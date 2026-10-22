@@ -1,7 +1,6 @@
 import { cn } from "@movies/ui/lib/utils";
 import type { ReactNode } from "react";
 
-/** The ring's geometry in its own 72-unit box, so every size keeps Paper's proportions. */
 const BOX = 72;
 
 const RADIUS = 30;

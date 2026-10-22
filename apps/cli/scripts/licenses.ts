@@ -1,9 +1,3 @@
-/**
- * The licenses of the third-party software a CLI bundle carries, which every copy of the bundle
- * ships beside it: any runtime the bundle is built into (Node.js, for the standalone executable),
- * then each inlined package's name, version, license, and LICENSE and NOTICE files, found from
- * esbuild's metafile.
- */
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -13,7 +7,6 @@ import { decodePackageManifest } from "./package-manifest.ts";
 
 const LICENSE_FILE = /^(?:licen[cs]e|notice|copying)/iu;
 
-/** `…/node_modules/@scope/name/dist/x.js` → `…/node_modules/@scope/name`. */
 const packageDirectory = (input: string): string | undefined =>
   /^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//u.exec(input)?.[1];
 

@@ -22,16 +22,13 @@ export const Route = createFileRoute("/_app/")({
   component: HomePage,
 });
 
-/** Collections the Home row shows; "See all" lists the rest. */
 const ROW_COLLECTIONS = 20;
 
-/** While a scan runs, Home keeps the scanning layout until this many titles have arrived. */
 const SCANNING_UNTIL = 8;
 
 const newestFirst = (titles: ReadonlyArray<TitleCard>): ReadonlyArray<TitleCard> =>
   titles.toSorted((a, b) => b.addedAt - a.addedAt);
 
-/** Home: the featured billboard and the profile's rows, live. */
 function HomePage() {
   const { profile } = useActiveProfile();
   const scopes = useScopes();
@@ -153,7 +150,6 @@ function HomeRows({ home }: { readonly home: Home }) {
   );
 }
 
-/** Collections on Home: shown once any collection holds a title the profile may see. */
 function CollectionsRow({ profileId }: { readonly profileId: ProfileId }) {
   const collections = useCommandQuery("collections.list", { profileId, limit: ROW_COLLECTIONS });
 

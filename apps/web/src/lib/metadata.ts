@@ -1,7 +1,3 @@
-/**
- * Display text and links for rich metadata: scores (`IMDb 7.9`, `Rotten Tomatoes 88%`), provider
- * links, `Directed by` lines, dates, languages, and the trailer embed URL.
- */
 import {
   type Credit,
   type CreditKind,

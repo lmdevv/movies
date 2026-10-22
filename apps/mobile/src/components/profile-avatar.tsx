@@ -1,8 +1,3 @@
-/**
- * A profile's tile (B01, B02, B03, B04, B05, B08): a rounded square in the avatar's gradient with
- * the name's initial, the `kids` art's own lettering, or, for avatar keys this app does not draw,
- * Paper's plain raised tile with the initial or the TV glyph on kids profiles.
- */
 import type { Profile } from "@movies/contracts/models/profiles";
 import { Match } from "effect";
 import { LinearGradient } from "expo-linear-gradient";
@@ -15,11 +10,6 @@ import { useThemeColors } from "@/lib/theme-color";
 
 import { Icon } from "./ui/icon";
 
-/**
- * Tile sizes as Paper draws them: 112 on Who's Watching, 104 in Choose Avatar, 96 in the editor,
- * 80 in the switcher sheet, 72 in lists and above the keypad, 44 in a watch room's people (G02),
- * and 36 inline.
- */
 const SIZES = {
   tile: {
     box: "size-28",
@@ -65,7 +55,6 @@ const SIZES = {
   },
 } as const;
 
-/** How large a tile draws. */
 type ProfileAvatarSize = keyof typeof SIZES;
 
 /** Props for `ProfileAvatar`. */
@@ -76,7 +65,6 @@ export interface ProfileAvatarProps {
   readonly selected?: boolean;
 }
 
-/** The `kids` art's lettering, scaled with the tile as the web art draws it (44 of 160). */
 const LETTERING = {
   tile: "text-ios-28 leading-ios-34",
   picker: "text-ios-28 leading-ios-34",
@@ -101,7 +89,6 @@ function Gradient({ stops }: { readonly stops: ReadonlyArray<`--color-${string}`
   );
 }
 
-/** What sits on the tile: the TV glyph, the `kids` lettering, or the name's initial. */
 function Mark({
   art,
   name,

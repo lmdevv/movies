@@ -1,8 +1,3 @@
-/**
- * Opens `movies://invite?server=…&code=…` links: connects to the invite's server when the app is
- * not connected yet, then shows Join Household. An invite for another server than the connected
- * one asks to change server first, so a link never signs anyone out by itself.
- */
 import * as Linking from "expo-linking";
 import { useEffect, useEffectEvent, useRef } from "react";
 import { Alert } from "react-native";
@@ -19,7 +14,6 @@ import { usePendingInvite } from "./pending-invite";
 export function InviteLinks() {
   const { connection, connect } = useConnection();
   const { setInvite } = usePendingInvite();
-  // Discovery can take seconds; whoever connects meanwhile wins over the link.
   const latest = useRef<ServerConnection | null>(connection);
 
   useEffect(() => {

@@ -1,11 +1,3 @@
-/**
- * C01 · Home: the featured hero under the large title, then Continue Watching, Recently Added, My
- * List as wide stills (hidden while the list is empty), and Collections. Scrolled, the content runs
- * under a bar that fades from the page into it, with the compact title (C02). In the light
- * appearance the hero fades into white (C18). While a library scans it shows the scan and what has
- * arrived (C13); without libraries, the empty state (C12). Kids profiles see the inset billboard
- * (C10). In a watch room, the room's pill sits under the title (C17).
- */
 import type { Home as HomeRows, Library } from "@movies/contracts/models/catalog";
 import { useCommandQuery } from "@movies/sdk/react";
 import { router } from "expo-router";
@@ -32,10 +24,8 @@ import type { HomeScreen } from "@/lib/browse";
 import { describeFailure } from "@/lib/failure";
 import { useActiveProfile } from "@/session/active-profile";
 
-/** The bar over Home is the scroll view's first child, and stays at the top. */
 const STICKY_BAR = [0];
 
-/** Collections in Home's row; the Collections page lists the rest. */
 const ROW_COLLECTIONS = 20;
 
 export default function Home() {
@@ -44,7 +34,6 @@ export default function Home() {
   const libraries = useCommandQuery("libraries.list", {});
   const collapse = useCollapse();
   const insets = useSafeAreaInsets();
-  // The content moves up by the bar's height to start under it, at the top of the screen.
   const [barHeight, setBarHeight] = useState(0);
 
   const loaded =
@@ -127,7 +116,6 @@ export default function Home() {
   );
 }
 
-/** C12's Add a Library, for sessions that may manage libraries (I03). */
 function AddLibrary() {
   const viewer = useCommandQuery("account.viewer", {});
 
@@ -138,7 +126,6 @@ function AddLibrary() {
   );
 }
 
-/** What follows the hero or the title, by layout. */
 function HomeBody({
   screen: { layout, arrived },
   home,
@@ -196,7 +183,6 @@ function HomeBody({
   );
 }
 
-/** Collections that hold a title this profile may see, with the way to all of them. */
 function CollectionsRow() {
   const { profile } = useActiveProfile();
 

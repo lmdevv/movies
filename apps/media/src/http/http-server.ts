@@ -1,9 +1,3 @@
-/**
- * The HTTP server: the HttpApi control endpoints, the media byte routes, and the web app, with
- * CORS for a separately hosted web app in development. Effect's server spans record full URLs,
- * and media URLs carry playback tokens, so built-in spans are disabled for `/media/` requests;
- * those routes record their own spans without the query string.
- */
 import { createServer } from "node:http";
 
 import { NodeHttpServer } from "@effect/platform-node";

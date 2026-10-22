@@ -1,7 +1,3 @@
-/**
- * The frame of setup, sign-in, invite, and profile screens: the wordmark top-left and one centered
- * column, as Paper draws pages 03 and 04.
- */
 import { TextField } from "@movies/ui/components/text-field";
 import { Wordmark } from "@movies/ui/components/wordmark";
 import { cn } from "@movies/ui/lib/utils";
@@ -10,7 +6,6 @@ import { CheckIcon, EyeIcon, EyeOffIcon } from "lucide-react";
 import { useState } from "react";
 import type { ComponentProps, ReactNode } from "react";
 
-/** Column widths Paper uses: forms 400, the library step 480, the scan and profile editor 560. */
 const WIDTHS = {
   form: "w-100",
   wide: "w-120",

@@ -7,10 +7,8 @@ import { Avatar } from "./avatar";
 const tileClassName =
   "group/tile flex w-35 shrink-0 cursor-pointer flex-col items-center gap-2.5 rounded-poster font-sans outline-none md:w-40 md:gap-3.5";
 
-/** The phone draws a 104px circle; desktops the 160px square. */
 const squareClassName = "size-26 rounded-pill md:size-40 md:rounded-poster";
 
-/** The focus and hover ring drawn around a tile's square: a 3px gap, then 3px of red. */
 const ringClassName =
   "transition-shadow group-hover/tile:ring-3 group-hover/tile:ring-accent group-hover/tile:ring-offset-3 group-hover/tile:ring-offset-page group-focus-visible/tile:ring-3 group-focus-visible/tile:ring-accent group-focus-visible/tile:ring-offset-3 group-focus-visible/tile:ring-offset-page";
 
@@ -50,7 +48,6 @@ export function ProfileTile({
         image={image}
         size="xl"
         monogram={monogram}
-        // The iOS picker draws the avatar art alone.
         monogramClassName={image === undefined ? undefined : "max-md:hidden"}
         className={cn(squareClassName, ringClassName)}
       />

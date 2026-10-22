@@ -1,8 +1,3 @@
-/**
- * Background jobs for the media service. Convex queues them; the media service claims one with a
- * lease (`leaseOwner`, `leaseExpiresAt`), renews it while working, and completes or fails it. An
- * expired lease returns the job to the queue, so a restarted worker recovers it.
- */
 import type { Infer } from "convex/values";
 
 import type { Doc, Id } from "../_generated/dataModel";

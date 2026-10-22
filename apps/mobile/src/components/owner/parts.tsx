@@ -1,8 +1,3 @@
-/**
- * The pieces every owner screen (I01–I18, J01–J06) shares: the page with its navigation row and
- * one scrolling column 20pt in with 16pt between rows, 22pt section headings, a large count over
- * its progress track, the round badge over a state's heading, and the calm load failure.
- */
 import type { QueryState } from "@movies/sdk/react";
 import type { LucideIcon } from "lucide-react-native";
 import { RotateCcw } from "lucide-react-native";
@@ -130,7 +125,6 @@ export function Meter({
   );
 }
 
-/** The round 72pt badge with a glyph over a state's heading (I05, J04). */
 function StateBadge({ icon }: { readonly icon: LucideIcon }) {
   return (
     <View className="size-18 items-center justify-center self-center rounded-pill bg-surface">

@@ -1,4 +1,3 @@
-/** The Downloads tab's `…` (C19): Download Settings and Remove All Downloads. */
 import { Settings2, Trash2 } from "lucide-react-native";
 
 import { Sheet, useSheetExit } from "@/components/title/sheet";

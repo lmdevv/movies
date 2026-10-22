@@ -1,4 +1,3 @@
-/** Library folder rules shared by admins adding libraries and migrations importing them. */
 import type { Doc, Id } from "../_generated/dataModel";
 import { LIBRARY_ROOT_MAX, LIBRARY_ROOTS_MAX } from "./bounds";
 import { fail } from "./errors";
@@ -21,7 +20,6 @@ export const normalizeRoot = (root: string): string =>
 export const isInside = (path: string, root: string): boolean =>
   path === root || path.startsWith(root === "/" ? root : `${root}/`);
 
-/** Whether one folder holds the other, or they are the same; both normalized. */
 const overlaps = (left: string, right: string): boolean =>
   isInside(left, right) || isInside(right, left);
 
@@ -34,7 +32,6 @@ export const librariesOverlapping = (
     library.roots.some((known) => overlaps(folder, normalizeRoot(known))),
   );
 
-/** Whether a path has a `.` or `..` segment, which could lead out of the folder it names. */
 const hasDotSegment = (path: string): boolean =>
   path.split("/").some((segment) => segment === "." || segment === "..");
 
@@ -127,7 +124,6 @@ export const overlappingLibraries = (
               const normalized = normalizeRoot(root);
               const candidate = normalizeRoot(folder);
 
-              // Identical folders are listed once, from the library made first.
               return (
                 isInside(candidate, normalized) &&
                 (candidate !== normalized || outer._creationTime < inner._creationTime)

@@ -1,4 +1,3 @@
-/** Collections of titles: TMDB collections, NFO sets, and box sets imported from Jellyfin or Plex. */
 import { Schema } from "effect";
 
 import { CollectionId } from "../ids";

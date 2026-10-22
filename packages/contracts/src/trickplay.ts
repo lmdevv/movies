@@ -99,7 +99,6 @@ export const trickplayTile = (manifest: TrickplayManifest, positionMs: number): 
   };
 };
 
-/** Paths of the trickplay routes, relative to the media service's base URL. */
 const trickplayPath = (fileId: string, version: TrickplayVersion, name: string): string =>
   `/media/trickplay/${encodeURIComponent(fileId)}/${version}/${name}`;
 

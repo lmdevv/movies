@@ -8,7 +8,6 @@ import { detail, label, playsDirectly, preferredVersion } from "./versions";
 
 const decodeVersion = Schema.decodeSync(MediaVersion);
 
-/** Chromium without an HEVC decoder: MP4 and WebM, H.264 and VP9 at 8 bits, AAC and Opus. */
 const CHROMIUM: ClientCapabilities = {
   containers: ["mp4", "webm"],
   videoCodecs: [
@@ -25,10 +24,8 @@ const CHROMIUM: ClientCapabilities = {
   mse: true,
 };
 
-/** A version as `titles.versions` sends it. */
 type VersionFields = Partial<(typeof MediaVersion)["Encoded"]>;
 
-/** A client that takes only H.264 Main and High in MP4. */
 const MAIN_AND_HIGH_ONLY: ClientCapabilities = {
   containers: ["mp4"],
   videoCodecs: [{ codec: "h264", profiles: ["High", "Main"] }],
@@ -60,10 +57,6 @@ const version = (overrides: VersionFields = {}): MediaVersion =>
     ...overrides,
   });
 
-/**
- * The demo library's four editions of one film, best quality first as `titles.versions` lists
- * them, with `lastPlayed` the one the profile last played.
- */
 const featureTest = (lastPlayed: string | null = null): ReadonlyArray<MediaVersion> =>
   (
     [
@@ -116,7 +109,6 @@ describe("versions", () => {
     expect(playsDirectly(version({ audioCodec: "ac3" }), CHROMIUM)).toBe(false);
     expect(playsDirectly(version({ videoBitDepth: 10 }), CHROMIUM)).toBe(false);
     expect(playsDirectly(version({ container: "webm", videoCodec: "vp9" }), CHROMIUM)).toBe(true);
-    // HDR needs a display and decoder that take it; SDR does not.
     expect(
       playsDirectly(
         version({ container: "webm", videoCodec: "vp9", videoBitDepth: 10, hdr: "hdr10" }),
@@ -124,11 +116,9 @@ describe("versions", () => {
       ),
     ).toBe(false);
     expect(playsDirectly(version({ width: 7680, height: 4320 }), CHROMIUM)).toBe(false);
-    // Negotiation refuses a file without video, so it never plays directly.
     expect(playsDirectly(version({ videoCodec: null, width: null, height: null }), CHROMIUM)).toBe(
       false,
     );
-    // A profile the client does not list needs an encode.
     expect(playsDirectly(version({ videoProfile: "High 4:4:4" }), MAIN_AND_HIGH_ONLY)).toBe(false);
   });
 

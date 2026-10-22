@@ -1,7 +1,3 @@
-/**
- * H21 · Storage Full: a download that does not fit says how much to free, with Manage Downloads
- * (the Downloads list, to remove some) and Cancel.
- */
 import { router, useLocalSearchParams } from "expo-router";
 import { Paths } from "expo-file-system";
 

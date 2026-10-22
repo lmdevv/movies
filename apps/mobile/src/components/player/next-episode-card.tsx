@@ -1,9 +1,3 @@
-/**
- * The next-episode card (F06): over the credits, the next episode's still, its name, and when it
- * starts, with Watch Credits to stay and Play Next to go now. The show and the episode playing sit
- * at the bottom left, as the controls are away. In a watch room a guest's card only closes, and the
- * host's says why the room cannot move on when the next episode cannot play.
- */
 import type { Episode } from "@movies/contracts/models/catalog";
 import { Play } from "lucide-react-native";
 import { Pressable, View } from "react-native";

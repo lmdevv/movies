@@ -117,10 +117,6 @@ function PasswordSignIn({
   );
 }
 
-/**
- * Signs this browser in through another device: shows a code to approve on a device that is
- * already signed in, and waits for the approval.
- */
 function DeviceCodeSignIn({ onCancel }: { readonly onCancel: () => void }) {
   const { startDeviceLogin } = useAuth();
 
@@ -141,7 +137,6 @@ function DeviceCodeSignIn({ onCancel }: { readonly onCancel: () => void }) {
         const login = await startDeviceLogin("[movies] web");
 
         setCode({ userCode: login.userCode, url: login.verificationUrl });
-        // Signing in flips the auth status; the page then redirects.
         await login.complete();
       } catch (cause) {
         setError(describeFailure(cause));

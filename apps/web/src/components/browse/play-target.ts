@@ -20,7 +20,6 @@ export interface PlayTarget {
   readonly positionMs: number | null;
 }
 
-/** The `/watch` search: what to play, in which version, and whether from the beginning. */
 interface WatchLinkSearch {
   episodeId?: EpisodeId;
   start?: "0";
@@ -108,7 +107,6 @@ export const useMyListToggle = (
     readonly to: boolean;
   } | null>(null);
 
-  // The optimistic value holds only until the server's answer moves past what it was based on.
   const inList = optimistic !== null && optimistic.from === inMyList ? optimistic.to : inMyList;
 
   const toggle = useCallback(async () => {

@@ -1,4 +1,3 @@
-/** The signed-in account's profiles, for screens shown both before and after choosing one. */
 import type { Profile } from "@movies/contracts/models/profiles";
 
 import { useSessionPhase } from "./session-phase";

@@ -1,9 +1,3 @@
-/**
- * I01 · Owner Settings: Libraries and Users & Invites with their counts, Import from Jellyfin or
- * Plex, Backups, and Server. Each row shows only when this session may use it: libraries need
- * `manage`; people, import, and backups need `admin`. During first run the owner screens open on
- * Add Your First Library instead.
- */
 import { useCommandQuery } from "@movies/sdk/react";
 import { Redirect, router } from "expo-router";
 import { Download, Folder, Server, Settings2, Users } from "lucide-react-native";
@@ -18,7 +12,6 @@ import { useSessionPhase } from "@/session/session-phase";
 export default function OwnerSettings() {
   const phase = useSessionPhase();
 
-  // First run opens the owner screens on Add Your First Library (I15) rather than here.
   if (phase.kind === "setup") return <Redirect href="/owner/first-library" />;
 
   return <OwnerSettingsList />;

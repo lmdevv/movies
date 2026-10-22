@@ -1,10 +1,3 @@
-/**
- * `FileResolver` over `mediaService:resolveFile`. A file's path must lie inside its library's
- * folders as Convex records them; `resolveInsideRoots` then re-checks the real path against the
- * approved `LIBRARY_ROOTS`. Size and modification time come from disk, which also proves the
- * file is still there. Answers are cached for thirty seconds, because a player asks for the same
- * file with every byte range and segment; failures are not cached.
- */
 import type { MediaFileId } from "@movies/contracts/ids";
 import { FileResolverUnavailable, MediaFileNotFound } from "@movies/contracts/media-playback";
 import type { CallError } from "@movies/sdk/effect";
@@ -17,7 +10,6 @@ import * as MediaBackend from "./media-backend.ts";
 
 const CACHE_TTL = Duration.seconds(30);
 
-/** Builds the resolver. */
 const make = Effect.gen(function* () {
   const backend = yield* MediaBackend.Service;
   const fs = yield* FileSystem.FileSystem;
@@ -49,8 +41,6 @@ const make = Effect.gen(function* () {
       return yield* new MediaFileNotFound({ fileId });
     }
 
-    // A file that is gone is not found; an unreadable one (an offline share) may come back. The
-    // error names the absolute path, so it goes to the log and the caller only learns why.
     const info = yield* fs.stat(resolved.path).pipe(
       Effect.tapError((error) =>
         isNotFound(error)

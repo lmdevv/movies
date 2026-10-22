@@ -1,8 +1,3 @@
-/**
- * Metadata commands the media service serves: `metadata.searchCandidates` (`POST
- * /api/metadata/candidates`) searches the metadata provider for matches when an admin fixes a
- * title's match. Choosing one queues a metadata job through `metadata.fixMatch` in Convex.
- */
 import { Internal, RateLimited } from "@movies/contracts/errors";
 import type { MetadataCandidate } from "@movies/contracts/models/catalog";
 import { Effect, Layer, Match } from "effect";
@@ -13,7 +8,6 @@ import type * as ViewerAuth from "../convex/viewer-auth.ts";
 import * as MetadataPlugin from "../metadata/metadata-plugin.ts";
 import { commandRoute } from "./command-routes.ts";
 
-/** Most candidates one search returns. */
 const MAX_CANDIDATES = 20;
 
 const providerFailure = Match.type<MetadataPlugin.MetadataError>().pipe(

@@ -1,10 +1,3 @@
-/**
- * A download's page. Ready, it is H17: the title in the header, the picture, the movie's or
- * episode's name and facts, Play Download, `Downloaded · 720p · 842 MB`, and Remove Download.
- * Otherwise it is the row as C19 shows it, under the Downloads header: interrupted (H19), the
- * short danger line with Retry Download and Cancel Download; still on its way, its transfer line
- * and Cancel Download; stopped for space, Retry Download (which checks again) and Cancel.
- */
 import { router, useLocalSearchParams } from "expo-router";
 import { Ellipsis, Play, RotateCw, Trash2 } from "lucide-react-native";
 import { ScrollView, View } from "react-native";
@@ -24,7 +17,6 @@ import { DOWNLOADS_HREF, downloadHref, playDownloadHref } from "@/lib/routes";
 import type { DownloadEngine } from "@/session/download-engine";
 import { useDownload } from "@/session/downloads";
 
-/** H17: a kept download. */
 function KeptDownload({
   engine,
   download,
@@ -83,7 +75,6 @@ function KeptDownload({
   );
 }
 
-/** H19 and the other states before a download is kept. */
 function PendingDownload({
   engine,
   download,

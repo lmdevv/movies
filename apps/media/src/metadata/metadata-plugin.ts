@@ -1,14 +1,8 @@
-/**
- * The typed contract every metadata plugin implements (plugin role `metadata`). A plugin declares
- * the hosts and paths it may touch in its manifest; `guardHosts` enforces the host list on the
- * HTTP client a plugin is given.
- */
 import { Context, Effect, Schema } from "effect";
 import { HttpClient, type HttpClientError } from "effect/http";
 
 import { ExternalIds, Score, ShowStatus } from "../library/nfo.ts";
 
-/** What a plugin may access. Requests to any other host fail with `PluginPermissionDenied`. */
 const PluginPermissions = Schema.Struct({
   hosts: Schema.Array(Schema.String),
   paths: Schema.Array(Schema.String),

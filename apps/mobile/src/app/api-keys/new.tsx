@@ -1,8 +1,3 @@
-/**
- * H12 · Create API Key: a name and the permissions this account may hand out, then H13 · API Key
- * Created with the secret, shown once. The secret lives only in this screen's state: leaving drops
- * it, and it is never stored or logged.
- */
 import type { CreatedApiKey } from "@movies/contracts/models/account";
 import type { ApiKeyScope } from "@movies/contracts/scopes";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
@@ -24,15 +19,12 @@ import { Toggle } from "@/components/ui/toggle";
 import { KEY_PERMISSIONS } from "@/lib/account";
 import { describeFailure } from "@/lib/failure";
 
-/** Permissions a new key starts with: enough to browse and play. */
 const DEFAULT_SCOPES: ReadonlyArray<ApiKeyScope> = ["read", "play"];
 
-/** How long a new key works, as the web app's default. */
 const EXPIRES_IN_DAYS = 90;
 
 const leave = () => (router.canGoBack() ? router.back() : router.replace("/api-keys"));
 
-/** H13: the new key's secret with Copy Key and Done. */
 function Created({ created }: { readonly created: CreatedApiKey }) {
   const [copied, setCopied] = useState(false);
 

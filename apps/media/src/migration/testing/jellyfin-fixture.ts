@@ -1,8 +1,3 @@
-/**
- * The recorded Jellyfin server: responses recorded from a real Jellyfin (see
- * `scripts/record-jellyfin-fixtures.ts`), replayed by a local HTTP server. Callers sign in with
- * `FIXTURE_API_KEY` or with the recorded users' passwords.
- */
 import { Schema } from "effect";
 
 import recorded from "../fixtures/jellyfin.json" with { type: "json" };

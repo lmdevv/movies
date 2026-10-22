@@ -6,7 +6,6 @@
  */
 import type { CastFramework, ChromeCast } from "./cast-api";
 
-/** The sender script, which also loads `cast.framework`. */
 const CAST_SENDER_URL =
   "https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1";
 
@@ -20,7 +19,6 @@ export interface CastSdk {
 export const castCapableBrowser = (userAgent: string): boolean =>
   /\bChrom(?:e|ium)\/\d/u.test(userAgent) && !/\b(?:CriOS|FxiOS|Firefox)\//u.test(userAgent);
 
-/** Both namespaces, once the SDK defined them. */
 const loadedSdk = (): CastSdk | null => {
   const framework = window.cast?.framework;
   const cast = window.chrome?.cast;

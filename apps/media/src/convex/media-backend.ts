@@ -1,17 +1,3 @@
-/**
- * The media service's connection to Convex: the `mediaService:*` functions, called as the
- * service account that `MEDIA_SERVICE_API_KEY` signs in to through the `apikey` provider.
- * Arguments are encoded and results decoded with the schemas in `@movies/contracts/media-service`,
- * so every call also checks the wire contract.
- *
- * The connection is the SDK's WebSocket transport and auth (`@movies/sdk/effect`): Convex pushes
- * subscription updates, reconnects on its own, and the SDK refreshes the hour-long session token.
- * On top of that this module owns the service's policy: it signs in at startup and keeps retrying
- * with capped exponential backoff while Convex is unreachable or refuses the key, signs in again
- * when the session ends (a restore, a revoked session, an expired refresh token), retries a call
- * once after signing in again, and resubscribes dropped subscriptions with backoff. Logs carry
- * function names and error tags, never the key or tokens.
- */
 import { mediaServiceFunctions } from "@movies/contracts/media-service";
 import type { MediaServiceFunctions } from "@movies/contracts/media-service";
 import { InvalidArgs } from "@movies/contracts/errors";
@@ -97,7 +83,6 @@ const READY_WAIT = Duration.seconds(15);
  */
 const DEFAULT_CALL_TIMEOUT = Duration.seconds(30);
 
-/** Capped exponential backoff with jitter, for sign-in and resubscription. */
 const backoff = Schedule.min([
   Schedule.exponential("500 millis"),
   Schedule.spaced("30 seconds"),
@@ -128,7 +113,6 @@ const decodeResult = <Name extends FunctionName>(
     ),
   );
 
-/** Opens the connection for the lifetime of the scope and signs in in the background. */
 const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
   const sdk = yield* Layer.build(
     Auth.layer({ convexUrl: options.convexUrl }).pipe(
@@ -160,14 +144,11 @@ const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
       ),
     );
 
-  /** Signs in, retrying until it succeeds. Only one sign-in runs at a time. */
   const signIn = (seen: number) =>
     signingIn.withPermits(1)(
       Effect.gen(function* () {
-        // Another caller signed in again while this one waited.
         if ((yield* Ref.get(generation)) !== seen) return;
         yield* Ref.set(signedIn, false);
-        // The schedule never ends and the token store is in memory, so this only returns signed in.
         yield* signInOnce.pipe(Effect.retry(backoff), Effect.orDie);
         yield* Ref.set(attempts, 0);
         yield* Ref.update(generation, (current) => current + 1);
@@ -251,7 +232,6 @@ const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
           ),
         ),
       ),
-      // The schedule never ends, so the stream only stops when its consumer is interrupted.
       Stream.retry(backoff),
       Stream.orDie,
     );

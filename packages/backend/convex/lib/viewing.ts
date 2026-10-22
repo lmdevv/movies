@@ -1,7 +1,3 @@
-/**
- * Watch state shared by browse, history, and playback: progress writes with stale-session
- * protection, next episodes, and continue watching.
- */
 import type { Infer } from "convex/values";
 
 import type { Doc, Id } from "../_generated/dataModel";
@@ -12,7 +8,6 @@ import { findProgress, presentEpisode, presentProgress, presentTitleCard } from 
 import type { continueWatchingItem } from "./validators";
 import type { ReadCtx } from "./viewer";
 
-/** Progress at or beyond this share of the duration marks an item watched. */
 const WATCHED_FRACTION = 0.9;
 
 /** Whether a position counts as finished. Unknown durations never finish by position. */
@@ -73,7 +68,6 @@ export const writeProgress = async (
     lastPlayedAt: write.playedAt,
   };
 
-  // A device's report takes ownership of the item; imports and manual marks leave the owner.
   const owned =
     write.session === null
       ? fields
@@ -118,7 +112,6 @@ export const nextEpisodeAfter = async (
     .first();
 };
 
-/** A show's first regular episode (season 1 or later), or its first special when it has none. */
 const firstEpisode = async (
   ctx: ReadCtx,
   titleId: Id<"titles">,
@@ -137,10 +130,8 @@ const firstEpisode = async (
   );
 };
 
-/** Most watched episodes `nextUnwatchedAfter` steps over, so a long finished run stays cheap. */
 const MAX_SKIPPED_EPISODES = 100;
 
-/** Up to `count` episodes after `episode` in the order `nextEpisodeAfter` walks, in two reads. */
 const followingEpisodes = async (
   ctx: ReadCtx,
   episode: Doc<"episodes">,
@@ -168,7 +159,6 @@ const followingEpisodes = async (
   return [...sameSeason, ...later];
 };
 
-/** The first of `episodes` the profile has not watched, and how many progress rows it read. */
 const firstUnwatched = async (
   ctx: ReadCtx,
   profileId: Id<"profiles">,
@@ -185,18 +175,8 @@ const firstUnwatched = async (
     : { episode: next, examined: index + 1 };
 };
 
-/** Episodes `scanUnwatched` reads at a time; most next episodes are the first one read. */
 const SCAN_BATCH = 10;
 
-/**
- * The first episode after `episode` the profile has not watched, or null when none remains. Reads
- * the following episodes a few at a time, widening only while every one read is watched, and
- * checks each one's progress by index. After `maxSkipped` watched episodes in a row it stops:
- * with `giveUp` it returns the next one anyway, as for a long finished run; without, null, for a
- * caller whose read budget cut the search short.
- *
- * @returns The episode and how many documents it read, for callers that share a read budget.
- */
 const scanUnwatched = async (
   ctx: ReadCtx,
   profileId: Id<"profiles">,
@@ -210,7 +190,6 @@ const scanUnwatched = async (
     reads: number,
   ): Promise<{ readonly episode: Doc<"episodes"> | null; readonly reads: number }> => {
     const left = maxSkipped - skipped;
-    // The last batch reads one past the run, the episode returned when giving up.
     const wanted = left <= SCAN_BATCH ? left + 1 : SCAN_BATCH;
     const batch = await followingEpisodes(ctx, after, wanted);
     const found = await firstUnwatched(ctx, profileId, batch.slice(0, left), 0);
@@ -218,7 +197,6 @@ const scanUnwatched = async (
 
     if (found.episode !== null) return { episode: found.episode, reads: spent };
 
-    // Every episode read is watched: none remain, the run is too long, or read further.
     if (batch.length < wanted) return { episode: null, reads: spent };
 
     if (found.examined >= left) {
@@ -235,7 +213,6 @@ const scanUnwatched = async (
   return step(episode, 0, 0);
 };
 
-/** The first episode after `episode` the profile has not watched, or null when none remains. */
 const nextUnwatchedAfter = async (
   ctx: ReadCtx,
   profileId: Id<"profiles">,
@@ -243,7 +220,6 @@ const nextUnwatchedAfter = async (
 ): Promise<Doc<"episodes"> | null> =>
   (await scanUnwatched(ctx, profileId, episode, MAX_SKIPPED_EPISODES, true)).episode;
 
-/** The profile's most recently played episode progress of a show, if any. */
 const latestShowProgress = async (
   ctx: ReadCtx,
   profileId: Id<"profiles">,
@@ -282,10 +258,8 @@ export const upNextEpisode = async (
   return isFinished(latest) ? nextUnwatchedAfter(ctx, profileId, episode) : episode;
 };
 
-/** Most rows continue watching shows. */
 const CONTINUE_LIMIT = 20;
 
-/** How many recent progress rows continue watching considers. */
 const CONTINUE_SCAN = 200;
 
 /**
@@ -296,7 +270,6 @@ const NEXT_EPISODE_BUDGET = 500;
 
 type ContinueItem = Infer<typeof continueWatchingItem>;
 
-/** What one progress row adds to continue watching, before any next-episode lookup. */
 type Candidate =
   | { readonly kind: "skip" }
   | { readonly kind: "item"; readonly item: ContinueItem }
@@ -308,7 +281,6 @@ type Candidate =
 
 const SKIP: Candidate = { kind: "skip" };
 
-/** Resolves a progress row with point reads only; finished episodes still need their next one. */
 const candidateOf = async (
   ctx: ReadCtx,
   audience: Audience,
@@ -352,7 +324,12 @@ const candidateOf = async (
   return { kind: "next", title, episode };
 };
 
-/** The next episode for a finished one, within what is left of the read budget. */
+const READS_PER_SKIPPED_EPISODE = 2;
+
+const NEXT_ITEM_LOOKAHEAD_READS = 1;
+
+const NEXT_ITEM_PROGRESS_READS = 1;
+
 const nextItemOf = async (
   ctx: ReadCtx,
   audience: Audience,
@@ -360,9 +337,12 @@ const nextItemOf = async (
   episode: Doc<"episodes">,
   budget: number,
 ): Promise<{ readonly item: ContinueItem | null; readonly reads: number }> => {
-  // Each episode looked at costs its episode and its progress row, plus one episode past the run
-  // and the found episode's progress again to show it: at most `2 * maxSkipped + 2` reads.
-  const maxSkipped = Math.min(MAX_SKIPPED_EPISODES, Math.floor((budget - 2) / 2));
+  const maxSkipped = Math.min(
+    MAX_SKIPPED_EPISODES,
+    Math.floor(
+      (budget - NEXT_ITEM_LOOKAHEAD_READS - NEXT_ITEM_PROGRESS_READS) / READS_PER_SKIPPED_EPISODE,
+    ),
+  );
 
   if (maxSkipped < 1) return { item: null, reads: 0 };
 
@@ -384,7 +364,7 @@ const nextItemOf = async (
       episode: presentEpisode(next, nextProgress),
       progress: null,
     },
-    reads: reads + 1,
+    reads: reads + NEXT_ITEM_PROGRESS_READS,
   };
 };
 
@@ -475,7 +455,6 @@ export const firstVisible = async <Item>(
   const iterator = items[Symbol.asyncIterator]();
   const found: Array<Doc<"titles">> = [];
 
-  /** Reads up to `count` more items into `batch`; true when the query ended and may not be read. */
   const fill = async (batch: Array<Item>, count: number): Promise<boolean> => {
     if (batch.length >= count) return false;
     const step = await iterator.next();
@@ -486,8 +465,6 @@ export const firstVisible = async <Item>(
     return fill(batch, count);
   };
 
-  // The first batch is one row's worth, which a profile that sees everything fills; later ones
-  // are larger, as `titles.list` reads them, since a profile that needed another is filtered.
   const take = async (budget: number, size: number): Promise<Array<Doc<"titles">>> => {
     if (found.length >= limit || budget <= 0) return found;
     const batch: Array<Item> = [];

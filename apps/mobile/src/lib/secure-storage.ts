@@ -1,8 +1,3 @@
-/**
- * Small values this install keeps between launches, in the iOS keychain through Expo SecureStore:
- * the server it connects to, the SDK's session tokens, the chosen profile, and its device ID.
- * Reads are synchronous so the first screen can decide where to go without a loading frame.
- */
 import type { MoviesProviderProps } from "@movies/sdk/react";
 import * as SecureStore from "expo-secure-store";
 

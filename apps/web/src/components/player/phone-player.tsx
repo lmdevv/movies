@@ -31,7 +31,6 @@ import {
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { ComponentProps, ReactElement, ReactNode } from "react";
 
-/** A 36px frosted circle button. */
 function GlassButton({
   className,
   ...props
@@ -48,7 +47,6 @@ function GlassButton({
   );
 }
 
-/** Paper's skip glyph with the seconds written inside the arrow. */
 function SkipGlyph({ forward }: { readonly forward: boolean }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden className="size-9">
@@ -78,7 +76,6 @@ function SkipGlyph({ forward }: { readonly forward: boolean }) {
   );
 }
 
-/** A vertical slider over the video, from 0 to 1. */
 function SideSlider({
   label,
   value,
@@ -90,12 +87,10 @@ function SideSlider({
   readonly label: string;
   readonly value: number;
   readonly onChange: (value: number) => void;
-  /** Where the slider settled, at the end of a drag. */
   readonly onCommit?: ((value: number) => void) | undefined;
   readonly icon: ReactNode;
   readonly className?: string;
 }) {
-  // Where a drag has put the slider, until it settles; the level it reports can lag (a TV).
   const [moving, setMoving] = useState<number | null>(null);
   const movingNow = useRef<number | null>(null);
 
@@ -104,7 +99,6 @@ function SideSlider({
     setMoving(next);
   };
 
-  // A drag cut off before it was let go (a call, an edge swipe) settles where it got to.
   const settle = (): void => {
     const last = movingNow.current;
 
@@ -247,7 +241,6 @@ export function PhoneControls({
         <GlassButton aria-label="Close player" onClick={onClose} className="[&_svg]:size-4">
           <XIcon strokeWidth={2.25} aria-hidden />
         </GlassButton>
-        {/* Centered across the bar; taps pass through to the buttons beside it. */}
         <p className="pointer-events-none absolute inset-x-0 top-7 text-center text-body/5 font-semibold text-text">
           {title}
         </p>

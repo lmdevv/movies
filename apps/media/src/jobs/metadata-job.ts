@@ -1,13 +1,3 @@
-/**
- * Metadata jobs: an admin refreshed a title (`metadata.refresh`) or chose its match by hand
- * (`metadata.fixMatch`). The job looks the title up at the metadata provider (the chosen match,
- * else its TMDB ID, else its IMDb or TVDB ID, else a confident name and year search), writes the
- * title and its known episodes with `mediaService:applyMetadata`, and keeps the title's current
- * artwork where the provider has none. It then writes the cast and crew of the title and each
- * episode, the title's collection, and the details of top-billed people nobody fetched yet.
- * Ratings come from the provider and, with `OMDB_API_KEY`, from OMDb. Convex marks a hand-picked
- * match manual, so scans keep it.
- */
 import type { ScannedEpisode } from "@movies/contracts/models/scan";
 import type { FunctionResult } from "../convex/media-backend.ts";
 import { Effect, Match, Option } from "effect";
@@ -40,10 +30,8 @@ import type { EpisodeMetadata, TitleMetadata } from "../metadata/title-metadata.
 import { JobFailed, type JobHandler } from "./job-worker.ts";
 import { personDetailsOf } from "./person-job.ts";
 
-/** Most episodes one `applyMetadata` call carries. */
 const EPISODE_BATCH = 100;
 
-/** Top-billed people whose biographies a refresh fetches; the rest load when someone opens them. */
 const TOP_BILLED = 10;
 
 const noActorImages = (): undefined => undefined;
@@ -110,7 +98,6 @@ const episodeMetadataOf = (season: ProviderSeason, episode: number): EpisodeMeta
   };
 };
 
-/** Convex failures return the job to the queue. */
 const backendFailure = (error: { readonly message: string }) =>
   new JobFailed({ message: error.message, retry: true });
 
@@ -125,7 +112,6 @@ export const handler: Effect.Effect<
   const keys = yield* ArtworkKeys.Service;
   const omdb = yield* Omdb.Service;
 
-  /** The provider ID of the title: chosen, known, found by external ID, or searched. */
   const providerIdOf = Effect.fn("MetadataJob.providerId")(function* (
     target: FunctionResult<"mediaService.metadataTarget">,
     chosen: Option.Option<string>,
@@ -177,7 +163,6 @@ export const handler: Effect.Effect<
         .titleDetails(target.kind, providerId.value)
         .pipe(Effect.mapError(providerFailure));
 
-      // A collection's overview is a nicety; without it the collection keeps its name and art.
       const collection =
         details.collection === undefined
           ? undefined
@@ -217,7 +202,6 @@ export const handler: Effect.Effect<
                       metadata: episodeMetadataOf(seasonDetails, episode.episodeNumber),
                     })),
                 ),
-                // A season the provider does not know keeps its local episode details.
                 Effect.catchTag("MetadataRequestFailed", () => Effect.succeed([])),
                 Effect.mapError(providerFailure),
               ),
@@ -294,8 +278,6 @@ export const handler: Effect.Effect<
         { discard: true },
       ).pipe(Effect.mapError(backendFailure));
 
-      // Biographies of the top-billed people, so their pages open complete. A person the
-      // provider cannot describe keeps loading lazily.
       yield* Effect.forEach(
         cast
           .slice(0, TOP_BILLED)

@@ -19,7 +19,6 @@ import * as Hardening from "./hardening.ts";
 
 class Site extends Context.Service<Site, { readonly baseUrl: string }>()("test/HardeningSite") {}
 
-/** A route that reads its whole body, as the HttpApi routes do, behind the hardening layer. */
 const echo = HttpRouter.add(
   "POST",
   "/echo",
@@ -127,7 +126,6 @@ describe("hardening", () => {
       "connect-src 'self' http://nas:4300 https://convex.example wss://convex.example;",
     );
     assert.include(policy, "media-src 'self' blob: http://nas:4300;");
-    // Trailers embed YouTube's cookieless player and nothing else.
     assert.include(policy, "frame-src https://www.youtube-nocookie.com;");
     assert.notInclude(policy, "unsafe-eval");
 

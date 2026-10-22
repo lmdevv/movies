@@ -1,8 +1,3 @@
-/**
- * Seeds what the CLI cannot do itself in the real-stack suite: the media service scanning a file
- * into a library, and a new member redeeming an invite. Uses the SDK the way the web app and the
- * media service do.
- */
 import { mediaServiceFunctions } from "@movies/contracts/media-service";
 import { Auth, ConvexTransport, Movies, TokenStorage } from "@movies/sdk/effect";
 import { Context, Effect, Layer, Option, Redacted, Schema } from "effect";
@@ -17,22 +12,16 @@ const open = (convexUrl: string) =>
 
 const UpsertArgs = mediaServiceFunctions["mediaService.upsertScanned"].args;
 
-/** A file's version label and picture height, for a movie with several files. */
 interface SeedVersion {
   readonly name: string;
   readonly height: number;
 }
 
-/** An episode of a seeded show: its season and number. */
 interface SeedEpisode {
   readonly season: number;
   readonly episode: number;
 }
 
-/**
- * A scanned movie as the media service reports it, or an episode of a show named `name` when
- * `episode` is given.
- */
 const scannedMovie = (
   path: string,
   name: string,
@@ -99,7 +88,6 @@ const scannedMovie = (
         },
 });
 
-/** Scans `items` into `libraryId` as the media service would. */
 const upsert = (
   convexUrl: string,
   mediaServiceKey: string,

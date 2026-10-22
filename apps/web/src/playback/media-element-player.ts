@@ -1,11 +1,3 @@
-/**
- * The SDK's `PlayerPort` over a `<video>` element, for the progress reporter and the room engine.
- * Positions are the element's `currentTime` on the source timeline (HLS generations keep source
- * timestamps). A seek the element cannot reach by itself, such as an HLS position whose segments
- * are not produced yet, goes through the stream's `StreamSeeker`; until it lands, the player
- * reports the target position and counts as buffering, so neither the engine nor the scrubber
- * jumps back.
- */
 import type { PlayerEvent, PlayerPort } from "@movies/sdk/effect";
 
 /** `TimeRanges` as the adapter reads it. */
@@ -43,7 +35,6 @@ export interface StreamSeeker {
 /** `HAVE_FUTURE_DATA`: enough data to play forward from the current position. */
 const HAVE_FUTURE_DATA = 3;
 
-/** Element events and the player events they become. `stalled` counts only while starved. */
 const EVENTS: ReadonlyArray<readonly [string, PlayerEvent]> = [
   ["playing", "playing"],
   ["pause", "paused"],
@@ -75,12 +66,9 @@ const isAbort = (cause: unknown): boolean =>
 export class MediaElementPlayer implements PlayerPort {
   readonly #element: MediaElementLike;
   #seeker: StreamSeeker = ELEMENT_SEEKER;
-  /** The target of a stream seek in progress. */
   #pending: number | null = null;
   #move: AbortController | null = null;
-  /** Whether playing or pausing was asked for last; a stream move keeps reporting it. */
   #wantsPlay = false;
-  /** Where the element was when the player was disposed; the element is reused after that. */
   #final: number | null = null;
   readonly #listeners = new Set<(event: PlayerEvent) => void>();
 
@@ -124,7 +112,6 @@ export class MediaElementPlayer implements PlayerPort {
 
     if (event.type === "stalled" && this.#element.readyState >= HAVE_FUTURE_DATA) return;
 
-    // Seeks inside a stream move fire their own `seeked`; the move reports one when it lands.
     if (mapped === "seeked" && this.#pending !== null) return;
 
     this.#emit(mapped);
@@ -182,7 +169,6 @@ export class MediaElementPlayer implements PlayerPort {
     this.#emit("waiting");
 
     void this.#seeker.move(target, move.signal).finally(() => {
-      // A newer seek owns the pending target now.
       if (move.signal.aborted) return;
       this.#move = null;
       this.#pending = null;

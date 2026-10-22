@@ -25,7 +25,6 @@ export const playerErrorObservation = (message: string | undefined): PlayerObser
     fatal: true,
   });
 
-/** The recovery action of a step that tries again; none for one that stops. */
 const actionOf = (step: PlaybackStep): Option.Option<RecoveryAction> =>
   PlaybackStep.$match(step, {
     ReloadPlaylist: () => Option.some<RecoveryAction>("reload-playlist"),

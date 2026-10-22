@@ -1,8 +1,3 @@
-/**
- * Ending playback sessions and watch rooms. Every path that ends one (stopping playback, sign-out,
- * idle sweeps, a new session or room on the device, a removed library or profile, the host leaving)
- * goes through these, so the fields an ended record carries stay the same everywhere.
- */
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { livePosition } from "./roomClock";

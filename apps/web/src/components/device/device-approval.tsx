@@ -22,7 +22,6 @@ import { useViewer } from "@/session/viewer";
 
 import { USER_CODE_LENGTH, codeLetters, formatUserCode } from "./user-code";
 
-/** Scopes a new device gets unless the approver changes them: enough to browse and watch. */
 const DEFAULT_SCOPES: ReadonlyArray<DeviceScope> = ["read", "play"];
 
 /**
@@ -56,7 +55,6 @@ function Stage({
 }: {
   readonly title: ReactNode;
   readonly description?: string | undefined;
-  /** The code entry screen sits lower, as the first thing the page asks for. */
   readonly roomy?: boolean;
   readonly children: ReactNode;
 }) {
@@ -96,7 +94,6 @@ function CodeForm({
   readonly initial: string;
   readonly title: string;
   readonly description?: string | undefined;
-  /** Why the last code did not work, under the boxes. */
   readonly problem?: { readonly tone: "warning" | "danger"; readonly message: string };
   readonly submitLabel: string;
 }) {
@@ -177,7 +174,6 @@ function EnterCode({ initial }: { readonly initial: string }) {
   );
 }
 
-/** A known code: its device and state, then the decision. */
 function ApproveCode({ userCode }: { readonly userCode: string }) {
   const lookup = useCommandQuery("deviceAuth.lookup", { userCode });
 

@@ -1,7 +1,3 @@
-/**
- * I09 · Invite Someone: an optional email the invite is for, the role it gives, and Create Invite.
- * The new invite's link shows once, to share from here; it works once and expires in 7 days.
- */
 import type { CreatedInvite } from "@movies/contracts/models/account";
 import type { AssignableRole } from "@movies/contracts/scopes";
 import { useCommand } from "@movies/sdk/react";
@@ -19,7 +15,6 @@ import { Text } from "@/components/ui/text";
 import { TextField } from "@/components/ui/text-field";
 import { expiryLine } from "@/lib/household";
 
-/** How long a new invite lasts. */
 const DAYS = 7;
 
 const ROLES: ReadonlyArray<{
@@ -31,7 +26,6 @@ const ROLES: ReadonlyArray<{
   { role: "admin", label: "Admin", icon: ShieldCheck },
 ];
 
-/** The new invite's link and the way to send it. */
 function InviteReady({ created }: { readonly created: CreatedInvite }) {
   return (
     <>

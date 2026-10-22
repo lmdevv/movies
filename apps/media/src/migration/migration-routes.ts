@@ -1,9 +1,3 @@
-/**
- * Migration commands the media service serves: `migration.connect` (`POST
- * /api/migration/connect`), `migration.dryRun` (`POST /api/migration/dry-run`), and
- * `migration.import` (`POST /api/migration/import`), each for a session holding the `admin` scope.
- * Bodies carry source credentials; `commandRoute` never logs a body.
- */
 import { Effect, Layer } from "effect";
 import type { HttpRouter } from "effect/http";
 

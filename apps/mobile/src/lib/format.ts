@@ -1,7 +1,3 @@
-/**
- * Display text for titles, episodes, and progress, as Paper writes it: `2h 46m`, `1h 03m left`,
- * `S2:E4`, `2024 · 2h 46m · PG-13`.
- */
 import type { Episode, Progress } from "@movies/contracts/models/catalog";
 
 const MINUTE_MS = 60_000;

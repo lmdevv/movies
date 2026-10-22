@@ -1,4 +1,3 @@
-/** F01–F14 · Player: a movie or an episode, full screen in landscape. */
 import { Option } from "effect";
 import { router, useLocalSearchParams } from "expo-router";
 import { CircleAlert } from "lucide-react-native";
@@ -27,7 +26,6 @@ export default function Watch() {
 
   const { titleId, episodeId, fileId, start, at } = params.value;
 
-  // Another title, episode, version, or start is another session: the player starts over.
   return (
     <PlayerScreen key={[titleId, episodeId, fileId, start, at].join("|")} params={params.value} />
   );

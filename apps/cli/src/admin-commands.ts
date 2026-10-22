@@ -1,4 +1,3 @@
-/** Shortcuts for scans, migration from Jellyfin or Plex, backups, and restore. */
 import { commands } from "@movies/contracts/commands";
 import { NotFound } from "@movies/contracts/errors";
 import type { JobId } from "@movies/contracts/ids";
@@ -29,7 +28,6 @@ import { connect } from "./session";
 
 const encodeJob = Schema.encodeSync(Schema.toCodecJson(commands["jobs.get"].result));
 
-/** Follows `jobIds` when `--wait` was given; otherwise returns no jobs. */
 const followJobs = Effect.fn("Admin.followJobs")(function* (
   invocation: Invocation,
   connection: Connection,
@@ -112,7 +110,6 @@ const scan: ShortcutCommand = {
     }),
 };
 
-/** Comma-separated `left=right` pairs of a flag; the first `=` splits each pair. */
 const parsePairs = (invocation: Invocation, flag: string, expected: string) =>
   Effect.forEach(
     Option.getOrElse(stringFlag(invocation.tokens, flag), () => "")
@@ -130,7 +127,6 @@ const parsePairs = (invocation: Invocation, flag: string, expected: string) =>
     },
   );
 
-/** `--map <source-user-id>=<profile-id>|skip,...`: overrides of the suggested user mappings. */
 const parseMappings = (invocation: Invocation) =>
   parsePairs(invocation, "map", "<source-user-id>=<profile-id> or <source-user-id>=skip").pipe(
     Effect.map((pairs) =>
@@ -141,7 +137,6 @@ const parseMappings = (invocation: Invocation) =>
     ),
   );
 
-/** `--path-map <source-folder>=<local-folder>,...`: where the source's folders are on this host. */
 const parsePathMappings = (invocation: Invocation) =>
   parsePairs(invocation, "path-map", "<source-folder>=<local-folder>").pipe(
     Effect.flatMap((pairs) =>
@@ -153,10 +148,6 @@ const parsePathMappings = (invocation: Invocation) =>
 
 const isMigrationSource = Schema.is(MigrationSource);
 
-/**
- * How to sign in to the source: a Jellyfin administrator's password with `--user`, otherwise a
- * Jellyfin API key or Plex token.
- */
 const importCredentials = (invocation: Invocation) =>
   Option.match(stringFlag(invocation.tokens, "user"), {
     onNone: () =>
@@ -169,12 +160,10 @@ const importCredentials = (invocation: Invocation) =>
       ),
   });
 
-/** Whether the source answered; otherwise the result is a `MigrationSourceFailure`. */
 const isReady = <Ready extends { readonly status: "connected" | "ready" | "queued" }>(
   result: Ready | MigrationSourceFailure,
 ): result is Ready => result.status !== "failed";
 
-/** Fails with the source's reason when the result says it could not be used. */
 const sourceReady = <Ready extends { readonly status: "connected" | "ready" | "queued" }>(
   result: Ready | MigrationSourceFailure,
 ): Effect.Effect<Ready, MigrationSourceError> =>
@@ -227,7 +216,6 @@ const migrate: ShortcutCommand = {
           ? { connectionId: connected.connectionId }
           : { connectionId: connected.connectionId, users };
 
-      // The import queues exactly what this dry run planned; the media service requires one.
       const report = yield* connection
         .withSession(connection.client.media("migration.dryRun", plan))
         .pipe(Effect.flatMap(sourceReady));

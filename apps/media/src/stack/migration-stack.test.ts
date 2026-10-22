@@ -1,15 +1,3 @@
-/**
- * Jellyfin and Plex migration against a real stack: the built media service, signed in to the
- * worktree's self-hosted Convex, connects to a source server, dry-runs, and imports; the suite
- * then reads what Convex holds through the SDK as the owner. The sources are the recorded Jellyfin
- * and Plex servers (real local HTTP servers replaying recorded answers) and, with
- * `MOVIES_JELLYFIN_DOCKER=1` and the `jellyfin/jellyfin` image present, a real Jellyfin in Docker
- * set up over the same generated fixture library.
- *
- *   scripts/dev-stack.sh up && pnpm --filter @movies/media test:stack
- *
- * Skipped unless `MOVIES_STACK_TESTS=1`. Listens on the stack's media port, like the media suite.
- */
 import type { JobId, LibraryId, ProfileId } from "@movies/contracts/ids";
 import type {
   MigrationConnection,
@@ -65,10 +53,8 @@ const convexUrl = stack?.convexUrl ?? "";
 
 const mediaUrl = stack?.mediaUrl ?? "";
 
-/** Timings the suite measured, printed at the end. */
 const timings: Record<string, number> = {};
 
-/** The movie Jellyfin's administrator locked with a new name. */
 const RENAMED = "Big Buck Fixture (Director's Cut)";
 
 let scope: Scope.Closeable;
@@ -85,7 +71,6 @@ let plexFixture: RecordedServer;
 
 let docker: JellyfinServer | undefined;
 
-/** Profiles this suite created: Jellyfin's admin, Jellyfin's bob, Plex's owner, Docker's admin. */
 let profiles: Record<"admin" | "bob" | "plex" | "docker", ProfileId>;
 
 const asOwner = <A, E>(
@@ -118,7 +103,6 @@ const token = (value: string): MigrationCredentials => ({
   token: Redacted.make(value),
 });
 
-/** Connects to a source as the owner; fails the test when the source could not be used. */
 const connect = (source: "jellyfin" | "plex", url: string, credentials: MigrationCredentials) =>
   asOwner(
     Effect.flatMap(client, (movies) =>
@@ -132,7 +116,6 @@ const connect = (source: "jellyfin" | "plex", url: string, credentials: Migratio
     return result;
   });
 
-/** Maps source users by name to profiles; unnamed users are skipped. */
 const mappingsOf = (
   connection: MigrationConnection,
   byName: Readonly<Record<string, ProfileId>>,
@@ -151,7 +134,6 @@ const dryRun = (connectionId: string, users: ReadonlyArray<UserMapping>) =>
     return result;
   });
 
-/** Starts the import planned by the dry run and waits for its job. */
 const importAndWait = async (connectionId: string, users: ReadonlyArray<UserMapping>) => {
   const queued = await asOwner(
     Effect.flatMap(client, (movies) => movies.media("migration.import", { connectionId, users })),
@@ -162,7 +144,6 @@ const importAndWait = async (connectionId: string, users: ReadonlyArray<UserMapp
   return asOwner(finished(queued.jobId, "180 seconds"));
 };
 
-/** The migration run of `jobId`. */
 const runOf = async (jobId: JobId) => {
   const runs = await asOwner(
     Effect.flatMap(client, (movies) => movies.query("migration.status", {})),
@@ -175,7 +156,6 @@ const runOf = async (jobId: JobId) => {
   return run;
 };
 
-/** What a profile has: history, continue watching, my list, and collections. */
 const stateOf = (profileId: ProfileId) =>
   asOwner(
     Effect.flatMap(client, (movies) =>
@@ -188,7 +168,6 @@ const stateOf = (profileId: ProfileId) =>
     ),
   );
 
-/** A comparable summary of a profile's imported state. */
 const summaryOf = async (profileId: ProfileId) => {
   const state = await stateOf(profileId);
 
@@ -201,14 +180,12 @@ const summaryOf = async (profileId: ProfileId) => {
       .filter((row) => row.reason === "resume")
       .map((row) => [row.title.name, row.progress?.positionMs ?? 0] as const),
     myList: state.myList.map((title) => title.name).toSorted(),
-    // Collections from earlier runs keep their names but lose their titles with their libraries.
     box: state.collections
       .filter((collection) => collection.name === "Fixture Box" && collection.titles.length > 0)
       .map((collection) => collection.titles.map((title) => title.name).toSorted()),
   };
 };
 
-/** Libraries whose folders lie in this suite's workspace. */
 const ownLibraries = async (): Promise<ReadonlyArray<LibraryId>> => {
   const all = await asOwner(
     Effect.flatMap(client, (movies) => movies.query("libraries.listDetails", {})),
@@ -231,7 +208,6 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
       if (withDocker) {
         const begin = performance.now();
 
-        // The container mounts the workspace at `/media`, which is where the recordings' paths are.
         docker = await runOnNode(scope, startJellyfin(workspace));
         timings["dockerSetupMs"] = Math.round(performance.now() - begin);
       } else {
@@ -293,7 +269,6 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
 
       expect(connection.users.map((user) => user.name).toSorted()).toEqual(["admin", "bob"]);
 
-      // No mapping was given: `/media/movies` was found under the approved root.
       expect(connection.pathMappings.toSorted((a, b) => a.from.localeCompare(b.from))).toEqual([
         { from: "/media/movies", to: `${workspace}/movies`, inferred: true },
         { from: "/media/shows", to: `${workspace}/shows`, inferred: true },
@@ -310,7 +285,6 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
 
       const users = mappingsOf(connection, { admin: profiles.admin, bob: profiles.bob });
 
-      // An import needs a dry run of the same connection and mappings first.
       const refused = await asOwner(
         Effect.flatMap(client, (movies) =>
           movies.media("migration.import", { connectionId: connection.connectionId, users }),
@@ -345,7 +319,6 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
       const run = await runOf(job.id);
 
       expect(run.phase).toBe("done");
-      // The job counts what it imported the way the dry run counted it.
       expect(run.imported).toMatchObject({
         librariesAdded: 2,
         watched: report.summary.watched,
@@ -364,7 +337,6 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
         myList: ["Fixture Show"],
         box: [[RENAMED, "Remux Fixture"]],
       });
-      // The episode's title comes from its local NFO file.
       expect((await summaryOf(profiles.bob)).watched).toEqual(["Pilot (Local)"]);
       timings["jellyfinImportMs"] = Math.round(performance.now() - begin);
     });
@@ -530,7 +502,6 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
         resume: [["Remux Fixture", 6000]],
         myList: ["Fixture Show"],
       });
-      // Docker's box set is another server's collection, beside the recorded server's.
       expect(imported.box).toContainEqual([RENAMED, "Remux Fixture"]);
       timings["dockerImportMs"] = Math.round(performance.now() - begin);
     });

@@ -25,7 +25,6 @@ const AUDIO: ReadonlyArray<TrackOption> = [
   { id: "ja", label: "日本語 · ステレオ" },
 ];
 
-/** Thirty-two subtitle tracks, as a festival release or an anime box set carries. */
 const SUBTITLES: ReadonlyArray<TrackOption> = [
   { id: "off", label: "Off" },
   ...[
@@ -74,17 +73,14 @@ export function TrackMenuBench({ columns }: { readonly columns: "1" | "3" | "4" 
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
   const [version, setVersion] = useState("hd");
   const [audio, setAudio] = useState("en");
-  // Українська, well down the list, as a profile's remembered language can be.
   const [subtitle, setSubtitle] = useState(CHOSEN_SUBTITLE);
   const [quality, setQuality] = useState("auto");
-  // Like the player, menus render into a layer inside the frame, so full screen keeps them.
   const [overlays, setOverlays] = useState<HTMLDivElement | null>(null);
   const { toggle } = useFullscreen(frame, null);
 
   const subtitles: TrackChoice = {
     id: "subtitles",
     label: "Subtitles",
-    // A new array each render, as the player builds its options anew with each stream.
     options: [...SUBTITLES],
     value: subtitle,
     onValueChange: setSubtitle,

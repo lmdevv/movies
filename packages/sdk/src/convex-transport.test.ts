@@ -28,8 +28,6 @@ describe("translateFailure", () => {
   });
 
   it("reports an argument that is not an ID of its table as not found", () => {
-    // As the self-hosted backend words them: a string that is no ID, over HTTP and over the
-    // WebSocket, and an ID from another table.
     const overHttp = new Error(
       '[Request ID: 55c324b842b35e1b] Server Error\nArgumentValidationError: Value does not match validator.\nPath: .titleId\nValue: "nope"\nValidator: v.id("titles")\n\n',
     );

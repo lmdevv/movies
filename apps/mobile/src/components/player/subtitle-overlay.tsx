@@ -1,8 +1,3 @@
-/**
- * Text subtitles drawn over the video: the WebVTT file of the track shown, fetched with the
- * stream's token and parsed once, and the cues at the playback position (moved by the viewer's
- * delay) in white on a dim box near the bottom, raised while the controls show.
- */
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 
@@ -20,7 +15,6 @@ export interface SubtitleOverlayProps {
   readonly raised: boolean;
 }
 
-/** The cues of `url`, empty until loaded or when it cannot be read. */
 const useCues = (url: string | null): ReadonlyArray<Cue> => {
   const [loaded, setLoaded] = useState<{
     readonly url: string;
@@ -39,7 +33,6 @@ const useCues = (url: string | null): ReadonlyArray<Cue> => {
 
         setLoaded({ url, cues: parseWebVtt(text) });
       } catch {
-        // A track that cannot load shows nothing; the viewer can pick it again or another one.
         if (!controller.signal.aborted) setLoaded({ url, cues: [] });
       }
     };

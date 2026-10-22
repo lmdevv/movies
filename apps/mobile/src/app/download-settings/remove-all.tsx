@@ -1,4 +1,3 @@
-/** Remove All Downloads (H18), confirmed like H30: deletes every download of the profile. */
 import { Trash2 } from "lucide-react-native";
 
 import { ConfirmSheet } from "@/components/settings/confirm-sheet";

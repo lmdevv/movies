@@ -1,7 +1,3 @@
-/**
- * C11 · Person: their photo in a circle, what they are known for, and the titles of theirs this
- * profile may see. Their details are fetched the first time anyone opens them.
- */
 import { PersonId } from "@movies/contracts/ids";
 import { useCommand, useCommandQuery } from "@movies/sdk/react";
 import { useLocalSearchParams } from "expo-router";
@@ -50,11 +46,9 @@ function PersonScreen({ personId }: { readonly personId: PersonId }) {
   const requestDetails = useCommand("people.requestDetails");
   const pending = person.status === "success" && person.data.detailsPending;
 
-  // Why asking for the details failed; Try Again asks once more.
   const [detailsFailure, setDetailsFailure] = useState<{ readonly cause: unknown } | null>(null);
   const [detailsAttempt, setDetailsAttempt] = useState(0);
 
-  // The server queues one fetch however often this asks; the query updates when it lands.
   useEffect(() => {
     if (!pending) return;
 

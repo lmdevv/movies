@@ -1,8 +1,3 @@
-/**
- * Bridges Effect Schema and Convex validators for the equivalence test: both sides become Convex's
- * validator JSON (what `exportArgs()` and `exportReturns()` emit), normalized so union order and
- * object key order do not matter.
- */
 import { CONVEX_TABLE_ANNOTATION } from "@movies/contracts/ids";
 import { Match, Predicate, Schema, SchemaAST } from "effect";
 
@@ -16,7 +11,6 @@ export type ValidatorJson =
   | { readonly type: "union"; readonly value: ReadonlyArray<ValidatorJson> }
   | { readonly type: "object"; readonly value: Readonly<Record<string, FieldJson>> };
 
-/** One object field in Convex's validator JSON. */
 interface FieldJson {
   readonly fieldType: ValidatorJson;
   readonly optional: boolean;
@@ -66,8 +60,6 @@ const unsupported = (node: SchemaAST.AST): never => {
 
 /** Describes a schema's encoded side as Convex validator JSON. */
 export const validatorFromSchema = (ast: SchemaAST.AST): ValidatorJson =>
-  // Wire values are the encoded side. Only schemas with an encoding differ from their type side,
-  // and walking the type side keeps annotations such as an ID's Convex table.
   Match.valueTags(ast.encoding === undefined ? ast : SchemaAST.toEncoded(ast), {
     String: (node): ValidatorJson => {
       const table = SchemaAST.resolve(node)?.[CONVEX_TABLE_ANNOTATION];

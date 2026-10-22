@@ -4,7 +4,6 @@ import { useMemo } from "react";
 
 import type { CommandContext, CommandContribution } from "./contribution";
 
-/** A device code as the device shows it, `HD5R-5GTL`; the dash keeps ordinary words out. */
 const DEVICE_CODE = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/u;
 
 /** The device code typed into the menu, upper-cased, or null when the query is not one. */

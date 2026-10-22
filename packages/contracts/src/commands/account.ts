@@ -1,4 +1,3 @@
-/** Setup, the viewer, invites, users, API keys, device sign-in, and sessions. */
 import { Schema } from "effect";
 
 import { ApiKeyId, AuthSessionId, InviteId, LibraryId, UserId } from "../ids";

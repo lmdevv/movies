@@ -15,7 +15,6 @@ export const Route = createFileRoute("/profiles/new")({
   ),
 });
 
-/** Adds a profile to the account, starting on an avatar no other profile uses. */
 function AddProfilePage() {
   const profiles = useCommandQuery("profiles.list", {});
 

@@ -1,4 +1,3 @@
-/** Units that travel as plain numbers but must not be mixed. */
 import { Schema } from "effect";
 
 /** A non-negative duration or media position in milliseconds. */

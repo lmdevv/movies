@@ -27,7 +27,6 @@ export const formatCount = (value: number): string =>
 export const countOf = (count: number, singular: string, plural: string): string =>
   `${formatCount(count)} ${count === 1 ? singular : plural}`;
 
-/** A 12-hour clock time, such as `3:12 PM`. */
 const clock = (date: Date): string => {
   const hours = date.getHours();
   const minutes = String(date.getMinutes()).padStart(2, "0");

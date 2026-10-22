@@ -20,11 +20,9 @@ const DAY = 86_400_000;
 
 const MEBIBYTE = 1024 * 1024;
 
-/** Queues `line` as logged now, as the console logger does. */
 const appendNow = (logs: RetainedLogs.Interface, line: string) =>
   Effect.map(Clock.currentTimeMillis, (now) => logs.append(line, now));
 
-/** A writer over a fresh folder, with the clock at a real date. */
 const writerIn = (maxBytes = 512 * MEBIBYTE) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -40,7 +38,6 @@ const writerIn = (maxBytes = 512 * MEBIBYTE) =>
     return { logs, directory };
   });
 
-/** The lines of every log file in `directory`, oldest file first. */
 const linesIn = (directory: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -60,10 +57,6 @@ const linesIn = (directory: string) =>
     );
   });
 
-/**
- * The real file system, except that the first `writeAll` to an open file writes half its bytes and
- * fails, as a full disk does.
- */
 const diskFullOnce = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const state = { failed: false };
@@ -225,7 +218,6 @@ layer(NodeServices.layer)("retained log writer", (it) => {
       const parent = yield* fs.makeTempDirectoryScoped({ prefix: "movies-logs-" });
       const directory = path.join(parent, "logs");
 
-      // A file where the folder should be: the folder cannot be made.
       yield* fs.writeFileString(directory, "");
       yield* TestClock.setTime(Date.UTC(2026, 9, 21, 12));
 
@@ -245,7 +237,6 @@ layer(NodeServices.layer)("retained log writer", (it) => {
       assert.strictEqual(recovered[0], '{"n":2}');
       assert.match(recovered[1] ?? "", /"RetainedLogs\.dropped".*"lines":1/u);
 
-      // Deleted while it runs: made again with the next batch.
       yield* fs.remove(directory, { recursive: true });
       yield* appendNow(logs, '{"n":3}');
       yield* logs.flush;
@@ -423,7 +414,6 @@ layer(NodeServices.layer)("retained log writer", (it) => {
         retention: { maxAgeMs: 14 * DAY, maxBytes: MIN_LOG_BYTES },
       });
 
-      // A mount arrives holding a full folder.
       yield* fs.remove(directory);
       yield* fs.makeDirectory(directory);
 

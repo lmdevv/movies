@@ -1,9 +1,3 @@
-/**
- * The chrome of Home: a 34pt large title that scrolls with the content (C01) and, once it has
- * scrolled away, the scroll edge effect (C02). The content runs under a bar that fades from the
- * page into it, with a compact 20pt title, and a soft fade rises behind the tab bar. The trailing
- * buttons, such as the profile avatar, stay put in both states.
- */
 import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useState } from "react";
 import type { ReactNode } from "react";
@@ -15,17 +9,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import { useThemeColor } from "@/lib/theme-color";
 
-/** How far the content scrolls before the large title is gone and the bar takes over. */
 const COLLAPSE_AT = 48;
 
-/**
- * C02's top fade, hung below the bar: the page's color, then Paper's scrim, then clear. Light fades
- * the same way through white. The bar itself stays the page's color, so the compact title never
- * sits over half-faded artwork or the hero's Play button.
- */
 const TOP_FADE_LOCATIONS = [0, 0.45, 1] as const;
 
-/** How far the top fade reaches past the title row, in points (Paper's 140 less 126). */
 const TOP_FADE_TAIL = 14;
 
 /** Whether the large title has scrolled away, and the scroll handler that tracks it. */
@@ -58,7 +45,6 @@ export function LargeTitle({
 
   return (
     <View style={{ paddingTop: insets.top }}>
-      {/* The trailing buttons sit in the fixed bar above; keep their 44pt clear. */}
       <View className="h-16 flex-row items-center pr-16 pl-5">
         <Text
           variant="largeTitle"

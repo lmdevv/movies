@@ -17,9 +17,6 @@ public_url="${MOVIES_PUBLIC_URL%/}"
 convex_public_url="${CONVEX_PUBLIC_URL%/}"
 convex_url="${CONVEX_URL%/}"
 credentials="${CONVEX_CREDENTIALS_DIR:-/run/convex-credentials}"
-# The release plus a hash of the bundled Convex functions and their dependencies (written at build
-# time by deploy/functions-hash.sh), so any image whose functions differ, such as a newer `main` or
-# a local build, backs up before it deploys.
 version="$(node -p 'require("/app/backend/package.json").version')"
 if [ -s /app/backend/.functions-hash ]; then
   version="$version+$(cat /app/backend/.functions-hash)"
@@ -32,8 +29,7 @@ if ! [[ "$puid" =~ ^[0-9]+$ && "$pgid" =~ ^[0-9]+$ ]] || [ "$puid" = 0 ] || [ "$
   exit 1
 fi
 
-# The media service refuses these too, but only after the Convex deploy; say so before it. At most
-# seven significant digits, so the arithmetic below never wraps a huge number into range.
+# At most seven significant digits, so the arithmetic below never wraps a huge number into range.
 if [ -n "${LOG_MAX_MB:-}" ] &&
   ! [[ "$LOG_MAX_MB" =~ ^0*[0-9]{1,7}$ && "$((10#$LOG_MAX_MB))" -ge 8 && "$((10#$LOG_MAX_MB))" -le 1048576 ]]; then
   log "LOG_MAX_MB must be a whole number of MiB from 8 to 1048576; got LOG_MAX_MB=$LOG_MAX_MB"
@@ -43,7 +39,6 @@ fi
 [ "$(id -g movies)" = "$pgid" ] || groupmod --non-unique --gid "$pgid" movies
 [ "$(id -u movies)" = "$puid" ] || usermod --non-unique --uid "$puid" --gid "$pgid" movies
 
-# The media user reads /dev/dri for Quick Sync when the host passes it through.
 for node in /dev/dri/renderD*; do
   [ -e "$node" ] || continue
   gid="$(stat -c %g "$node")"
@@ -51,7 +46,6 @@ for node in /dev/dri/renderD*; do
   usermod -a -G "$(getent group "$gid" | cut -d: -f1)" movies
 done
 
-# Service state and backups belong to the media user; nobody else reads them.
 install -d -m 700 -o movies -g movies "$data/media" "$data/backups" /transcode
 find "$data/media" "$data/backups" /transcode \( \! -user movies -o \! -group movies \) \
   -exec chown -h movies:movies {} +
@@ -91,8 +85,6 @@ export CONVEX_SELF_HOSTED_ADMIN_KEY="$admin_key"
 cd /app/backend
 convex() { node node_modules/convex/bin/main.js "$@"; }
 
-# One backup per target version: $data/version changes only after a deploy succeeds, and a deploy
-# that keeps failing must not export everything again on every restart.
 if [ -s "$data/version" ] && [ "$(cat "$data/version")" != "$version" ] &&
   [ "$(cat "$data/upgrade-backup" 2>/dev/null)" != "$version" ]; then
   stamp="$(date -u +%Y-%m-%dT%H-%M-%S-000Z)"
@@ -108,7 +100,6 @@ log "deploying the Convex functions ($version)"
 convex deploy --yes --codegen disable --typecheck disable
 
 log "configuring the deployment"
-# Prints MEDIA_SERVICE_API_KEY=... and PLAYBACK_TOKEN_SECRET=...; keeps existing secrets.
 media_env="$(node scripts/configure.ts "--site-url=$public_url" "--media-url=$public_url")"
 media_service_api_key="$(sed -n 's/^MEDIA_SERVICE_API_KEY=//p' <<<"$media_env")"
 playback_token_secret="$(sed -n 's/^PLAYBACK_TOKEN_SECRET=//p' <<<"$media_env")"
@@ -120,11 +111,8 @@ node /app/media/scripts/configure-web.ts --from /app/web --to /run/movies/web \
   --convex-url "$convex_public_url"
 
 printf '%s\n' "$version" >"$data/version"
-# Deployed: the next upgrade, even to a version that failed before, backs up again.
 rm -f "$data/upgrade-backup"
 
-# The service's environment, readable by the media user only. Node parses it (`--env-file`), so
-# secrets never appear in a command line. Unset optional settings stay out of it.
 env_file=/run/movies/media.env
 install -m 600 -o movies -g movies /dev/null "$env_file"
 setting() { [ -z "$2" ] || printf '%s=%s\n' "$1" "$2" >>"$env_file"; }
@@ -141,8 +129,6 @@ setting BACKUP_DIR "$data/backups"
 setting TRANSCODE_DIR /transcode
 setting WEB_DIST_DIR /run/movies/web
 setting LIBRARY_ROOTS "${LIBRARY_ROOTS:-/media}"
-# The media service's optional settings, passed on when set (apps/media/README.md). Every one is
-# in compose.yaml and .env.example too; scripts/check-deploy.sh keeps them in step.
 optional_settings=(
   BACKUP_RETENTION_DAYS
   TMDB_API_KEY

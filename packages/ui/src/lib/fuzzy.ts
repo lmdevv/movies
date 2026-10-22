@@ -1,4 +1,3 @@
-/** Fold case and strip diacritics, so "Shōgun" and "shogun" compare equal. */
 const fold = (text: string): string =>
   text
     .normalize("NFD")
@@ -13,7 +12,6 @@ const isWordStart = (text: string, index: number): boolean => {
   return !/[\p{L}\p{N}]/u.test(previous);
 };
 
-/** Scores one whitespace-free term against already folded text, or `null` when it is not found. */
 const scoreTerm = (term: string, text: string): number | null => {
   let score = 0;
   let from = 0;

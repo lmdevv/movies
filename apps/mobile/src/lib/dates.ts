@@ -20,7 +20,6 @@ const MONTHS = [
   "Dec",
 ] as const;
 
-/** Local midnight of the day `at` falls on. */
 const startOfDay = (at: number): number => {
   const date = new Date(at);
 

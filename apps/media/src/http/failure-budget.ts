@@ -1,22 +1,12 @@
-/**
- * How many failed media requests each playback session and each account may write to the
- * retained log. A verified token makes a failure worth a `WARN` record, but a member can send any
- * number of failing requests with their own token; without a budget they could rotate every other
- * record out of the log. Failures past the budget are counted instead, by session, and the counts
- * are logged together a few times a minute.
- */
 import type { PlaybackSessionId, UserId } from "@movies/contracts/ids";
 import { Option } from "effect";
 
 import { makeLimiter } from "./rate-limit.ts";
 
-/** Failures one session may log at once, and how many more each second after that. */
 const SESSION_BUDGET = { burst: 30, perSecond: 0.5 };
 
-/** The same for all of one account's sessions together. */
 const USER_BUDGET = { burst: 60, perSecond: 1 };
 
-/** Failures of one session that were counted rather than logged. */
 interface Suppressed {
   readonly sessionId: PlaybackSessionId;
   readonly userId: UserId;

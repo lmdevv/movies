@@ -1,7 +1,3 @@
-/**
- * Failures the CLI reports, and the stable exit code and `{ code, message }` report of each.
- * Agents branch on exit codes and codes, never on message text.
- */
 import type { CommandError } from "@movies/contracts/errors";
 import { PlaybackApiError } from "@movies/contracts/media-playback";
 import type { CallError } from "@movies/sdk/effect";

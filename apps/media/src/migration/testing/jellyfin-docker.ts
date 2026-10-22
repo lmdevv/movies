@@ -1,12 +1,3 @@
-/**
- * A real Jellyfin server in Docker with the generated fixture library mounted read-only at
- * `/media`, set up through Jellyfin's own API: the startup wizard, an administrator (`admin`), an
- * API key, Movies and Shows libraries, a second user (`bob`), watched and partly watched items, a
- * favorite show, a box set, and a locked movie with a custom name and sort name.
- *
- * Opt-in: the docker test and the fixture recorder run only when asked to (they need Docker and
- * the `jellyfin/jellyfin` image). The container lives as long as the scope that started it.
- */
 import { hostname } from "node:os";
 
 import { NodeServices } from "@effect/platform-node";
@@ -28,7 +19,6 @@ import { generateFixtureLibrary } from "../../testing/fixture-library.ts";
 import type { FixtureLibrary } from "../../testing/fixture-library.ts";
 import { camelCaseKeys } from "../source-http.ts";
 
-/** The image the docker test and the recorder use; override with `JELLYFIN_IMAGE`. */
 const JELLYFIN_IMAGE =
   process.env["JELLYFIN_IMAGE"] ??
   "jellyfin/jellyfin:12.2@sha256:357724bf0ae27a672c7cbaa899db2d9abeb13dbd8657ccce750258a4c059d037";
@@ -54,7 +44,6 @@ export interface JellyfinServer {
   };
 }
 
-/** Setting up Jellyfin failed at `step`. */
 class JellyfinSetupFailed extends Schema.TaggedError<JellyfinSetupFailed>()("JellyfinSetupFailed", {
   step: Schema.String,
   cause: Schema.Defect(),
@@ -67,7 +56,6 @@ class JellyfinSetupFailed extends Schema.TaggedError<JellyfinSetupFailed>()("Jel
 const CLIENT =
   'MediaBrowser Client="movies-test", Device="test", DeviceId="movies-test", Version="1.0"';
 
-/** Runs `docker` and returns its standard output; a non-zero exit fails. */
 const docker = Effect.fnUntraced(function* (args: ReadonlyArray<string>) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const step = `docker ${args[0] ?? ""}`;
@@ -92,7 +80,6 @@ const docker = Effect.fnUntraced(function* (args: ReadonlyArray<string>) {
   return stdout.trim();
 }, Effect.scoped);
 
-/** Whether Docker has the Jellyfin image here. */
 const jellyfinAvailable: Effect.Effect<boolean, never, ChildProcessSpawner.ChildProcessSpawner> =
   docker(["image", "inspect", JELLYFIN_IMAGE]).pipe(
     Effect.as(true),
@@ -101,11 +88,9 @@ const jellyfinAvailable: Effect.Effect<boolean, never, ChildProcessSpawner.Child
 
 const JsonText = Schema.fromJsonString(Schema.Json);
 
-/** A Jellyfin API client for one server and token. */
 const apiFor = (client: HttpClient.HttpClient, url: string, token: string | null) => {
   const authorization = token === null ? CLIENT : `${CLIENT}, Token="${token}"`;
 
-  /** Calls Jellyfin, failing on any non-2xx answer, and decodes the camel-cased answer. */
   const call = <S extends Schema.Codec<unknown, unknown>>(
     method: "GET" | "POST",
     path: string,
@@ -171,10 +156,8 @@ const LIBRARIES = [
   ["Shows", "tvshows", "/media/shows"],
 ] as const;
 
-/** Test containers are named `<prefix><pid>-<started ms>` after the process that started them. */
 const CONTAINER_PREFIX = "movies-jellyfin-test-";
 
-/** How old a container of a vanished process must be before it counts as left behind. */
 const ORPHAN_AGE_MS = 10 * 60 * 1000;
 
 /**
@@ -196,10 +179,6 @@ const isRunning = (pid: number) =>
     }
   });
 
-/**
- * Removes test containers whose process is gone. A test worker killed before its scope closed
- * never ran the release that removes its container, so each start sweeps up after earlier runs.
- */
 const removeLeftovers = Effect.fnUntraced(function* () {
   const names = yield* docker([
     "ps",
@@ -230,7 +209,6 @@ const removeLeftovers = Effect.fnUntraced(function* () {
   );
 });
 
-/** The fixture has 4 movies, 6 episodes, and 1 show. */
 const FIXTURE_ITEMS = 11;
 
 /**
@@ -400,14 +378,12 @@ export const startJellyfin = Effect.fn("JellyfinDocker.start")(function* (worksp
   return server;
 });
 
-/** What the Docker harness runs on. */
 type Platform =
   | HttpClient.HttpClient
   | ChildProcessSpawner.ChildProcessSpawner
   | NodeServices.NodeServices
   | Scope.Scope;
 
-/** `effect` on Node's platform services and the fetch HTTP client. */
 const onNode = <A, E>(effect: Effect.Effect<A, E, Platform>): Effect.Effect<A, E, Scope.Scope> =>
   Effect.gen(function* () {
     const platform = yield* Layer.build(Layer.mergeAll(NodeServices.layer, FetchHttpClient.layer));

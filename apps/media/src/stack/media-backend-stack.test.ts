@@ -1,12 +1,3 @@
-/**
- * The media service's Convex connection against the worktree's real Convex, through a TCP proxy
- * that plays the network: Convex down at startup, connections cut while signed in, and a server
- * that accepts and never answers.
- *
- *   scripts/dev-stack.sh up && pnpm --filter @movies/media test:stack
- *
- * Skipped unless `MOVIES_STACK_TESTS=1`.
- */
 import { assert, describe, layer } from "@effect/vitest";
 import { Duration, Effect, Fiber, Layer, Redacted, Schedule, Stream } from "effect";
 
@@ -22,7 +13,6 @@ const stack = findMediaStack();
 
 const proxy = stack === undefined ? undefined : await startTcpProxy(new URL(stack.convexUrl));
 
-/** Convex is down when the service starts. */
 proxy?.setMode("refuse");
 
 const backendLayer = Layer.unwrap(
@@ -35,7 +25,6 @@ const backendLayer = Layer.unwrap(
   ),
 ).pipe(Layer.orDie);
 
-/** Waits up to `within` until the connection reports `status`. */
 const awaitStatus = (status: "connected" | "connecting", within: Duration.Input) =>
   Effect.gen(function* () {
     const backend = yield* MediaBackend.Service;
@@ -65,7 +54,6 @@ describe.skipIf(stack === undefined)("media service Convex connection", () => {
           assert.instanceOf(early, TransportError);
 
           proxy?.setMode("open");
-          // Backoff doubles from half a second; a few seconds of refusals stay under eight.
           yield* awaitStatus("connected", Duration.seconds(20));
 
           // The WebSocket keeps its own reconnect backoff from the outage; calls wait for it, each
@@ -99,7 +87,6 @@ describe.skipIf(stack === undefined)("media service Convex connection", () => {
 
           assert.isArray(after);
 
-          // A dropped subscription resumes and delivers the query's result again.
           const delivered = yield* Fiber.join(updates).pipe(Effect.timeout(Duration.seconds(45)));
 
           assert.strictEqual(delivered.length, 2);
@@ -122,7 +109,6 @@ describe.skipIf(stack === undefined)("media service Convex connection", () => {
 
           proxy?.setMode("blackhole");
           proxy?.drop();
-          // Let the client notice the cut and reconnect into the black hole.
           yield* Effect.sleep(Duration.seconds(1));
 
           const started = Date.now();

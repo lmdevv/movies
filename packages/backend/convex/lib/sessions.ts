@@ -1,7 +1,3 @@
-/**
- * What playback and download sessions share: choosing the file a new session plays, recording it,
- * and signing its playback token. A download is a session with `purpose: "download"`.
- */
 import type { Infer } from "convex/values";
 
 import type { Doc, Id } from "../_generated/dataModel";

@@ -1,10 +1,3 @@
-/**
- * A movie's or show's page (05 Browse · 04, 05, 05b, and 09 iOS): the backdrop band with the title,
- * facts, scores, and technical badges, play and resume with the version to play when there are
- * several files, the trailer, My List, the overview, who made
- * it, genres, studio, dates, tracks, and provider links, the file missing warning, a show's
- * episodes, the cast and crew, the title's collection, and More like this.
- */
 import type { MediaFileId, ProfileId } from "@movies/contracts/ids";
 import type {
   MediaFile,
@@ -58,10 +51,8 @@ import {
   TrailerButton,
 } from "./title-extras";
 
-/** Names longer than this draw at display size instead of the billboard size. */
 const LONG_NAME = 12;
 
-/** Actors named in the "Starring" line. */
 const STARRING = 3;
 
 const STATUS_LABELS: Readonly<Record<ShowStatus, string>> = {
@@ -72,7 +63,6 @@ const STATUS_LABELS: Readonly<Record<ShowStatus, string>> = {
   planned: "Planned",
 };
 
-/** Genres, each linking to its page. */
 function GenreLinks({ genres }: { readonly genres: ReadonlyArray<string> }) {
   return (
     <>
@@ -92,7 +82,6 @@ function GenreLinks({ genres }: { readonly genres: ReadonlyArray<string> }) {
   );
 }
 
-/** The rows under a title's page: cast and crew, its collection, and More like this. */
 function TitleRows({
   title,
   profileId,
@@ -118,7 +107,6 @@ function TitleRows({
   );
 }
 
-/** The playable file the page describes: the chosen version, else the first present one. */
 const mainFile = (title: TitleDetail, chosen: MediaVersion | null): MediaFile | undefined =>
   title.files.find((file) => file.id === chosen?.id) ??
   title.files.find((file) => !file.missing) ??
@@ -126,10 +114,6 @@ const mainFile = (title: TitleDetail, chosen: MediaVersion | null): MediaFile | 
 
 const NO_VERSIONS: ReadonlyArray<MediaVersion> = [];
 
-/**
- * The versions of what Play plays: a movie's own, or those of a show's next episode, which the
- * page reads as it needs them.
- */
 const usePlayVersions = (title: TitleDetail, profileId: ProfileId): ReadonlyArray<MediaVersion> => {
   const episodeId = title.kind === "show" ? title.nextEpisode?.id : undefined;
 
@@ -143,7 +127,6 @@ const usePlayVersions = (title: TitleDetail, profileId: ProfileId): ReadonlyArra
   return episodeVersions.status === "success" ? episodeVersions.data : NO_VERSIONS;
 };
 
-/** The Version select beside Play, when what Play plays has several files. */
 function VersionSelect({
   versions,
   choice,
@@ -181,14 +164,12 @@ function VersionSelect({
   );
 }
 
-/** What the phone and desktop layouts of a title's page share. */
 interface DetailParts {
   readonly title: TitleDetail;
   readonly profileId: ProfileId;
   readonly canManage: boolean;
   readonly target: PlayTarget;
   readonly myList: MyListToggle;
-  /** What Play plays: its versions, the one chosen, and the version links name, if any. */
   readonly versions: ReadonlyArray<MediaVersion>;
   readonly versionChoice: VersionChoice;
   readonly version: MediaFileId | undefined;
@@ -224,7 +205,6 @@ export function TitleDetailView({
     myList,
     versions,
     versionChoice,
-    // A link names the version only when there is a choice to make.
     version: versions.length > 1 ? versionChoice.chosen?.id : undefined,
     file,
     badges: file === undefined ? [] : fileBadges(file),
@@ -236,7 +216,6 @@ export function TitleDetailView({
   return phone ? <PhoneTitleDetail {...parts} /> : <DesktopTitleDetail {...parts} />;
 }
 
-/** `2024`, the certification, the runtime or season count, and the file's badges. */
 function FactLine({
   title,
   badges,
@@ -260,7 +239,6 @@ function FactLine({
   );
 }
 
-/** A show's season count, or a film's runtime when it is known. */
 const lengthFact = (title: TitleDetail): string | null =>
   title.kind === "show"
     ? plural(title.seasons.length, "season", "seasons")
@@ -268,10 +246,6 @@ const lengthFact = (title: TitleDetail): string | null =>
       ? null
       : formatRuntime(title.runtimeMs);
 
-/**
- * Play or Resume, or Play from start with `start`, in `version` when one was chosen; inert while
- * the title's files are missing.
- */
 function WatchLink({
   title,
   target,
@@ -316,7 +290,6 @@ function WatchLink({
   );
 }
 
-/** Time left in what Resume plays, when the title has a known duration. */
 const remainingMs = (title: TitleDetail, target: PlayTarget): number | null => {
   if (target.fraction === null || target.positionMs === null) return null;
 
@@ -326,7 +299,6 @@ const remainingMs = (title: TitleDetail, target: PlayTarget): number | null => {
   return duration === undefined ? null : duration - target.positionMs;
 };
 
-/** How far Resume is, as a bar and the time left. */
 function WatchProgress({
   title,
   target,
@@ -359,7 +331,6 @@ function WatchProgress({
   );
 }
 
-/** The title's logo, or its name as billboard text, and the tagline on desktops. */
 function TitleHeading({
   title,
   logo,
@@ -400,7 +371,6 @@ function TitleHeading({
   );
 }
 
-/** The phone page (09 iOS): backdrop card, facts, play, overview, then the action row. */
 function PhoneTitleDetail({
   title,
   profileId,
@@ -455,7 +425,6 @@ function PhoneTitleDetail({
   );
 }
 
-/** The phone's row of icon actions: My List, Play from start, and the trailer. */
 function PhoneActions({
   title,
   target,
@@ -500,7 +469,6 @@ function PhoneActions({
   );
 }
 
-/** The desktop page (05 Browse · 04): the backdrop band, then details beside the facts list. */
 function DesktopTitleDetail({
   title,
   profileId,
@@ -587,7 +555,6 @@ function DesktopTitleDetail({
   );
 }
 
-/** The desktop facts list: starring, genres, studio, dates, status, language, tracks, links. */
 function TitleMeta({
   title,
   file,
@@ -645,7 +612,6 @@ function Meta({ label, children }: { readonly label: string; readonly children: 
   );
 }
 
-/** The phone backdrop: 300px of artwork with back and title, fading into the page. */
 function PhoneBackdrop({
   backdrop,
   children,
@@ -679,7 +645,6 @@ function PhoneBackdrop({
   );
 }
 
-/** The warning when no file of the title is on disk, with a rescan for people who manage. */
 function MissingBanner({
   title,
   canManage,

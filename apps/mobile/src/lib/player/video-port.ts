@@ -1,21 +1,3 @@
-/**
- * The SDK's `PlayerPort` over expo-video's `VideoPlayer` (AVPlayer), for the progress reporter.
- * Positions are AVPlayer's `currentTime` on the source timeline: a direct file plays its own, and
- * the media service's HLS playlists list the whole file, so a generation that starts late in the
- * film still reads film time.
- *
- * Each stream plays in its own native player, which is created with its source so its start
- * position applies before AVPlayer requests the first segment (a request at 0 would make the media
- * service start encoding there). The port stays the same across them: `attach` moves it to the
- * player of the next stream, so the reporter follows one player for the whole session.
- *
- * A seek AVPlayer cannot reach alone, an HLS position the media service has not produced, goes
- * through the stream's `StreamSeeker`, which may load another playlist; until it lands, the port
- * reports the target position and counts as buffering, so the scrubber never jumps back and the
- * reporter saves where the viewer went. While a new stream loads, the same holds for its start.
- * Once disposed, the port keeps reporting where playback stopped without touching the released
- * native player, for the session's exit report.
- */
 import type { PlayerEvent, PlayerPort } from "@movies/sdk/effect";
 import type { VideoPlayerEvents, VideoPlayerStatus } from "expo-video";
 
@@ -94,17 +76,13 @@ export class VideoPort implements PlayerPort {
   #video: NativeVideo | null = null;
   #subscriptions: ReadonlyArray<{ remove(): void }> = [];
   #seeker: StreamSeeker = NATIVE_SEEKER;
-  /** The target of a stream move in progress. */
   #pending: number | null = null;
   #move: AbortController | null = null;
-  /** Where a stream being loaded starts, until it plays or seeks. */
   #loadingAt: number | null = null;
   #wantsPlay = false;
   #ended = false;
   #status: NativeStatus = "idle";
-  /** Where playback was at the last time update, in milliseconds. */
   #lastMs = 0;
-  /** Where playback stopped when the port was disposed. */
   #final: number | null = null;
   #state: VideoState = { positionSeconds: 0, playing: false, buffering: false, ended: false };
   readonly #listeners = new Set<(event: PlayerEvent) => void>();
@@ -152,7 +130,6 @@ export class VideoPort implements PlayerPort {
   /** Whether playing was asked for more recently than pausing. */
   readonly wantsToPlay = (): boolean => this.#wantsPlay;
 
-  /** Whether a stream move or load is under way, so AVPlayer's own events are not the viewer's. */
   #settling(): boolean {
     return this.#pending !== null || this.#loadingAt !== null;
   }
@@ -237,7 +214,6 @@ export class VideoPort implements PlayerPort {
     this.#changed();
 
     void this.#seeker.move(target, move.signal).finally(() => {
-      // A newer seek owns the pending target now.
       if (move.signal.aborted) return;
       this.#move = null;
       this.#pending = null;

@@ -1,7 +1,3 @@
-/**
- * The player the room engine drives. Web `<video>`, hls.js, and native players adapt to this one
- * small interface, so synchronization logic never touches a platform API.
- */
 import { Effect, Queue, Stream } from "effect";
 import type { Scope } from "effect";
 

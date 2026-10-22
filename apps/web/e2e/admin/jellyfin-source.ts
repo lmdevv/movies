@@ -1,9 +1,3 @@
-/**
- * A Jellyfin to migrate from in browser tests, served by the media package's
- * `scripts/serve-jellyfin-source.ts` over the generated fixture library in a folder: the recorded
- * Jellyfin server by default, which is deterministic and needs no Docker, or a real Jellyfin in
- * Docker with `MOVIES_JELLYFIN_DOCKER=1` (it needs the `jellyfin/jellyfin` image).
- */
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -13,7 +7,6 @@ const script = fileURLToPath(
   new URL("../../../media/scripts/serve-jellyfin-source.ts", import.meta.url),
 );
 
-/** Setting up Jellyfin in Docker takes about a minute; the recorded server takes seconds. */
 const START_TIMEOUT_MS = 240_000;
 
 /** A running Jellyfin source. */

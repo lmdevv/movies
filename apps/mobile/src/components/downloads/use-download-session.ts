@@ -1,9 +1,3 @@
-/**
- * The player's session for a kept download: the local playback (`downloadPlayback`) in place of a
- * server session, and the position recorded as it plays, every ten seconds and on pause, seek,
- * and end, and once more on leaving. The download engine keeps it and sends it to the server
- * whenever the server is reachable (`downloads.recordProgress`).
- */
 import { MediaFileNotFound } from "@movies/contracts/media-playback";
 import type { PlayerPort } from "@movies/sdk/effect";
 import type { Playback } from "@movies/sdk/effect";
@@ -15,7 +9,6 @@ import { downloadPlayback } from "@/lib/downloads/playback";
 import { useActiveProfile } from "@/session/active-profile";
 import { useDownloads } from "@/session/downloads";
 
-/** How often a playing download's position is recorded. */
 const RECORD_EVERY_MS = 10_000;
 
 /**
@@ -53,8 +46,6 @@ export const useDownloadSession = (
       : Result.succeed(playback);
   };
 
-  // The session plays what was kept when it opened; later changes to the store are its own
-  // progress. Opened once the downloads have loaded.
   const [result, setResult] = useState(open);
 
   if (result === null && engine !== null && downloadId !== null) setResult(open());
@@ -68,7 +59,6 @@ export const useDownloadSession = (
     const record = () => {
       const positionMs = player.positionMs();
 
-      // Before the start seek lands, or once the player is torn down, it reads 0: no progress.
       if (positionMs > 0) engine.played(downloadId, positionMs, durationMs);
     };
 

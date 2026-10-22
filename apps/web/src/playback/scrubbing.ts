@@ -1,8 +1,3 @@
-/**
- * What the scrubber and the chapters menu show for the file playing: the scrub thumbnail at a
- * time (from the file's trickplay manifest, loaded with the session's playback token) and its
- * chapters. Sheets load only once the viewer reaches for the scrubber.
- */
 import type { Chapter } from "@movies/contracts/models/catalog";
 import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { trickplaySheetUrl, trickplayTile } from "@movies/contracts/trickplay";
@@ -11,15 +6,12 @@ import type { ScrubPreview } from "@movies/ui/components/player-controls";
 import type { SpriteTile } from "@movies/ui/components/sprite-thumbnail";
 import { useCallback, useMemo, useRef } from "react";
 
-/** The scrub thumbnail at `seconds`, or null when the file has none. */
 type TileAt = (seconds: number) => SpriteTile | null;
 
 const NO_TILES: TileAt = () => null;
 
-/** A file's scrub thumbnails. */
 interface Thumbnails {
   readonly tileAt: TileAt;
-  /** Every sheet's URL, for preloading. */
   readonly sheets: ReadonlyArray<string>;
 }
 

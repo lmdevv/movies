@@ -1,9 +1,3 @@
-/**
- * The Add Library and Edit Library form (I03, I15, I17) without React: its draft, the default
- * name that follows the kind until someone types their own, and the folder checks made before the
- * server is asked. The server still decides; it refuses folders other libraries use, and the
- * folder browser refuses ones outside its approved roots.
- */
 import type { LibraryDetail } from "@movies/contracts/models/catalog";
 import { normalizeFolder } from "@movies/contracts/library-folder";
 

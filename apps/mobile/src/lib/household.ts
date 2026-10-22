@@ -1,8 +1,3 @@
-/**
- * Users & Invites (I08–I10) without React: role names, who can be changed, and which libraries a
- * person sees. Admins and the owner see every library; members see the libraries shared with
- * everyone plus the restricted ones granted to them.
- */
 import type { LibraryId, UserId } from "@movies/contracts/ids";
 import type { Invite, User } from "@movies/contracts/models/account";
 import type { LibraryDetail } from "@movies/contracts/models/catalog";

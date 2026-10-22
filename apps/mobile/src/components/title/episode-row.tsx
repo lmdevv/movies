@@ -1,8 +1,3 @@
-/**
- * An episode in a show's list (D04): a 128 × 76 still with a play glyph, `3. Who Is Alive?`, the
- * runtime with the time left, a full red line once watched, and `…` for its actions. Tapping plays
- * it from its saved position; a long press opens the actions too.
- */
 import type { Episode } from "@movies/contracts/models/catalog";
 import { router } from "expo-router";
 import { Ellipsis, Play } from "lucide-react-native";
@@ -18,7 +13,6 @@ import { useServer } from "@/session/connection";
 
 import { episodeLine } from "./title-model";
 
-/** The episode's actions sheet. */
 const actionsHref = (episode: Episode): string =>
   `/title/${episode.titleId}/episode/${episode.id}?season=${episode.seasonNumber}`;
 

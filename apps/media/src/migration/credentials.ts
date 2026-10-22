@@ -1,14 +1,3 @@
-/**
- * Sealing source credentials for a stored migration plan. A migration job must survive a media
- * service restart, so its plan (in Convex) carries the source credentials, sealed with AES-256-GCM
- * under a key derived (HKDF-SHA256) from `MEDIA_SERVICE_API_KEY`. Convex stores only that key's
- * hash, so neither Convex, its dashboard, nor a backup archive can open the credentials; rotating
- * the key makes stored plans unreadable, and their jobs fail asking for a new import.
- *
- * Connections themselves (connect, dry run) keep credentials in memory only, for an hour.
- * The plan's server ID and URL are bound in as associated data, so a sealed value cannot be moved
- * to another plan.
- */
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
 
 import { MigrationCredentials } from "@movies/contracts/models/migration";

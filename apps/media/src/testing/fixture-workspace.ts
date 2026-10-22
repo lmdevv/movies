@@ -1,12 +1,7 @@
-/**
- * A temporary folder holding a generated fixture library for the lifetime of a test layer, with
- * private copies for tests that change files. The folder is removed when the layer closes.
- */
 import { Context, Effect, FileSystem, Layer, Path, type PlatformError } from "effect";
 
 import { type FixtureLibrary, generateFixtureLibrary } from "./fixture-library.ts";
 
-/** Paths of one private copy of the fixture library. */
 interface LibraryCopy {
   readonly root: string;
   readonly movies: string;

@@ -1,9 +1,3 @@
-/**
- * What the web player tells the media service about playback (`PlayerDiagnostics` in the SDK):
- * how much the element holds ahead, the frames it dropped, and the observation for the recovery
- * the controller chose. Stream failures, hls.js segment loads, and hls.js errors are recorded where
- * the stream plays (`stream-attachment.ts`).
- */
 import type { PlayerObservation, RecoveryAction } from "@movies/contracts/diagnostics";
 import { PlayerDiagnostics } from "@movies/sdk/effect";
 import { Option } from "effect";
@@ -45,7 +39,6 @@ export const frameCounts = (
     return { dropped: counts.droppedVideoFrames, decoded: counts.totalVideoFrames };
   });
 
-/** The recovery action of a step that tries again; none for one that stops. */
 const actionOf = (step: PlaybackStep): Option.Option<RecoveryAction> =>
   PlaybackStep.$match(step, {
     ReloadPlaylist: () => Option.some<RecoveryAction>("reload-playlist"),

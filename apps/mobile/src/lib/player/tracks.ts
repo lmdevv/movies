@@ -1,15 +1,9 @@
-/**
- * Track names in Audio & Subtitles (F02), as the Apple TV app writes them: the language in its own
- * name, then what sets the track apart: `English · 5.1`, `English · Audio Description`,
- * `English · SDH`, `Español`.
- */
 import { BITMAP_SUBTITLE_FORMATS } from "@movies/contracts/media-playback";
 import type { SubtitleTrack } from "@movies/contracts/media-playback";
 import type { AudioStream } from "@movies/contracts/models/catalog";
 
 import { languageName } from "../languages";
 
-/** `Mono`, `Stereo`, `5.1`, `7.1`, or `6 ch`. */
 const channelsLabel = (channels: number): string | null => {
   if (channels <= 0) return null;
 
@@ -24,7 +18,6 @@ const channelsLabel = (channels: number): string | null => {
   return `${String(channels)} ch`;
 };
 
-/** Labels that read the same get their position, so every row is told apart. */
 const distinct = (labels: ReadonlyArray<string>): ReadonlyArray<string> =>
   labels.map((label, index) =>
     labels.filter((other) => other === label).length > 1
@@ -32,10 +25,6 @@ const distinct = (labels: ReadonlyArray<string>): ReadonlyArray<string> =>
       : label,
   );
 
-/**
- * An audio track: its language and its title (`English · Audio Description`), or its language and
- * channels (`English · 5.1`); `Track 2` when it has neither.
- */
 const audioLabel = (
   track: Pick<AudioStream, "language" | "title" | "channels">,
   position: number,
@@ -59,7 +48,6 @@ export const audioTrackLabels = (
   tracks: ReadonlyArray<Pick<AudioStream, "language" | "title" | "channels">>,
 ): ReadonlyArray<string> => distinct(tracks.map(audioLabel));
 
-/** A subtitle track: `English · SDH`, `English · Forced`, `English · PGS`, or its title. */
 const subtitleLabel = (
   track: Pick<
     SubtitleTrack,
@@ -71,7 +59,6 @@ const subtitleLabel = (
   const title = track.title?.trim() ?? "";
   const name = language ?? (title === "" ? `Subtitles ${String(position + 1)}` : title);
 
-  // A title that only repeats the language, such as `English (image)`, adds nothing.
   const distinctTitle =
     language !== null && title !== "" && !title.toLowerCase().includes(language.toLowerCase());
 

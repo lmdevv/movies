@@ -1,9 +1,3 @@
-/**
- * Scores from OMDb (the Open Movie Database), looked up by IMDb ID: the IMDb rating and votes,
- * the Rotten Tomatoes critics score, and the Metacritic score. Needs `OMDB_API_KEY` (the free tier
- * allows 1,000 requests a day); without it every lookup finds nothing. Answers are cached on disk
- * for a day, so a title's scores refresh at most daily, and a failure never fails a scan.
- */
 import { Clock, Context, Duration, Effect, Layer, Option, Redacted, Ref, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
@@ -57,16 +51,12 @@ const Answer = Schema.Struct({
 
 const decodeAnswer = Schema.decodeEffect(Schema.fromJsonString(Answer));
 
-/** How long lookups stop after OMDb refuses the key, such as when the daily limit is reached. */
 const REFUSED_PAUSE = Duration.hours(1);
 
-/** Statuses that mean the key is refused: wrong, or over its daily limit. */
 const REFUSALS: ReadonlySet<number> = new Set([401, 403, 429]);
 
-/** Lookups are paused after OMDb refused the key; they find nothing without asking. */
 class OmdbPaused extends Schema.TaggedError<OmdbPaused>()("OmdbPaused", {}) {}
 
-/** OMDb answered with an error status. Lookups log it and find nothing. */
 class OmdbRequestFailed extends Schema.TaggedError<OmdbRequestFailed>()("OmdbRequestFailed", {
   status: Schema.Int,
 }) {
@@ -85,7 +75,6 @@ const numberOf = (text: string | undefined): number | undefined => {
 const between = (value: number | undefined, max: number): number | undefined =>
   value === undefined || value < 0 || value > max ? undefined : value;
 
-/** The scores in an OMDb answer. */
 const ratingsOfAnswer = (answer: typeof Answer.Type): SiteRatings => {
   if (answer.Response !== "True") return {};
   const imdb = between(numberOf(answer.imdbRating), 10);
@@ -108,7 +97,6 @@ const ratingsOfAnswer = (answer: typeof Answer.Type): SiteRatings => {
   };
 };
 
-/** Builds the client. */
 const make = Effect.fn("Omdb.make")(function* (options: OmdbOptions) {
   const cache = yield* DiskCache.Service;
   const apiBase = new URL(options.apiBaseUrl);
@@ -124,10 +112,8 @@ const make = Effect.fn("Omdb.make")(function* (options: OmdbOptions) {
     yield* HttpClient.HttpClient,
   );
 
-  /** Until when lookups are paused after a refusal, in milliseconds since the epoch. */
   const pausedUntil = yield* Ref.make(0);
 
-  /** The answer body for `imdbId`, from the cache or OMDb. */
   const fetchBody = Effect.fn("Omdb.fetch")(function* (key: string, imdbId: string) {
     const cached = yield* cache.read(NAMESPACE, imdbId, options.cacheMaxAge);
 

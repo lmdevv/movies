@@ -1,4 +1,3 @@
-/** A person in search results (E03): a round photo, the name, and what they are known for. */
 import type { PersonCard } from "@movies/contracts/models/catalog";
 import { router } from "expo-router";
 import { ChevronRight } from "lucide-react-native";

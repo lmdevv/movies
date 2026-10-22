@@ -1,7 +1,3 @@
-/**
- * Which version (file) of a movie or an episode this browser plays: the viewer's pick, else the
- * one the profile last played, else the best this browser plays directly, else the best quality.
- */
 import type { MediaFileId } from "@movies/contracts/ids";
 import type { MediaVersion } from "@movies/contracts/models/catalog";
 import { Versions } from "@movies/sdk/effect";
@@ -11,7 +7,6 @@ import { useMemo, useState } from "react";
 import { browserMediaSupport } from "./browser-support";
 import { detectCapabilities } from "./capabilities";
 
-/** The version to offer first among `versions` in this browser, or null without versions. */
 const usePreferredVersion = (versions: ReadonlyArray<MediaVersion>): MediaVersion | null => {
   const capabilities = useMemo(() => detectCapabilities(browserMediaSupport()), []);
 

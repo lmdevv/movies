@@ -40,6 +40,8 @@ choices made while implementing them. Update it in the same PR that changes a de
   app locks a profile again (`profiles.lock`) when the browser switches to another one, so a PIN
   guards a profile every time someone picks it, not once per sign-in. The operator clears a
   forgotten PIN with `convex run maintenance:clearProfilePin '{"profileId":"…"}'`.
+- The mobile keypad accepts four digits. It cannot unlock a profile whose five- to eight-digit
+  PIN was set through the CLI or API.
 - A password session withholds `account`, `manage`, and `admin` while the account has a kids or
   rated profile, every unrestricted profile has a PIN, and none of them is unlocked on the
   session. Only then do PINs keep someone in a limited profile, and only then could that profile
@@ -458,6 +460,9 @@ choices made while implementing them. Update it in the same PR that changes a de
     stopped; an app that quits starts what was under way again;
   - failures follow `afterDownloadFailure`: an expired token renews, an ended session starts a
     new one, anything else stops with H19's short line and Retry.
+- `DownloadEngine` ignores failures while writing `index.json` or deleting a download's folder.
+  A failed write can leave the latest state only in memory. A failed deletion can leave files
+  on disk. Neither failure is shown in the Downloads screens.
 - A download belongs to the profile that made it. The Downloads list, its screens, and the player
   find a download only among the active profile's (`downloadFor`), so another profile, a Kids one
   too, can neither see nor play it, even by a link. Each account keeps its own store folder.

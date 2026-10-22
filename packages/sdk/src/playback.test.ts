@@ -65,7 +65,6 @@ const playback: Playback = {
   },
 };
 
-/** A transport that records progress calls and acknowledges them. */
 const recordingTransport = (calls: Ref.Ref<ReadonlyArray<readonly [FunctionPath, WireArgs]>>) =>
   ConvexTransport.ConvexTransport.of({
     call: (_kind, path, args) =>
@@ -134,10 +133,8 @@ describe("progress reporting", () => {
     ));
 });
 
-/** Paths the media service below received, in order. */
 const received: Array<string> = [];
 
-/** A media service whose answers point at `PUBLIC_URL`, as a real one's do. */
 const PUBLIC_URL = "http://movies.invalid:18480";
 
 const STREAM_ID = "stream-0123456789abcde";
@@ -193,7 +190,6 @@ const DESKTOP = {
   mse: false,
 } as const;
 
-/** Negotiates `session` and then stops its stream, returning the stream URL it was given. */
 const negotiateAndStop = (session: StartedPlayback) =>
   Effect.gen(function* () {
     const stream = yield* negotiate(session, DESKTOP, Milliseconds.make(0), Option.none());
@@ -218,7 +214,6 @@ describe("reaching the media service", () => {
   it("sends them to a provided MediaOrigin instead, and keeps the stream URL public", async () => {
     received.length = 0;
 
-    // The session names the public URL, which this client cannot reach.
     const url = await Effect.runPromise(
       negotiateAndStop({ ...started, mediaBaseUrl: PUBLIC_URL }).pipe(
         Effect.provideService(MediaOrigin, Option.some(mediaServiceUrl)),

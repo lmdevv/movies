@@ -15,7 +15,6 @@ import type { FrameCounts } from "./player-diagnostics";
 import { reportDiagnostics } from "./player-diagnostics";
 import { makeFakePlayer } from "./testing/fake-player";
 
-/** Every batch the media service received, decoded as the service decodes it. */
 const batches: Array<ClientDiagnosticsRequest> = [];
 
 const decodeBatch = Schema.decodeUnknownSync(
@@ -54,7 +53,6 @@ beforeEach(() => {
   batches.length = 0;
 });
 
-/** A playback of an HLS stream served by the test server. */
 const playbackAt = (
   mediaBaseUrl: string,
   token = "v1.payload.signature",
@@ -111,7 +109,6 @@ const onTestClock = <A, E>(body: Effect.Effect<A, E, Scope.Scope>): Promise<A> =
     ),
   );
 
-/** Resolves once `predicate` holds, checking in real time while requests travel. */
 const until = (predicate: () => boolean) =>
   Effect.promise(
     () =>
@@ -125,17 +122,11 @@ const until = (predicate: () => boolean) =>
       }),
   );
 
-/** A recovery after `reason`. */
 const recovery = (reason: string) =>
   PlayerObservation.cases.Recovery.make({ action: "new-session", reason });
 
-/** Every event received, in order. */
 const received = () => batches.flatMap((batch) => batch.events);
 
-/**
- * A player the test drives event by event, as a `<video>` element reports them: unlike the fake
- * player, it can wait for data before it has ever played.
- */
 const makeElement = () => {
   const listeners = new Set<(event: PlayerEvent) => void>();
 
@@ -316,7 +307,6 @@ describe("playback diagnostics", () => {
           frames: () => Option.none(),
         }).pipe(Scope.provide(scope));
 
-        // A paused element that runs out of data, as a scrub outside the buffer leaves it.
         element.emit("waiting");
         element.emit("seeked");
         yield* TestClock.adjust(600_000);
@@ -543,7 +533,6 @@ describe("playback diagnostics", () => {
       Effect.gen(function* () {
         const player = yield* makeFakePlayer(0);
         const scope = yield* Scope.make();
-        // The session names a public URL this client cannot reach.
         const playback = playbackAt("http://192.0.2.1:9");
 
         const recorder = yield* reportDiagnostics(player, {

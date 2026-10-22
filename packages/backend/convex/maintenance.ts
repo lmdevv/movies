@@ -1,4 +1,3 @@
-/** Scheduled upkeep: room presence, device codes, job leases, idle playback, backups, purges. */
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -20,16 +19,10 @@ import {
   presenceTimeout,
 } from "./lib/roomClock";
 
-/** Playback sessions without a report for this long end. */
 const IDLE_PLAYBACK_MS = 30 * 60 * 1000;
 
-/**
- * Download sessions report nothing while they transfer, and renewing the token is what keeps them
- * going; one not renewed for a token's lifetime and an hour more can fetch nothing, so it ends.
- */
 const IDLE_DOWNLOAD_MS = PLAYBACK_TOKEN_LIFETIME_MS + 60 * 60 * 1000;
 
-/** Expired device codes are deleted after this long. */
 const DEVICE_CODE_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 const PURGE_BATCH = 200;
@@ -190,7 +183,6 @@ export const requestNightlyBackup = internalMutation({
   },
 });
 
-/** Titles one backfill step brings in step. */
 const TITLE_BACKFILL_BATCH = 100;
 
 /**
@@ -243,13 +235,11 @@ export const purgeLibrary = internalMutation({
     const now = Date.now();
 
     if (files.length > 0) {
-      // Playback of these files' titles ends as the files go, a batch at a time.
       await Promise.all(
         [...new Set(files.map((file) => file.titleId))].map((titleId) =>
           endTitlePlayback(ctx, titleId, now),
         ),
       );
-      // Thumbnail jobs of the library's files would only fail once their files are gone.
       await Promise.all(files.map((file) => forgetTrickplay(ctx, file)));
       await Promise.all(files.map((file) => ctx.db.delete(file._id)));
       await ctx.scheduler.runAfter(0, internal.maintenance.purgeLibrary, { libraryId });
@@ -262,8 +252,6 @@ export const purgeLibrary = internalMutation({
       .withIndex("by_library", (q) => q.eq("libraryId", libraryId))
       .take(20);
 
-    // Credits go in passes of their own, a share of the batch per title, so a pass that deletes
-    // credits never also deletes titles with their seasons and episodes.
     const removed = await Promise.all(
       titles.map((title) =>
         removeTitleCredits(ctx, title._id, Math.max(1, Math.floor(PURGE_BATCH / titles.length))),

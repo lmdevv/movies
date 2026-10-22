@@ -8,7 +8,6 @@ const grant = (session: string, user = "user_a") => ({
   userId: UserId.make(user),
 });
 
-/** How many of `count` failures of `session`, sent at `now`, `budget` lets through. */
 const allowed = (
   budget: ReturnType<typeof makeFailureBudget>,
   session: string,

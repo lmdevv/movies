@@ -1,16 +1,9 @@
-/**
- * Who is in a room and how each person stands, as the room panel lists them: the host first, then
- * this device, then the other guests. Members in step show nothing; a guest more than a second off
- * shows its drift, a joining viewer shows `syncing`, a member browsing elsewhere in the app shows
- * `away`, and the host shows `buffering` or `left`.
- */
 import type { DeviceId } from "@movies/contracts/ids";
 import type { Room } from "@movies/contracts/models/rooms";
 import type { RoomMember, RoomMemberStatus } from "@movies/ui/components/room-panel";
 
 import { avatarImage } from "@/lib/avatars";
 
-/** A guest further than this from the shared position shows its drift. */
 const SHOWN_DRIFT_MS = 1_000;
 
 /** `-2.4s` or `+1.2s`. */
@@ -30,7 +23,6 @@ const hostStatus = (
 
   if (room.clock.status === "buffering") return { kind: "buffering" };
 
-  // This device is plainly in the player, whatever its last heartbeat said.
   return member.presence === "away" && !self ? { kind: "away" } : undefined;
 };
 
@@ -83,7 +75,6 @@ export const roomMembers = (
     };
   });
 
-  // The host's row stays after they left, dimmed, so guests know who paused the room.
   const hostListed = room.members.some((member) => member.role === "host");
 
   return hostListed

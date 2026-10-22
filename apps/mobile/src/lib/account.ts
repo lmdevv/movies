@@ -1,7 +1,3 @@
-/**
- * The account's signed-in devices (H06 Devices) and API keys (H11 API Keys) as their rows name and
- * describe them.
- */
 import type { ApiKey, SessionInfo } from "@movies/contracts/models/account";
 import type { ApiKeyScope } from "@movies/contracts/scopes";
 

@@ -1,21 +1,13 @@
-/**
- * Infers what a media file is from its path inside a library: a movie, one or more episodes of
- * a show, or an extra such as a trailer. Handles the Plex/Jellyfin/Kodi folder conventions and
- * scene-release names. Pure: it reads only the path string.
- */
 import { Schema } from "effect";
 
-/** Provider IDs embedded in a name, such as `[tmdbid-603]` or `{imdb-tt0133093}`. */
 const NameIds = Schema.Struct({
   tmdb: Schema.optional(Schema.String),
   imdb: Schema.optional(Schema.String),
   tvdb: Schema.optional(Schema.String),
 });
 
-/** Provider IDs embedded in a name. */
 interface NameIds extends Schema.Schema.Type<typeof NameIds> {}
 
-/** Kinds of extra material stored next to a title. */
 const ExtraKind = Schema.Literals([
   "trailer",
   "featurette",
@@ -28,7 +20,6 @@ const ExtraKind = Schema.Literals([
   "extra",
 ]);
 
-/** Kinds of extra material stored next to a title. */
 type ExtraKind = typeof ExtraKind.Type;
 
 /** What a media file's path says it is. */
@@ -90,7 +81,6 @@ const EXTRA_SUFFIXES: ReadonlyMap<string, ExtraKind> = new Map([
   ["other", "extra"],
 ]);
 
-/** Tokens that start the technical tail of a scene-release name. */
 const RELEASE_TAGS: ReadonlySet<string> = new Set([
   "2160p",
   "1440p",
@@ -197,14 +187,12 @@ const idsOf = (text: string): NameIds => {
   return { tmdb: found.get("tmdb"), imdb: found.get("imdb"), tvdb: found.get("tvdb") };
 };
 
-/** IDs from `preferred`, falling back to `fallback` per provider. */
 const mergeIds = (preferred: NameIds, fallback: NameIds): NameIds => ({
   tmdb: preferred.tmdb ?? fallback.tmdb,
   imdb: preferred.imdb ?? fallback.imdb,
   tvdb: preferred.tvdb ?? fallback.tvdb,
 });
 
-/** Collapses separators and drops bracketed tags so only the human-readable words remain. */
 const words = (text: string): ReadonlyArray<string> => {
   const withoutTags = text.replace(BRACKETED, " ");
   const separated = withoutTags.includes(" ") ? withoutTags : withoutTags.replaceAll(/[._]/g, " ");
@@ -232,7 +220,6 @@ interface TitleYear {
   readonly year: number | undefined;
 }
 
-/** Splits `Title (Year)` or `Title.Year.1080p.Tags` into a title and a year. */
 const titleAndYear = (text: string): TitleYear => {
   const parenthesised = YEAR_IN_PARENS.exec(text);
 
@@ -246,7 +233,6 @@ const titleAndYear = (text: string): TitleYear => {
   const tagIndex = all.findIndex((word, index) => index > 0 && isReleaseTag(word));
   const head = tagIndex === -1 ? all : all.slice(0, tagIndex);
 
-  // The last year-like word that leaves a title before it: "2001 A Space Odyssey 1968".
   for (let index = head.length - 1; index > 0; index -= 1) {
     const candidate = (head[index] ?? "").replace(/^[([]|[)\]]$/g, "");
 
@@ -280,7 +266,6 @@ const range = (first: number, last: number): ReadonlyArray<number> =>
 interface EpisodeMarker {
   readonly season: number;
   readonly episodes: readonly [number, ...Array<number>];
-  /** Text before and after the marker in the file name. */
   readonly before: string;
   readonly after: string;
 }

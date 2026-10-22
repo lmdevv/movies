@@ -1,8 +1,3 @@
-/**
- * The `movies` entry point: resolves argv to a shortcut or a registry command, runs it, prints the
- * result (JSON by default, tables with `--human`), and turns every failure into a stable exit code
- * and a `{ "error": { code, message } }` report on stderr.
- */
 import { commands } from "@movies/contracts/commands";
 import type { CommandName } from "@movies/contracts/commands";
 import { JobId } from "@movies/contracts/ids";
@@ -58,7 +53,6 @@ import { watchCommands } from "./watch-commands";
 
 const version = packageJson.version;
 
-/** Every shortcut implementation, by path. */
 const shortcutCommands: ReadonlyMap<string, ShortcutCommand> = new Map(
   [
     ...accountCommands,
@@ -69,7 +63,6 @@ const shortcutCommands: ReadonlyMap<string, ShortcutCommand> = new Map(
   ].map((command) => [command.path, command]),
 );
 
-/** Where argv leads. */
 type Route = Data.TaggedEnum<{
   Root: {};
   Version: {};
@@ -86,7 +79,6 @@ const booleanGlobals = new Set(["--human", "--help", "-h", "--version"]);
 
 const valueGlobals = new Set(["--profile", "--format"]);
 
-/** The global flags before the first command word, and the words after them. */
 const splitLeadingGlobals = (argv: ReadonlyArray<string>) => {
   let index = 0;
 
@@ -102,7 +94,6 @@ const splitLeadingGlobals = (argv: ReadonlyArray<string>) => {
   return { globals: argv.slice(0, index), words: argv.slice(index) };
 };
 
-/** `apiKeys` and `api-keys` name the same word. */
 const word = (text: string): string => kebabCase(text).toLowerCase();
 
 const topWords = [
@@ -110,7 +101,6 @@ const topWords = [
   ...shortcuts.flatMap((shortcut) => (shortcut.path.includes(" ") ? [] : [shortcut.path])),
 ];
 
-/** Suggests commands that extend the typed word or that the word extends: `room` → `rooms`. */
 const suggest = (typed: string): string => {
   const close = topWords
     .filter((candidate) => candidate.startsWith(typed) || typed.startsWith(candidate))
@@ -119,7 +109,6 @@ const suggest = (typed: string): string => {
   return close.length > 0 ? `; did you mean ${close.join(", ")}?` : "; run movies --help";
 };
 
-/** Resolves the command path, keeping leading global flags for the command's own parser. */
 const resolve = (argv: ReadonlyArray<string>): Result.Result<Route, UsageError> => {
   const { globals, words } = splitLeadingGlobals(argv);
   const [rawHead, rawSub] = words;
@@ -166,10 +155,6 @@ const resolve = (argv: ReadonlyArray<string>): Result.Result<Route, UsageError> 
   return Result.succeed(Route.Registry({ entry, rest: restAfter(2) }));
 };
 
-/**
- * The output format from the parsed flags. A shortcut that declares a boolean `--json` takes it as
- * `--format json`; asking for JSON and for tables at once is a usage error.
- */
 const formatOf = (tokens: ParsedTokens, command: string): Effect.Effect<Format, UsageError> => {
   const table =
     booleanFlag(tokens, "human") || Option.contains(stringFlag(tokens, "format"), "table");
@@ -198,7 +183,6 @@ const formatOf = (tokens: ParsedTokens, command: string): Effect.Effect<Format, 
   });
 };
 
-/** The format a failure prints in, read from raw argv because parsing may have failed. */
 const rawFormat = (argv: ReadonlyArray<string>): Format =>
   argv.includes("--human") ||
   argv.includes("--format=table") ||
@@ -206,7 +190,6 @@ const rawFormat = (argv: ReadonlyArray<string>): Format =>
     ? "table"
     : "json";
 
-/** Everything a command needs before it runs. */
 const prepare = Effect.fn("Cli.prepare")(
   function* (path: string, tokens: ParsedTokens) {
     const env = yield* environment;
@@ -239,7 +222,6 @@ const print = (format: Format, outcome: Outcome): Effect.Effect<void, never, Out
 
 const decodeJobId = Schema.decodeUnknownOption(Schema.Struct({ jobId: JobId }));
 
-/** Validates wire arguments against the command, runs it, and encodes the result. */
 const runNamed = Effect.fn("Cli.runNamed")(function* (
   invocation: Invocation,
   name: CommandName,
@@ -312,7 +294,6 @@ const runRegistry = Effect.fn("Cli.runRegistry")(function* (
     ),
   };
 
-  // Building and validating arguments before connecting keeps bad command lines fast and offline.
   const wire = yield* Effect.fromResult(buildArgs(entry.flags, tokens, entry.path, defaults));
   const outcome = yield* runNamed(invocation, entry.name, entry, wire);
 

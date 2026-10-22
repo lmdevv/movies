@@ -1,7 +1,3 @@
-/**
- * Artwork URLs on the connected media service, at the width each use draws: posters in rails,
- * landscape cards and stills, and full-bleed heroes, at 3x for iPhone screens.
- */
 import { artworkUrl as mediaArtworkUrl } from "@movies/contracts/artwork";
 import type { ArtworkWidth } from "@movies/contracts/artwork";
 

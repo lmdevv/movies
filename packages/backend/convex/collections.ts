@@ -12,7 +12,6 @@ import { presentTitleCard } from "./lib/present";
 import type { ReadCtx } from "./lib/viewer";
 import { authorize } from "./lib/viewer";
 
-/** Most collections the list shows, and most titles each one shows. */
 const LIST_LIMIT = 200;
 
 const TITLE_LIMIT = 200;
@@ -20,7 +19,6 @@ const TITLE_LIMIT = 200;
 /** Most members read across all collections, so the query stays inside Convex's read limit. */
 const MEMBER_BUDGET = 5000;
 
-/** A collection with up to `limit` of its members that the profile may see, in order. */
 const presentCollection = async (
   ctx: ReadCtx,
   audience: Audience,
@@ -71,7 +69,6 @@ export const list = query({
     let budget = MEMBER_BUDGET;
     let shown = 0;
 
-    // Collections with nothing visible are skipped; reading stops once `wanted` are found.
     const listed = await inSequence(collections, async (doc) => {
       if (shown >= wanted) return null;
       const presented = await presentCollection(ctx, audience, doc, Math.min(TITLE_LIMIT, budget));

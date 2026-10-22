@@ -4,13 +4,8 @@ import { describe, expect, it } from "vitest";
 import { NATIVE_SEEKER, VideoPort, withinBuffer } from "./video-port";
 import type { NativeStatus, NativeVideo, NativeVideoEvents } from "./video-port";
 
-/** Each native event's listeners. */
 type Listeners = { [Name in keyof NativeVideoEvents]: Set<NativeVideoEvents[Name]> };
 
-/**
- * An in-memory AVPlayer: it plays, pauses, and seeks at once, and the test drives what the native
- * side reports (status, the end, time updates).
- */
 class TestVideo implements NativeVideo {
   currentTime = 0;
   playbackRate = 1;
@@ -52,17 +47,14 @@ class TestVideo implements NativeVideo {
     };
   }
 
-  /** Reports that AVPlayer started or stopped playing. */
   firePlaying(isPlaying: boolean): void {
     for (const listener of this.#listeners.playingChange) listener({ isPlaying });
   }
 
-  /** Reports AVPlayer's loading state. */
   fireStatus(status: NativeStatus): void {
     for (const listener of this.#listeners.statusChange) listener({ status });
   }
 
-  /** Reports the end of the media. */
   fireEnd(): void {
     for (const listener of this.#listeners.playToEnd) listener();
   }
@@ -76,7 +68,6 @@ class TestVideo implements NativeVideo {
   }
 }
 
-/** A port following `video` from its start. */
 const portOn = (video: TestVideo, seeker = NATIVE_SEEKER): VideoPort => {
   const port = new VideoPort();
 

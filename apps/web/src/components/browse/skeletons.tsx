@@ -1,11 +1,5 @@
-/**
- * Loading placeholders sized like what replaces them, so nothing jumps when data arrives. Paper
- * draws them on 05 Browse · 07 Scanning: a raised billboard with title and button bars, then rows
- * of blank cards.
- */
 import { cn } from "@movies/ui/lib/utils";
 
-/** A blank block; `tone` picks the raised bar or the fainter card fill. */
 function Block({
   className,
   tone = "card",

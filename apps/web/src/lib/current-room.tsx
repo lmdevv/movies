@@ -1,8 +1,3 @@
-/**
- * This device's watch room, as the navbar's room pill and the command menu's room commands both
- * read it outside the player. One subscription, so the two never disagree about which room there
- * is or where returning to it goes; it also keeps the device's place in the room while it browses.
- */
 import type { DeviceId, EpisodeId, ProfileId, RoomId, TitleId } from "@movies/contracts/ids";
 import { useCommandQuery, useRoomPresence } from "@movies/sdk/react";
 import { createContext, useContext, useMemo } from "react";
@@ -36,15 +31,6 @@ export interface CurrentRoom {
   readonly returnable: boolean;
 }
 
-/**
- * The live room `deviceId` is in, or null. The server already hides ended rooms, lapsed
- * memberships, rooms of other accounts and devices, and rooms whose title no profile the device
- * joined with may still see, and it updates as any of those change. `mine` says whether the
- * device joined with `profileId`: switching profiles leaves the other profile's place to lapse.
- *
- * Every member's heartbeat changes the room record, so the result is rebuilt only when something
- * it holds changes.
- */
 const useDeviceRoom = (
   deviceId: DeviceId,
   profileId: ProfileId,
@@ -60,7 +46,6 @@ const useDeviceRoom = (
   const members = room?.members.length ?? 0;
   const mine = self !== undefined && self.profileId === profileId;
   const hosting = self?.role === "host";
-  // The host's own return is what brings a paused, host-away room back.
   const returnable = room !== null && (!room.hostAway || self?.role === "host");
 
   return useMemo(
