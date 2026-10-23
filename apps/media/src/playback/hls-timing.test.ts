@@ -5,7 +5,7 @@ import { Console, Context, Effect, FileSystem, Layer, Path, Schema } from "effec
 import { MediaFileId } from "@movies/contracts/ids";
 
 import * as DiskCache from "../disk-cache.ts";
-import { probeFile } from "../media/media-probe.ts";
+import { type MediaProbe, probeFile } from "../media/media-probe.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import { ffmpegAvailable, qsvUsable, vaapiUsable } from "../testing/fixture-library.ts";
 import { testConfigLayer } from "../testing/test-config.ts";
@@ -22,14 +22,18 @@ import { hlsCommandArgs } from "./transcode-command.ts";
 
 const hasFfmpeg = await ffmpegAvailable();
 
+/**
+ * Opts in to what depends on the machine: hardware encoders, properties the code does not meet
+ * yet (whose measured values depend on the ffmpeg build), and the printed report.
+ */
+const optIn = process.env["MOVIES_TIMING"] === "1";
+
 const runnable = {
   copy: hasFfmpeg,
   software: hasFfmpeg,
-  qsv: hasFfmpeg && (await qsvUsable()),
-  vaapi: hasFfmpeg && (await vaapiUsable()),
+  qsv: optIn && hasFfmpeg && (await qsvUsable()),
+  vaapi: optIn && hasFfmpeg && (await vaapiUsable()),
 } as const;
-
-const printing = process.env["MOVIES_TIMING"] === "1";
 
 const AAC_FRAME = 1024 / 48_000;
 
@@ -297,13 +301,18 @@ const toolsLayer = Layer.unwrap(
   }),
 ).pipe(Layer.provideMerge(workspaceLayer), Layer.provideMerge(NodeServices.layer));
 
+class Sources extends Context.Service<
+  Sources,
+  { readonly file: (source: Source) => Effect.Effect<string> }
+>()("@movies/media/test/HlsTiming/Sources") {}
+
 const generateSource = Effect.fn("HlsTiming.generateSource")(function* (source: Source) {
   const { root } = yield* Workspace;
   const tools = yield* MediaTools.Service;
   const path = yield* Path.Path;
   const output = path.join(root, `${source.name}.${source.container}`);
 
-  yield* tools.ffmpeg([
+  yield* tools.ffmpegInBackground([
     "-hide_banner",
     "-nostdin",
     "-v",
@@ -406,6 +415,7 @@ const probeSegment = Effect.fn("HlsTiming.probeSegment")(function* (
 const runFrom = Effect.fn("HlsTiming.runFrom")(function* (
   testCase: Case,
   input: string,
+  probe: MediaProbe,
   plan: SegmentPlan,
   startSegment: number,
 ) {
@@ -413,7 +423,6 @@ const runFrom = Effect.fn("HlsTiming.runFrom")(function* (
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const tools = yield* MediaTools.Service;
-  const probe = yield* probeFile(input);
   const audioIndex = probe.audio[0]?.index ?? 1;
   const from = plan.starts[startSegment] ?? plan.end;
 
@@ -424,7 +433,7 @@ const runFrom = Effect.fn("HlsTiming.runFrom")(function* (
 
   yield* fs.makeDirectory(outputDirectory, { recursive: true });
 
-  yield* tools.ffmpeg(
+  yield* tools.ffmpegInBackground(
     hlsCommandArgs({
       input,
       sourceStart: probe.startSeconds,
@@ -526,7 +535,7 @@ const measure = (testCase: Case) =>
   Layer.effect(
     Measured,
     Effect.gen(function* () {
-      const input = yield* generateSource(testCase.source);
+      const input = yield* (yield* Sources).file(testCase.source);
       const probe = yield* probeFile(input);
       const keyframes = yield* KeyframeIndex.Service;
 
@@ -546,15 +555,15 @@ const measure = (testCase: Case) =>
             )
           : planGridSegments(probe.startSeconds, probe.durationSeconds);
 
-      const fromStart = yield* runFrom(testCase, input, plan, 0);
+      const fromStart = yield* runFrom(testCase, input, probe, plan, 0);
 
       const resumed = yield* Effect.forEach(RESUME_SEGMENTS, (start) =>
-        runFrom(testCase, input, plan, start),
+        runFrom(testCase, input, probe, plan, start),
       );
 
       const sourceEnds = yield* probeSpans(input);
 
-      if (printing) {
+      if (optIn) {
         yield* Console.log(
           [
             `${testCase.name} (plan ${plan.starts.map(ms).join(", ")})`,
@@ -569,7 +578,7 @@ const measure = (testCase: Case) =>
 
       return { plan, sourceEnds, fromStart, resumed };
     }).pipe(Effect.orDie),
-  ).pipe(Layer.provideMerge(toolsLayer));
+  );
 
 const lateness = (testCase: Case): number =>
   testCase.video === "copy" ? ROUNDING : FRAME + ROUNDING;
@@ -605,77 +614,110 @@ const checkSeams = (stream: "video" | "audio", limit: number) =>
     }
   });
 
-for (const testCase of CASES) {
-  describe.runIf(runnable[testCase.video])(`HLS timing: ${testCase.name}`, () => {
-    layer(measure(testCase), { excludeTestServices: true, timeout: "180 seconds" })((it) => {
-      const test = (property: Property) =>
-        testCase.expectedFailures.includes(property) ? it.effect.fails : it.effect;
+const sourcesLayer = Layer.effect(
+  Sources,
+  Effect.gen(function* () {
+    const context = yield* Effect.context<Workspace | MediaTools.Service | Path.Path>();
 
-      test("planned")(
-        "presents every run's video at the planned times, and no audio before 0",
-        () =>
-          Effect.gen(function* () {
-            const { fromStart, resumed } = yield* Measured;
+    const files = new Map(
+      yield* Effect.forEach(new Set(CASES.map((testCase) => testCase.source)), (source) =>
+        Effect.map(
+          Effect.cached(generateSource(source).pipe(Effect.provideContext(context), Effect.orDie)),
+          (file) => [source, file] as const,
+        ),
+      ),
+    );
 
-            checkPlanned(testCase, fromStart, "from the start");
+    return {
+      file: (source: Source) =>
+        files.get(source) ?? Effect.die(`${source.name} is no case's source`),
+    };
+  }),
+).pipe(Layer.provideMerge(toolsLayer));
 
-            for (const run of resumed) checkPlanned(testCase, run, `from ${ms(run.from)} ms`);
-          }),
-      );
+describe.runIf(hasFfmpeg)("HLS timing", () => {
+  layer(sourcesLayer, { excludeTestServices: true, timeout: "180 seconds" })((shared) => {
+    for (const testCase of CASES) {
+      describe.runIf(runnable[testCase.video])(testCase.name, () => {
+        shared.layer(measure(testCase), { timeout: "180 seconds" })((it) => {
+          const test = (property: Property) =>
+            testCase.expectedFailures.includes(property)
+              ? optIn
+                ? it.effect.fails
+                : it.effect.skip
+              : it.effect;
 
-      test("video seam")("continues an earlier run's video without a step", () =>
-        checkSeams("video", ROUNDING),
-      );
+          test("planned")(
+            "presents every run's video at the planned times, and no audio before 0",
+            () =>
+              Effect.gen(function* () {
+                const { fromStart, resumed } = yield* Measured;
 
-      test("audio seam")(
-        testCase.video === "copy"
-          ? "continues an earlier run's audio without a gap or overlap"
-          : "continues an earlier run's audio within one AAC frame",
-        () => checkSeams("audio", testCase.video === "copy" ? ROUNDING : AAC_FRAME + ROUNDING),
-      );
+                checkPlanned(testCase, fromStart, "from the start");
 
-      // ffmpeg 9 rounds the first frame's composition offset in MPEG-TS's 90 kHz clock one tick
-      // (11 µs) differently from run to run, so its edit list differs; ffmpeg 6.1 does not.
-      if (testCase.source.container !== "ts") {
-        test("init")("writes the same init.mp4 in every run", () =>
-          Effect.gen(function* () {
-            const { fromStart, resumed } = yield* Measured;
+                for (const run of resumed) checkPlanned(testCase, run, `from ${ms(run.from)} ms`);
+              }),
+          );
 
-            for (const run of resumed) {
-              assert.deepStrictEqual(run.init, fromStart.init, `run from ${ms(run.from)} ms`);
-            }
-          }),
-        );
-      }
+          test("video seam")("continues an earlier run's video without a step", () =>
+            checkSeams("video", ROUNDING),
+          );
 
-      test("sync")("keeps audio as far from video at the end as the source does", () =>
-        Effect.gen(function* () {
-          const { sourceEnds, fromStart } = yield* Measured;
-          const drift = endGap(lastSegment(fromStart)) - endGap(sourceEnds);
+          test("audio seam")(
+            testCase.video === "copy"
+              ? "continues an earlier run's audio without a gap or overlap"
+              : "continues an earlier run's audio within one AAC frame",
+            () => checkSeams("audio", testCase.video === "copy" ? ROUNDING : AAC_FRAME + ROUNDING),
+          );
 
-          assert.isAtMost(Math.abs(drift), LAST_FRAME + ROUNDING, `audio drifts ${ms(drift)} ms`);
-        }),
-      );
+          // ffmpeg 9 rounds the first frame's composition offset in MPEG-TS's 90 kHz clock one tick
+          // (11 µs) differently from run to run, so its edit list differs; ffmpeg 6.1 does not.
+          if (testCase.source.container !== "ts") {
+            test("init")("writes the same init.mp4 in every run", () =>
+              Effect.gen(function* () {
+                const { fromStart, resumed } = yield* Measured;
 
-      if (testCase.audio === "aac") {
-        test("even")("gives every AAC frame the same duration", () =>
-          Effect.gen(function* () {
-            const { fromStart, resumed } = yield* Measured;
+                for (const run of resumed) {
+                  assert.deepStrictEqual(run.init, fromStart.init, `run from ${ms(run.from)} ms`);
+                }
+              }),
+            );
+          }
 
-            for (const run of [fromStart, ...resumed]) {
-              const steps = run.segments.flatMap((segment) => segment.audio.steps);
-
-              assert.isAbove(steps.length, 100, `AAC frames from ${ms(run.from)} ms`);
+          test("sync")("keeps audio as far from video at the end as the source does", () =>
+            Effect.gen(function* () {
+              const { sourceEnds, fromStart } = yield* Measured;
+              const drift = endGap(lastSegment(fromStart)) - endGap(sourceEnds);
 
               assert.isAtMost(
-                Math.max(...steps) - Math.min(...steps),
-                0.000_1,
-                `AAC frames from ${ms(run.from)} ms last ${ms(Math.min(...steps))}..${ms(Math.max(...steps))} ms`,
+                Math.abs(drift),
+                LAST_FRAME + ROUNDING,
+                `audio drifts ${ms(drift)} ms`,
               );
-            }
-          }),
-        );
-      }
-    });
+            }),
+          );
+
+          if (testCase.audio === "aac") {
+            test("even")("gives every AAC frame the same duration", () =>
+              Effect.gen(function* () {
+                const { fromStart, resumed } = yield* Measured;
+
+                for (const run of [fromStart, ...resumed]) {
+                  const steps = run.segments.flatMap((segment) => segment.audio.steps);
+
+                  assert.isAbove(steps.length, 100, `AAC frames from ${ms(run.from)} ms`);
+
+                  assert.isAtMost(
+                    Math.max(...steps) - Math.min(...steps),
+                    0.000_1,
+                    `AAC frames from ${ms(run.from)} ms last ${ms(Math.min(...steps))}..${ms(Math.max(...steps))} ms`,
+                  );
+                }
+              }),
+            );
+          }
+        });
+      });
+    }
   });
-}
+});
