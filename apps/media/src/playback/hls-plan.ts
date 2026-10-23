@@ -118,8 +118,7 @@ export const segmentAt = (plan: SegmentPlan, seconds: number): number => {
 const segmentDuration = (plan: SegmentPlan, index: number): number =>
   (plan.starts[index + 1] ?? plan.end) - (plan.starts[index] ?? plan.end);
 
-/** How close a fragment's start must be to a time to count as starting there, in seconds. */
-export const FRAGMENT_TIME_EPSILON = 0.005;
+export const FRAGMENT_EPSILON_SECONDS = 0.005;
 
 /**
  * The planned segments a generation's fragments make up, each fragment in the segment its start
@@ -135,13 +134,16 @@ export const groupFragments = <F extends { readonly start: number }>(
   fragments: ReadonlyArray<F>,
 ): ReadonlyMap<number, ReadonlyArray<F>> => {
   const lead = fragments.findLastIndex(
-    (fragment) => fragment.start <= from + FRAGMENT_TIME_EPSILON,
+    (fragment) => fragment.start <= from + FRAGMENT_EPSILON_SECONDS,
   );
 
   const members = new Map<number, ReadonlyArray<F>>();
 
   for (const fragment of fragments.slice(Math.max(0, lead))) {
-    const index = Math.max(startSegment, segmentAt(plan, fragment.start + FRAGMENT_TIME_EPSILON));
+    const index = Math.max(
+      startSegment,
+      segmentAt(plan, fragment.start + FRAGMENT_EPSILON_SECONDS),
+    );
 
     members.set(index, [...(members.get(index) ?? []), fragment]);
   }

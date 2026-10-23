@@ -28,7 +28,9 @@ export interface HlsCommand {
   readonly subtitleCodec: string;
   /** Planned segment starts at or after `from`; transcodes force keyframes there. */
   readonly segmentStarts: ReadonlyArray<number>;
-  /** The planned segment start before `from`, a keyframe when video is copied; none at the first. */
+  /**
+   * The planned segment start before `from`, a keyframe when video is copied; none at the first.
+   */
   readonly previousStart: number | undefined;
   readonly outputDirectory: string;
   readonly qsvDevice: string;
@@ -217,7 +219,6 @@ const copyBitstreamFilter = (codec: string): ReadonlyArray<string> =>
   codec === "aac" ? ["aac_adtstoasc"] : [];
 
 interface AudioTiming {
-  /** Bitstream filters for copied audio, after any the codec needs. */
   readonly copyFilters: ReadonlyArray<string>;
   readonly aac: ReadonlyArray<string>;
 }
@@ -268,12 +269,7 @@ const frameCeil = (samples: number): number =>
 interface RunStart {
   readonly seek: number | undefined;
   readonly audioStartSample: number;
-  /**
-   * Where copied audio starts on the source timeline, dropping a priming frame with a negative
-   * timestamp and anything a seek lands before; none keeps it all, for a fragment the session
-   * drops.
-   */
-  readonly copiedAudioFrom: number | undefined;
+  readonly dropCopiedAudioBefore: number | undefined;
 }
 
 /**
@@ -285,10 +281,10 @@ const dropBefore = (time: number): string => `noise=drop=lt(pts*tb\\,${seconds(t
 
 /**
  * Resamples to `AAC_RATE`, then times frames by their sample count from `audioStartSample`, so
- * every AAC frame lasts 1024 samples however much the source's timestamps jitter. `first_pts`
- * counts the filter's input samples, so the rate changes in a filter of its own first. A gap or overlap
- * in them longer than a frame (`min_hard_comp`) becomes silence or is cut, so audio stays on the
- * source timeline; the default, 0.1 s, let a 60 ms gap play everything after it early.
+ * every AAC frame lasts 1024 samples however much the source's timestamps jitter. A gap or overlap
+ * in those timestamps longer than a frame (`min_hard_comp`) becomes silence or is cut, so audio
+ * stays on the source timeline; the default, 0.1 s, let a 60 ms gap play everything after it
+ * early. `first_pts` counts the filter's input samples, so the rate changes in a filter first.
  */
 const aacTiming = (audioStartSample: number): ReadonlyArray<string> => [
   "-af",
@@ -310,7 +306,7 @@ const runStart = (command: EncodeSource): RunStart => {
   const fromFile: RunStart = {
     seek: undefined,
     audioStartSample: fileAudioStart,
-    copiedAudioFrom: 0,
+    dropCopiedAudioBefore: 0,
   };
 
   if (VideoPlan.$is("Copy")(command.video)) {
@@ -320,7 +316,7 @@ const runStart = (command: EncodeSource): RunStart => {
     const audioStartSample = frameFloor(samplesAt(seek - AUDIO_LEAD));
 
     return audioStartSample > fileAudioStart
-      ? { seek: seek - command.sourceStart, audioStartSample, copiedAudioFrom: undefined }
+      ? { seek: seek - command.sourceStart, audioStartSample, dropCopiedAudioBefore: undefined }
       : fromFile;
   }
 
@@ -331,7 +327,7 @@ const runStart = (command: EncodeSource): RunStart => {
   return {
     seek: offset,
     audioStartSample: Math.max(fileAudioStart, frameFloor(samplesAt(command.from))),
-    copiedAudioFrom: command.from,
+    dropCopiedAudioBefore: command.from,
   };
 };
 
@@ -420,7 +416,8 @@ export const hlsCommandArgs = (command: HlsCommand): ReadonlyArray<string> => {
       : []),
     ...videoArgs(command),
     ...audioArgs(command, {
-      copyFilters: start.copiedAudioFrom === undefined ? [] : [dropBefore(start.copiedAudioFrom)],
+      copyFilters:
+        start.dropCopiedAudioBefore === undefined ? [] : [dropBefore(start.dropCopiedAudioBefore)],
       aac: aacTiming(start.audioStartSample),
     }),
     "-map_metadata",

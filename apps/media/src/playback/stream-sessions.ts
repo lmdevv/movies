@@ -43,7 +43,7 @@ import type { ResolvedMediaFile } from "./file-resolver.ts";
 import { FRAGMENT_HEAD_BYTES, fragmentStartSeconds } from "./fmp4-fragments.ts";
 import * as HardwareAcceleration from "./hardware-acceleration.ts";
 import {
-  FRAGMENT_TIME_EPSILON,
+  FRAGMENT_EPSILON_SECONDS,
   groupFragments,
   planGridSegments,
   planKeyframeSegments,
@@ -634,7 +634,7 @@ const make = Effect.gen(function* () {
 
       const pastEnd =
         next !== undefined &&
-        fragments.some((fragment) => fragment.start + FRAGMENT_TIME_EPSILON >= next);
+        fragments.some((fragment) => fragment.start + FRAGMENT_EPSILON_SECONDS >= next);
 
       if (finished) {
         const result = yield* Deferred.await(generation.exit).pipe(Effect.exit);
