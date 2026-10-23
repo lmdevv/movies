@@ -3,16 +3,23 @@ import { Effect, FileSystem, Path, Predicate, Schedule, Schema } from "effect";
 import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/http";
 
 import { artworkUrl } from "@movies/contracts/artwork";
+import { LibraryId } from "@movies/contracts/ids";
 import {
   type ClientCapabilities,
   HealthResponse,
   NegotiateResponse,
   type PlaybackQuality,
+  SeekResponse,
 } from "@movies/contracts/media-playback";
 
 import * as ArtworkKeys from "../artwork/artwork-keys.ts";
+import * as DiskCache from "../disk-cache.ts";
+import * as LibraryScanner from "../library/library-scanner.ts";
+import * as MemoryLibrary from "../library/memory-library.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import { parseFfprobeJson } from "../media/media-probe.ts";
+import * as FileResolver from "../playback/file-resolver.ts";
+import * as KeyframeIndex from "../playback/keyframe-index.ts";
 import * as PlaybackReporter from "../playback/playback-reporter.ts";
 import {
   ffmpegAvailable,
@@ -89,6 +96,8 @@ interface WireBatch {
 
 const decodeNegotiation = Schema.decodeUnknownEffect(Schema.toCodecJson(NegotiateResponse));
 
+const decodeSeek = Schema.decodeUnknownEffect(SeekResponse);
+
 const local = (baseUrl: string, url: string): string => {
   const parsed = new URL(url);
 
@@ -132,41 +141,33 @@ const negotiated = Effect.fn(function* (body: Parameters<typeof negotiate>[0]) {
   return yield* decodeNegotiation(result.body).pipe(Effect.orDie);
 });
 
-const probeBytes = Effect.fn(function* (data: Uint8Array) {
+const ffprobeBytes = Effect.fn(function* (
+  data: Uint8Array,
+  suffix: string,
+  args: ReadonlyArray<string>,
+) {
   const fs = yield* FileSystem.FileSystem;
   const tools = yield* MediaTools.Service;
-  const file = yield* fs.makeTempFileScoped({ suffix: ".mp4" });
+  const file = yield* fs.makeTempFileScoped({ suffix });
 
   yield* fs.writeFile(file, data);
 
-  const output = yield* tools.ffprobe([
-    "-v",
-    "error",
+  return { file, output: yield* tools.ffprobe(["-v", "error", ...args, file]) };
+});
+
+const probeBytes = Effect.fn(function* (data: Uint8Array) {
+  const { file, output } = yield* ffprobeBytes(data, ".mp4", [
     "-print_format",
     "json",
     "-show_format",
     "-show_streams",
-    file,
   ]);
 
   return yield* parseFfprobeJson(output, file);
 });
 
 const probeImage = Effect.fn(function* (data: Uint8Array) {
-  const fs = yield* FileSystem.FileSystem;
-  const tools = yield* MediaTools.Service;
-  const file = yield* fs.makeTempFileScoped({ suffix: ".jpg" });
-
-  yield* fs.writeFile(file, data);
-
-  const output = yield* tools.ffprobe([
-    "-v",
-    "error",
-    "-print_format",
-    "json",
-    "-show_streams",
-    file,
-  ]);
+  const { output } = yield* ffprobeBytes(data, ".jpg", ["-print_format", "json", "-show_streams"]);
 
   return yield* Schema.decodeEffect(
     Schema.fromJsonString(
@@ -183,6 +184,49 @@ const fetchSegment = Effect.fn(function* (playlistUrl: string, index: number) {
   const segment = yield* get(new URL(`${index}.m4s${playlist.search}`, playlist).toString());
 
   return { init, segment };
+});
+
+const decodeVideoPackets = Schema.decodeEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      packets: Schema.NonEmptyArray(
+        Schema.Struct({
+          pts_time: Schema.FiniteFromString,
+          duration_time: Schema.FiniteFromString,
+        }),
+      ),
+    }),
+  ),
+);
+
+const videoPackets = Effect.fn(function* (data: Uint8Array) {
+  const { output } = yield* ffprobeBytes(data, ".mp4", [
+    "-select_streams",
+    "v:0",
+    "-show_entries",
+    "packet=pts_time,duration_time",
+    "-of",
+    "json",
+  ]);
+
+  return (yield* decodeVideoPackets(output).pipe(Effect.orDie)).packets;
+});
+
+const spanOf = (
+  packets: ReadonlyArray<{ readonly pts_time: number; readonly duration_time: number }>,
+) => ({
+  start: Math.min(...packets.map((packet) => packet.pts_time)),
+  end: Math.max(...packets.map((packet) => packet.pts_time + packet.duration_time)),
+});
+
+const playlistSegments = Effect.fn(function* (playlistUrl: string) {
+  const text = yield* (yield* get(playlistUrl)).text.pipe(Effect.orDie);
+  const durations = [...text.matchAll(/#EXTINF:([\d.]+),/g)].map((match) => Number(match[1]));
+
+  return durations.map((duration, index) => ({
+    start: durations.slice(0, index).reduce((total, previous) => total + previous, 0),
+    duration,
+  }));
 });
 
 const concat = (...parts: ReadonlyArray<Uint8Array>): Uint8Array => {
@@ -407,6 +451,110 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const whole = yield* probeBytes(concat(yield* bytes(init), ...parts));
 
         assert.approximately(whole.durationSeconds, 12, 0.3);
+      }),
+    );
+
+    it.effect("starts a resumed or sought remux on the segment the playlist names", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const { library } = yield* FixtureWorkspace.Service;
+        const fileId = server.fileId("movies", library.remuxMovie);
+        const token = signTestToken({ fid: fileId, sid: "preroll" });
+        const frame = 1 / 24;
+
+        const segmentMatches = Effect.fn(function* (playlistUrl: string, position: number) {
+          const segments = yield* playlistSegments(playlistUrl);
+          const index = segments.findLastIndex((segment) => segment.start <= position);
+          const planned = segments[index];
+          const { init, segment } = yield* fetchSegment(playlistUrl, index);
+
+          assert.strictEqual(segment.status, 200);
+
+          const span = spanOf(
+            yield* videoPackets(concat(yield* bytes(init), yield* bytes(segment))),
+          );
+
+          assert.approximately(span.start, planned?.start ?? 0, frame);
+          assert.approximately(span.end - span.start, planned?.duration ?? 0, frame);
+        });
+
+        const resumed = yield* negotiated({ token, capabilities: withDolbyAudio, startSeconds: 7 });
+
+        assert.strictEqual(resumed.mode, "remux");
+        yield* segmentMatches(local(server.baseUrl, resumed.url), 7);
+
+        const seek = yield* post(`${server.baseUrl}/api/playback/seek`, {
+          token,
+          streamId: resumed.streamId ?? "",
+          positionSeconds: 5,
+        });
+
+        const sought = yield* decodeSeek(yield* json(seek)).pipe(Effect.orDie);
+
+        assert.strictEqual(sought.generation, 2);
+        yield* segmentMatches(local(server.baseUrl, sought.playlistUrl), 5);
+      }),
+    );
+
+    it.effect("starts a resume on its keyframe when the keyframe index places it late", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const workspace = yield* FixtureWorkspace.Service;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const library = LibraryId.make("late-keyframe");
+        const root = path.join(workspace.root, "late-keyframe");
+        const copy = path.join(root, workspace.library.remuxMovie);
+        const frame = 1 / 24;
+
+        yield* fs.makeDirectory(path.dirname(copy), { recursive: true });
+        yield* fs.copyFile(
+          path.join(workspace.library.moviesRoot, workspace.library.remuxMovie),
+          copy,
+        );
+        yield* (yield* LibraryScanner.Service)
+          .scan({ libraryId: library, root, mode: "incremental" })
+          .pipe(Effect.orDie);
+
+        const fileId = MemoryLibrary.fileIdOf(library, workspace.library.remuxMovie);
+        const file = yield* (yield* FileResolver.Service).resolve(fileId).pipe(Effect.orDie);
+        const keyframes = yield* (yield* KeyframeIndex.Service).keyframes(file).pipe(Effect.orDie);
+        const late = keyframes.findLast((time) => time <= 7) ?? 0;
+
+        yield* (yield* DiskCache.Service).write(
+          "keyframes",
+          `${fileId}:${String(file.sizeBytes)}:${String(file.modifiedAtMs)}`,
+          JSON.stringify(keyframes.map((time) => (time === late ? time + 0.01 : time))),
+        );
+
+        const resumed = yield* negotiated({
+          token: signTestToken({ fid: fileId, sid: "late-keyframe" }),
+          capabilities: withDolbyAudio,
+          startSeconds: 7,
+        });
+
+        assert.strictEqual(resumed.mode, "remux");
+        const playlistUrl = local(server.baseUrl, resumed.url);
+        const segments = yield* playlistSegments(playlistUrl);
+        const index = segments.findLastIndex((segment) => segment.start <= 7);
+        const first = yield* fetchSegment(playlistUrl, index);
+        const second = yield* fetchSegment(playlistUrl, index + 1);
+        const header = yield* bytes(first.init);
+        const resumedPackets = yield* videoPackets(concat(header, yield* bytes(first.segment)));
+        const nextPackets = yield* videoPackets(concat(header, yield* bytes(second.segment)));
+        const resumedSpan = spanOf(resumedPackets);
+
+        assert.approximately(resumedSpan.start, late, frame);
+        assert.approximately(
+          resumedSpan.end - resumedSpan.start,
+          segments[index]?.duration ?? 0,
+          frame,
+        );
+        assert.approximately(spanOf(nextPackets).start, resumedSpan.end, frame);
+
+        const resumedTimes = new Set(resumedPackets.map((packet) => packet.pts_time));
+
+        assert.isFalse(nextPackets.some((packet) => resumedTimes.has(packet.pts_time)));
       }),
     );
 

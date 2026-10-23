@@ -161,6 +161,7 @@ interface Fragment {
 interface Generation {
   readonly number: number;
   readonly startSegment: number;
+  readonly from: number;
   readonly directory: string;
   readonly scope: Scope.Closeable;
   readonly exit: Deferred.Deferred<void, MediaTools.MediaToolFailed>;
@@ -315,9 +316,15 @@ const make = Effect.gen(function* () {
     generation: Generation,
     fragments: ReadonlyArray<Fragment>,
   ): Produced => {
+    // ffmpeg's stream-copy seek can start a keyframe or more before `from`, and a keyframe index a
+    // few milliseconds late puts `from` just after the fragment that starts the segment.
+    const lead = fragments.findLastIndex(
+      (fragment) => fragment.start <= generation.from + TIME_EPSILON,
+    );
+
     const members = new Map<number, Array<Fragment>>();
 
-    for (const fragment of fragments) {
+    for (const fragment of fragments.slice(Math.max(0, lead))) {
       const index = Math.max(
         generation.startSegment,
         segmentAt(session.plan, fragment.start + TIME_EPSILON),
@@ -326,7 +333,7 @@ const make = Effect.gen(function* () {
       members.set(index, [...(members.get(index) ?? []), fragment]);
     }
 
-    return { members, head: Math.max(generation.startSegment - 1, ...members.keys()) };
+    return { members, head: Math.max(generation.startSegment, ...members.keys()) };
   };
 
   const startGeneration = Effect.fn("StreamSessions.startGeneration")(function* (
@@ -395,6 +402,7 @@ const make = Effect.gen(function* () {
     const generation: Generation = {
       number,
       startSegment,
+      from,
       directory,
       scope,
       exit,
@@ -595,8 +603,6 @@ const make = Effect.gen(function* () {
     if (generation.number === 0 || (yield* Deferred.isDone(generation.exit))) return;
     yield* refreshFragments(generation);
     const produced = producedRange(session, generation, yield* Ref.get(generation.fragments));
-
-    if (produced.head < generation.startSegment) return;
     const requested = yield* Ref.get(session.requested);
     const startOf = (index: number) => session.plan.starts[index] ?? session.plan.end;
     const ahead = startOf(produced.head) - startOf(requested);
@@ -770,6 +776,7 @@ const make = Effect.gen(function* () {
     const placeholder: Generation = {
       number: 0,
       startSegment: 0,
+      from: segmentPlan.starts[0] ?? segmentPlan.end,
       directory: "",
       scope: yield* Scope.fork(scope, "sequential"),
       exit: yield* Deferred.make<void, MediaTools.MediaToolFailed>(),
