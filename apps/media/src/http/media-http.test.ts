@@ -4,6 +4,7 @@ import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/h
 
 import { artworkUrl } from "@movies/contracts/artwork";
 import { LibraryId } from "@movies/contracts/ids";
+import { RequestId } from "@movies/contracts/request-id";
 import {
   type ClientCapabilities,
   HealthResponse,
@@ -982,6 +983,8 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const { segment } = yield* fetchSegment(local(server.baseUrl, stream.url), 0);
         const body = yield* bytes(segment);
 
+        assert.isTrue(Schema.is(RequestId)(segment.headers["x-request-id"]));
+
         const timed = yield* Effect.sync(() =>
           server
             .logged()
@@ -1001,6 +1004,7 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           sessionId: "timed",
           bytes: body.length,
           completed: true,
+          requestId: segment.headers["x-request-id"],
         });
 
         for (const part of ["elapsedMs", "encoderWaitMs", "diskReadMs", "networkWriteMs"]) {

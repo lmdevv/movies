@@ -25,8 +25,8 @@ export const routesLayer = Layer.mergeAll(
   RateLimit.layer,
   HttpRouter.cors({
     allowedOrigins: ["*"],
-    allowedHeaders: ["authorization", "content-type", "range"],
-    exposedHeaders: ["content-range", "content-length", "accept-ranges"],
+    allowedHeaders: ["authorization", "content-type", "range", "x-request-id"],
+    exposedHeaders: ["content-range", "content-length", "accept-ranges", "x-request-id"],
   }),
 );
 

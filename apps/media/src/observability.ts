@@ -42,7 +42,8 @@ const SECRET_VALUES: ReadonlyArray<readonly [RegExp, string]> = [
   [/\b[\w-]+\|[0-9a-f]{32,}\b/g, REDACTED],
 ];
 
-const redactText = (text: string): string =>
+/** `text` with every token-shaped value replaced, as every log line and export is redacted. */
+export const redactText = (text: string): string =>
   SECRET_VALUES.reduce(
     (redacted, [pattern, replacement]) => redacted.replace(pattern, replacement),
     text,
