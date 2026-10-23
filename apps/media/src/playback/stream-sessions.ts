@@ -166,6 +166,7 @@ interface Generation {
   readonly scope: Scope.Closeable;
   readonly exit: Deferred.Deferred<void, MediaTools.MediaToolFailed>;
   readonly fragments: Ref.Ref<ReadonlyArray<Fragment>>;
+  readonly refreshLock: Semaphore.Semaphore;
   readonly suspend: (paused: boolean) => Effect.Effect<void>;
   readonly paused: Ref.Ref<boolean>;
 }
@@ -269,47 +270,52 @@ const make = Effect.gen(function* () {
     }
   }, Effect.uninterruptible);
 
-  const refreshFragments = Effect.fnUntraced(function* (generation: Generation) {
-    const known = new Set((yield* Ref.get(generation.fragments)).map((fragment) => fragment.path));
-
-    const names = yield* fs
-      .readDirectory(generation.directory)
-      .pipe(Effect.orElseSucceed(() => []));
-
-    const fresh = yield* Effect.forEach(
-      names
-        .filter((name) => /^f\d+\.m4s$/.test(name))
-        .map((name) => path.join(generation.directory, name)),
-      (file) =>
-        known.has(file)
-          ? Effect.succeedNone
-          : Effect.scoped(
-              Effect.gen(function* () {
-                const handle = yield* fs.open(file);
-                const head = yield* handle.readAlloc(FRAGMENT_HEAD_BYTES, { position: 0n });
-                const info = yield* handle.stat;
-
-                const start = Option.flatMap(head, (bytes) =>
-                  Option.fromNullishOr(fragmentStartSeconds(bytes)),
-                );
-
-                return Option.map(start, (seconds): Fragment => ({
-                  path: file,
-                  start: seconds,
-                  sizeBytes: Number(info.size),
-                }));
-              }),
-            ).pipe(Effect.orElseSucceed(() => Option.none<Fragment>())),
-    );
-
-    const added = fresh.flatMap((fragment) => (Option.isSome(fragment) ? [fragment.value] : []));
-
-    if (added.length > 0) {
-      yield* Ref.update(generation.fragments, (current) =>
-        [...current, ...added].toSorted((left, right) => left.start - right.start),
+  const refreshFragments = Effect.fnUntraced(
+    function* (generation: Generation) {
+      const known = new Set(
+        (yield* Ref.get(generation.fragments)).map((fragment) => fragment.path),
       );
-    }
-  });
+
+      const names = yield* fs
+        .readDirectory(generation.directory)
+        .pipe(Effect.orElseSucceed(() => []));
+
+      const fresh = yield* Effect.forEach(
+        names
+          .filter((name) => /^f\d+\.m4s$/.test(name))
+          .map((name) => path.join(generation.directory, name)),
+        (file) =>
+          known.has(file)
+            ? Effect.succeedNone
+            : Effect.scoped(
+                Effect.gen(function* () {
+                  const handle = yield* fs.open(file);
+                  const head = yield* handle.readAlloc(FRAGMENT_HEAD_BYTES, { position: 0n });
+                  const info = yield* handle.stat;
+
+                  const start = Option.flatMap(head, (bytes) =>
+                    Option.fromNullishOr(fragmentStartSeconds(bytes)),
+                  );
+
+                  return Option.map(start, (seconds): Fragment => ({
+                    path: file,
+                    start: seconds,
+                    sizeBytes: Number(info.size),
+                  }));
+                }),
+              ).pipe(Effect.orElseSucceed(() => Option.none<Fragment>())),
+      );
+
+      const added = fresh.flatMap((fragment) => (Option.isSome(fragment) ? [fragment.value] : []));
+
+      if (added.length > 0) {
+        yield* Ref.update(generation.fragments, (current) =>
+          [...current, ...added].toSorted((left, right) => left.start - right.start),
+        );
+      }
+    },
+    (refresh, generation) => generation.refreshLock.withPermits(1)(refresh),
+  );
 
   const producedRange = (
     session: Session,
@@ -407,6 +413,7 @@ const make = Effect.gen(function* () {
       scope,
       exit,
       fragments: yield* Ref.make<ReadonlyArray<Fragment>>([]),
+      refreshLock: yield* Semaphore.make(1),
       suspend: running === undefined ? () => Effect.void : running.suspend,
       paused: yield* Ref.make(false),
     };
@@ -781,6 +788,7 @@ const make = Effect.gen(function* () {
       scope: yield* Scope.fork(scope, "sequential"),
       exit: yield* Deferred.make<void, MediaTools.MediaToolFailed>(),
       fragments: yield* Ref.make<ReadonlyArray<Fragment>>([]),
+      refreshLock: yield* Semaphore.make(1),
       suspend: () => Effect.void,
       paused: yield* Ref.make(false),
     };

@@ -1280,7 +1280,7 @@ describe.skipIf(!hasFfmpeg)("fragment refresh", () => {
     excludeTestServices: true,
     timeout: "120 seconds",
   })((it) => {
-    it.effect.fails(
+    it.effect(
       "serves each fragment once when a player asks for several segments at once",
       () =>
         Effect.gen(function* () {
