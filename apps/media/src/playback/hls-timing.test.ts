@@ -459,6 +459,7 @@ const runFrom = Effect.fn("HlsTiming.runFrom")(function* (
       audioCodec: probe.audio[0]?.codec ?? "",
       subtitleCodec: "",
       segmentStarts: plan.starts.slice(startSegment),
+      previousStart: plan.starts[startSegment - 1],
       outputDirectory,
       qsvDevice: process.env["QSV_DEVICE"] ?? "/dev/dri/renderD128",
       vaapiDevice: process.env["VAAPI_DEVICE"] ?? "/dev/dri/renderD128",

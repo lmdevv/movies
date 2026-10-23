@@ -450,6 +450,7 @@ const make = Effect.gen(function* () {
           session.file.probe.audio.find((track) => track.index === index)?.codec ?? "",
       }),
       segmentStarts: session.plan.starts.slice(startSegment),
+      previousStart: session.plan.starts[startSegment - 1],
       subtitleCodec:
         session.file.probe.subtitles.find((track) => track.index === session.burnSubtitle)?.codec ??
         "",

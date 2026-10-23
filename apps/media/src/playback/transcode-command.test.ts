@@ -17,6 +17,7 @@ const command = (audio: AudioPlan, audioCodec: string): HlsCommand => ({
   audioCodec,
   subtitleCodec: "",
   segmentStarts: [1.4, 3.4],
+  previousStart: undefined,
   outputDirectory: "/tmp/stream/1",
   qsvDevice: "/dev/dri/renderD128",
   vaapiDevice: "/dev/dri/renderD129",
