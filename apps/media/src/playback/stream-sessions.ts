@@ -42,7 +42,14 @@ import * as MediaTools from "../media/media-tools.ts";
 import type { ResolvedMediaFile } from "./file-resolver.ts";
 import { FRAGMENT_HEAD_BYTES, fragmentStartSeconds } from "./fmp4-fragments.ts";
 import * as HardwareAcceleration from "./hardware-acceleration.ts";
-import { planGridSegments, planKeyframeSegments, type SegmentPlan, segmentAt } from "./hls-plan.ts";
+import {
+  FRAGMENT_TIME_EPSILON,
+  groupFragments,
+  planGridSegments,
+  planKeyframeSegments,
+  type SegmentPlan,
+  segmentAt,
+} from "./hls-plan.ts";
 import * as KeyframeIndex from "./keyframe-index.ts";
 import { AudioPlan, decidePlayback, PlaybackPlan, VideoPlan } from "./playback-decision.ts";
 import * as PlaybackReporter from "./playback-reporter.ts";
@@ -151,8 +158,6 @@ export class Service extends Context.Service<Service, Interface>()(
 const LOOKAHEAD_SEGMENTS = 3;
 
 const THROTTLE_INTERVAL = Duration.seconds(1);
-
-const TIME_EPSILON = 0.005;
 
 const POLL_INTERVAL = Duration.millis(50);
 
@@ -394,22 +399,12 @@ const make = Effect.gen(function* () {
     generation: Generation,
     fragments: ReadonlyArray<Fragment>,
   ): Produced => {
-    // ffmpeg's stream-copy seek can start a keyframe or more before `from`, and a keyframe index a
-    // few milliseconds late puts `from` just after the fragment that starts the segment.
-    const lead = fragments.findLastIndex(
-      (fragment) => fragment.start <= generation.from + TIME_EPSILON,
+    const members = groupFragments(
+      session.plan,
+      generation.startSegment,
+      generation.from,
+      fragments,
     );
-
-    const members = new Map<number, Array<Fragment>>();
-
-    for (const fragment of fragments.slice(Math.max(0, lead))) {
-      const index = Math.max(
-        generation.startSegment,
-        segmentAt(session.plan, fragment.start + TIME_EPSILON),
-      );
-
-      members.set(index, [...(members.get(index) ?? []), fragment]);
-    }
 
     return { members, head: Math.max(generation.startSegment, ...members.keys()) };
   };
@@ -637,7 +632,8 @@ const make = Effect.gen(function* () {
       const next = session.plan.starts[index + 1];
 
       const pastEnd =
-        next !== undefined && fragments.some((fragment) => fragment.start + TIME_EPSILON >= next);
+        next !== undefined &&
+        fragments.some((fragment) => fragment.start + FRAGMENT_TIME_EPSILON >= next);
 
       if (finished) {
         const result = yield* Deferred.await(generation.exit).pipe(Effect.exit);

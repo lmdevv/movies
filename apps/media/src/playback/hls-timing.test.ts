@@ -10,7 +10,12 @@ import * as MediaTools from "../media/media-tools.ts";
 import { ffmpegAvailable, qsvUsable, vaapiUsable } from "../testing/fixture-library.ts";
 import { testConfigLayer } from "../testing/test-config.ts";
 import { FRAGMENT_HEAD_BYTES, fragmentStartSeconds } from "./fmp4-fragments.ts";
-import { planGridSegments, planKeyframeSegments, type SegmentPlan, segmentAt } from "./hls-plan.ts";
+import {
+  groupFragments,
+  planGridSegments,
+  planKeyframeSegments,
+  type SegmentPlan,
+} from "./hls-plan.ts";
 import * as KeyframeIndex from "./keyframe-index.ts";
 import { AudioPlan, VideoPlan } from "./playback-decision.ts";
 import { hlsCommandArgs } from "./transcode-command.ts";
@@ -25,8 +30,6 @@ const runnable = {
 } as const;
 
 const printing = process.env["MOVIES_TIMING"] === "1";
-
-const SESSION_TIME_EPSILON = 0.005;
 
 const AAC_FRAME = 1024 / 48_000;
 
@@ -400,23 +403,6 @@ const probeSegment = Effect.fn("HlsTiming.probeSegment")(function* (
   return yield* probeSpans(file);
 }, Effect.scoped);
 
-const groupAsSessions = (
-  plan: SegmentPlan,
-  startSegment: number,
-  from: number,
-  fragments: ReadonlyArray<{ readonly path: string; readonly start: number }>,
-): ReadonlyMap<number, ReadonlyArray<string>> => {
-  const lead = fragments.findLastIndex((fragment) => fragment.start <= from + SESSION_TIME_EPSILON);
-  const members = new Map<number, ReadonlyArray<string>>();
-
-  for (const fragment of fragments.slice(Math.max(0, lead))) {
-    const index = Math.max(startSegment, segmentAt(plan, fragment.start + SESSION_TIME_EPSILON));
-    members.set(index, [...(members.get(index) ?? []), fragment.path]);
-  }
-
-  return members;
-};
-
 const runFrom = Effect.fn("HlsTiming.runFrom")(function* (
   testCase: Case,
   input: string,
@@ -484,14 +470,20 @@ const runFrom = Effect.fn("HlsTiming.runFrom")(function* (
   );
 
   const init = yield* fs.readFile(path.join(outputDirectory, "init.mp4"));
-  const groups = [...groupAsSessions(plan, startSegment, from, fragments)];
+  const groups = [...groupFragments(plan, startSegment, from, fragments)];
 
   const segments = yield* Effect.forEach(groups, ([index, members]) =>
-    Effect.map(probeSegment(init, members), (timing) => ({
-      index,
-      planned: plan.starts[index] ?? plan.end,
-      ...timing,
-    })),
+    Effect.map(
+      probeSegment(
+        init,
+        members.map((fragment) => fragment.path),
+      ),
+      (timing) => ({
+        index,
+        planned: plan.starts[index] ?? plan.end,
+        ...timing,
+      }),
+    ),
   );
 
   return { from, init, segments } satisfies Run;
