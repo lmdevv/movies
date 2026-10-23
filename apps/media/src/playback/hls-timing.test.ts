@@ -37,6 +37,12 @@ const runnable = {
 
 const AAC_FRAME = 1024 / 48_000;
 
+/**
+ * How early a later run's audio may start: an AAC run opens with its priming frame and up to a
+ * frame of silence that puts it on the grid; a copied AC-3 frame lasts 32 ms.
+ */
+const AUDIO_START_LIMIT = 2 * AAC_FRAME + 0.001;
+
 /** An encoder pads its last frame out to 1024 samples: up to 23.2 ms at 44.1 kHz. */
 const LAST_FRAME = 1024 / 44_100;
 
@@ -51,7 +57,7 @@ const ROUNDING = 0.0015;
 
 const RESUME_SEGMENTS = [1, 2] as const;
 
-type Property = "planned" | "video seam" | "audio seam" | "init" | "even" | "sync";
+type Property = "planned" | "audio start" | "video seam" | "audio seam" | "init" | "even" | "sync";
 
 interface Source {
   readonly name: string;
@@ -216,6 +222,13 @@ const CASES: ReadonlyArray<Case> = [
     video: "software",
     audio: "copy",
     expectedFailures: ENCODER_SEAM,
+  },
+  {
+    name: "software, AC-3 copied from MPEG-TS",
+    source: AC3_TS,
+    video: "software",
+    audio: "copy",
+    expectedFailures: [...ENCODER_SEAM, "audio start"],
   },
   {
     name: "Quick Sync, E-AC-3 to AAC",
@@ -680,6 +693,24 @@ describe.runIf(hasFfmpeg)("HLS timing", () => {
 
                 for (const run of resumed) {
                   assert.deepStrictEqual(run.init, fromStart.init, `run from ${ms(run.from)} ms`);
+                }
+              }),
+            );
+          }
+
+          if (testCase.video !== "copy") {
+            test("audio start")("starts a later run's audio at most a frame before its start", () =>
+              Effect.gen(function* () {
+                const { resumed } = yield* Measured;
+
+                for (const run of resumed) {
+                  const early = run.from - (run.segments[0]?.audio.first ?? Number.NaN);
+
+                  assert.isAtMost(
+                    early,
+                    AUDIO_START_LIMIT,
+                    `audio from ${ms(early)} ms before ${ms(run.from)}`,
+                  );
                 }
               }),
             );
