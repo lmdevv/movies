@@ -359,6 +359,35 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
         }),
       60_000,
     );
+
+    it.effect.fails(
+      "keeps a starting generation when the player asks a few segments ahead",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+          const { library } = yield* FixtureWorkspace.Service;
+
+          const token = signTestToken({
+            fid: server.fileId("movies", library.directMovie),
+            sid: "prefetch",
+          });
+
+          const negotiated = yield* negotiateRequest(server.baseUrl, token).pipe(
+            Effect.flatMap((response) => response.json),
+            Effect.flatMap(decodeNegotiation),
+            Effect.orDie,
+          );
+
+          const playlist = new URL(local(server.baseUrl, negotiated.url));
+
+          const ahead = yield* HttpClient.get(
+            new URL(`3.m4s${playlist.search}`, playlist).toString(),
+          ).pipe(Effect.orDie);
+
+          assert.strictEqual(ahead.status, 200);
+        }),
+      60_000,
+    );
   });
 
   layer(MediaTestServer.layer(), { excludeTestServices: true, timeout: "120 seconds" })((it) => {
