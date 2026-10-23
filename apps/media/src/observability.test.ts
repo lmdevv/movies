@@ -22,6 +22,7 @@ const secrets = {
   plexToken: "plexSecretTokenValue",
   jellyfinToken: "jellyfinSecretTokenValue",
   password: "hunter2-password-value",
+  inviteCode: "InviteCodeQ7mZ2xLp",
 };
 
 class ImportFailed extends Schema.TaggedError<ImportFailed>()("ImportFailed", {
@@ -43,6 +44,11 @@ const logEverySecret = Effect.gen(function* () {
     `admin key ${secrets.adminKey}`,
     `import failed: {"user":"owner","password":"${secrets.password}"}`,
     `config apiKey: '${secrets.tmdbKey}'`,
+    `invited by https://movies.example:3000/invite/${secrets.inviteCode}`,
+    `RouteNotFound: GET //Invite/${secrets.inviteCode}?from=mail`,
+    `signed out at https://movies.example/sign-in?redirect=%2FInvite%2F${secrets.inviteCode}`,
+    "probe failed for /mnt/nas/Invite/Home Video.mkv and /srv/invite/Home Video.mkv",
+    "copy from //nas/invite/HomeVideo.mkv to '/Invite/Home Video.mkv'",
   ).pipe(
     Effect.annotateLogs({
       apiKey: secrets.apiKey,
@@ -51,6 +57,18 @@ const logEverySecret = Effect.gen(function* () {
       fileId: "file_123",
     }),
   );
+
+  for (const url of [
+    `/INVITE/${secrets.inviteCode}`,
+    `//invite/${secrets.inviteCode}`,
+    `/invite//${secrets.inviteCode}/`,
+    `/\\invite/${secrets.inviteCode}`,
+    `\\\\invite/${secrets.inviteCode}`,
+    `/%5Cinvite/${secrets.inviteCode}`,
+    `/./invite/${secrets.inviteCode}`,
+  ]) {
+    yield* Effect.logInfo("HttpServer.response").pipe(Effect.annotateLogs({ "http.url": url }));
+  }
 
   yield* Effect.logError("Backups.failed", Redacted.make(secrets.adminKey)).pipe(
     Effect.andThen(new ImportFailed({ output: `admin key ${secrets.adminKey}` })),
@@ -183,6 +201,23 @@ layer(NodeServices.layer, { excludeTestServices: true })("Observability", (it) =
     }),
   );
 
+  it.effect("keeps the same redacted lines with OTLP export on", () =>
+    Effect.gen(function* () {
+      const receiver = yield* otlpReceiver;
+
+      const written = yield* runWriting(logEverySecret, {
+        OTEL_EXPORTER_OTLP_ENDPOINT: receiver.url,
+      });
+
+      expect(written.retained).toBe(written.console);
+      expect(written.retained).toContain("Request.failed");
+
+      for (const [name, secret] of Object.entries(secrets)) {
+        expect(written.console, name).not.toContain(secret);
+      }
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("keeps lines at LOG_LEVEL and above only", () =>
     Effect.gen(function* () {
       const written = yield* runWriting(
@@ -209,6 +244,17 @@ layer(NodeServices.layer, { excludeTestServices: true })("Observability", (it) =
       expect(output).toContain("api.themoviedb.org/3/search/movie?query=x");
       expect(output).toContain("file_123");
       expect(output).toContain("import failed:");
+      expect(output).toContain("https://movies.example:3000/invite/<redacted>");
+      expect(output).toContain("GET /Invite/<redacted>?from=mail");
+      expect(output).toContain(
+        "https://movies.example/sign-in?redirect=%2FInvite%2F%3Credacted%3E",
+      );
+      expect(output).toContain('"http.url":"/INVITE/<redacted>"');
+      expect(output).toContain('"http.url":"/invite/<redacted>"');
+      expect(output).toContain(
+        "probe failed for /mnt/nas/Invite/Home Video.mkv and /srv/invite/Home Video.mkv",
+      );
+      expect(output).toContain("copy from //nas/invite/HomeVideo.mkv to '/Invite/Home Video.mkv'");
     }),
   );
 
@@ -228,6 +274,15 @@ layer(NodeServices.layer, { excludeTestServices: true })("Observability", (it) =
             { headers: { "x-plex-token": secrets.plexToken } },
           ).pipe(Effect.orDie);
 
+          for (const path of [
+            `/invite/${secrets.inviteCode}`,
+            `//INVITE/${secrets.inviteCode}`,
+            `/sign-in?redirect=/invite/${secrets.inviteCode}`,
+            `/sign-in?redirect=%2finvite%2F${secrets.inviteCode}`,
+          ]) {
+            yield* HttpClient.get(`${receiver.url}${path}`).pipe(Effect.orDie);
+          }
+
           yield* new ImportFailed({ output: `admin key ${secrets.adminKey}` }).pipe(
             Effect.withSpan("Backups.restore", { attributes: { password: secrets.password } }),
             Effect.ignore,
@@ -242,6 +297,9 @@ layer(NodeServices.layer, { excludeTestServices: true })("Observability", (it) =
       expect(exported).toContain("Backups.backup");
       expect(exported).toContain("Backups.restore");
       expect(exported).toContain("/media/hls/abc/1/index.m3u8");
+      expect(exported).toContain("/invite/<redacted>");
+      expect(exported).toContain("/INVITE/<redacted>");
+      expect(exported).toContain("redirect=%2Finvite%2F%3Credacted%3E");
       expect(exported).toContain("/v1/logs");
       expect(exported).toContain("Request.failed");
 

@@ -297,8 +297,13 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
   migrations. `docker compose --profile telemetry up -d` starts a local collector that prints
   them (`deploy/compose/otel-collector.yaml`).
 - Every log line and export is redacted on the way out: fields named like credentials and values
-  shaped like tokens, API keys, Convex admin keys, and credential query parameters. Playback URLs
-  carry tokens, so automatic HTTP spans for `/media/` are off as well.
+  shaped like tokens, API keys, Convex admin keys, credential query parameters, and invite codes.
+  An invite code is redacted (`/invite/<redacted>`) in any case and after repeated slashes, in
+  URL fields such as `http.url`, `url.full`, and `url.query`, in their query parameters such as
+  `?redirect=%2Finvite%2F…`, and in absolute URLs and request lines (`GET /invite/…`) in
+  messages. Playback URLs carry tokens, so automatic HTTP spans for `/media/` are off as well,
+  and so are spans for paths that start with `//`, which a span would read as a host. With OTLP
+  on, the console and the retained log keep the same redacted lines.
 - [movies] sends nothing anywhere else: no analytics, no update checks. The Convex backend runs
   with `DISABLE_BEACON=1`.
 

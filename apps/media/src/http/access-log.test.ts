@@ -242,5 +242,26 @@ describe("request log", () => {
           }
         }),
     );
+
+    it.effect("keeps no invite code from the path of an invite link, in any case", () =>
+      Effect.gen(function* () {
+        const code = "InviteCodeQ7mZ2xLp";
+
+        yield* send(`/invite/${code}`);
+        yield* send(`/INVITE/${code}`);
+        yield* send(`//invite/${code}`);
+
+        const logged = yield* loggedUntil((records) =>
+          ["/invite/<redacted>", "/INVITE/<redacted>"].every((url) =>
+            records.some((record) => urlOf(record) === url),
+          ),
+        );
+
+        assert.deepStrictEqual(
+          logged.filter((record) => JSON.stringify(record).includes(code)),
+          [],
+        );
+      }),
+    );
   });
 });
