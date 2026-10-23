@@ -268,7 +268,7 @@ const make = Effect.gen(function* () {
     }
   }, Effect.uninterruptible);
 
-  const refreshFragments = Effect.fnUntraced(function* (generation: Generation) {
+  const refreshFragments = Effect.fnUntraced(function* (session: Session, generation: Generation) {
     const known = new Set((yield* Ref.get(generation.fragments)).map((fragment) => fragment.path));
 
     const names = yield* fs
@@ -301,7 +301,15 @@ const make = Effect.gen(function* () {
             ).pipe(Effect.orElseSucceed(() => Option.none<Fragment>())),
     );
 
-    const added = fresh.flatMap((fragment) => (Option.isSome(fragment) ? [fragment.value] : []));
+    const parsed = fresh.flatMap((fragment) => (Option.isSome(fragment) ? [fragment.value] : []));
+    const startsAt = session.plan.starts[generation.startSegment] ?? session.plan.end;
+    // ffmpeg's stream-copy seek can start a keyframe before the requested position.
+    const preroll = parsed.filter((fragment) => fragment.start + TIME_EPSILON < startsAt);
+    const added = parsed.filter((fragment) => !preroll.includes(fragment));
+
+    yield* Effect.forEach(preroll, (fragment) => fs.remove(fragment.path).pipe(Effect.ignore), {
+      discard: true,
+    });
 
     if (added.length > 0) {
       yield* Ref.update(generation.fragments, (current) =>
@@ -318,10 +326,7 @@ const make = Effect.gen(function* () {
     const members = new Map<number, Array<Fragment>>();
 
     for (const fragment of fragments) {
-      const index = Math.max(
-        generation.startSegment,
-        segmentAt(session.plan, fragment.start + TIME_EPSILON),
-      );
+      const index = segmentAt(session.plan, fragment.start + TIME_EPSILON);
 
       members.set(index, [...(members.get(index) ?? []), fragment]);
     }
@@ -536,7 +541,7 @@ const make = Effect.gen(function* () {
       }
 
       const finished = yield* Deferred.isDone(generation.exit);
-      yield* refreshFragments(generation);
+      yield* refreshFragments(session, generation);
       const fragments = yield* Ref.get(generation.fragments);
       const produced = producedRange(session, generation, fragments);
       const next = session.plan.starts[index + 1];
@@ -593,7 +598,7 @@ const make = Effect.gen(function* () {
     const generation = yield* Ref.get(session.generation);
 
     if (generation.number === 0 || (yield* Deferred.isDone(generation.exit))) return;
-    yield* refreshFragments(generation);
+    yield* refreshFragments(session, generation);
     const produced = producedRange(session, generation, yield* Ref.get(generation.fragments));
 
     if (produced.head < generation.startSegment) return;
@@ -649,7 +654,7 @@ const make = Effect.gen(function* () {
     return yield* session.lock.withPermits(1)(
       Effect.gen(function* () {
         const current = yield* Ref.get(session.generation);
-        yield* refreshFragments(current);
+        yield* refreshFragments(session, current);
         const produced = producedRange(session, current, yield* Ref.get(current.fragments));
 
         if (index >= current.startSegment && index <= produced.head + LOOKAHEAD_SEGMENTS)

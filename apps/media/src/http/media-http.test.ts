@@ -453,7 +453,7 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
       }),
     );
 
-    it.effect.fails("starts a resumed or sought remux on the segment the playlist names", () =>
+    it.effect("starts a resumed or sought remux on the segment the playlist names", () =>
       Effect.gen(function* () {
         const server = yield* MediaTestServer.Service;
         const { library } = yield* FixtureWorkspace.Service;
