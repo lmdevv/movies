@@ -294,6 +294,14 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
   match. `movies diagnostics playback <session-id>` builds a session's timeline from both sides;
   admins read any session and other accounts only their own, a few times a minute. Audio/video drift is not measured:
   no player reports it.
+- The web and iOS apps report their unexpected errors, a crashed page or screen and (web only)
+  uncaught errors and unhandled rejections, to `POST /api/client-errors` with the signed-in
+  account's token. Each lands as `Client.error` at `WARN` with the account, platform, app
+  version, page, error name, message, and stack, cut to fixed bounds and redacted like every
+  other line. The SDK request id an error carries is kept as `failedRequestId`, and a playback
+  session the app names as `claimedSessionId`, never as `sessionId`. An app sends a repeated
+  error once per 30 s; each account may send 20 at once, then one every 10 s, and the rest
+  answer `429` with `Retry-After`. `movies logs --grep Client.error` lists them.
 - With `OTEL_EXPORTER_OTLP_ENDPOINT` (Compose) or `otlpEndpoint` (NixOS) set to an OTLP/HTTP
   collector, the media service exports traces and logs: library scans, playback negotiation, the
   first HLS segment, seeks, encoder failures and GPU-to-software fallbacks, backups and restores, and

@@ -7,7 +7,8 @@
  * they see (stalls, errors, segment loads, recoveries) in batches of `ClientDiagnosticEvent`
  * through `POST /api/playback/diagnostics`, authenticated by their playback token; the service
  * writes them into the same log. `PlaybackDiagnostics` is the timeline of one playback session
- * that the service assembles from those records.
+ * that the service assembles from those records. Apps report their own unexpected errors
+ * (`ClientErrorReport`) through `POST /api/client-errors` with the account's Convex auth token.
  */
 import { Schema } from "effect";
 
@@ -15,12 +16,14 @@ import { PlaybackSessionId, UserId } from "./ids";
 import { StreamId } from "./media-playback";
 import { PlaybackMode } from "./models/playback";
 import { PlaybackTokenInvalid } from "./playback-token";
+import { RequestId } from "./request-id";
 import { EpochMillis } from "./units";
 
 /** Paths of the log and diagnostics routes, relative to the media service's base URL. */
 export const DIAGNOSTICS_ROUTES = {
   logs: "/api/logs",
   clientEvents: "/api/playback/diagnostics",
+  clientErrors: "/api/client-errors",
 } as const;
 
 /** A log level as a record carries it. */
@@ -305,6 +308,50 @@ export class DiagnosticsRateLimited extends Schema.TaggedError<DiagnosticsRateLi
 
 /** Failures of `POST /api/playback/diagnostics`. */
 export const ClientDiagnosticsErrors = [PlaybackTokenInvalid, DiagnosticsRateLimited] as const;
+
+/** The longest each text field of a `ClientErrorReport` may be; apps cut longer values to fit. */
+export const CLIENT_ERROR_LIMITS = {
+  appVersion: 64,
+  route: 256,
+  name: 128,
+  message: 1000,
+  stack: 4000,
+  sessionId: 128,
+} as const;
+
+const Text = (maxLength: number) => Schema.String.check(Schema.isBetweenLength(1, maxLength));
+
+/** Where an app caught an error. */
+export const ClientErrorKind = Schema.Literals([
+  "route",
+  "render",
+  "uncaught",
+  "unhandled-rejection",
+]);
+
+/** Where an app caught an error. */
+export type ClientErrorKind = typeof ClientErrorKind.Type;
+
+/** An unexpected error an app caught, for the retained log. */
+export const ClientErrorReport = Schema.Struct({
+  platform: ClientPlatform,
+  appVersion: Text(CLIENT_ERROR_LIMITS.appVersion),
+  kind: ClientErrorKind,
+  /** The path or screen the app showed, such as `/titles/abc`. */
+  route: Text(CLIENT_ERROR_LIMITS.route),
+  name: Text(CLIENT_ERROR_LIMITS.name),
+  message: Schema.String.check(Schema.isMaxLength(CLIENT_ERROR_LIMITS.message)),
+  stack: Schema.optionalKey(Text(CLIENT_ERROR_LIMITS.stack)),
+  /** The media service request that failed, when the error is an SDK error that names one. */
+  requestId: Schema.optionalKey(RequestId),
+  /** The playback session playing then, when the app knows it. */
+  sessionId: Schema.optionalKey(
+    PlaybackSessionId.check(Schema.isMaxLength(CLIENT_ERROR_LIMITS.sessionId)),
+  ),
+});
+
+/** An unexpected error an app caught. */
+export interface ClientErrorReport extends Schema.Schema.Type<typeof ClientErrorReport> {}
 
 /** What a timeline entry records. */
 export const TimelineKind = Schema.Literals([
