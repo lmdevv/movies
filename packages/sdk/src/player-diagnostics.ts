@@ -68,31 +68,15 @@ export const attached = (playback: Playback, engine: PlayerEngine): PlayerObserv
     ...Option.match(audioOf(playback), { onNone: () => ({}), onSome: (audio) => ({ audio }) }),
   });
 
-/**
- * The renewal of the playback token, when `after` continues `before`'s session with another token
- * at `now`, with how long before or after the old token's expiry that happened.
- */
-const tokenRenewal = (
-  before: Playback,
-  after: Playback,
-  now: number,
-): Option.Option<PlayerObservation> => {
-  if (
-    after.started.sessionId !== before.started.sessionId ||
-    after.started.token === before.started.token
-  ) {
-    return Option.none();
-  }
-
+/** The renewal of `before`'s token at `now`, with how long before or after its expiry. */
+const tokenRenewal = (before: Playback, now: number): PlayerObservation => {
   const seconds = Math.round((before.started.tokenExpiresAt - now) / 1000);
 
-  return Option.some(
-    recovery(
-      "renew-token",
-      seconds >= 0
-        ? `Renewed the playback token ${String(seconds)} s before it expired`
-        : `Renewed the playback token ${String(-seconds)} s after it expired`,
-    ),
+  return recovery(
+    "renew-token",
+    seconds >= 0
+      ? `Renewed the playback token ${String(seconds)} s before it expired`
+      : `Renewed the playback token ${String(-seconds)} s after it expired`,
   );
 };
 
@@ -138,6 +122,13 @@ export interface Recorder {
   readonly intent: (at?: number) => void;
   /** The player reached `stage` now; only the first time after the latest intent counts. */
   readonly reached: (stage: StartupStage) => void;
+  /** The latest play intent, until the session it started first plays. */
+  readonly intentAt: () => Option.Option<number>;
+  /**
+   * The service renewed `before`'s stream as `after` now. Another token in the same session goes
+   * out as a `renew-token` recovery with `after`'s token; anything else is not a renewal.
+   */
+  readonly tokenRenewed: (before: Playback, after: Playback) => void;
   /**
    * Ends a startup or stall in progress as `closed` and samples dropped frames one last time,
    * reading the player now, so a caller can release the player right after. The player is never
@@ -158,8 +149,7 @@ export interface Options {
   /**
    * The playback playing now, if one does. An event goes out with the token of the playback that
    * played when it happened, or else the last one that played: a token stays good for its
-   * session's last events once the session ended. Another token in the same session is reported
-   * as a `renew-token` recovery, with the new token.
+   * session's last events once the session ended.
    */
   readonly playback: () => Option.Option<Playback>;
   /** Seconds the player holds ahead of its position. */
@@ -187,7 +177,7 @@ interface Wait {
   readonly since: number;
 }
 
-type WaitEndedBy = "playing" | "paused" | "closed";
+type WaitEndedBy = Extract<PlayerObservation, { readonly _tag: "StartupEnded" }>["endedBy"];
 
 interface EndedStartup {
   readonly positionSeconds: number;
@@ -283,22 +273,10 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   const playbackNow = (): Option.Option<Playback> =>
     Option.orElse(options.playback(), () => state.lastPlayback);
 
-  /** The playback an event goes out with now, after noting a token renewal since the last one. */
   const resolvePlayback = (): Option.Option<Playback> => {
     const playback = playbackNow();
 
-    if (Option.isNone(playback)) return playback;
-    const at = clock.currentTimeMillisUnsafe();
-
-    const renewal = Option.flatMap(state.lastPlayback, (last) =>
-      tokenRenewal(last, playback.value, at),
-    );
-
     state.lastPlayback = playback;
-
-    if (Option.isSome(renewal)) {
-      Queue.offerUnsafe(queue, { observation: renewal.value, at, playback: playback.value });
-    }
 
     return playback;
   };
@@ -385,6 +363,21 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
     if (stage === "firstFrame") releaseHeld();
   };
 
+  const intentAt = (): Option.Option<number> => Option.map(state.trace, (trace) => trace.intentAt);
+
+  const tokenRenewed = (before: Playback, after: Playback): void => {
+    if (
+      after.started.sessionId !== before.started.sessionId ||
+      after.started.token === before.started.token
+    ) {
+      return;
+    }
+
+    const at = clock.currentTimeMillisUnsafe();
+
+    Queue.offerUnsafe(queue, { observation: tokenRenewal(before, at), at, playback: after });
+  };
+
   const positionSeconds = () => Math.max(0, player.positionMs() / 1000);
 
   const where = () => ({
@@ -426,6 +419,9 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
     } else if (event === "playing") {
       endWait(event);
       state.played = Option.map(playbackNow(), (playback) => playback.started.sessionId);
+
+      // A held startup still needs the stages; sending it forgets them.
+      if (Option.isNone(state.held)) state.trace = Option.none();
     } else if (event === "paused") {
       endWait(event);
     }
@@ -492,5 +488,5 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
     ),
   );
 
-  return { record: note, intent, reached, close } satisfies Recorder;
+  return { record: note, intent, reached, intentAt, tokenRenewed, close } satisfies Recorder;
 });

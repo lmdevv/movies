@@ -911,6 +911,7 @@ export class PlaybackController {
       );
     }
 
+    this.#diagnostics?.recorder.tokenRenewed(playback, renewed.success);
     await this.#load(
       renewed.success,
       options.play ?? (wasPlaying || !isPlaying(this.#snapshot.phase)),

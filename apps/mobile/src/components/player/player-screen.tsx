@@ -185,11 +185,16 @@ function PlayerSession({
   const [startPreferences] = useState(preferences);
   const [controller, setController] = useState<PlayerController | null>(null);
   const restart = useRef(onRestart);
+  const attemptIntent = useRef(attempt.intentAt);
   const sessionStart = useSessionStart(gate);
 
   useEffect(() => {
     restart.current = onRestart;
   }, [onRestart]);
+
+  useEffect(() => {
+    attemptIntent.current = attempt.intentAt;
+  }, [attempt.intentAt]);
 
   useEffect(() => {
     const created = new PlayerController(runtime, {
@@ -207,7 +212,7 @@ function PlayerSession({
         });
       },
       quality: startQuality,
-      intentAt: attempt.intentAt,
+      intentAt: attemptIntent.current,
     });
 
     setController(created);
@@ -216,7 +221,7 @@ function PlayerSession({
       created.dispose();
       setController(null);
     };
-  }, [runtime, startQuality, attempt.intentAt]);
+  }, [runtime, startQuality]);
 
   const request = useMemo(
     (): Playback.PlaybackRequest => ({
@@ -1023,6 +1028,13 @@ export function PlayerScreen({ params }: { readonly params: WatchParams }) {
       intentAt: Date.now(),
     };
   });
+
+  const [admitted, setAdmitted] = useState(gate.admitted);
+
+  if (gate.admitted && !admitted) {
+    setAdmitted(true);
+    setAttempt((current) => ({ ...current, intentAt: Date.now() }));
+  }
 
   const restart = useCallback((next: Restart) => {
     if (next.kind === "at") setChoices(next.choices);

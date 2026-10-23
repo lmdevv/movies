@@ -103,8 +103,7 @@ const inGeneration = (
 export interface PlayerControllerOptions {
   /**
    * Start a new playback session at `positionMs`: the old one ended elsewhere. `intentAt` is the
-   * play intent its startup counts from: the viewer's while the old session showed no frame or the
-   * viewer retried, else none.
+   * play intent its startup counts from: the viewer's latest, unless the old session played since.
    */
   readonly onNewSession: (positionMs: number, intentAt: number | null) => void;
   /** The quality to start at, from App Settings' Streaming Quality. */
@@ -443,7 +442,14 @@ export class PlayerController {
     const playback = this.#playback;
 
     if (playback === null || PlaybackStep.$is("NewSession")(step)) {
-      this.#options.onNewSession(positionMs, this.#frameShown ? null : this.#options.intentAt);
+      this.#options.onNewSession(
+        positionMs,
+        Option.getOrNull(
+          Option.flatMap(Option.fromNullishOr(this.#diagnostics), ({ recorder }) =>
+            recorder.intentAt(),
+          ),
+        ),
+      );
 
       return;
     }
@@ -560,6 +566,8 @@ export class PlayerController {
       );
     }
 
+    this.#diagnostics?.recorder.tokenRenewed(playback, renewed.success);
+    this.#diagnostics?.recorder.reached("negotiated");
     this.#load(renewed.success, positionMs);
   }
 
