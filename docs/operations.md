@@ -258,9 +258,12 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
 - Each HTTP response logs `HttpServer.response` at `DEBUG` with its method, status, time taken,
   and path (no query string, cut to 128 characters), so at the default `info` nothing a caller
   sends without a token reaches the retained log. A handler that died logs
-  `HttpServer.handler_died` at `ERROR` with its cause. A stop ends open responses after 3 s, such
-  as a direct-play file, which the player resumes with a range request; Compose gives the
-  container 30 s to stop.
+  `HttpServer.handler_died` at `ERROR` with its cause. Every request gets a fresh UUID: each line
+  logged while serving it carries it as `requestId`, and every response, a failed one too, sends
+  it back in `x-request-id`. A caller's own `x-request-id` never replaces it; when it is 1 to 64
+  letters, digits, `_`, or `-`, not shaped like a credential, and not a UUID that could pass for
+  the service's own id, the lines carry it as `clientRequestId`. A stop ends open responses after 3 s, such as a direct-play file, which the
+  player resumes with a range request; Compose gives the container 30 s to stop.
 - `movies logs` reads the retained log without SSH or `sudo`: `--follow`, `--since 15m` or a time,
   `--until`, `--level warn`, `--session-id`, `--stream-id`, `--slow 1s`, `--grep`, and `--json` for
   NDJSON. It needs an admin session. The service streams it as NDJSON from `POST /api/logs` and

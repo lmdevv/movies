@@ -5,8 +5,8 @@
  * tool errors scrub absolute paths, and configuration secrets stay `Redacted`. As a last line of
  * defense every log line and every OTLP export is redacted on the way out: fields named like
  * credentials, and values shaped like tokens, API keys, admin keys, credential query parameters,
- * and invite codes in invite links. Exports matter as much as logs: HTTP spans record `url.full` and `url.query`, which
- * carry playback tokens.
+ * and invite codes in invite links. Exports matter as much as logs: HTTP spans record `url.full`
+ * and `url.query`, which carry playback tokens.
  */
 import { Effect, Formatter, Layer, Logger, Option, Predicate, References, Schema } from "effect";
 import { FetchHttpClient, HttpBody } from "effect/http";
