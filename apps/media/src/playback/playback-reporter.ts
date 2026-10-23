@@ -5,11 +5,14 @@ import { MediaFileId, PlaybackSessionId, UserId } from "@movies/contracts/ids";
 import { StreamId } from "@movies/contracts/media-playback";
 
 import { LogEvent } from "../diagnostics/log-events.ts";
+import { Snapshot } from "./stream-liveness.ts";
 
 const StreamEndReason = Schema.Literals([
   "stopped",
   "abandoned",
-  "idle",
+  "expired",
+  "unattended",
+  "resume-refused",
   "replaced",
   "failed",
   "shutdown",
@@ -39,13 +42,17 @@ export const PlaybackEvent = Schema.TaggedUnion({
     to: PlaybackMode,
     reason: Schema.Literals(["hardware-unavailable"]),
   },
-  /** An HLS session closed and its temporary segments were deleted. */
+  /**
+   * An HLS session closed and its temporary segments were deleted. The liveness fields say how
+   * recently the stream was used when it closed.
+   */
   StreamEnded: {
     sessionId: PlaybackSessionId,
     userId: UserId,
     fileId: MediaFileId,
     streamId: StreamId,
     reason: StreamEndReason,
+    ...Snapshot.fields,
   },
 });
 

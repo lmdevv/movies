@@ -79,7 +79,10 @@ export interface Interface {
   readonly qsvDevice: string;
   /** DRM render node used for VA-API. */
   readonly vaapiDevice: string;
-  /** A stream session with no requests for this long is closed and its segments deleted. */
+  /**
+   * A stream's encoder stops, freeing its slot and segments, after this long with no requests and
+   * no playing progress. The stream stays, and its next request restarts the encoder.
+   */
   readonly streamIdleTimeout: Duration.Duration;
   /**
    * How far a stream's ffmpeg may run ahead of the furthest segment its player asked for before it

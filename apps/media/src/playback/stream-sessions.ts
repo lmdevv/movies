@@ -17,6 +17,7 @@ import {
   Clock,
   Context,
   Crypto,
+  Data,
   Deferred,
   Duration,
   Effect,
@@ -30,6 +31,7 @@ import {
   Schedule,
   Scope,
   Semaphore,
+  Stream,
 } from "effect";
 
 import type { MediaFileId, PlaybackSessionId, UserId } from "@movies/contracts/ids";
@@ -45,6 +47,8 @@ import * as KeyframeIndex from "./keyframe-index.ts";
 import { AudioPlan, decidePlayback, PlaybackPlan, VideoPlan } from "./playback-decision.ts";
 import * as PlaybackReporter from "./playback-reporter.ts";
 import type { PlaybackGrant } from "./playback-token.ts";
+import * as SessionReports from "./session-reports.ts";
+import * as StreamLiveness from "./stream-liveness.ts";
 import * as StreamOwners from "./stream-owners.ts";
 import * as TranscodeSpace from "./transcode-space.ts";
 import { hlsCommandArgs } from "./transcode-command.ts";
@@ -127,11 +131,15 @@ export interface Interface {
     grant: PlaybackGrant,
   ) => Effect.Effect<void, StreamNotFound | StreamAccessDenied>;
   /**
-   * Closes every stream of a playback session that ended elsewhere, such as a sign-out or a newer
-   * session on the same device. Returns how many streams it closed.
+   * Closes every stream of a playback session: `session-ended` when the session ended elsewhere,
+   * such as a sign-out or a newer session on the same device, and `replaced` when the session
+   * negotiated direct play. Returns how many streams it closed.
    */
-  readonly endSession: (sessionId: PlaybackSessionId) => Effect.Effect<number>;
-  /** Number of open sessions. */
+  readonly closeStreams: (
+    sessionId: PlaybackSessionId,
+    reason: Extract<PlaybackReporter.StreamEndReason, "session-ended" | "replaced">,
+  ) => Effect.Effect<number>;
+  /** Number of streams whose encoder runs; a released stream waiting for its player is not one. */
   readonly activeCount: Effect.Effect<number>;
 }
 
@@ -171,6 +179,28 @@ interface Generation {
   readonly paused: Ref.Ref<boolean>;
 }
 
+type Encoder = Data.TaggedEnum<{
+  Running: { readonly lease: Scope.Closeable };
+  Released: { readonly since: number; readonly keptInit: Option.Option<string> };
+}>;
+
+const Encoder = Data.taggedEnum<Encoder>();
+
+type InitSource = Data.TaggedEnum<{
+  Kept: { readonly file: string };
+  Run: { readonly run: Generation };
+}>;
+
+const InitSource = Data.taggedEnum<InitSource>();
+
+/** A stream's use, and whether it still admits requests; no request gets in once a close began. */
+interface Admission extends StreamLiveness.Use {
+  readonly admitting: boolean;
+}
+
+/** Reads a stream's state now and judges its use against it, for a close that must still hold. */
+type Condition = Effect.Effect<(use: StreamLiveness.Use) => boolean>;
+
 interface Session {
   readonly streamId: StreamId;
   readonly sessionId: PlaybackSessionId;
@@ -188,7 +218,9 @@ interface Session {
   readonly audio: AudioPlan;
   readonly generation: Ref.Ref<Generation>;
   readonly lock: Semaphore.Semaphore;
-  readonly lastActivity: Ref.Ref<number>;
+  readonly encoder: Ref.Ref<Encoder>;
+  readonly use: Ref.Ref<Admission>;
+  readonly liveness: Ref.Ref<StreamLiveness.Liveness>;
   readonly requested: Ref.Ref<number>;
   readonly served: Ref.Ref<boolean>;
 }
@@ -221,9 +253,10 @@ const make = Effect.gen(function* () {
   const reporter = yield* PlaybackReporter.Service;
   const space = yield* TranscodeSpace.Service;
   const owners = yield* StreamOwners.Service;
+  const reports = yield* SessionReports.Service;
   const sessions = yield* Ref.make<ReadonlyMap<StreamId, Session>>(new Map());
-  const transcodes = yield* Ref.make(0);
-  const copies = yield* Ref.make(0);
+  const transcodes = yield* Ref.make<ReadonlySet<StreamId>>(new Set());
+  const copies = yield* Ref.make<ReadonlySet<StreamId>>(new Set());
   const registry = yield* Semaphore.make(1);
 
   yield* fs.makeDirectory(config.transcodeDir, { recursive: true }).pipe(Effect.orDie);
@@ -239,13 +272,60 @@ const make = Effect.gen(function* () {
     Effect.orDie,
   );
 
-  const touch = (session: Session) =>
-    Clock.currentTimeMillis.pipe(Effect.flatMap((now) => Ref.set(session.lastActivity, now)));
+  const idleMillis = Duration.toMillis(config.streamIdleTimeout);
 
-  const closeSession = Effect.fn("StreamSessions.close")(function* (
+  const keptInitOf = (session: Session, generation: number) =>
+    path.join(config.transcodeDir, session.streamId, `init-${generation}.mp4`);
+
+  const snapshotOf = Effect.fnUntraced(function* (session: Session) {
+    return StreamLiveness.snapshot(
+      yield* Ref.get(session.use),
+      yield* Ref.get(session.liveness),
+      yield* Clock.currentTimeMillis,
+      idleMillis,
+    );
+  });
+
+  const reportEnded = Effect.fnUntraced(function* (
     session: Session,
     reason: PlaybackReporter.StreamEndReason,
   ) {
+    const moment = yield* snapshotOf(session);
+
+    yield* reporter.report(
+      PlaybackReporter.PlaybackEvent.cases.StreamEnded.make({
+        sessionId: session.sessionId,
+        userId: session.userId,
+        fileId: session.fileId,
+        streamId: session.streamId,
+        reason,
+        liveness: moment.liveness,
+        inFlight: moment.inFlight,
+        lastRequestAgeMs: moment.lastRequestAgeMs,
+        lastProgressAgeMs: moment.lastProgressAgeMs,
+      }),
+    );
+  });
+
+  /** Stops admitting requests if `holds` on the current use, in that same update; whether it did. */
+  const stopAdmitting = (session: Session, holds: (use: StreamLiveness.Use) => boolean) =>
+    Ref.modify(session.use, (use) =>
+      use.admitting && holds(use)
+        ? ([true, { ...use, admitting: false }] as const)
+        : ([false, use] as const),
+    );
+
+  /**
+   * Closes `session` unless `condition` fails on its use when the close begins, so a request
+   * admitted before that keeps the stream and one arriving after finds it gone.
+   */
+  const closeSession = Effect.fn("StreamSessions.close")(function* (
+    session: Session,
+    reason: PlaybackReporter.StreamEndReason,
+    condition: Condition = Effect.succeed(() => true),
+  ) {
+    if (!(yield* stopAdmitting(session, yield* condition))) return;
+
     const removed = yield* Ref.modify(sessions, (current) => {
       if (current.get(session.streamId) !== session) return [false, current] as const;
       const next = new Map(current);
@@ -258,15 +338,7 @@ const make = Effect.gen(function* () {
 
     if (removed) {
       yield* owners.closed(session.streamId);
-      yield* reporter.report(
-        PlaybackReporter.PlaybackEvent.cases.StreamEnded.make({
-          sessionId: session.sessionId,
-          userId: session.userId,
-          fileId: session.fileId,
-          streamId: session.streamId,
-          reason,
-        }),
-      );
+      yield* reportEnded(session, reason);
     }
   }, Effect.uninterruptible);
 
@@ -344,11 +416,12 @@ const make = Effect.gen(function* () {
 
   const startGeneration = Effect.fn("StreamSessions.startGeneration")(function* (
     session: Session,
+    lease: Scope.Scope,
     number: number,
     startSegment: number,
   ) {
     const directory = path.join(config.transcodeDir, session.streamId, String(number));
-    const scope = yield* Scope.fork(session.scope, "sequential");
+    const scope = yield* Scope.fork(lease, "sequential");
     const closed = new StreamNotFound({ streamId: session.streamId });
 
     // A closed session hands out a closed scope, whose finalizers would run before the folder exists.
@@ -419,8 +492,10 @@ const make = Effect.gen(function* () {
     };
 
     yield* Ref.set(session.requested, startSegment);
+    const previous = yield* Ref.getAndSet(session.generation, generation);
 
-    if (number > 1) {
+    if (number > 1 && previous.number !== number) {
+      yield* fs.remove(keptInitOf(session, previous.number)).pipe(Effect.ignore);
       yield* Effect.logInfo(LogEvent.streamMoved).pipe(
         Effect.annotateLogs({
           sessionId: session.sessionId,
@@ -433,20 +508,14 @@ const make = Effect.gen(function* () {
       );
     }
 
-    const previous = yield* Ref.getAndSet(session.generation, generation);
-
-    if (previous.number !== number) yield* Scope.close(previous.scope, Exit.void);
+    yield* Scope.close(previous.scope, Exit.void);
 
     return generation;
   });
 
   const fallBackToSoftware = Effect.fn("StreamSessions.fallBackToSoftware")(function* (
     session: Session,
-    encoder: HardwareAcceleration.HardwareEncoder,
-    detail: string,
   ) {
-    yield* hardware.markUnavailable(encoder, detail);
-
     const plan = decidePlayback(session.file.probe, session.client, {
       audioIndex: session.audioIndex,
       hardware: undefined,
@@ -492,7 +561,17 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const current = yield* Ref.get(session.generation);
 
-        if (current.number !== generation.number) return current;
+        if (current !== generation) return current;
+        const encoder = yield* Ref.get(session.encoder);
+
+        if (!Encoder.$is("Running")(encoder)) {
+          return yield* Effect.die(
+            new Error(
+              "StreamSessions.encoderFailed: the current run of a released stream failed under a request, but a release never takes a run that a request has counted itself into",
+            ),
+          );
+        }
+
         const mode = yield* Ref.get(session.mode);
 
         yield* Effect.annotateCurrentSpan({
@@ -511,15 +590,16 @@ const make = Effect.gen(function* () {
           }),
         );
 
-        const encoder = hardwareOf(mode);
+        const hardwareEncoder = hardwareOf(mode);
 
-        if (encoder === undefined) {
+        if (hardwareEncoder === undefined) {
           return yield* new TranscodeFailed({ streamId: session.streamId, mode, detail });
         }
 
-        yield* fallBackToSoftware(session, encoder, detail);
+        yield* hardware.markUnavailable(hardwareEncoder, detail);
+        yield* fallBackToSoftware(session);
 
-        return yield* startGeneration(session, generation.number + 1, index);
+        return yield* startGeneration(session, encoder.lease, generation.number + 1, index);
       }),
     );
 
@@ -605,6 +685,7 @@ const make = Effect.gen(function* () {
   const pauseAhead = Duration.toSeconds(config.streamBufferAhead);
 
   const throttle = Effect.fnUntraced(function* (session: Session) {
+    if (!Encoder.$is("Running")(yield* Ref.get(session.encoder))) return;
     const generation = yield* Ref.get(session.generation);
 
     if (generation.number === 0 || (yield* Deferred.isDone(generation.exit))) return;
@@ -614,6 +695,9 @@ const make = Effect.gen(function* () {
     const startOf = (index: number) => session.plan.starts[index] ?? session.plan.end;
     const ahead = startOf(produced.head) - startOf(requested);
     const paused = yield* Ref.get(generation.paused);
+
+    // A release can stop this run while the refresh reads its folder.
+    if (isClosed(generation.scope)) return;
 
     if (!paused && ahead > pauseAhead) {
       yield* generation.suspend(true);
@@ -636,10 +720,57 @@ const make = Effect.gen(function* () {
       return yield* new StreamAccessDenied({ streamId });
     }
 
-    yield* touch(session);
-
     return session;
   });
+
+  /** Counts a request in, with its token's expiry, unless the stream began to close. */
+  const admit = (session: Session, expiresAt: number) =>
+    Clock.currentTimeMillis.pipe(
+      Effect.flatMap((now) =>
+        Ref.modify(session.use, (use) =>
+          use.admitting
+            ? ([
+                true,
+                {
+                  ...use,
+                  inFlight: use.inFlight + 1,
+                  lastRequestAt: now,
+                  expiresAt: Math.max(use.expiresAt, expiresAt),
+                },
+              ] as const)
+            : ([false, use] as const),
+        ),
+      ),
+      Effect.flatMap((admitted) =>
+        admitted ? Effect.void : Effect.fail(new StreamNotFound({ streamId: session.streamId })),
+      ),
+    );
+
+  const leave = (session: Session) =>
+    Clock.currentTimeMillis.pipe(
+      Effect.flatMap((now) =>
+        Ref.update(session.use, (use) => ({
+          ...use,
+          inFlight: use.inFlight - 1,
+          lastRequestAt: now,
+        })),
+      ),
+    );
+
+  const using = <A, E>(
+    streamId: StreamId,
+    grant: PlaybackGrant,
+    f: (session: Session) => Effect.Effect<A, E>,
+  ) =>
+    lookup(streamId, grant).pipe(
+      Effect.flatMap((session) =>
+        Effect.acquireUseRelease(
+          admit(session, grant.expiresAt),
+          () => f(session),
+          () => leave(session),
+        ),
+      ),
+    );
 
   const currentGeneration = Effect.fnUntraced(function* (session: Session, generation: number) {
     const current = yield* Ref.get(session.generation);
@@ -655,30 +786,13 @@ const make = Effect.gen(function* () {
     return current;
   });
 
-  const ensureCovers = Effect.fn("StreamSessions.ensureCovers")(function* (
-    session: Session,
-    index: number,
-  ) {
-    return yield* session.lock.withPermits(1)(
-      Effect.gen(function* () {
-        const current = yield* Ref.get(session.generation);
-        yield* refreshFragments(current);
-        const produced = producedRange(session, current, yield* Ref.get(current.fragments));
-
-        if (index >= current.startSegment && index <= produced.head + LOOKAHEAD_SEGMENTS)
-          return current;
-
-        return yield* startGeneration(session, current.number + 1, index);
-      }),
-    );
-  });
-
   const firstSegment = Effect.fn("StreamSessions.firstSegment")(function* (
     session: Session,
+    lease: Scope.Scope,
     segmentIndex: number,
   ) {
     yield* Effect.annotateCurrentSpan({ streamId: session.streamId, segmentIndex });
-    let generation = yield* startGeneration(session, 1, segmentIndex);
+    let generation = yield* startGeneration(session, lease, 1, segmentIndex);
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const ready = yield* awaitSegment(session, generation, segmentIndex, START_WAIT).pipe(
@@ -698,18 +812,35 @@ const make = Effect.gen(function* () {
     return generation;
   });
 
-  const acquireSlot = (scope: Scope.Scope, transcoding: boolean, replacing: number) => {
+  /**
+   * Claims a slot for `streamId` until `scope` closes. Streams in `replacing` close once the new
+   * stream registers, so the ones still holding a slot do not count; deciding that in the same
+   * update as the claim keeps a slot released meanwhile from being credited as well.
+   */
+  const acquireSlot = (
+    scope: Scope.Scope,
+    transcoding: boolean,
+    streamId: StreamId,
+    replacing: ReadonlyArray<StreamId>,
+  ) => {
     const slots = transcoding ? transcodes : copies;
     const limit = transcoding ? config.maxConcurrentTranscodes : config.maxConcurrentRemuxes;
 
-    return Ref.modify(slots, (running) =>
-      running - replacing < limit ? ([true, running + 1] as const) : ([false, running] as const),
+    return Ref.modify(slots, (holders) =>
+      holders.size - replacing.filter((id) => holders.has(id)).length < limit
+        ? ([true, new Set(holders).add(streamId)] as const)
+        : ([false, holders] as const),
     ).pipe(
       Effect.tap((acquired) =>
         acquired
           ? Scope.addFinalizer(
               scope,
-              Ref.update(slots, (running) => running - 1),
+              Ref.update(slots, (holders) => {
+                const next = new Set(holders);
+                next.delete(streamId);
+
+                return next;
+              }),
             )
           : Effect.void,
       ),
@@ -720,23 +851,176 @@ const make = Effect.gen(function* () {
     );
   };
 
+  const revive = Effect.fn("StreamSessions.revive")(function* (
+    session: Session,
+    released: Encoder & { readonly _tag: "Released" },
+    index: number,
+  ) {
+    const lease = yield* Scope.fork(session.scope, "sequential");
+
+    if (isClosed(lease)) return yield* new StreamNotFound({ streamId: session.streamId });
+    const current = yield* Ref.get(session.generation);
+    const transcoding = isEncode(yield* Ref.get(session.video));
+
+    const annotations = {
+      sessionId: session.sessionId,
+      userId: session.userId,
+      streamId: session.streamId,
+      generation: current.number,
+      segment: index,
+    };
+
+    const end = (reason: PlaybackReporter.StreamEndReason) =>
+      closeSession(session, reason).pipe(
+        Effect.andThen(Effect.fail(new StreamNotFound({ streamId: session.streamId }))),
+      );
+
+    const refused = (reason: "TranscodeCapacityReached" | "InsufficientTranscodeSpace") =>
+      Effect.logWarning(LogEvent.resumeRefused).pipe(
+        Effect.annotateLogs({ ...annotations, reason, slots: transcoding ? "transcode" : "remux" }),
+        Effect.andThen(end("resume-refused")),
+      );
+
+    yield* space.check(0).pipe(
+      Effect.andThen(acquireSlot(lease, transcoding, session.streamId, [])),
+      Effect.catchTags({
+        TranscodeCapacityReached: () => refused("TranscodeCapacityReached"),
+        InsufficientTranscodeSpace: () => refused("InsufficientTranscodeSpace"),
+      }),
+    );
+
+    // The player holds this generation's init segment from the lost encoder, and software segments
+    // do not decode under it, so a fallback moves to the next generation. When software cannot
+    // play the file at all, the negotiation the player falls back to says why.
+    const run = yield* Effect.gen(function* () {
+      const used = hardwareOf(yield* Ref.get(session.mode));
+      const lost = used !== undefined && used !== (yield* hardware.encoder);
+
+      if (lost) yield* fallBackToSoftware(session);
+
+      return yield* startGeneration(session, lease, current.number + (lost ? 1 : 0), index);
+    }).pipe(
+      Effect.onError(() => Scope.close(lease, Exit.void)),
+      Effect.catchTag("UnsupportedPlayback", () => end("failed")),
+    );
+
+    yield* Ref.set(session.encoder, Encoder.Running({ lease }));
+
+    yield* Effect.logInfo(LogEvent.streamResumed).pipe(
+      Effect.annotateLogs({
+        ...annotations,
+        generation: run.number,
+        fromSeconds: session.plan.starts[index] ?? session.plan.end,
+        releasedForMs: (yield* Clock.currentTimeMillis) - released.since,
+      }),
+    );
+
+    return run;
+  }, Effect.uninterruptible);
+
+  const ensureCovers = Effect.fn("StreamSessions.ensureCovers")(function* (
+    session: Session,
+    index: number,
+  ) {
+    return yield* session.lock.withPermits(1)(
+      Effect.gen(function* () {
+        const encoder = yield* Ref.get(session.encoder);
+
+        if (Encoder.$is("Released")(encoder)) return yield* revive(session, encoder, index);
+        const current = yield* Ref.get(session.generation);
+        yield* refreshFragments(current);
+        const produced = producedRange(session, current, yield* Ref.get(current.fragments));
+
+        if (index >= current.startSegment && index <= produced.head + LOOKAHEAD_SEGMENTS)
+          return current;
+
+        return yield* startGeneration(session, encoder.lease, current.number + 1, index);
+      }),
+    );
+  });
+
+  const keepInit = Effect.fnUntraced(function* (session: Session, run: Generation) {
+    const kept = keptInitOf(session, run.number);
+
+    if (yield* fs.exists(kept).pipe(Effect.orElseSucceed(() => false))) return Option.some(kept);
+    yield* refreshFragments(run);
+
+    const temporary = `${kept}.tmp`;
+
+    // ffmpeg's HLS muxer finishes `init.mp4` only when it writes the first fragment.
+    const copied =
+      (yield* Ref.get(run.fragments)).length > 0 &&
+      (yield* fs.copyFile(path.join(run.directory, "init.mp4"), temporary).pipe(
+        Effect.andThen(fs.rename(temporary, kept)),
+        Effect.as(true),
+        Effect.catch(() => fs.remove(temporary).pipe(Effect.ignore, Effect.as(false))),
+      ));
+
+    return copied ? Option.some(kept) : Option.none();
+  });
+
+  const release = Effect.fn("StreamSessions.release")(function* (session: Session) {
+    yield* session.lock.withPermitsIfAvailable(1)(
+      Effect.gen(function* () {
+        const encoder = yield* Ref.get(session.encoder);
+
+        if (isClosed(session.scope) || !Encoder.$is("Running")(encoder)) return;
+
+        if (StreamLiveness.holdsEncoder(yield* snapshotOf(session))) return;
+        const run = yield* Ref.get(session.generation);
+        const keptInit = yield* keepInit(session, run);
+
+        // A close does not wait for the lock, and its folder removal may have run before the copy.
+        if (isClosed(session.scope)) {
+          if (Option.isSome(keptInit)) yield* fs.remove(keptInit.value).pipe(Effect.ignore);
+
+          return;
+        }
+
+        const moment = yield* snapshotOf(session);
+
+        if (StreamLiveness.holdsEncoder(moment)) return;
+
+        yield* Ref.set(
+          session.encoder,
+          Encoder.Released({ since: yield* Clock.currentTimeMillis, keptInit }),
+        );
+        yield* Scope.close(encoder.lease, Exit.void);
+
+        yield* Effect.logInfo(LogEvent.streamReleased).pipe(
+          Effect.annotateLogs({
+            sessionId: session.sessionId,
+            userId: session.userId,
+            streamId: session.streamId,
+            generation: run.number,
+            segment: yield* Ref.get(session.requested),
+            liveness: moment.liveness,
+            inFlight: moment.inFlight,
+            lastRequestAgeMs: moment.lastRequestAgeMs,
+            lastProgressAgeMs: moment.lastProgressAgeMs,
+          }),
+        );
+      }),
+    );
+  }, Effect.uninterruptible);
+
   const start = Effect.fn("StreamSessions.start")(function* (request: StartRequest) {
     const scope = yield* Scope.make("sequential");
     const registered = yield* Ref.make(Option.none<Session>());
 
     return yield* startIn(scope, registered, request).pipe(
       Effect.onExit((exit) =>
-        Exit.isSuccess(exit)
-          ? Effect.void
-          : Ref.get(registered).pipe(
-              Effect.flatMap(
-                Option.match({
-                  onNone: () => Scope.close(scope, Exit.void),
-                  onSome: (session) =>
-                    closeSession(session, Exit.hasInterrupts(exit) ? "abandoned" : "failed"),
-                }),
-              ),
-            ),
+        Ref.get(registered).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () => (Exit.isSuccess(exit) ? Effect.void : Scope.close(scope, Exit.void)),
+              onSome: (session) =>
+                Exit.isSuccess(exit)
+                  ? leave(session)
+                  : closeSession(session, Exit.hasInterrupts(exit) ? "abandoned" : "failed"),
+            }),
+          ),
+        ),
       ),
     );
   });
@@ -750,15 +1034,21 @@ const make = Effect.gen(function* () {
 
     const transcoding = isEncode(plan.video);
 
-    const replacing = yield* Effect.filter(
-      [...(yield* Ref.get(sessions)).values()].filter(
-        (existing) => existing.sessionId === grant.sessionId,
-      ),
-      (existing) =>
-        Ref.get(existing.video).pipe(Effect.map((video) => isEncode(video) === transcoding)),
+    const streamId = yield* newStreamId;
+
+    // Finalizers run last in, first out: registered before any lease, the folder goes only after
+    // every encoder that writes into it stopped.
+    yield* Scope.addFinalizer(
+      scope,
+      fs.remove(path.join(config.transcodeDir, streamId), { recursive: true }).pipe(Effect.ignore),
     );
 
-    yield* acquireSlot(scope, transcoding, replacing.length);
+    const replacing = [...(yield* Ref.get(sessions)).values()].flatMap((existing) =>
+      existing.sessionId === grant.sessionId ? [existing.streamId] : [],
+    );
+
+    const lease = yield* Scope.fork(scope, "sequential");
+    yield* acquireSlot(lease, transcoding, streamId, replacing);
 
     yield* space.check(0);
 
@@ -773,25 +1063,20 @@ const make = Effect.gen(function* () {
           { quickStart },
         );
 
-    const streamId = yield* newStreamId;
-
-    yield* Scope.addFinalizer(
-      scope,
-      fs.remove(path.join(config.transcodeDir, streamId), { recursive: true }).pipe(Effect.ignore),
-    );
-
     const placeholder: Generation = {
       number: 0,
       startSegment: 0,
       from: segmentPlan.starts[0] ?? segmentPlan.end,
       directory: "",
-      scope: yield* Scope.fork(scope, "sequential"),
+      scope: yield* Scope.fork(lease, "sequential"),
       exit: yield* Deferred.make<void, MediaTools.MediaToolFailed>(),
       fragments: yield* Ref.make<ReadonlyArray<Fragment>>([]),
       refreshLock: yield* Semaphore.make(1),
       suspend: () => Effect.void,
       paused: yield* Ref.make(false),
     };
+
+    const now = yield* Clock.currentTimeMillis;
 
     const session: Session = {
       streamId,
@@ -810,7 +1095,14 @@ const make = Effect.gen(function* () {
       audio: plan.audio,
       generation: yield* Ref.make(placeholder),
       lock: yield* Semaphore.make(1),
-      lastActivity: yield* Ref.make(yield* Clock.currentTimeMillis),
+      encoder: yield* Ref.make<Encoder>(Encoder.Running({ lease })),
+      use: yield* Ref.make<Admission>({
+        inFlight: 1,
+        lastRequestAt: now,
+        expiresAt: grant.expiresAt,
+        admitting: true,
+      }),
+      liveness: yield* Ref.make<StreamLiveness.Liveness>(StreamLiveness.Liveness.Unknown()),
       requested: yield* Ref.make(0),
       served: yield* Ref.make(false),
     };
@@ -846,27 +1138,34 @@ const make = Effect.gen(function* () {
         );
 
         for (const previous of replaced) {
+          yield* stopAdmitting(previous, () => true);
           yield* Scope.close(previous.scope, Exit.void);
-
-          yield* reporter.report(
-            PlaybackReporter.PlaybackEvent.cases.StreamEnded.make({
-              sessionId: previous.sessionId,
-              userId: previous.userId,
-              fileId: previous.fileId,
-              streamId: previous.streamId,
-              reason: "replaced",
-            }),
-          );
+          yield* reportEnded(previous, "replaced");
         }
       }),
+    );
+
+    // Effect's `forkIn` does not interrupt a fiber that closes its own scope; it ends after the
+    // close.
+    yield* reports.follow(grant.sessionId).pipe(
+      Stream.takeUntil(StreamLiveness.SessionReport.$is("Ended")),
+      Stream.runForEach((report) =>
+        Clock.currentTimeMillis.pipe(
+          Effect.flatMap((at) =>
+            Ref.update(session.liveness, (known) => StreamLiveness.hear(known, report, at)),
+          ),
+        ),
+      ),
+      Effect.andThen(closeSession(session, "session-ended")),
+      Effect.forkIn(scope),
     );
 
     const segmentIndex = segmentAt(segmentPlan, quickStart);
 
     const generation =
       hardwareOf(plan.mode) !== undefined
-        ? yield* firstSegment(session, segmentIndex)
-        : yield* startGeneration(session, 1, segmentIndex);
+        ? yield* firstSegment(session, lease, segmentIndex)
+        : yield* startGeneration(session, lease, 1, segmentIndex);
 
     const mode = yield* Ref.get(session.mode);
 
@@ -888,10 +1187,33 @@ const make = Effect.gen(function* () {
     generation: number,
     grant: PlaybackGrant,
   ) {
-    const session = yield* lookup(streamId, grant);
-    yield* currentGeneration(session, generation);
+    return yield* using(streamId, grant, (session) =>
+      currentGeneration(session, generation).pipe(
+        Effect.as({ streamId, generation, plan: session.plan } satisfies StreamView),
+      ),
+    );
+  });
 
-    return { streamId, generation, plan: session.plan } satisfies StreamView;
+  const initSource = Effect.fn("StreamSessions.initSource")(function* (
+    session: Session,
+    generation: number,
+  ) {
+    return yield* session.lock.withPermits(1)(
+      Effect.gen(function* () {
+        const current = yield* currentGeneration(session, generation);
+        const encoder = yield* Ref.get(session.encoder);
+
+        if (Encoder.$is("Running")(encoder)) return InitSource.Run({ run: current });
+
+        if (Option.isSome(encoder.keptInit)) {
+          return InitSource.Kept({ file: encoder.keptInit.value });
+        }
+
+        yield* revive(session, encoder, yield* Ref.get(session.requested));
+
+        return InitSource.Run({ run: yield* currentGeneration(session, generation) });
+      }),
+    );
   });
 
   const init = Effect.fn("StreamSessions.init")(function* (
@@ -899,16 +1221,30 @@ const make = Effect.gen(function* () {
     generation: number,
     grant: PlaybackGrant,
   ) {
-    const session = yield* lookup(streamId, grant);
-    const current = yield* currentGeneration(session, generation);
-    yield* awaitSegment(session, current, current.startSegment, SEGMENT_WAIT);
-    const initPath = path.join(current.directory, "init.mp4");
+    return yield* using(streamId, grant, (session) =>
+      Effect.gen(function* () {
+        const initPath = yield* InitSource.$match(yield* initSource(session, generation), {
+          Kept: ({ file }) => Effect.succeed(file),
+          Run: ({ run }) =>
+            awaitSegment(session, run, run.startSegment, SEGMENT_WAIT).pipe(
+              Effect.as(path.join(run.directory, "init.mp4")),
+            ),
+        });
 
-    const info = yield* fs
-      .stat(initPath)
-      .pipe(Effect.mapError(() => new SegmentNotReady({ index: -1 })));
+        // A newer generation may have deleted the init segment chosen above.
+        const info = yield* fs
+          .stat(initPath)
+          .pipe(
+            Effect.catch(() =>
+              currentGeneration(session, generation).pipe(
+                Effect.andThen(Effect.fail(new SegmentNotReady({ index: -1 }))),
+              ),
+            ),
+          );
 
-    return { paths: [initPath], sizeBytes: Number(info.size) } satisfies SegmentFiles;
+        return { paths: [initPath], sizeBytes: Number(info.size) } satisfies SegmentFiles;
+      }),
+    );
   });
 
   const segment = Effect.fn("StreamSessions.segment")(function* (
@@ -917,25 +1253,27 @@ const make = Effect.gen(function* () {
     index: number,
     grant: PlaybackGrant,
   ) {
-    const session = yield* lookup(streamId, grant);
+    return yield* using(streamId, grant, (session) =>
+      Effect.gen(function* () {
+        if (!Number.isInteger(index) || index < 0 || index >= session.plan.starts.length) {
+          return yield* new SegmentNotFound({ index });
+        }
 
-    if (!Number.isInteger(index) || index < 0 || index >= session.plan.starts.length) {
-      return yield* new SegmentNotFound({ index });
-    }
+        yield* currentGeneration(session, generation);
+        yield* Ref.update(session.requested, (furthest) => Math.max(furthest, index));
+        const covering = yield* ensureCovers(session, index);
 
-    yield* currentGeneration(session, generation);
-    yield* Ref.update(session.requested, (furthest) => Math.max(furthest, index));
-    const covering = yield* ensureCovers(session, index);
+        if (covering.number !== generation) {
+          return yield* new StreamGenerationGone({
+            streamId,
+            generation,
+            currentGeneration: covering.number,
+          });
+        }
 
-    if (covering.number !== generation) {
-      return yield* new StreamGenerationGone({
-        streamId,
-        generation,
-        currentGeneration: covering.number,
-      });
-    }
-
-    return yield* awaitSegment(session, covering, index, SEGMENT_WAIT);
+        return yield* awaitSegment(session, covering, index, SEGMENT_WAIT);
+      }),
+    );
   });
 
   const seek = Effect.fn("StreamSessions.seek")(function* (
@@ -943,50 +1281,73 @@ const make = Effect.gen(function* () {
     seconds: number,
     grant: PlaybackGrant,
   ) {
-    const session = yield* lookup(streamId, grant);
-    const index = segmentAt(session.plan, session.file.probe.startSeconds + seconds);
-    const covering = yield* ensureCovers(session, index);
-    yield* Effect.annotateCurrentSpan({
-      streamId,
-      segmentIndex: index,
-      generation: covering.number,
-    });
+    return yield* using(streamId, grant, (session) =>
+      Effect.gen(function* () {
+        const index = segmentAt(session.plan, session.file.probe.startSeconds + seconds);
+        const covering = yield* ensureCovers(session, index);
+        yield* Effect.annotateCurrentSpan({
+          streamId,
+          segmentIndex: index,
+          generation: covering.number,
+        });
 
-    return { streamId, generation: covering.number, plan: session.plan } satisfies StreamView;
+        return { streamId, generation: covering.number, plan: session.plan } satisfies StreamView;
+      }),
+    );
   });
 
   const stop = Effect.fn("StreamSessions.stop")(function* (
     streamId: StreamId,
     grant: PlaybackGrant,
   ) {
-    const session = yield* lookup(streamId, grant);
-    yield* closeSession(session, "stopped");
+    yield* closeSession(yield* lookup(streamId, grant), "stopped");
   });
 
-  const endSession = Effect.fn("StreamSessions.endSession")(function* (
+  const closeStreams = Effect.fn("StreamSessions.closeStreams")(function* (
     sessionId: PlaybackSessionId,
+    reason: Extract<PlaybackReporter.StreamEndReason, "session-ended" | "replaced">,
   ) {
-    const ended = [...(yield* Ref.get(sessions)).values()].filter(
+    const closing = [...(yield* Ref.get(sessions)).values()].filter(
       (session) => session.sessionId === sessionId,
     );
 
-    yield* Effect.forEach(ended, (session) => closeSession(session, "session-ended"), {
-      discard: true,
-    });
+    yield* Effect.forEach(closing, (session) => closeSession(session, reason), { discard: true });
 
-    return ended.length;
+    return closing.length;
   });
 
-  const idleMillis = Duration.toMillis(config.streamIdleTimeout);
+  const expired: Condition = Clock.currentTimeMillis.pipe(
+    Effect.map((now) => (use: StreamLiveness.Use) => StreamLiveness.isExpired(use, now)),
+  );
 
-  yield* Effect.gen(function* () {
-    const now = yield* Clock.currentTimeMillis;
+  const unattended = (session: Session): Condition =>
+    Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
+      const liveness = yield* Ref.get(session.liveness);
+      const encoder = yield* Ref.get(session.encoder);
 
-    for (const session of (yield* Ref.get(sessions)).values()) {
-      if (now - (yield* Ref.get(session.lastActivity)) >= idleMillis)
-        yield* closeSession(session, "idle");
+      return (use: StreamLiveness.Use) =>
+        Encoder.$is("Released")(encoder) &&
+        StreamLiveness.isUnattended(use, liveness, encoder.since, now, idleMillis);
+    });
+
+  const sweep = Effect.fnUntraced(function* (session: Session) {
+    const use = yield* Ref.get(session.use);
+
+    if ((yield* expired)(use)) {
+      yield* closeSession(session, "expired", expired);
+    } else if ((yield* unattended(session))(use)) {
+      yield* closeSession(session, "unattended", unattended(session));
+    } else if (
+      Encoder.$is("Running")(yield* Ref.get(session.encoder)) &&
+      !StreamLiveness.holdsEncoder(yield* snapshotOf(session))
+    ) {
+      yield* release(session);
     }
-  }).pipe(
+  });
+
+  yield* Ref.get(sessions).pipe(
+    Effect.flatMap((current) => Effect.forEach(current.values(), sweep, { discard: true })),
     Effect.repeat(Schedule.spaced(Duration.millis(Math.min(5000, Math.max(100, idleMillis / 4))))),
     Effect.forkScoped,
   );
@@ -1005,8 +1366,15 @@ const make = Effect.gen(function* () {
     segment,
     seek,
     stop,
-    endSession,
-    activeCount: Ref.get(sessions).pipe(Effect.map((current) => current.size)),
+    closeStreams,
+    activeCount: Ref.get(sessions).pipe(
+      Effect.flatMap((current) =>
+        Effect.filter(current.values(), (session) =>
+          Ref.get(session.encoder).pipe(Effect.map(Encoder.$is("Running"))),
+        ),
+      ),
+      Effect.map((running) => running.length),
+    ),
   });
 });
 
@@ -1024,4 +1392,5 @@ export const layer: Layer.Layer<
   | PlaybackReporter.Service
   | TranscodeSpace.Service
   | StreamOwners.Service
+  | SessionReports.Service
 > = Layer.effect(Service, make);

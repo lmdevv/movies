@@ -27,8 +27,10 @@ if (chromium !== undefined && chromium !== "") launchOptions.executablePath = ch
  * pages. `player` and then `rooms` play generated clips through the real media service as that
  * owner, `party` moves a room with a host and two guests on to its next episode, `scrubbing`
  * checks scrub thumbnails and chapters, `casting` casts to a scripted
- * Chromecast, `versions` chooses among a title's files, `subtitles` delays subtitles, `migration` imports from a Jellyfin through it, and `backups` runs a real backup job
- * on it, and `liveness` pauses an HLS stream past the media service's idle time last. The suites that run a media service take turns, as it owns the stack's port.
+ * Chromecast, `versions` chooses among a title's files, `subtitles` delays subtitles, `migration` imports from a Jellyfin through it, `backups` runs a real backup job
+ * on it, and `liveness` pauses HLS streams past the media service's idle time, one of them on a
+ * Quick Sync encoder that cannot restart, last. The suites that run a media service take turns, as
+ * it owns the stack's port.
  */
 export default defineConfig({
   testDir: "./e2e",

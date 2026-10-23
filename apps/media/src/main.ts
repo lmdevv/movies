@@ -14,6 +14,7 @@ import * as CachePruner from "./cache-pruner.ts";
 import * as ConvexFileResolver from "./convex/convex-file-resolver.ts";
 import * as ConvexLibrarySink from "./convex/convex-library-sink.ts";
 import * as ConvexPlaybackReporter from "./convex/convex-playback-reporter.ts";
+import * as ConvexSessionReports from "./convex/convex-session-reports.ts";
 import * as EndedSessionWatcher from "./convex/ended-session-watcher.ts";
 import * as ClientErrors from "./diagnostics/client-errors.ts";
 import * as DiagnosticsRoutes from "./diagnostics/diagnostics-routes.ts";
@@ -40,6 +41,7 @@ import * as MigrationRoutes from "./migration/migration-routes.ts";
 import * as Migrations from "./migration/migrations.ts";
 import * as Observability from "./observability.ts";
 import * as PlaybackReporter from "./playback/playback-reporter.ts";
+import * as SessionReports from "./playback/session-reports.ts";
 import * as TrickplayJob from "./trickplay/trickplay-job.ts";
 import * as TrickplaySweep from "./trickplay/trickplay-sweep.ts";
 
@@ -92,6 +94,7 @@ const convexMode = (options: MediaBackend.Options) =>
         ConvexLibrarySink.layer,
         ConvexFileResolver.layer,
         ConvexPlaybackReporter.layer,
+        ConvexSessionReports.layer,
       ),
     ),
     Layer.provide(ArtworkKeys.layer),
@@ -115,7 +118,12 @@ const standaloneMode = (roots: ReadonlyArray<string>) =>
     Layer.provide(LibraryMonitor.layer()),
     Layer.provide(servicesLayer),
     Layer.provide(
-      Layer.mergeAll(MemoryLibrary.layer, PlaybackReporter.layerLog, BackendHealth.layerStandalone),
+      Layer.mergeAll(
+        MemoryLibrary.layer,
+        PlaybackReporter.layerLog,
+        BackendHealth.layerStandalone,
+        SessionReports.layerNone,
+      ),
     ),
   );
 

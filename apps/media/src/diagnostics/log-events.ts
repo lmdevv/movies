@@ -4,6 +4,9 @@ import type { PlaybackGrant } from "../playback/playback-token.ts";
 export const LogEvent = {
   streamStarted: "Stream.started",
   streamMoved: "Stream.moved",
+  streamReleased: "Stream.released",
+  streamResumed: "Stream.resumed",
+  resumeRefused: "Stream.resume_refused",
   streamEnded: "Stream.ended",
   modeChanged: "Stream.mode_changed",
   encoderFailed: "StreamSessions.encoder_failed",

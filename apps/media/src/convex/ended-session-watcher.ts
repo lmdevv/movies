@@ -33,7 +33,7 @@ export const layer: Layer.Layer<
                   yield* ended.record(sessions);
 
                   const closed = yield* Effect.forEach(sessions, (session) =>
-                    streams.endSession(session.sessionId),
+                    streams.closeStreams(session.sessionId, "session-ended"),
                   );
 
                   const stopped = closed.reduce((total, count) => total + count, 0);

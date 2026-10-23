@@ -1,12 +1,14 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
+import { LogRecord } from "@movies/contracts/diagnostics";
 import type { TitleId } from "@movies/contracts/ids";
 import { expect, test } from "@playwright/test";
 import type { BrowserContext, Page } from "@playwright/test";
+import { Option, Schema } from "effect";
 
 import { NO_STACK, ownedStack, signInOwner, useSession } from "../admin/session";
 import type { Client } from "../admin/session";
-import { buildMediaService, startMediaService } from "../stack/media-service";
+import { buildMediaService, startMediaService, writeFakeFfmpeg } from "../stack/media-service";
 import type { MediaService } from "../stack/media-service";
 import { recordStreams } from "./negotiated-streams";
 import type { NegotiatedStream } from "./negotiated-streams";
@@ -27,35 +29,34 @@ const stack = await ownedStack();
 
 test.skip(stack === null, NO_STACK);
 
+test.describe.configure({ mode: "serial" });
+
 const SETUP_TIMEOUT_MS = 180_000;
 
 const TEST_TIMEOUT_MS = 120_000;
 
-/** Shorter than the pause below by more than the idle reaper's tick. */
 const STREAM_IDLE_SECONDS = 5;
 
 const PAUSE_MS = 15_000;
 
-/** Enough forward buffer that hls.js has nothing left to fetch while paused. */
 const BUFFERED_AHEAD_SECONDS = 20;
 
 const MOVIE = "Harbor Night Watch";
 
+const HEVC_MOVIE = "Tidewater Relay";
+
 const run = Date.now().toString(36);
 
-/** One answer the media service gave for a file of an HLS stream. */
 interface HlsResponse {
   readonly streamId: string;
   readonly generation: number;
   readonly file: string;
   readonly status: number;
-  /** `Date.now()` in the test when the answer arrived. */
   readonly at: number;
 }
 
 const HLS_FILE = /\/media\/hls\/(?<streamId>[^/]+)\/(?<generation>\d+)\/(?<file>[^/?]+)/u;
 
-/** Records every HLS playlist, init, and segment answer the page receives, in order. */
 const recordHls = (page: Page): ReadonlyArray<HlsResponse> => {
   const responses: Array<HlsResponse> = [];
 
@@ -78,7 +79,14 @@ const recordHls = (page: Page): ReadonlyArray<HlsResponse> => {
 
 const isSegment = (response: HlsResponse): boolean => response.file.endsWith(".m4s");
 
-/** Seconds the `<video>` element holds ahead of its position. */
+const decodeRecord = Schema.decodeUnknownOption(Schema.fromJsonString(LogRecord));
+
+const loggedAbout = (message: string, streamId: string): ReadonlyArray<LogRecord> =>
+  (media?.logs() ?? "")
+    .split("\n")
+    .flatMap((line) => Option.toArray(decodeRecord(line)))
+    .filter((record) => record.message === message && record.annotations["streamId"] === streamId);
+
 const bufferedAhead = (page: Page): Promise<number> =>
   page.getByTestId("player-video").evaluate((element) => {
     if (!(element instanceof HTMLVideoElement)) throw new Error("The player is not a video");
@@ -97,6 +105,8 @@ const bufferedAhead = (page: Page): Promise<number> =>
 
 let workspace = "";
 
+let fakeFfmpeg = "";
+
 let media: MediaService | undefined;
 
 let owner: Client;
@@ -111,6 +121,8 @@ let hls: ReadonlyArray<HlsResponse> = [];
 
 let titleId: TitleId;
 
+let hevcTitleId: TitleId;
+
 test.beforeAll(async ({ browser }) => {
   if (stack === null) return;
 
@@ -119,6 +131,7 @@ test.beforeAll(async ({ browser }) => {
 
   const films = join(workspace, "Films");
   const folder = join(films, `${MOVIE} (2022)`);
+  const hevcFolder = join(films, `${HEVC_MOVIE} (2023)`);
 
   await Promise.all([
     encodeClip(join(folder, `${MOVIE} (2022).mkv`), {
@@ -127,18 +140,20 @@ test.beforeAll(async ({ browser }) => {
       audio: [{ codec: "ac3", language: "eng" }],
     }),
     writeText(join(folder, "movie.nfo"), movieNfo(MOVIE, 2022)),
+    encodeClip(join(hevcFolder, `${HEVC_MOVIE} (2023).mkv`), {
+      seconds: 120,
+      video: "hevc",
+      audio: [{ codec: "aac", language: "eng" }],
+    }),
+    writeText(join(hevcFolder, "movie.nfo"), movieNfo(HEVC_MOVIE, 2023)),
   ]);
 
-  const quickIdle = offline(stack);
+  fakeFfmpeg = writeFakeFfmpeg({ qsvFailsFromSeconds: 1 });
 
   buildMediaService();
-  media = await startMediaService(
-    {
-      ...quickIdle,
-      mediaEnv: { ...quickIdle.mediaEnv, STREAM_IDLE_SECONDS: String(STREAM_IDLE_SECONDS) },
-    },
-    [workspace],
-  );
+  media = await startMediaService(offline(stack), [workspace], {
+    STREAM_IDLE_SECONDS: String(STREAM_IDLE_SECONDS),
+  });
   owner = await signInOwner(stack);
 
   const libraryId = await scanLibrary(owner.sdk, {
@@ -148,11 +163,14 @@ test.beforeAll(async ({ browser }) => {
     access: "everyone",
   });
 
-  const scanned = (await titlesByName(owner.sdk, libraryId)).get(MOVIE);
+  const titles = await titlesByName(owner.sdk, libraryId);
+  const scanned = titles.get(MOVIE);
+  const hevc = titles.get(HEVC_MOVIE);
 
-  if (scanned === undefined) throw new Error(`${MOVIE} was not scanned`);
+  if (scanned === undefined || hevc === undefined) throw new Error("A film was not scanned");
 
   titleId = scanned;
+  hevcTitleId = hevc;
   context = await browser.newContext();
   page = await context.newPage();
   streams = recordStreams(page);
@@ -167,10 +185,11 @@ test.afterAll(async () => {
   await owner.sdk.dispose();
   await media?.stop();
   await removePath(workspace);
+
+  if (fakeFfmpeg !== "") await removePath(dirname(fakeFfmpeg));
 });
 
 test("a paused viewer resumes on the same stream after the media service's idle time", async () => {
-  test.fail();
   test.setTimeout(TEST_TIMEOUT_MS);
 
   await page.goto(`/watch/${titleId}?start=0`);
@@ -222,4 +241,104 @@ test("a paused viewer resumes on the same stream after the media service's idle 
     "the player negotiated no other stream",
   ).toEqual([streamId]);
   await expectPlayingPast(page, pausedPosition + 10, 30_000);
+
+  const generation = hls.findLast(
+    (response) => response.streamId === streamId && response.at < pausedAt,
+  )?.generation;
+
+  expect(
+    loggedAbout("Stream.released", streamId).map(({ annotations }) => ({
+      liveness: annotations["liveness"],
+      generation: annotations["generation"],
+    })),
+    "the paused stream's encoder stopped once",
+  ).toEqual([{ liveness: "paused", generation }]);
+  expect(
+    loggedAbout("Stream.resumed", streamId).map(({ annotations }) => annotations["generation"]),
+    "and restarted once, in the generation the player holds",
+  ).toEqual([generation]);
+});
+
+test("a Quick Sync stream that cannot restart after a pause reloads into software on the same stream", async () => {
+  test.setTimeout(TEST_TIMEOUT_MS);
+
+  if (stack === null) return;
+
+  await page.close();
+  await media?.stop();
+
+  media = await startMediaService(offline(stack), [workspace], {
+    STREAM_IDLE_SECONDS: String(STREAM_IDLE_SECONDS),
+    HARDWARE_ACCELERATION: "qsv",
+    FFMPEG_PATH: fakeFfmpeg,
+  });
+  page = await context.newPage();
+  streams = recordStreams(page);
+  hls = recordHls(page);
+  await useSession(page, owner);
+
+  await page.goto(`/watch/${hevcTitleId}?start=0`);
+  await expectPlayingPast(page, 1);
+  await expect.poll(() => streams.at(-1)?.mode).toBe("transcode-qsv");
+
+  const streamId = streams.at(-1)?.streamId;
+
+  if (streamId === undefined) throw new Error("The Quick Sync transcode has no stream id");
+
+  await expect
+    .poll(() => bufferedAhead(page), { timeout: 30_000 })
+    .toBeGreaterThanOrEqual(BUFFERED_AHEAD_SECONDS);
+
+  await page.getByTestId("player").press("k");
+  await expect.poll(async () => (await videoState(page)).paused).toBe(true);
+
+  const pausedPosition = (await videoState(page)).currentTime;
+
+  await new Promise((resolve) => setTimeout(resolve, PAUSE_MS));
+
+  expect(
+    loggedAbout("Stream.released", streamId).map(({ annotations }) => annotations["liveness"]),
+    "the paused stream's encoder stopped",
+  ).toEqual(["paused"]);
+
+  const resumedAt = Date.now();
+
+  await page.getByTestId("player").press("k");
+
+  const afterResume = () =>
+    hls.filter((response) => response.at >= resumedAt && response.streamId === streamId);
+
+  await expect
+    .poll(
+      () =>
+        afterResume()
+          .filter((response) => response.status !== 200)
+          .map(({ generation, file, status }) => `${String(status)} ${String(generation)}/${file}`),
+      {
+        message: "the restarted encoder failed, so its segment's generation is gone",
+        timeout: 45_000,
+      },
+    )
+    .toEqual([expect.stringMatching(/^410 1\/\d+\.m4s$/u)]);
+  await expect
+    .poll(
+      () =>
+        afterResume().filter(
+          (response) => response.generation > 1 && isSegment(response) && response.status === 200,
+        ).length,
+      { message: "the player reloaded a later generation of the same stream", timeout: 30_000 },
+    )
+    .toBeGreaterThan(0);
+  await expectPlayingPast(page, pausedPosition + 10, 30_000);
+  expect(
+    streams.map((stream) => stream.streamId),
+    "the player negotiated no other stream",
+  ).toEqual([streamId]);
+  expect(
+    loggedAbout("Stream.mode_changed", streamId).map(({ annotations }) => [
+      annotations["from"],
+      annotations["to"],
+    ]),
+    "the failed restart fell back to software",
+  ).toEqual([["transcode-qsv", "transcode-software"]]);
 });

@@ -255,6 +255,114 @@ describe("playback timeline", () => {
     assert.isTrue(flooded.missing.some((gap) => gap.startsWith("75 more failed requests")));
   });
 
+  it("says why an encoder stopped, restarted, or could not restart, and why a stream ended", () => {
+    const lived = Option.getOrThrow(
+      timelineOf(
+        SESSION,
+        [
+          record(LogEvent.streamStarted, 0, { streamId: "s2", mode: "transcode-software" }),
+          record(LogEvent.streamReleased, 61_000, {
+            streamId: "s2",
+            generation: 1,
+            segment: 14,
+            liveness: "paused",
+            inFlight: 0,
+            lastRequestAgeMs: 61_200,
+            lastProgressAgeMs: 58_000,
+          }),
+          record(LogEvent.streamResumed, 211_000, {
+            streamId: "s2",
+            generation: 1,
+            segment: 15,
+            fromSeconds: 140,
+            releasedForMs: 150_000,
+          }),
+          record(LogEvent.streamEnded, 2_400_000, {
+            streamId: "s2",
+            reason: "session-ended",
+            liveness: "ended",
+            inFlight: 0,
+            lastRequestAgeMs: 2_280_000,
+            lastProgressAgeMs: null,
+          }),
+        ],
+        false,
+      ),
+    );
+
+    assert.deepStrictEqual(
+      lived.entries.map((entry) => [entry.kind, entry.level, entry.summary]),
+      [
+        ["stream-started", "INFO", "HLS stream started (transcode-software)"],
+        [
+          "stream-moved",
+          "INFO",
+          "Encoder stopped: paused, last request 1.0 min ago, last progress 58.0 s ago; the stream stays and restarts on the next request",
+        ],
+        [
+          "stream-moved",
+          "INFO",
+          "Encoder restarted at 0:02:20 (generation 1) after 2.5 min stopped",
+        ],
+        [
+          "stream-ended",
+          "INFO",
+          "Stream ended: session-ended, the playback session ended (ended, last request 38.0 min ago, last progress never)",
+        ],
+      ],
+    );
+  });
+
+  it("names the slots a refused restart found taken, and why the stream then ended", () => {
+    for (const [slots, summary] of [
+      [
+        "remux",
+        "Encoder not restarted for segment 4: every remux slot is taken; the stream closes and the player negotiates again",
+      ],
+      [
+        "transcode",
+        "Encoder not restarted for segment 4: every transcode slot is taken; the stream closes and the player negotiates again",
+      ],
+    ] as const) {
+      const refused = Option.getOrThrow(
+        timelineOf(
+          SESSION,
+          [
+            record(
+              LogEvent.resumeRefused,
+              0,
+              {
+                streamId: "s3",
+                generation: 1,
+                segment: 4,
+                reason: "TranscodeCapacityReached",
+                slots,
+              },
+              "WARN",
+            ),
+            record(LogEvent.streamEnded, 10, {
+              streamId: "s3",
+              reason: "resume-refused",
+              liveness: "requesting",
+              inFlight: 1,
+              lastRequestAgeMs: 0,
+              lastProgressAgeMs: null,
+            }),
+          ],
+          false,
+        ),
+      );
+
+      assert.deepStrictEqual(
+        refused.entries.map((entry) => entry.summary),
+        [
+          summary,
+          "Stream ended: resume-refused, its player came back while no slot or transcode space was free (requesting, last request 0 ms ago, last progress never)",
+        ],
+      );
+    }
+  });
+
   it("is none for records without playback events", () => {
     assert.isTrue(Option.isNone(timelineOf(SESSION, [record("Sent HTTP response", 0, {})], false)));
   });

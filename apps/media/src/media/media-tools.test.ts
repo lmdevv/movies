@@ -1,6 +1,7 @@
 import { NodeServices } from "@effect/platform-node";
 import { assert, describe, it, layer } from "@effect/vitest";
-import { Duration, Effect, Exit, FileSystem, Layer } from "effect";
+import { Context, Duration, Effect, Exit, FileSystem, Layer, Schedule } from "effect";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { testConfigLayer } from "../testing/test-config.ts";
 import * as MediaTools from "./media-tools.ts";
@@ -14,6 +15,31 @@ const hangingLayer = MediaTools.layer.pipe(
   Layer.provide(testConfigLayer({ FFMPEG_PATH: "sleep", PROBE_TIMEOUT_SECONDS: "1" })),
   Layer.provideMerge(NodeServices.layer),
 );
+
+/** Tools whose runs all report `pid`, as when the system hands a finished run's PID on. */
+const reusingPid = (pid: ChildProcessSpawner.ProcessId) =>
+  Layer.fresh(MediaTools.layer).pipe(
+    Layer.provide(testConfigLayer({ FFMPEG_PATH: "sleep" })),
+    Layer.provide(
+      Layer.effect(
+        ChildProcessSpawner.ChildProcessSpawner,
+        Effect.map(ChildProcessSpawner.ChildProcessSpawner, (real) =>
+          ChildProcessSpawner.make((command) =>
+            real
+              .spawn(command)
+              .pipe(Effect.map((handle) => ChildProcessSpawner.makeHandle({ ...handle, pid }))),
+          ),
+        ),
+      ),
+    ),
+  );
+
+const stopped = Effect.fnUntraced(function* (pid: ChildProcessSpawner.ProcessId) {
+  const fs = yield* FileSystem.FileSystem;
+  const stat = yield* fs.readFileString(`/proc/${String(pid)}/stat`);
+
+  return stat.slice(stat.lastIndexOf(")") + 2).startsWith("T");
+});
 
 const running = Effect.fnUntraced(function* (args: ReadonlyArray<string>) {
   const fs = yield* FileSystem.FileSystem;
@@ -76,6 +102,37 @@ describe("media tools", () => {
 
         assert.isTrue(Exit.isFailure(shorter));
         assert.isFalse(yield* running(marker));
+      }),
+    );
+
+    tools.effect("never signals the process that took over a finished run's PID", () =>
+      Effect.gen(function* () {
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+
+        const bystander = yield* spawner.spawn(
+          ChildProcess.make("sleep", ["30"], { stdin: "ignore", killSignal: "SIGKILL" }),
+        );
+
+        const signalled = stopped(bystander.pid).pipe(
+          Effect.repeat({
+            until: (state) => state,
+            schedule: Schedule.spaced("20 millis"),
+            times: 50,
+          }),
+        );
+
+        const reused = yield* Layer.build(reusingPid(bystander.pid));
+        const run = yield* Context.get(reused, MediaTools.Service).startFfmpeg(["0.3"]);
+
+        yield* run.suspend(true);
+        assert.isTrue(yield* signalled, "a running run's suspend reaches its PID");
+        yield* run.suspend(false);
+
+        yield* run.exit;
+        yield* run.suspend(true);
+        yield* Effect.sleep(Duration.millis(300));
+
+        assert.isFalse(yield* stopped(bystander.pid), "a finished run sends nothing");
       }),
     );
 

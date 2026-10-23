@@ -163,8 +163,14 @@ const make = Effect.gen(function* () {
       return yield* Fiber.join(stdout);
     });
 
+    // Once the run exits, its PID may belong to another process.
     const suspend = (paused: boolean) =>
-      Effect.try(() => process.kill(handle.pid, paused ? "SIGSTOP" : "SIGCONT")).pipe(
+      handle.isRunning.pipe(
+        Effect.flatMap((running) =>
+          running
+            ? Effect.try(() => process.kill(handle.pid, paused ? "SIGSTOP" : "SIGCONT"))
+            : Effect.void,
+        ),
         Effect.ignore,
       );
 

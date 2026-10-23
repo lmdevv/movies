@@ -243,8 +243,12 @@ and newer [movies] progress is kept unless the source played the item more recen
   `entries`. A `slow-segment` splits the wait into encoder (`encoderWaitMs`: the transcoder was
   behind; check CPU or GPU load and `MAX_CONCURRENT_TRANSCODES`), disk (`diskReadMs`: a slow
   share), and network (`networkWriteMs`: a slow link to the player; try `movies play
-  --max-height 720`). A `stream-ended` with reason `idle` followed by a `request-failed` 404 means
-  the player went quiet longer than `STREAM_IDLE_SECONDS` and the service closed the stream.
+  --max-height 720`). A `stream-moved` saying `Encoder stopped` means the player paused or went
+  quiet for `STREAM_IDLE_SECONDS`; the stream stays, and its next segment restarts the encoder a
+  few seconds slower. `Encoder not restarted` means no transcode slot or space was free; the stream
+  then ends with reason `resume-refused`, and the player negotiates a new one. A `stream-ended`
+  names its reason and how recently the stream was used; logs from older services may show reason
+  `idle`, which closed the stream for good.
   A `request-failed` 401 with `Playback token has expired` means the player kept using its
   playback token past expiry; the player must renew it with `playback.renewToken` before then.
   `startup` is how long the player waited for the session to first play, never a stall. Newer
