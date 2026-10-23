@@ -2,6 +2,7 @@ import type { Option } from "effect";
 import { Layer } from "effect";
 
 import * as Auth from "./auth";
+import * as ClientErrors from "./client-errors";
 import * as ConvexTransport from "./convex-transport";
 import * as MoviesClient from "./movies-client";
 import type { TransportError } from "./sdk-errors";
@@ -24,7 +25,7 @@ export interface Options {
 }
 
 /** Everything the SDK provides. */
-export type Services = MoviesClient.MoviesClient | Auth.Auth;
+export type Services = MoviesClient.MoviesClient | Auth.Auth | ClientErrors.ClientErrors;
 
 /** Opening the SDK can fail when the URL is invalid or stored tokens cannot be read. */
 export type OpenError = TransportError | TokenStorageError;
@@ -33,7 +34,8 @@ export type OpenError = TransportError | TokenStorageError;
 export const layerWithTransport = (
   options: Pick<Options, "convexUrl" | "mediaUrl">,
 ): Layer.Layer<Services, TokenStorageError, ConvexTransport.ConvexTransport | TokenStorage> =>
-  MoviesClient.layer({ mediaUrl: options.mediaUrl }).pipe(
+  ClientErrors.layer.pipe(
+    Layer.provideMerge(MoviesClient.layer({ mediaUrl: options.mediaUrl })),
     Layer.provideMerge(Auth.layer({ convexUrl: options.convexUrl })),
   );
 

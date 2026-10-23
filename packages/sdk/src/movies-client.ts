@@ -13,6 +13,7 @@ import type {
   CommandResult,
 } from "@movies/contracts/commands";
 import {
+  ClientErrorReport,
   DIAGNOSTICS_ROUTES,
   LOG_TRUNCATED_HEADER,
   LOG_UNAVAILABLE_SINCE_HEADER,
@@ -99,6 +100,12 @@ export interface Interface {
    * matches. Fails with `TransportError` when no media service URL is configured.
    */
   readonly logs: (query: LogQuery) => Effect.Effect<LogLines, ClientError>;
+  /**
+   * Writes an app's unexpected error to the media service's retained log, as the signed-in
+   * account; sends nothing while signed out. Fails with `TransportError` when no media service URL
+   * is configured, and with `RateLimited` once the account has sent more than its budget.
+   */
+  readonly reportError: (report: ClientErrorReport) => Effect.Effect<void, ClientError>;
   /** The query's result now and after every change. Ends only by failing or being interrupted. */
   readonly subscribe: <Name extends QueryName>(
     name: Name,
@@ -168,6 +175,19 @@ export const make = Effect.fn("MoviesClient.make")(function* (options: Options) 
       return yield* decodeResult(name, command.result, raw);
     }).pipe(Effect.withSpan("MoviesClient.call", { attributes: { command: name } }));
 
+  const mediaRoute = (operation: string, path: string): Effect.Effect<string, TransportError> =>
+    Option.match(options.mediaUrl, {
+      onNone: () =>
+        Effect.fail(
+          new TransportError({
+            operation,
+            message: `Transport failed during ${operation}: no media service URL is configured`,
+            cause: null,
+          }),
+        ),
+      onSome: (url) => Effect.succeed(`${baseUrl(url)}${path}`),
+    });
+
   const callMedia = <Command extends MediaCommand<ArgsSchema, WireSchema>>(
     name: string,
     command: Command,
@@ -175,21 +195,13 @@ export const make = Effect.fn("MoviesClient.make")(function* (options: Options) 
   ): Effect.Effect<Command["result"]["Type"], ClientError> =>
     Effect.gen(function* () {
       const wire = yield* encodeArgs(name, command, args);
-
-      if (Option.isNone(options.mediaUrl)) {
-        return yield* new TransportError({
-          operation: name,
-          message: `Transport failed during ${name}: no media service URL is configured`,
-          cause: null,
-        });
-      }
-
+      const url = yield* mediaRoute(name, command.route.path);
       const bearer = yield* auth.accessToken(false);
 
       return yield* requestJson(
         {
           operation: name,
-          url: `${baseUrl(options.mediaUrl.value)}${command.route.path}`,
+          url,
           method: command.route.method,
           body: Option.some(wire),
           bearer,
@@ -199,17 +211,9 @@ export const make = Effect.fn("MoviesClient.make")(function* (options: Options) 
     }).pipe(Effect.withSpan("MoviesClient.media", { attributes: { command: name } }));
 
   const logs = Effect.fn("MoviesClient.logs")(function* (query: LogQuery) {
-    if (Option.isNone(options.mediaUrl)) {
-      return yield* new TransportError({
-        operation: "logs",
-        message: "Transport failed during logs: no media service URL is configured",
-        cause: null,
-      });
-    }
-
     const answer = yield* requestLines({
       operation: "logs",
-      url: `${baseUrl(options.mediaUrl.value)}${DIAGNOSTICS_ROUTES.logs}`,
+      url: yield* mediaRoute("logs", DIAGNOSTICS_ROUTES.logs),
       method: "POST",
       body: Option.some(yield* encodeJson(LogQuery, query)),
       bearer: yield* auth.accessToken(false),
@@ -224,6 +228,24 @@ export const make = Effect.fn("MoviesClient.make")(function* (options: Options) 
     };
 
     return lines;
+  });
+
+  const reportError = Effect.fn("MoviesClient.reportError")(function* (report: ClientErrorReport) {
+    const url = yield* mediaRoute("reportError", DIAGNOSTICS_ROUTES.clientErrors);
+    const bearer = yield* auth.accessToken(false);
+
+    if (Option.isNone(bearer)) return;
+
+    yield* requestJson(
+      {
+        operation: "reportError",
+        url,
+        method: "POST",
+        body: Option.some(yield* encodeJson(ClientErrorReport, report)),
+        bearer,
+      },
+      Schema.Null,
+    );
   });
 
   const invoke = <Command extends AnyCommand>(
@@ -253,6 +275,7 @@ export const make = Effect.fn("MoviesClient.make")(function* (options: Options) 
     media: (name, args) => callMedia(name, commands[name], args),
     run: (name, args) => invoke(name, commands[name], args),
     logs,
+    reportError,
     subscribe: (name, args) => subscribeTo(name, commands[name], args),
   });
 });
