@@ -126,11 +126,11 @@ export const mediaServiceFunctions = {
     function: "mediaService:resolveFile",
   }),
   "mediaService.sessionStatus": query({
-    summary: "Whether a playback session is still active",
+    summary: "Whether a playback session is still active and playing; null for no such session",
     group: "media-service",
     scope: "media-service",
     args: Schema.Struct({ sessionId: PlaybackSessionId }),
-    result: SessionStatus,
+    result: Schema.NullOr(SessionStatus),
     function: "mediaService:sessionStatus",
   }),
   "mediaService.endedSessions": query({

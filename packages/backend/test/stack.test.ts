@@ -1803,7 +1803,7 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         ),
       );
 
-      expect(statuses.map((status) => status.status)).toStrictEqual([
+      expect(statuses.map((status) => status?.status)).toStrictEqual([
         "ended",
         ...Array.from({ length: 8 }, () => "active"),
       ]);
@@ -1889,6 +1889,31 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
           event: "tick",
         }),
       ).toStrictEqual({ applied: true, watched: false });
+
+      const playing = await service(fixture.mediaService, "mediaService.sessionStatus", {
+        sessionId: newer.sessionId,
+      });
+
+      expect(playing).toStrictEqual({
+        sessionId: newer.sessionId,
+        status: "active",
+        fileId: newer.file.id,
+        endedAt: null,
+        state: "playing",
+        positionMs: 120_000,
+      });
+
+      await run(fixture.member, "playback.reportProgress", {
+        sessionId: newer.sessionId,
+        positionMs: ms(120_000),
+        event: "pause",
+      });
+
+      const paused = await service(fixture.mediaService, "mediaService.sessionStatus", {
+        sessionId: newer.sessionId,
+      });
+
+      expect(paused).toStrictEqual({ ...playing, state: "paused" });
       expect(
         await run(fixture.member, "playback.reportProgress", {
           sessionId: older.sessionId,
@@ -1948,7 +1973,7 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       const status = (sessionId: PlaybackSessionId) =>
         service(fixture.mediaService, "mediaService.sessionStatus", { sessionId }).then(
-          (session) => session.status,
+          (session) => session?.status,
         );
 
       expect(await status(playing.sessionId)).toBe("active");
@@ -2024,7 +2049,7 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       const statuses = await Promise.all(
         started.map(({ sessionId }) =>
           service(fixture.mediaService, "mediaService.sessionStatus", { sessionId }).then(
-            (session) => session.status,
+            (session) => session?.status,
           ),
         ),
       );

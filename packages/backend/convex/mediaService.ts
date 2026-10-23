@@ -337,17 +337,27 @@ export const resolveFile = query({
   },
 });
 
-/** Whether a playback session is still active, the file it plays, and when it ended. */
+/**
+ * Whether a playback session is still active, the file it plays, when it ended, and whether its
+ * player plays; null for no such session.
+ */
 export const sessionStatus = query({
   args: { sessionId: v.id("playbackSessions") },
-  returns: sessionStatusResult,
+  returns: nullable(sessionStatusResult),
   handler: async (ctx, { sessionId }) => {
     await authorize(ctx, "media-service");
     const session = await ctx.db.get(sessionId);
 
-    if (session === null) return fail("not_found", "No such playback session");
+    if (session === null) return null;
 
-    return { sessionId, status: session.status, fileId: session.fileId, endedAt: session.endedAt };
+    return {
+      sessionId,
+      status: session.status,
+      fileId: session.fileId,
+      endedAt: session.endedAt,
+      state: session.state,
+      positionMs: session.positionMs,
+    };
   },
 });
 

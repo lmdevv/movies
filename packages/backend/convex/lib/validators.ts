@@ -991,6 +991,8 @@ export const sessionStatus = v.object({
   status: playbackSessionStatus,
   fileId: v.id("mediaFiles"),
   endedAt: nullable(v.number()),
+  state: playbackState,
+  positionMs: v.number(),
 });
 
 /** Mirrors `EndedSession` in `@movies/contracts`. */
