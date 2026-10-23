@@ -3,7 +3,7 @@ import { Duration, Effect, FileSystem, Path, Predicate, Schedule, Schema } from 
 import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/http";
 
 import { artworkUrl } from "@movies/contracts/artwork";
-import { LibraryId } from "@movies/contracts/ids";
+import { LibraryId, PlaybackSessionId } from "@movies/contracts/ids";
 import { RequestId } from "@movies/contracts/request-id";
 import {
   type ClientCapabilities,
@@ -18,6 +18,7 @@ import * as DiskCache from "../disk-cache.ts";
 import * as LibraryScanner from "../library/library-scanner.ts";
 import * as MemoryLibrary from "../library/memory-library.ts";
 import * as MediaTools from "../media/media-tools.ts";
+import * as EndedSessions from "../playback/ended-sessions.ts";
 import { parseFfprobeJson } from "../media/media-probe.ts";
 import * as FileResolver from "../playback/file-resolver.ts";
 import * as KeyframeIndex from "../playback/keyframe-index.ts";
@@ -75,6 +76,14 @@ const smallScreen: ClientCapabilities = {
 };
 
 const decodeHealth = Schema.decodeUnknownEffect(HealthResponse);
+
+const UNKNOWN_STREAM = "AAAAAAAAAAAAAAAAAAAAAA";
+
+const forge = (token: string): string => {
+  const middle = token.length - 10;
+
+  return `${token.slice(0, middle)}${token[middle] === "A" ? "B" : "A"}${token.slice(middle + 1)}`;
+};
 
 interface RequestBody {
   readonly token: string;
@@ -1037,6 +1046,90 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
       }),
     );
 
+    it.effect("logs a forged signature below WARN and files it under no session", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const forged = forge(signTestToken({ fid: "file_1", sid: "forger" }));
+        const claimed = "BBBBBBBBBBBBBBBBBBBBBB";
+
+        for (const file of ["index.m3u8", "0.m4s"]) {
+          const refused = yield* get(
+            `${server.baseUrl}/media/hls/${claimed}/1/${file}?token=${forged}`,
+          );
+
+          assert.strictEqual(refused.status, 401);
+        }
+
+        assert.deepStrictEqual(
+          server
+            .logged()
+            .filter((entry) => entry.annotations["claimedStreamId"] === claimed)
+            .map((entry) => [entry.message, entry.level, entry.annotations["sessionId"]]),
+          [
+            ["MediaRoutes.request_failed", "DEBUG", undefined],
+            ["MediaRoutes.request_failed", "DEBUG", undefined],
+          ],
+        );
+      }),
+    );
+
+    it.effect("files every request after its session ended under it, outside the budget", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const ended = yield* EndedSessions.Service;
+
+        yield* ended.record([
+          { sessionId: PlaybackSessionId.make("hammered"), endedAt: Date.now() },
+        ]);
+
+        for (let index = 0; index < 100; index += 1) {
+          const exp = index % 2 === 0 ? Date.now() + 60_000 : Date.now() - 1;
+
+          const refused = yield* get(
+            `${server.baseUrl}/media/hls/${UNKNOWN_STREAM}/1/${index}.m4s?token=${signTestToken({ fid: "file_1", sid: "hammered", exp })}`,
+          );
+
+          assert.strictEqual(refused.status, 410);
+        }
+
+        const logged = server
+          .logged()
+          .filter((entry) => entry.annotations["sessionId"] === "hammered");
+
+        assert.strictEqual(logged.length, 100);
+
+        assert.deepStrictEqual(
+          [
+            ...new Set(
+              logged.map((entry) =>
+                JSON.stringify([
+                  entry.message,
+                  entry.level,
+                  entry.annotations["userId"],
+                  entry.annotations["status"],
+                ]),
+              ),
+            ),
+          ],
+          [JSON.stringify(["MediaRoutes.request_after_session_ended", "DEBUG", "user_test", 410])],
+        );
+
+        const live = yield* get(
+          `${server.baseUrl}/media/hls/${UNKNOWN_STREAM}/1/0.m4s?token=${signTestToken({ fid: "file_1", sid: "after-hammered" })}`,
+        );
+
+        assert.strictEqual(live.status, 404);
+
+        assert.deepStrictEqual(
+          server
+            .logged()
+            .filter((entry) => entry.annotations["sessionId"] === "after-hammered")
+            .map((entry) => [entry.message, entry.level]),
+          [["MediaRoutes.request_failed", "WARN"]],
+        );
+      }),
+    );
+
     it.effect("logs a member's failing requests within a budget, with path parameters cut", () =>
       Effect.gen(function* () {
         const server = yield* MediaTestServer.Service;
@@ -1192,6 +1285,144 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
 
         assert.strictEqual(refused.status, 429);
         assert.match(refused.headers["retry-after"] ?? "", /^[1-9]\d*$/u);
+      }),
+    );
+  });
+
+  layer(MediaTestServer.layer(), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })("with default logs", (it) => {
+    it.effect("files a refused expired token under its session as a failed request", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const token = signTestToken({ fid: "file_1", sid: "lapsed", exp: Date.now() - 1 });
+
+        for (const file of ["index.m3u8", "0.m4s"]) {
+          const refused = yield* get(
+            `${server.baseUrl}/media/hls/${UNKNOWN_STREAM}/1/${file}?token=${token}`,
+          );
+
+          assert.strictEqual(refused.status, 401);
+        }
+
+        assert.deepStrictEqual(
+          server
+            .logged()
+            .filter((entry) => entry.annotations["sessionId"] === "lapsed")
+            .map((entry) => [
+              entry.message,
+              entry.level,
+              entry.annotations["route"],
+              entry.annotations["status"],
+              entry.annotations["userId"],
+              entry.annotations["error"],
+            ]),
+          [
+            [
+              "MediaRoutes.request_failed",
+              "WARN",
+              "playlist",
+              401,
+              "user_test",
+              "Playback token has expired",
+            ],
+            [
+              "MediaRoutes.request_failed",
+              "WARN",
+              "hls",
+              401,
+              "user_test",
+              "Playback token has expired",
+            ],
+          ],
+        );
+      }),
+    );
+
+    it.effect("logs a player's expired-token refusals within its session's budget", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const token = signTestToken({ fid: "file_1", sid: "lapsed-flood", exp: Date.now() - 1 });
+
+        for (let index = 0; index < 100; index += 1) {
+          const refused = yield* get(
+            `${server.baseUrl}/media/hls/${UNKNOWN_STREAM}/1/${index}.m4s?token=${token}`,
+          );
+
+          assert.strictEqual(refused.status, 401);
+        }
+
+        const warnings = server
+          .logged()
+          .filter(
+            (entry) => entry.annotations["sessionId"] === "lapsed-flood" && entry.level === "WARN",
+          );
+
+        assert.isAtLeast(warnings.length, 30);
+        assert.isAtMost(warnings.length, 32);
+      }),
+    );
+
+    it.effect(
+      "keeps a member's real failures at WARN however many expired tokens are replayed",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+
+          for (let session = 0; session < 4; session += 1) {
+            const token = signTestToken({
+              fid: "file_1",
+              sid: `replayed-${String(session)}`,
+              exp: 1,
+            });
+
+            for (let index = 0; index < 40; index += 1) {
+              const refused = yield* get(
+                `${server.baseUrl}/media/hls/${UNKNOWN_STREAM}/1/${index}.m4s?token=${token}`,
+              );
+
+              assert.strictEqual(refused.status, 401);
+            }
+          }
+
+          const live = yield* get(
+            `${server.baseUrl}/media/hls/${UNKNOWN_STREAM}/1/0.m4s?token=${signTestToken({ fid: "file_1", sid: "after-replay" })}`,
+          );
+
+          assert.strictEqual(live.status, 404);
+
+          assert.deepStrictEqual(
+            server
+              .logged()
+              .filter((entry) => entry.annotations["sessionId"] === "after-replay")
+              .map((entry) => [entry.message, entry.level]),
+            [["MediaRoutes.request_failed", "WARN"]],
+          );
+        }),
+    );
+
+    it.effect("files no failure for a request after its session ended, its token expired too", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const ended = yield* EndedSessions.Service;
+
+        yield* ended.record([
+          { sessionId: PlaybackSessionId.make("finished"), endedAt: Date.now() },
+        ]);
+
+        for (const exp of [Date.now() + 60_000, Date.now() - 1]) {
+          const refused = yield* get(
+            `${server.baseUrl}/media/hls/${UNKNOWN_STREAM}/1/0.m4s?token=${signTestToken({ fid: "file_1", sid: "finished", exp })}`,
+          );
+
+          assert.strictEqual(refused.status, 410);
+        }
+
+        assert.deepStrictEqual(
+          server.logged().filter((entry) => entry.annotations["sessionId"] === "finished"),
+          [],
+        );
       }),
     );
   });

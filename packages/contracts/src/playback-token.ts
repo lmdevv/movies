@@ -164,8 +164,81 @@ export const signPlaybackToken = Effect.fn("signPlaybackToken")(function* (
 });
 
 /**
- * Verifies a playback token against the current `Clock` time. Checks the signature in constant
- * time before reading the payload, then the audience, then expiry (`exp <= now` is expired).
+ * Reads the claims of a playback token whatever its expiry. Checks the signature in constant time
+ * before reading the payload, then the audience. It authorizes nothing on its own: an expired
+ * token still reads. Use `verifyPlaybackToken` to authorize a request.
+ *
+ * @returns The payload, or `PlaybackTokenInvalid` with the reason it was rejected.
+ */
+export const readPlaybackTokenIgnoringExpiry = Effect.fn("readPlaybackTokenIgnoringExpiry")(
+  function* (
+    key: PlaybackTokenKey,
+    token: string,
+  ): Effect.fn.Return<PlaybackTokenPayload, PlaybackTokenInvalid> {
+    const segments = token.split(".");
+    const [version, body, signature] = segments;
+
+    if (
+      segments.length !== 3 ||
+      version !== PLAYBACK_TOKEN_VERSION ||
+      body === undefined ||
+      signature === undefined ||
+      !BASE64URL_SEGMENT.test(body) ||
+      !BASE64URL_SEGMENT.test(signature)
+    ) {
+      return yield* invalid("malformed", "Playback token is malformed");
+    }
+
+    const presented = Base64Url.decode(signature);
+
+    // Only the canonical encoding counts: base64url padding bits must not create aliases.
+    if (Result.isFailure(presented) || Base64Url.encode(presented.success) !== signature) {
+      return yield* invalid("malformed", "Playback token signature is not canonical base64url");
+    }
+
+    const expected = yield* hmacSha256(key, `${version}.${body}`);
+
+    if (!constantTimeEqual(expected, presented.success)) {
+      return yield* invalid("bad_signature", "Playback token signature does not match");
+    }
+
+    const json = Base64Url.decodeString(body);
+
+    if (Result.isFailure(json)) {
+      return yield* invalid("malformed", "Playback token payload is not base64url");
+    }
+
+    const claims = yield* decodeSignedClaims(json.success).pipe(
+      Effect.mapError(() => invalid("malformed", "Playback token payload has the wrong fields")),
+    );
+
+    if (claims.aud !== PLAYBACK_TOKEN_AUDIENCE) {
+      return yield* invalid("wrong_audience", "Playback token is for another audience");
+    }
+
+    return { ...claims, aud: PLAYBACK_TOKEN_AUDIENCE };
+  },
+);
+
+/**
+ * Checks the claims `readPlaybackTokenIgnoringExpiry` returned against the current `Clock` time
+ * (`exp <= now` is expired).
+ *
+ * @returns The payload, or `PlaybackTokenInvalid` with the reason `expired`.
+ */
+export const checkPlaybackTokenExpiry = Effect.fnUntraced(function* (
+  payload: PlaybackTokenPayload,
+): Effect.fn.Return<PlaybackTokenPayload, PlaybackTokenInvalid> {
+  const now = yield* Clock.currentTimeMillis;
+
+  if (payload.exp <= now) return yield* invalid("expired", "Playback token has expired");
+
+  return payload;
+});
+
+/**
+ * Verifies a playback token against the current `Clock` time: `readPlaybackTokenIgnoringExpiry`,
+ * then `checkPlaybackTokenExpiry`.
  *
  * @returns The payload, or `PlaybackTokenInvalid` with the reason it was rejected.
  */
@@ -173,52 +246,7 @@ export const verifyPlaybackToken = Effect.fn("verifyPlaybackToken")(function* (
   key: PlaybackTokenKey,
   token: string,
 ): Effect.fn.Return<PlaybackTokenPayload, PlaybackTokenInvalid> {
-  const segments = token.split(".");
-  const [version, body, signature] = segments;
-
-  if (
-    segments.length !== 3 ||
-    version !== PLAYBACK_TOKEN_VERSION ||
-    body === undefined ||
-    signature === undefined ||
-    !BASE64URL_SEGMENT.test(body) ||
-    !BASE64URL_SEGMENT.test(signature)
-  ) {
-    return yield* invalid("malformed", "Playback token is malformed");
-  }
-
-  const presented = Base64Url.decode(signature);
-
-  // Only the canonical encoding counts: base64url padding bits must not create aliases.
-  if (Result.isFailure(presented) || Base64Url.encode(presented.success) !== signature) {
-    return yield* invalid("malformed", "Playback token signature is not canonical base64url");
-  }
-
-  const expected = yield* hmacSha256(key, `${version}.${body}`);
-
-  if (!constantTimeEqual(expected, presented.success)) {
-    return yield* invalid("bad_signature", "Playback token signature does not match");
-  }
-
-  const json = Base64Url.decodeString(body);
-
-  if (Result.isFailure(json)) {
-    return yield* invalid("malformed", "Playback token payload is not base64url");
-  }
-
-  const claims = yield* decodeSignedClaims(json.success).pipe(
-    Effect.mapError(() => invalid("malformed", "Playback token payload has the wrong fields")),
-  );
-
-  if (claims.aud !== PLAYBACK_TOKEN_AUDIENCE) {
-    return yield* invalid("wrong_audience", "Playback token is for another audience");
-  }
-
-  const now = yield* Clock.currentTimeMillis;
-
-  if (claims.exp <= now) return yield* invalid("expired", "Playback token has expired");
-
-  return { ...claims, aud: PLAYBACK_TOKEN_AUDIENCE };
+  return yield* checkPlaybackTokenExpiry(yield* readPlaybackTokenIgnoringExpiry(key, token));
 });
 
 /** A token that every verifier must reject, and why. */

@@ -1,10 +1,10 @@
 import { createHmac } from "node:crypto";
 
 import { assert, layer } from "@effect/vitest";
-import { Effect, Match, Redacted } from "effect";
+import { Effect, Match, Option, Redacted } from "effect";
 import { TestClock } from "effect/testing";
 
-import { PlaybackSessionId } from "@movies/contracts/ids";
+import { PlaybackSessionId, UserId } from "@movies/contracts/ids";
 import { PlaybackSessionEnded } from "@movies/contracts/media-playback";
 import {
   PLAYBACK_TOKEN_TEST_VECTORS,
@@ -244,6 +244,58 @@ layer(EndedSessions.layer)("PlaybackToken", (it) => {
       const error = yield* verifier.verify(token, PlaybackToken.PLAY).pipe(Effect.flip);
 
       assert.deepStrictEqual(error, new PlaybackSessionEnded({ sessionId }));
+    }),
+  );
+
+  it.effect("names the session of an authentic token it refuses, an ended one first", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(5_000);
+      const verifier = yield* PlaybackToken.make(secret).pipe(Effect.orDie);
+      const ended = yield* EndedSessions.Service;
+
+      const refusal = (token: string) =>
+        verifier.authorize(Redacted.make(token), PlaybackToken.PLAY).pipe(
+          Effect.flip,
+          Effect.map((refused) => [
+            reasonOf(refused.error),
+            Option.getOrNull(refused.sessionForLog),
+          ]),
+        );
+
+      const signed = {
+        sessionId: PlaybackSessionId.make("session_signed"),
+        userId: UserId.make("user_1"),
+      };
+
+      const authentic = sign(JSON.stringify({ ...claims, sid: "session_signed" }));
+      const download = sign(JSON.stringify({ ...claims, sid: "session_signed", pur: "download" }));
+
+      assert.deepStrictEqual(yield* refusal(download), ["wrong_purpose", signed]);
+
+      yield* TestClock.setTime(claims.exp);
+
+      assert.deepStrictEqual(yield* refusal(authentic), ["expired", signed]);
+      assert.strictEqual(
+        (yield* verifier.authorize(Redacted.make(authentic), PlaybackToken.PLAY).pipe(Effect.flip))
+          .message,
+        "Playback token has expired",
+      );
+
+      yield* ended.record([
+        { sessionId: PlaybackSessionId.make("session_signed"), endedAt: 4_000 },
+      ]);
+
+      assert.deepStrictEqual(yield* refusal(authentic), ["session-ended", signed]);
+      assert.strictEqual(yield* rejection(authentic), "session-ended");
+
+      for (const [forged, reason] of [
+        [sign(JSON.stringify(claims), Buffer.alloc(32, 7)), "bad_signature"],
+        [sign(JSON.stringify({ ...claims, aud: "convex" })), "wrong_audience"],
+        [sign(JSON.stringify({ aud: "media" })), "malformed"],
+        ["v1.forged.token", "malformed"],
+      ] as const) {
+        assert.deepStrictEqual(yield* refusal(forged), [reason, null]);
+      }
     }),
   );
 });

@@ -238,6 +238,8 @@ and newer [movies] progress is kept unless the source played the item more recen
   share), and network (`networkWriteMs`: a slow link to the player; try `movies play
   --max-height 720`). A `stream-ended` with reason `idle` followed by a `request-failed` 404 means
   the player went quiet longer than `STREAM_IDLE_SECONDS` and the service closed the stream.
+  A `request-failed` 401 with `Playback token has expired` means the player kept using its
+  playback token past expiry; the player must renew it with `playback.renewToken` before then.
   `startup` is how long the player waited for the session to first play, never a stall;
   `buffering-started` and `buffering-ended` are the player's own stalls after that;
   `slow-fragment` is hls.js waiting on a segment; `recovery` is the player starting over.

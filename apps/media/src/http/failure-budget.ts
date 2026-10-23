@@ -7,6 +7,19 @@ const SESSION_BUDGET = { burst: 30, perSecond: 0.5 };
 
 const USER_BUDGET = { burst: 60, perSecond: 1 };
 
+/**
+ * What a failure is charged to besides its session: an account's own failures, or refusals of an
+ * authentic token that expired or is for another purpose. Anyone holding an old leaked token can
+ * replay it, so its refusals get an account bucket of their own and never use up the budget of
+ * the account's real failures.
+ */
+export type FailureKind = "failure" | "token-refused";
+
+const ACCOUNT_BUCKETS: Record<FailureKind, string> = {
+  failure: "user",
+  "token-refused": "refused",
+};
+
 interface Suppressed {
   readonly sessionId: PlaybackSessionId;
   readonly userId: UserId;
@@ -15,9 +28,10 @@ interface Suppressed {
 
 /** A budget of failure records per session and per account. */
 export interface FailureBudget {
-  /** Whether a failure of `grant`'s session may be logged at `now`; counts it when not. */
+  /** Whether a `kind` failure of `grant`'s session may be logged at `now`; counts it when not. */
   readonly allow: (
     grant: { readonly sessionId: PlaybackSessionId; readonly userId: UserId },
+    kind: FailureKind,
     now: number,
   ) => boolean;
   /** The failures counted since the last call, by session, and forgets them. */
@@ -30,11 +44,11 @@ export const makeFailureBudget = (): FailureBudget => {
   const suppressed = new Map<PlaybackSessionId, Suppressed>();
 
   return {
-    allow: ({ sessionId, userId }, now) => {
+    allow: ({ sessionId, userId }, kind, now) => {
       const wait = take(
         [
           [`session\u0000${sessionId}`, SESSION_BUDGET],
-          [`user\u0000${userId}`, USER_BUDGET],
+          [`${ACCOUNT_BUCKETS[kind]}\u0000${userId}`, USER_BUDGET],
         ],
         now,
       );

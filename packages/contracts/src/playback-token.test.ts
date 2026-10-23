@@ -10,6 +10,7 @@ import {
   PlaybackTokenInvalid,
   PlaybackTokenPayload,
   PlaybackTokenSecretInvalid,
+  readPlaybackTokenIgnoringExpiry,
   signPlaybackToken,
   verifyPlaybackToken,
 } from "./playback-token";
@@ -81,6 +82,33 @@ describe("playback tokens", () => {
     expect(error.reason).toBe(vector.reason);
     expect(JSON.stringify(error)).not.toContain(vector.token);
   });
+
+  it("reads an expired token for the claims it was signed with", async () => {
+    const payload = await run(
+      Effect.gen(function* () {
+        const key = yield* vectorKey;
+        yield* TestClock.setTime(vectors.valid.payload.exp + PLAYBACK_TOKEN_LIFETIME_MS);
+
+        return yield* readPlaybackTokenIgnoringExpiry(key, vectors.valid.token);
+      }),
+    );
+
+    expect(payload).toStrictEqual(decodePayload(vectors.valid.payload));
+  });
+
+  it.each(vectors.rejected.filter((vector) => vector.reason !== "expired"))(
+    "reads no claims from a token it rejects for anything but expiry: $description",
+    async (vector) => {
+      const error = await run(
+        Effect.flip(
+          Effect.flatMap(vectorKey, (key) => readPlaybackTokenIgnoringExpiry(key, vector.token)),
+        ),
+      );
+
+      expect(error).toBeInstanceOf(PlaybackTokenInvalid);
+      expect(error.reason).toBe(vector.reason);
+    },
+  );
 
   it("round-trips any payload until the instant it expires", async () => {
     await fc.assert(
