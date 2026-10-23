@@ -50,6 +50,8 @@ interface Source {
   readonly name: string;
   readonly audioArgs: ReadonlyArray<string>;
   readonly container: "mkv" | "mp4" | "ts";
+  readonly seconds?: number;
+  readonly keyframeFrames?: number;
 }
 
 interface Case {
@@ -60,11 +62,13 @@ interface Case {
   readonly expectedFailures: ReadonlyArray<Property>;
 }
 
-const sine = (rate: number): ReadonlyArray<string> => [
+const SECONDS = 12;
+
+const sine = (rate: number, seconds = SECONDS): ReadonlyArray<string> => [
   "-f",
   "lavfi",
   "-i",
-  `sine=frequency=440:sample_rate=${String(rate)}:duration=12`,
+  `sine=frequency=440:sample_rate=${String(rate)}:duration=${String(seconds)}`,
 ];
 
 const TICKS_PER_MS = 48;
@@ -131,6 +135,14 @@ const AC3_TS: Source = {
   container: "ts",
 };
 
+const AC3_TS_LONG_GOP: Source = {
+  name: "ac3-long-gop",
+  audioArgs: [...sine(48_000, 30), "-c:a", "ac3", "-output_ts_offset", "1.4"],
+  container: "ts",
+  seconds: 30,
+  keyframeFrames: 240,
+};
+
 const ENCODER_SEAM: ReadonlyArray<Property> = ["audio seam"];
 
 const CASES: ReadonlyArray<Case> = [
@@ -176,6 +188,13 @@ const CASES: ReadonlyArray<Case> = [
     video: "copy",
     audio: "aac",
     expectedFailures: [],
+  },
+  {
+    name: "remux, AC-3 to AAC from MPEG-TS with keyframes 10 s apart",
+    source: AC3_TS_LONG_GOP,
+    video: "copy",
+    audio: "aac",
+    expectedFailures: ["audio seam"],
   },
   {
     name: "software, E-AC-3 to AAC",
@@ -290,7 +309,7 @@ const generateSource = Effect.fn("HlsTiming.generateSource")(function* (source: 
     "-f",
     "lavfi",
     "-i",
-    `testsrc2=size=320x180:rate=${String(FRAMES)}/${String(PER_SECONDS)}:duration=12`,
+    `testsrc2=size=320x180:rate=${String(FRAMES)}/${String(PER_SECONDS)}:duration=${String(source.seconds ?? SECONDS)}`,
     ...source.audioArgs,
     "-map",
     "0:v",
@@ -303,7 +322,7 @@ const generateSource = Effect.fn("HlsTiming.generateSource")(function* (source: 
     "-pix_fmt",
     "yuv420p",
     "-g",
-    "48",
+    String(source.keyframeFrames ?? 48),
     "-bf",
     "3",
     output,
