@@ -55,12 +55,10 @@ describe("hlsCommandArgs", () => {
     expect(audioPart(hlsCommandArgs(command(AudioPlan.Copy({ index: 1 }), "aac")))).toStrictEqual([
       "-map",
       "0:1",
-      "-copypriorss:a",
-      "0",
       "-c:a",
       "copy",
       "-bsf:a",
-      "aac_adtstoasc",
+      "aac_adtstoasc,noise=drop=lt(pts*tb\\,0.000000)",
     ]);
   });
 
@@ -68,10 +66,10 @@ describe("hlsCommandArgs", () => {
     expect(audioPart(hlsCommandArgs(command(AudioPlan.Copy({ index: 1 }), "ac3")))).toStrictEqual([
       "-map",
       "0:1",
-      "-copypriorss:a",
-      "0",
       "-c:a",
       "copy",
+      "-bsf:a",
+      "noise=drop=lt(pts*tb\\,0.000000)",
     ]);
     expect(hlsCommandArgs(command(AudioPlan.Aac({ index: 1 }), "ac3"))).not.toContain(
       "aac_adtstoasc",

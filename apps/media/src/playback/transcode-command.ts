@@ -214,24 +214,28 @@ const videoArgs = (command: EncodeSource): ReadonlyArray<string> =>
  * filter rewrites them and passes AAC that has none through unchanged.
  */
 const copyBitstreamFilter = (codec: string): ReadonlyArray<string> =>
-  codec === "aac" ? ["-bsf:a", "aac_adtstoasc"] : [];
+  codec === "aac" ? ["aac_adtstoasc"] : [];
 
 interface AudioTiming {
-  readonly copy: ReadonlyArray<string>;
+  /** Bitstream filters for copied audio, after any the codec needs. */
+  readonly copyFilters: ReadonlyArray<string>;
   readonly aac: ReadonlyArray<string>;
 }
 
 const audioArgs = (command: EncodeSource, timing: AudioTiming): ReadonlyArray<string> =>
   AudioPlan.$match(command.audio, {
     None: () => ["-an"],
-    Copy: ({ index }) => [
-      "-map",
-      `0:${index}`,
-      ...timing.copy,
-      "-c:a",
-      "copy",
-      ...copyBitstreamFilter(command.audioCodec),
-    ],
+    Copy: ({ index }) => {
+      const filters = [...copyBitstreamFilter(command.audioCodec), ...timing.copyFilters];
+
+      return [
+        "-map",
+        `0:${index}`,
+        "-c:a",
+        "copy",
+        ...(filters.length === 0 ? [] : ["-bsf:a", filters.join(",")]),
+      ];
+    },
     Aac: ({ index }) => [
       "-map",
       `0:${index}`,
@@ -265,11 +269,19 @@ interface RunStart {
   readonly seek: number | undefined;
   readonly audioStartSample: number;
   /**
-   * Whether copied audio keeps its packets from before the run's start; otherwise they go, as
-   * does a priming frame with a negative timestamp.
+   * Where copied audio starts on the source timeline, dropping a priming frame with a negative
+   * timestamp and anything a seek lands before; none keeps it all, for a fragment the session
+   * drops.
    */
-  readonly audioPreroll: boolean;
+  readonly copiedAudioFrom: number | undefined;
 }
+
+/**
+ * Drops copied packets that start before `time`. It compares the times the packets keep under
+ * `-copyts`, where `-copypriorss` compares them with the input's `-ss`, which stays relative to a
+ * file that starts later than 0, such as MPEG-TS.
+ */
+const dropBefore = (time: number): string => `noise=drop=lt(pts*tb\\,${seconds(time)})`;
 
 /**
  * Resamples to `AAC_RATE`, then times frames by their sample count from `audioStartSample`, so
@@ -298,7 +310,7 @@ const runStart = (command: EncodeSource): RunStart => {
   const fromFile: RunStart = {
     seek: undefined,
     audioStartSample: fileAudioStart,
-    audioPreroll: false,
+    copiedAudioFrom: 0,
   };
 
   if (VideoPlan.$is("Copy")(command.video)) {
@@ -308,7 +320,7 @@ const runStart = (command: EncodeSource): RunStart => {
     const audioStartSample = frameFloor(samplesAt(seek - AUDIO_LEAD));
 
     return audioStartSample > fileAudioStart
-      ? { seek: seek - command.sourceStart, audioStartSample, audioPreroll: true }
+      ? { seek: seek - command.sourceStart, audioStartSample, copiedAudioFrom: undefined }
       : fromFile;
   }
 
@@ -319,7 +331,7 @@ const runStart = (command: EncodeSource): RunStart => {
   return {
     seek: offset,
     audioStartSample: Math.max(fileAudioStart, frameFloor(samplesAt(command.from))),
-    audioPreroll: false,
+    copiedAudioFrom: command.from,
   };
 };
 
@@ -408,7 +420,7 @@ export const hlsCommandArgs = (command: HlsCommand): ReadonlyArray<string> => {
       : []),
     ...videoArgs(command),
     ...audioArgs(command, {
-      copy: start.audioPreroll ? [] : ["-copypriorss:a", "0"],
+      copyFilters: start.copiedAudioFrom === undefined ? [] : [dropBefore(start.copiedAudioFrom)],
       aac: aacTiming(start.audioStartSample),
     }),
     "-map_metadata",
@@ -479,7 +491,7 @@ export const mp4CommandArgs = (command: Mp4Command): ReadonlyArray<string> => {
     "-i",
     command.input,
     ...videoArgs(source),
-    ...audioArgs(source, { copy: [], aac: [] }),
+    ...audioArgs(source, { copyFilters: [], aac: [] }),
     "-map_metadata",
     "-1",
     "-map_chapters",

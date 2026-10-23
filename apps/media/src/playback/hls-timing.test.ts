@@ -228,7 +228,7 @@ const CASES: ReadonlyArray<Case> = [
     source: AC3_TS,
     video: "software",
     audio: "copy",
-    expectedFailures: [...ENCODER_SEAM, "audio start"],
+    expectedFailures: ENCODER_SEAM,
   },
   {
     name: "Quick Sync, E-AC-3 to AAC",
