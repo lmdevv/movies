@@ -380,14 +380,14 @@ const SUBTITLE_LEAD = 30;
 const DVD_CANVAS = "720x576";
 
 const subtitleReading = (command: EncodeSource) => {
-  const { seek } = runStart(command);
   const video = command.video;
   const burning = VideoPlan.$is("Encode")(video) && video.burnSubtitle !== undefined;
+  const offset = command.from - command.sourceStart;
 
   return {
     canvas: burning && command.subtitleCodec === "dvd_subtitle" ? ["-canvas_size", DVD_CANVAS] : [],
-    second: burning && seek !== undefined,
-    lead: Math.max(0, (seek ?? 0) - SUBTITLE_LEAD),
+    second: burning && offset > 0.001,
+    lead: Math.max(0, offset - SUBTITLE_LEAD),
   };
 };
 

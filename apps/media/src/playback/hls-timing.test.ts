@@ -673,6 +673,8 @@ for (const testCase of CASES) {
             for (const run of [fromStart, ...resumed]) {
               const steps = run.segments.flatMap((segment) => segment.audio.steps);
 
+              assert.isAbove(steps.length, 100, `AAC frames from ${ms(run.from)} ms`);
+
               assert.isAtMost(
                 Math.max(...steps) - Math.min(...steps),
                 0.000_1,
