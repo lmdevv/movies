@@ -1,5 +1,5 @@
 import { assert, describe, layer } from "@effect/vitest";
-import { Effect, FileSystem, Path, Predicate, Schedule, Schema } from "effect";
+import { Duration, Effect, FileSystem, Path, Predicate, Schedule, Schema } from "effect";
 import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/http";
 
 import { artworkUrl } from "@movies/contracts/artwork";
@@ -178,10 +178,15 @@ const probeImage = Effect.fn(function* (data: Uint8Array) {
   )(output).pipe(Effect.map((probe) => probe.streams[0]));
 });
 
-const fetchSegment = Effect.fn(function* (playlistUrl: string, index: number) {
+const streamFile = (playlistUrl: string, name: string) => {
   const playlist = new URL(playlistUrl);
-  const init = yield* get(new URL(`init.mp4${playlist.search}`, playlist).toString());
-  const segment = yield* get(new URL(`${index}.m4s${playlist.search}`, playlist).toString());
+
+  return get(new URL(`${name}${playlist.search}`, playlist).toString());
+};
+
+const fetchSegment = Effect.fn(function* (playlistUrl: string, index: number) {
+  const init = yield* streamFile(playlistUrl, "init.mp4");
+  const segment = yield* streamFile(playlistUrl, `${index}.m4s`);
 
   return { init, segment };
 });
@@ -228,6 +233,42 @@ const playlistSegments = Effect.fn(function* (playlistUrl: string) {
     duration,
   }));
 });
+
+const generationListings = {
+  active: 0,
+  most: 0,
+  arrival: Promise.withResolvers<void>(),
+};
+
+/**
+ * Holds each listing of a generation's folder until another listing starts, or 300 ms pass, so
+ * refreshes that can overlap do overlap. `most` counts the most listings in progress at once.
+ */
+const overlappingListings = (real: FileSystem.FileSystem): FileSystem.FileSystem =>
+  FileSystem.FileSystem.of({
+    ...real,
+    readDirectory: (path, options) =>
+      /[/\\]transcode[/\\][^/\\]+[/\\]\d+$/.test(path)
+        ? Effect.promise(() => {
+            const previous = generationListings.arrival;
+
+            generationListings.active += 1;
+            generationListings.most = Math.max(generationListings.most, generationListings.active);
+            generationListings.arrival = Promise.withResolvers<void>();
+            previous.resolve();
+
+            return generationListings.arrival.promise;
+          }).pipe(
+            Effect.timeoutOption(Duration.millis(300)),
+            Effect.andThen(real.readDirectory(path, options)),
+            Effect.ensuring(
+              Effect.sync(() => {
+                generationListings.active -= 1;
+              }),
+            ),
+          )
+        : real.readDirectory(path, options),
+  });
 
 const concat = (...parts: ReadonlyArray<Uint8Array>): Uint8Array => {
   const out = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
@@ -1230,6 +1271,72 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           ["h264", 8, "sdr"],
         );
       }),
+    );
+  });
+});
+
+describe.skipIf(!hasFfmpeg)("fragment refresh", () => {
+  layer(MediaTestServer.layer({}, { fileSystem: overlappingListings }), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })((it) => {
+    it.effect.fails(
+      "serves each fragment once when a player asks for several segments at once",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+          const { library } = yield* FixtureWorkspace.Service;
+          const frame = 1 / 24;
+
+          const result = yield* negotiated({
+            token: signTestToken({
+              fid: server.fileId("movies", library.remuxMovie),
+              sid: "burst",
+            }),
+            capabilities: withDolbyAudio,
+          });
+
+          assert.strictEqual(result.mode, "remux");
+          const playlistUrl = local(server.baseUrl, result.url);
+
+          generationListings.most = 0;
+
+          const [init, ...segments] = yield* Effect.all(
+            [
+              streamFile(playlistUrl, "init.mp4"),
+              ...[0, 1, 2].map((index) => streamFile(playlistUrl, `${index}.m4s`)),
+            ],
+            { concurrency: "unbounded" },
+          );
+
+          assert.strictEqual(generationListings.most, 1);
+          assert.strictEqual(init.status, 200);
+          const header = yield* bytes(init);
+          const planned = yield* playlistSegments(playlistUrl);
+
+          const spans = yield* Effect.forEach(
+            segments,
+            Effect.fnUntraced(function* (segment, index) {
+              assert.strictEqual(segment.status, 200);
+
+              const packets = yield* videoPackets(concat(header, yield* bytes(segment)));
+              const span = spanOf(packets);
+
+              assert.strictEqual(
+                new Set(packets.map((packet) => packet.pts_time)).size,
+                packets.length,
+              );
+              assert.approximately(span.end - span.start, planned[index]?.duration ?? 0, frame);
+
+              return span;
+            }),
+          );
+
+          for (const [index, span] of spans.entries()) {
+            if (index > 0) assert.approximately(span.start, spans[index - 1]?.end ?? 0, frame);
+          }
+        }),
+      60_000,
     );
   });
 });
