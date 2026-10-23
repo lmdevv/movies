@@ -1,3 +1,4 @@
+import { RequestIdentity } from "@movies/contracts/errors";
 import type { CommandError } from "@movies/contracts/errors";
 import { Predicate, Schema } from "effect";
 
@@ -10,6 +11,7 @@ export class TransportError extends Schema.TaggedError<TransportError>()("Transp
   operation: Schema.String,
   message: Schema.String,
   cause: Schema.Defect(),
+  ...RequestIdentity.fields,
 }) {}
 
 /**
@@ -21,6 +23,7 @@ export class ProtocolError extends Schema.TaggedError<ProtocolError>()("Protocol
   operation: Schema.String,
   message: Schema.String,
   cause: Schema.Defect(),
+  ...RequestIdentity.fields,
 }) {}
 
 /** Any failure a command call can end with. */

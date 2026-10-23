@@ -13,13 +13,14 @@ import { decodeRecord } from "../logging/log-query.ts";
 import * as MemoryLibrary from "../library/memory-library.ts";
 import * as MediaConfig from "../media-config.ts";
 import { servicesLayer } from "../media-service.ts";
+import { redactedLine } from "../observability.ts";
 import * as PlaybackReporter from "../playback/playback-reporter.ts";
 import * as FixtureWorkspace from "./fixture-workspace.ts";
 import { testConfigLayer } from "./test-config.ts";
 
 /** Where the test server listens and how to find fixture files in its store. */
 export interface Interface {
-  /** Every log entry so far, oldest first. */
+  /** Every log entry so far, oldest first, redacted as the service redacts its log. */
   readonly logged: () => ReadonlyArray<LogRecord>;
   /** Base URL of the running server, such as `http://127.0.0.1:41234`. */
   readonly baseUrl: string;
@@ -65,7 +66,7 @@ export const layer = (overrides: Readonly<Record<string, string>> = {}, options:
       const logging = Layer.mergeAll(
         Logger.layer(
           [
-            Logger.map(Logger.formatJson, (line) => {
+            Logger.map(redactedLine, (line) => {
               logged.push(...Option.toArray(decodeRecord(line)));
             }),
           ],

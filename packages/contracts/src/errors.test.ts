@@ -37,6 +37,17 @@ describe("commandError", () => {
     expect(commandError(decodeFailure({ code, message }))).toStrictEqual(error);
   });
 
+  it("carries the request ID of the media service answer it came from", () => {
+    const error = commandError(decodeFailure({ code: "forbidden", message }), {
+      requestId: "0b6f3c1e-5d2a-4e8f-9a7b-3c4d5e6f7a81",
+    });
+
+    expect(error).toStrictEqual(
+      new Forbidden({ message, requestId: "0b6f3c1e-5d2a-4e8f-9a7b-3c4d5e6f7a81" }),
+    );
+    expect(error).toHaveProperty("requestId", "0b6f3c1e-5d2a-4e8f-9a7b-3c4d5e6f7a81");
+  });
+
   it("rejects unknown codes at the wire boundary", () => {
     expect(() => decodeFailure({ code: "teapot", message: "no" })).toThrow();
   });

@@ -309,6 +309,7 @@ const globalFlagLines = pad([
   ["--format json|table", "Output format; JSON (the default) for agents, tables for people"],
   ["--human", "Same as --format table"],
   ["--profile <name>", "Use another stored server profile (or set MOVIES_PROFILE)"],
+  ["--verbose", "Print debug logs on stderr too, not only warnings and errors"],
   ["-h, --help", "Show help for any command"],
   ["--version", "Print the version"],
 ]);
@@ -335,7 +336,8 @@ export const rootHelp = (version: string): string =>
     ...globalFlagLines,
     "",
     exitCodeLine,
-    'Output is JSON on stdout; errors are {"error":{"code","message"}} on stderr.',
+    'Output is JSON on stdout; errors are {"error":{"code","message"}} on stderr, with "requestId"',
+    "when the media service answered: movies logs --grep <request-id> finds its records.",
   ].join("\n");
 
 const groupSummary = (group: string): string => {

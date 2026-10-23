@@ -1,7 +1,7 @@
 import { commands } from "@movies/contracts/commands";
 import type { CommandName } from "@movies/contracts/commands";
 import { JobId } from "@movies/contracts/ids";
-import { Cause, Data, Effect, Option, Predicate, Result, Schema } from "effect";
+import { Cause, Data, Effect, Logger, Option, Predicate, References, Result, Schema } from "effect";
 import type { Scope } from "effect";
 
 import packageJson from "../package.json" with { type: "json" };
@@ -45,9 +45,10 @@ import {
 } from "./invocation";
 import { waitForJob } from "./jobs";
 import { Output } from "./output";
+import type { Interface as OutputInterface } from "./output";
 import { renderResult } from "./render";
 import { roomCommands } from "./room-commands";
-import { diagnosticsCommands } from "./diagnostics-commands";
+import { diagnosticsCommands, formatLogLine } from "./diagnostics-commands";
 import { connect, deviceIdFor } from "./session";
 import { watchCommands } from "./watch-commands";
 
@@ -75,7 +76,7 @@ type Route = Data.TaggedEnum<{
 
 const Route = Data.taggedEnum<Route>();
 
-const booleanGlobals = new Set(["--human", "--help", "-h", "--version"]);
+const booleanGlobals = new Set(["--human", "--verbose", "--help", "-h", "--version"]);
 
 const valueGlobals = new Set(["--profile", "--format"]);
 
@@ -211,6 +212,13 @@ const prepare = Effect.fn("Cli.prepare")(
   ),
 );
 
+const verbosity =
+  (invocation: Invocation) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+    booleanFlag(invocation.tokens, "verbose")
+      ? Effect.provideService(effect, References.MinimumLogLevel, "Debug")
+      : effect;
+
 const print = (format: Format, outcome: Outcome): Effect.Effect<void, never, Output> =>
   Effect.flatMap(Output, (output) =>
     Outcome.$match(outcome, {
@@ -295,7 +303,7 @@ const runRegistry = Effect.fn("Cli.runRegistry")(function* (
   };
 
   const wire = yield* Effect.fromResult(buildArgs(entry.flags, tokens, entry.path, defaults));
-  const outcome = yield* runNamed(invocation, entry.name, entry, wire);
+  const outcome = yield* runNamed(invocation, entry.name, entry, wire).pipe(verbosity(invocation));
 
   return yield* print(invocation.format, outcome);
 });
@@ -321,7 +329,10 @@ const runShortcut = Effect.fn("Cli.runShortcut")(function* (
 
   const invocation = yield* prepare(command.path, tokens);
 
-  return yield* print(invocation.format, yield* command.run(invocation));
+  return yield* print(
+    invocation.format,
+    yield* command.run(invocation).pipe(verbosity(invocation)),
+  );
 });
 
 const runCall = Effect.fn("Cli.runCall")(function* (rest: ReadonlyArray<string>) {
@@ -395,6 +406,8 @@ const reportError = (error: CliError, format: Format): Effect.Effect<void, never
 
     yield* output.err(`movies: ${report.message}`);
 
+    if (report.requestId !== undefined) yield* output.err(`Request ID: ${report.requestId}`);
+
     if (Predicate.isTagged(error, "UsageError")) {
       yield* output.err(
         error.command === null ? "Run movies --help." : `Run movies ${error.command} --help.`,
@@ -402,24 +415,35 @@ const reportError = (error: CliError, format: Format): Effect.Effect<void, never
     }
   });
 
-/** Runs one invocation and returns the process exit code. Never fails. */
-export const runCli = (argv: ReadonlyArray<string>): Effect.Effect<number, never, Output> => {
-  const format = rawFormat(argv);
-
-  return Effect.scoped(program(argv)).pipe(
-    Effect.as<number>(ExitCode.ok),
-    Effect.catch((error) => Effect.as(reportError(error, format), exitCodeOf(error))),
-    Effect.catchCause((cause) =>
-      Effect.gen(function* () {
-        const output = yield* Output;
-        const message = `Internal error: ${Cause.pretty(cause)}`;
-
-        yield* format === "json"
-          ? output.err(JSON.stringify({ error: { code: "internal", message } }))
-          : output.err(`movies: ${message}`);
-
-        return ExitCode.failed;
-      }),
-    ),
+const stderrLogger = (output: OutputInterface, format: Format): Logger.Logger<unknown, void> =>
+  Logger.map(Logger.formatJson, (line) =>
+    Effect.runSync(output.err(format === "json" ? line : formatLogLine(line))),
   );
-};
+
+/**
+ * Runs one invocation and returns the process exit code. Never fails. Logs go to stderr instead of
+ * Effect's default console logger, one JSON record per line unless the output is for people:
+ * warnings and worse, and debug records too with `--verbose`.
+ */
+export const runCli = (argv: ReadonlyArray<string>): Effect.Effect<number, never, Output> =>
+  Effect.flatMap(Output, (output) => {
+    const format = rawFormat(argv);
+
+    return Effect.scoped(program(argv)).pipe(
+      Effect.as<number>(ExitCode.ok),
+      Effect.catch((error) => Effect.as(reportError(error, format), exitCodeOf(error))),
+      Effect.catchCause((cause) =>
+        Effect.gen(function* () {
+          const message = `Internal error: ${Cause.pretty(cause)}`;
+
+          yield* format === "json"
+            ? output.err(JSON.stringify({ error: { code: "internal", message } }))
+            : output.err(`movies: ${message}`);
+
+          return ExitCode.failed;
+        }),
+      ),
+      Effect.provideService(References.CurrentLoggers, new Set([stderrLogger(output, format)])),
+      Effect.provideService(References.MinimumLogLevel, "Warn"),
+    );
+  });

@@ -24,6 +24,7 @@ import {
   Match,
   Option,
   Path,
+  Predicate,
   Redacted,
   Ref,
   Schedule,
@@ -55,7 +56,7 @@ import {
   SubtitleUnsupported,
 } from "../subtitles/subtitle-tracks.ts";
 import { ByteRange, parseByteRange } from "./byte-range.ts";
-import { type FailureBudget, makeFailureBudget } from "./failure-budget.ts";
+import { type FailureBudget, type FailureKind, makeFailureBudget } from "./failure-budget.ts";
 import { playbackTokenOf as tokenOf } from "./playback-token-param.ts";
 
 class MediaAccessDenied extends Schema.TaggedError<MediaAccessDenied>()(
@@ -164,10 +165,13 @@ const readWhole = (handle: FileSystem.File, size: number, readMs: Ref.Ref<number
 
 interface Answer {
   readonly response: HttpServerResponse.HttpServerResponse;
-  readonly error: Option.Option<string>;
+  readonly error: Option.Option<RouteError>;
 }
 
-type Remember = (grant: PlaybackToken.PlaybackGrant) => Effect.Effect<void>;
+type Authorize = (
+  token: Redacted.Redacted,
+  purposes: ReadonlyArray<PlaybackToken.TokenPurpose>,
+) => Effect.Effect<PlaybackToken.PlaybackGrant, PlaybackTokenInvalid | PlaybackSessionEnded>;
 
 const MAX_LOGGED_PARAM = 64;
 
@@ -183,53 +187,75 @@ const loggedParam = (value: string | undefined): string | null =>
 interface FailureLog {
   readonly budget: FailureBudget;
   readonly owners: StreamOwners.Interface;
+  readonly tokens: PlaybackToken.Interface;
 }
 
 const observed = <R>(
   failures: FailureLog,
   route: string,
   handler: (
-    remember: Remember,
+    authorize: Authorize,
   ) => Effect.Effect<HttpServerResponse.HttpServerResponse, RouteError, R>,
 ) =>
   Effect.gen(function* () {
     const started = yield* Clock.currentTimeMillis;
-    const verified = yield* Ref.make(Option.none<PlaybackToken.PlaybackGrant>());
+    const sessionForLog = yield* Ref.make(Option.none<PlaybackToken.SignedSession>());
+    const failureKind = yield* Ref.make<FailureKind>("failure");
     const params = yield* HttpRouter.params;
 
-    const answer = yield* handler((grant) => Ref.set(verified, Option.some(grant))).pipe(
+    const authorize: Authorize = (token, purposes) =>
+      failures.tokens.authorize(token, purposes).pipe(
+        Effect.tap((grant) => Ref.set(sessionForLog, Option.some(grant))),
+        Effect.catch((refused: PlaybackToken.TokenRefused) =>
+          Effect.all([
+            Ref.set(sessionForLog, refused.sessionForLog),
+            Ref.set(failureKind, "token-refused"),
+          ]).pipe(Effect.andThen(Effect.fail(refused.error))),
+        ),
+      );
+
+    const answer = yield* handler(authorize).pipe(
       Effect.map((response): Answer => ({ response, error: Option.none() })),
       Effect.catch((error) =>
         errorResponse(error).pipe(
-          Effect.map((response): Answer => ({ response, error: Option.some(error.message) })),
+          Effect.map((response): Answer => ({ response, error: Option.some(error) })),
         ),
       ),
     );
 
     if (answer.response.status >= 400) {
-      const grant = yield* Ref.get(verified);
+      const afterSessionEnded = Option.exists(
+        answer.error,
+        Predicate.isTagged("PlaybackSessionEnded"),
+      );
+
+      const session = yield* Ref.get(sessionForLog);
+      const kind = yield* Ref.get(failureKind);
+
       const now = yield* Clock.currentTimeMillis;
       const pathStream = loggedParam(params["streamId"]);
 
       const ownStream =
         pathStream === null ||
-        (Option.isSome(grant) &&
-          (yield* failures.owners.belongsTo(params["streamId"] ?? "", grant.value.sessionId)));
+        (Option.isSome(session) &&
+          (yield* failures.owners.belongsTo(params["streamId"] ?? "", session.value.sessionId)));
 
       yield* (
-        Option.exists(grant, (verifiedGrant) => failures.budget.allow(verifiedGrant, now))
-          ? Effect.logWarning(LogEvent.requestFailed)
-          : Effect.logDebug(LogEvent.requestFailed)
+        afterSessionEnded
+          ? Effect.logDebug(LogEvent.requestAfterSessionEnded)
+          : Option.exists(session, (failed) => failures.budget.allow(failed, kind, now))
+            ? Effect.logWarning(LogEvent.requestFailed)
+            : Effect.logDebug(LogEvent.requestFailed)
       ).pipe(
         Effect.annotateLogs({
           route,
           status: answer.response.status,
-          error: Option.getOrNull(answer.error),
+          error: Option.getOrNull(Option.map(answer.error, (error) => error.message)),
           elapsedMs: now - started,
           streamId: ownStream ? pathStream : null,
           claimedStreamId: ownStream ? null : pathStream,
           file: loggedParam(params["file"]),
-          ...Option.match(grant, { onNone: () => ({}), onSome: grantAnnotations }),
+          ...Option.match(session, { onNone: () => ({}), onSome: grantAnnotations }),
         }),
       );
     }
@@ -259,7 +285,6 @@ export const layer: Layer.Layer<
 > = Layer.effectDiscard(
   Effect.gen(function* () {
     const router = yield* HttpRouter.HttpRouter;
-    const verifier = yield* PlaybackToken.Service;
     const sessions = yield* StreamSessions.Service;
     const subtitles = yield* SubtitleConverter.Service;
     const fs = yield* FileSystem.FileSystem;
@@ -269,7 +294,12 @@ export const layer: Layer.Layer<
     const platform = yield* HttpPlatform.HttpPlatform;
     const downloads = yield* Downloads.Service;
     const budget = makeFailureBudget();
-    const failures: FailureLog = { budget, owners: yield* StreamOwners.Service };
+
+    const failures: FailureLog = {
+      budget,
+      owners: yield* StreamOwners.Service,
+      tokens: yield* PlaybackToken.Service,
+    };
 
     const reportSuppressed = Effect.suspend(() =>
       Effect.forEach(
@@ -293,13 +323,6 @@ export const layer: Layer.Layer<
         Effect.provideService(FileSystem.FileSystem, fs),
         Effect.provideService(Path.Path, path),
       );
-
-    const grantFor = Effect.fnUntraced(function* (
-      request: HttpServerRequest.HttpServerRequest,
-      purposes: ReadonlyArray<PlaybackToken.TokenPurpose>,
-    ) {
-      return yield* verifier.verify(yield* tokenOf(request), purposes);
-    });
 
     const fileResponse = Effect.fnUntraced(
       function* (request: HttpServerRequest.HttpServerRequest, file: string, contentType: string) {
@@ -352,7 +375,7 @@ export const layer: Layer.Layer<
       Effect.mapError(() => new MediaFileUnreadable()),
     );
 
-    const direct = observed(failures, "direct", (remember) =>
+    const direct = observed(failures, "direct", (authorize) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
 
@@ -361,9 +384,7 @@ export const layer: Layer.Layer<
         }
 
         const { fileId = "" } = yield* HttpRouter.params;
-        const grant = yield* grantFor(request, PlaybackToken.PLAY_OR_DOWNLOAD);
-
-        yield* remember(grant);
+        const grant = yield* authorize(yield* tokenOf(request), PlaybackToken.PLAY_OR_DOWNLOAD);
 
         if (grant.fileId !== fileId) return yield* new MediaAccessDenied();
         const file = yield* resolve(grant.fileId, { sidecars: false });
@@ -372,7 +393,7 @@ export const layer: Layer.Layer<
       }),
     ).pipe(Effect.withSpan("MediaRoutes.direct"));
 
-    const download = observed(failures, "download", (remember) =>
+    const download = observed(failures, "download", (authorize) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
 
@@ -381,9 +402,7 @@ export const layer: Layer.Layer<
         }
 
         const { fileId = "", name = "" } = yield* HttpRouter.params;
-        const grant = yield* grantFor(request, PlaybackToken.DOWNLOAD);
-
-        yield* remember(grant);
+        const grant = yield* authorize(yield* tokenOf(request), PlaybackToken.DOWNLOAD);
 
         if (grant.fileId !== fileId) return yield* new MediaAccessDenied();
         const output = yield* downloads.output(grant.fileId, name);
@@ -410,14 +429,13 @@ export const layer: Layer.Layer<
       };
     });
 
-    const playlist = observed(failures, "playlist", (remember) =>
+    const playlist = observed(failures, "playlist", (authorize) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const { streamId, generation } = yield* streamParams;
         const token = yield* tokenOf(request);
-        const grant = yield* verifier.verify(token, PlaybackToken.PLAY);
+        const grant = yield* authorize(token, PlaybackToken.PLAY);
 
-        yield* remember(grant);
         const view = yield* sessions.playlist(streamId, generation, grant);
         const query = `?token=${encodeURIComponent(Redacted.value(token))}`;
 
@@ -433,13 +451,12 @@ export const layer: Layer.Layer<
       }),
     ).pipe(Effect.withSpan("MediaRoutes.playlist"));
 
-    const hlsFile = observed(failures, "hls", (remember) =>
+    const hlsFile = observed(failures, "hls", (authorize) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const { streamId, generation, file } = yield* streamParams;
-        const grant = yield* grantFor(request, PlaybackToken.PLAY);
+        const grant = yield* authorize(yield* tokenOf(request), PlaybackToken.PLAY);
 
-        yield* remember(grant);
         const segmentMatch = /^(\d+)\.m4s$/.exec(file);
 
         if (file !== "init.mp4" && segmentMatch === null)
@@ -514,13 +531,11 @@ export const layer: Layer.Layer<
       }),
     ).pipe(Effect.withSpan("MediaRoutes.hls"));
 
-    const subtitle = observed(failures, "subtitle", (remember) =>
+    const subtitle = observed(failures, "subtitle", (authorize) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const { fileId = "", track = "" } = yield* HttpRouter.params;
-        const grant = yield* grantFor(request, PlaybackToken.PLAY_OR_DOWNLOAD);
-
-        yield* remember(grant);
+        const grant = yield* authorize(yield* tokenOf(request), PlaybackToken.PLAY_OR_DOWNLOAD);
 
         if (grant.fileId !== fileId) return yield* new MediaAccessDenied();
         const file = yield* resolve(grant.fileId, { sidecars: true });

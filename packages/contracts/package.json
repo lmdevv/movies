@@ -25,6 +25,7 @@
     "./scan-failure": "./src/scan-failure.ts",
     "./migration-plan": "./src/migration-plan.ts",
     "./diagnostics": "./src/diagnostics.ts",
+    "./request-id": "./src/request-id.ts",
     "./models/*": "./src/models/*.ts"
   },
   "scripts": {

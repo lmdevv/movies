@@ -1,11 +1,14 @@
 import { mkdirSync, writeFileSync } from "node:fs";
+import type { ServerResponse } from "node:http";
 import { join } from "node:path";
 
+import type { Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { ExitCode } from "./cli-errors";
 import { withMediaService } from "./testing/media-service";
 import { buildCli, makeTempDir, removeDir, runMovies, startMovies } from "./testing/process";
+import { stderrRecords } from "./testing/run-cli";
 
 let home = "";
 
@@ -15,6 +18,75 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => removeDir(home));
+
+const jwtExpiringAt = (epochSeconds: number): string =>
+  [{ alg: "none" }, { exp: epochSeconds, sub: "user" }]
+    .map((part) => Buffer.from(JSON.stringify(part)).toString("base64url"))
+    .concat("fake")
+    .join(".");
+
+const convexAnswer = (response: ServerResponse, value: Schema.Json): void => {
+  response.writeHead(200, { "content-type": "application/json" });
+  response.end(JSON.stringify({ status: "success", value, logLines: [] }));
+};
+
+const convexRefusal = (response: ServerResponse): void => {
+  const failure = { code: "expired", message: "Device code expired" };
+
+  response.writeHead(560, { "content-type": "application/json" });
+  response.end(
+    JSON.stringify({
+      status: "error",
+      errorMessage: failure.message,
+      errorData: failure,
+      logLines: [],
+    }),
+  );
+};
+
+const RENEWED = jwtExpiringAt(4_102_444_800);
+
+const afterFailedSave = (
+  name: string,
+  answer: (response: ServerResponse) => void,
+  flags: ReadonlyArray<string> = [],
+) => {
+  const signedIn = join(home, name);
+  const configPath = join(signedIn, "movies", "config.json");
+
+  mkdirSync(join(signedIn, "movies"), { recursive: true });
+
+  return withMediaService(
+    (request, response) => {
+      request.resume().on("end", () => {
+        if (request.url === "/api/action") {
+          writeFileSync(configPath, "{not json");
+          convexAnswer(response, { tokens: { token: RENEWED, refreshToken: "refresh-renewed" } });
+        } else answer(response);
+      });
+    },
+    (convexUrl) => {
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          defaultProfile: "home",
+          profiles: {
+            home: {
+              convexUrl,
+              deviceId: "cli-home",
+              session: { token: jwtExpiringAt(1_000_000_000), refreshToken: "refresh-home" },
+            },
+          },
+        }),
+      );
+
+      return runMovies(
+        ["call", "deviceAuth.status", "--json", '{"deviceCode":"device-code"}', ...flags],
+        { XDG_CONFIG_HOME: signedIn, HOME: signedIn },
+      );
+    },
+  );
+};
 
 describe("the movies binary", () => {
   it("rejects an empty secret on stdin before connecting", async () => {
@@ -103,5 +175,38 @@ describe("the movies binary", () => {
 
     expect(run.stderr).not.toContain("EPIPE");
     expect(run.code, run.stderr).toBe(ExitCode.ok);
+  });
+
+  it("keeps stdout pure JSON when the SDK warns, printing the warning on stderr as NDJSON", async () => {
+    const run = await afterFailedSave("warns", (response) =>
+      convexAnswer(response, { state: "pending" }),
+    );
+
+    expect(run.code, run.stderr).toBe(ExitCode.ok);
+    expect(JSON.parse(run.stdout)).toStrictEqual({ state: "pending" });
+    expect(stderrRecords(run.stderr)).toMatchObject([
+      { level: "WARN", message: "Auth.tokenStorageFailed", annotations: { operation: "save" } },
+    ]);
+    expect(run.stderr).not.toContain(RENEWED);
+    expect(run.stderr).not.toContain("refresh-renewed");
+  });
+
+  it("keeps stderr NDJSON when the SDK warns before the command fails", async () => {
+    const run = await afterFailedSave("warns-then-fails", convexRefusal);
+
+    expect(run.code, run.stderr).toBe(ExitCode.expired);
+    expect(run.stdout).toBe("");
+    expect(stderrRecords(run.stderr)).toMatchObject([
+      { level: "WARN", message: "Auth.tokenStorageFailed" },
+      { error: { code: "expired", message: "Device code expired" } },
+    ]);
+  });
+
+  it("prints the warning and the failure as text with --human", async () => {
+    const run = await afterFailedSave("warns-for-people", convexRefusal, ["--human"]);
+
+    expect(run.code, run.stderr).toBe(ExitCode.expired);
+    expect(run.stderr).toMatch(/WARN\s+Auth\.tokenStorageFailed operation=save/u);
+    expect(run.stderr).toContain("movies: Device code expired");
   });
 });

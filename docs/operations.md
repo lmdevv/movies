@@ -258,9 +258,12 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
 - Each HTTP response logs `HttpServer.response` at `DEBUG` with its method, status, time taken,
   and path (no query string, cut to 128 characters), so at the default `info` nothing a caller
   sends without a token reaches the retained log. A handler that died logs
-  `HttpServer.handler_died` at `ERROR` with its cause. A stop ends open responses after 3 s, such
-  as a direct-play file, which the player resumes with a range request; Compose gives the
-  container 30 s to stop.
+  `HttpServer.handler_died` at `ERROR` with its cause. Every request gets a fresh UUID: each line
+  logged while serving it carries it as `requestId`, and every response, a failed one too, sends
+  it back in `x-request-id`. A caller's own `x-request-id` never replaces it; when it is 1 to 64
+  letters, digits, `_`, or `-`, not shaped like a credential, and not a UUID that could pass for
+  the service's own id, the lines carry it as `clientRequestId`. A stop ends open responses after 3 s, such as a direct-play file, which the
+  player resumes with a range request; Compose gives the container 30 s to stop.
 - `movies logs` reads the retained log without SSH or `sudo`: `--follow`, `--since 15m` or a time,
   `--until`, `--level warn`, `--session-id`, `--stream-id`, `--slow 1s`, `--grep`, and `--json` for
   NDJSON. It needs an admin session. The service streams it as NDJSON from `POST /api/logs` and
@@ -268,13 +271,18 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
   `movies logs --follow` then exits `unavailable`.
 - A failed media request (any 4xx or 5xx on `/media/`) logs `MediaRoutes.request_failed` at `WARN`
   with its playback session, at most 30 at once and one every 2 s per session (60, then one a
-  second, per account), with path parameters cut to 64 characters. The rest, and failures whose
-  token does not verify, log at `DEBUG`; every 30 s
-  `MediaRoutes.request_failures_suppressed` counts the ones each session went over. Every HLS
-  segment logs how long it took, split into waiting for the encoder, reading the disk, and writing
-  to the network: `MediaRoutes.slow_segment` at `WARN` from one second, `MediaRoutes.segment` at
-  `DEBUG` below. Stream starts, encoder restarts, mode
-  changes, and ends (with the reason, such as `idle`) log at `INFO`.
+  second, per account), with path parameters cut to 64 characters. A token that is signed but
+  expired or for another purpose still files its failure under its session, with the reason in
+  `error`, such as `Playback token has expired`. Those refusals count against an account budget
+  of their own, so replaying an old token cannot silence the account's real failures. The rest, and failures whose token is malformed,
+  forged, or for another audience, log at `DEBUG`; every 30 s
+  `MediaRoutes.request_failures_suppressed` counts the ones each session went over. A request
+  after its session ended answers `410` and logs `MediaRoutes.request_after_session_ended` at
+  `DEBUG` under its session, outside the budget and not counted as a failed request.
+  Every HLS segment logs how long it took, split into waiting for the encoder, reading the disk,
+  and writing to the network: `MediaRoutes.slow_segment` at `WARN` from one second,
+  `MediaRoutes.segment` at `DEBUG` below. Stream starts, encoder restarts, mode changes, and ends
+  (with the reason, such as `idle`) log at `INFO`.
 - The web and iOS players report how long each session took to start, their stalls, errors,
   dropped frames (web only), hls.js segment load times, and recoveries to
   `POST /api/playback/diagnostics` with their playback token, in batches the service validates and
@@ -292,8 +300,13 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
   migrations. `docker compose --profile telemetry up -d` starts a local collector that prints
   them (`deploy/compose/otel-collector.yaml`).
 - Every log line and export is redacted on the way out: fields named like credentials and values
-  shaped like tokens, API keys, Convex admin keys, and credential query parameters. Playback URLs
-  carry tokens, so automatic HTTP spans for `/media/` are off as well.
+  shaped like tokens, API keys, Convex admin keys, credential query parameters, and invite codes.
+  An invite code is redacted (`/invite/<redacted>`) in any case and after repeated slashes, in
+  URL fields such as `http.url`, `url.full`, and `url.query`, in their query parameters such as
+  `?redirect=%2Finvite%2F…`, and in absolute URLs and request lines (`GET /invite/…`) in
+  messages. Playback URLs carry tokens, so automatic HTTP spans for `/media/` are off as well,
+  and so are spans for paths that start with `//`, which a span would read as a host. With OTLP
+  on, the console and the retained log keep the same redacted lines.
 - [movies] sends nothing anywhere else: no analytics, no update checks. The Convex backend runs
   with `DISABLE_BEACON=1`.
 

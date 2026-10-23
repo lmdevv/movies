@@ -1,12 +1,14 @@
 import type { MediaFileId, PlaybackSessionId, ProfileId, UserId } from "@movies/contracts/ids";
 import { PlaybackSessionEnded } from "@movies/contracts/media-playback";
 import {
+  checkPlaybackTokenExpiry,
   importPlaybackTokenSecret,
   PlaybackTokenInvalid,
+  type PlaybackTokenPayload,
   type PlaybackTokenSecretInvalid,
-  verifyPlaybackToken,
+  readPlaybackTokenIgnoringExpiry,
 } from "@movies/contracts/playback-token";
-import { Context, Effect, Layer, Redacted } from "effect";
+import { Context, Data, Effect, Layer, Option, Redacted } from "effect";
 
 import * as MediaConfig from "../media-config.ts";
 import * as EndedSessions from "./ended-sessions.ts";
@@ -34,17 +36,35 @@ export interface PlaybackGrant {
   readonly expiresAt: number;
 }
 
+/** The session and account an authentic token was signed for. */
+export type SignedSession = Pick<PlaybackGrant, "sessionId" | "userId">;
+
+/** A refused token: the reason, and the session it was signed for when it is authentic. */
+export class TokenRefused extends Data.TaggedError("TokenRefused")<{
+  readonly error: PlaybackTokenInvalid | PlaybackSessionEnded;
+  readonly sessionForLog: Option.Option<SignedSession>;
+}> {
+  override get message(): string {
+    return this.error.message;
+  }
+}
+
 /** Checks playback tokens. */
 export interface Interface {
   /**
-   * The grant of a valid token for one of `purposes`. Fails with `PlaybackTokenInvalid` for a
-   * malformed, forged, expired, or misaddressed token or one for another purpose, and
-   * `PlaybackSessionEnded` once its session ended.
+   * The grant of a valid token for one of `purposes`. Fails with `PlaybackSessionEnded` once its
+   * session ended, whatever else is wrong with an authentic token, and `PlaybackTokenInvalid` for
+   * a malformed, forged, expired, or misaddressed token or one for another purpose.
    */
   readonly verify: (
     token: Redacted.Redacted,
     purposes: ReadonlyArray<TokenPurpose>,
   ) => Effect.Effect<PlaybackGrant, PlaybackTokenInvalid | PlaybackSessionEnded>;
+  /** `verify`, failing with the session an authentic token names alongside the reason. */
+  readonly authorize: (
+    token: Redacted.Redacted,
+    purposes: ReadonlyArray<TokenPurpose>,
+  ) => Effect.Effect<PlaybackGrant, TokenRefused>;
   /**
    * The grant of a valid streaming token, even once its session ended: a player's last reports
    * about a session arrive as it ends. Fails with `PlaybackTokenInvalid` like `verify`.
@@ -67,10 +87,10 @@ export const make = Effect.fn("PlaybackTokenVerifier.make")(function* (
   const ended = yield* EndedSessions.Service;
 
   const grantOf = Effect.fnUntraced(function* (
-    token: Redacted.Redacted,
+    signed: PlaybackTokenPayload,
     purposes: ReadonlyArray<TokenPurpose>,
   ) {
-    const payload = yield* verifyPlaybackToken(key, Redacted.value(token));
+    const payload = yield* checkPlaybackTokenExpiry(signed);
     const purpose = payload.pur ?? "play";
 
     if (!purposes.includes(purpose)) {
@@ -93,23 +113,37 @@ export const make = Effect.fn("PlaybackTokenVerifier.make")(function* (
     } satisfies PlaybackGrant;
   });
 
-  const verify = Effect.fn("PlaybackTokenVerifier.verify")(function* (
+  const authorize = Effect.fn("PlaybackTokenVerifier.authorize")(function* (
     token: Redacted.Redacted,
     purposes: ReadonlyArray<TokenPurpose>,
   ) {
-    const grant = yield* grantOf(token, purposes);
+    const payload = yield* readPlaybackTokenIgnoringExpiry(key, Redacted.value(token)).pipe(
+      Effect.mapError((error) => new TokenRefused({ error, sessionForLog: Option.none() })),
+    );
 
-    if (yield* ended.isEnded(grant.sessionId)) {
-      return yield* new PlaybackSessionEnded({ sessionId: grant.sessionId });
+    const refuse = (error: PlaybackTokenInvalid | PlaybackSessionEnded) =>
+      new TokenRefused({
+        error,
+        sessionForLog: Option.some({ sessionId: payload.sid, userId: payload.sub }),
+      });
+
+    if (yield* ended.isEnded(payload.sid)) {
+      return yield* refuse(new PlaybackSessionEnded({ sessionId: payload.sid }));
     }
 
-    return grant;
+    return yield* grantOf(payload, purposes).pipe(Effect.mapError(refuse));
   });
 
   return Service.of({
-    verify,
+    authorize,
+    verify: Effect.fn("PlaybackTokenVerifier.verify")(
+      (token: Redacted.Redacted, purposes: ReadonlyArray<TokenPurpose>) =>
+        authorize(token, purposes).pipe(Effect.mapError((refused) => refused.error)),
+    ),
     verifyReport: Effect.fn("PlaybackTokenVerifier.verifyReport")((token: Redacted.Redacted) =>
-      grantOf(token, PLAY),
+      Effect.flatMap(readPlaybackTokenIgnoringExpiry(key, Redacted.value(token)), (payload) =>
+        grantOf(payload, PLAY),
+      ),
     ),
   });
 });

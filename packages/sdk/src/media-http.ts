@@ -1,5 +1,6 @@
 import { CommandFailure, commandError } from "@movies/contracts/errors";
-import type { CommandError, ErrorCode } from "@movies/contracts/errors";
+import type { CommandError, ErrorCode, RequestIdentity } from "@movies/contracts/errors";
+import { REQUEST_ID_HEADER, RequestId } from "@movies/contracts/request-id";
 import { PlaybackApiError } from "@movies/contracts/media-playback";
 import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { Context, Effect, Option, Redacted, Schema, Stream } from "effect";
@@ -98,45 +99,67 @@ const STATUS_CODES: ReadonlyMap<number, ErrorCode> = new Map([
 
 const GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 504]);
 
+const decodeRequestId = Schema.decodeUnknownOption(RequestId);
+
+const identityOf = (response: Response): RequestIdentity => {
+  const sent = response.headers.get(REQUEST_ID_HEADER) ?? "";
+
+  return Option.match(
+    Option.firstSomeOf(sent.split(",").map((part) => decodeRequestId(part.trim()))),
+    { onNone: () => ({}), onSome: (requestId) => ({ requestId }) },
+  );
+};
+
+interface Fetched {
+  readonly response: Response;
+  readonly identity: RequestIdentity;
+}
+
 interface MediaResponse {
   readonly status: number;
   readonly ok: boolean;
   readonly body: Schema.Json;
+  readonly identity: RequestIdentity;
 }
 
-const readJson = (
+const readResponse = (
   request: MediaRequest,
-  response: Response,
-): Effect.Effect<Schema.Json, TransportError | ProtocolError> =>
-  Effect.tryPromise({
-    try: () => response.text(),
-    catch: (cause) =>
-      new TransportError({
-        operation: request.operation,
-        message: `Transport failed during ${request.operation}: the response body was cut off`,
-        cause,
-      }),
-  }).pipe(
-    Effect.flatMap((text) =>
+  { response, identity }: Fetched,
+): Effect.Effect<MediaResponse, TransportError | ProtocolError> =>
+  Effect.gen(function* () {
+    const text = yield* Effect.tryPromise({
+      try: () => response.text(),
+      catch: (cause) =>
+        new TransportError({
+          operation: request.operation,
+          message: `Transport failed during ${request.operation}: the response body was cut off`,
+          cause,
+          ...identity,
+        }),
+    });
+
+    const body =
       text.length === 0
-        ? Effect.succeed<Schema.Json>(null)
-        : decodeJsonText(text).pipe(
+        ? null
+        : yield* decodeJsonText(text).pipe(
             Effect.mapError(
               (cause) =>
                 new ProtocolError({
                   operation: request.operation,
                   message: `Protocol error in ${request.operation}: the media service sent a body that is not JSON`,
                   cause,
+                  ...identity,
                 }),
             ),
-          ),
-    ),
-  );
+          );
+
+    return { status: response.status, ok: response.ok, body, identity };
+  });
 
 const fetchResponse = (
   request: MediaRequest,
   accept: string,
-): Effect.Effect<Response, TransportError> =>
+): Effect.Effect<Fetched, TransportError> =>
   Effect.gen(function* () {
     const headers = new Headers({ accept });
 
@@ -165,54 +188,63 @@ const fetchResponse = (
         }),
     });
 
+    const identity = identityOf(response);
+
+    yield* Effect.logDebug("MediaHttp.response").pipe(
+      Effect.annotateLogs({ operation: request.operation, status: response.status, ...identity }),
+    );
+
     if (GATEWAY_STATUSES.has(response.status)) {
       return yield* new TransportError({
         operation: request.operation,
         message: `Transport failed during ${request.operation}: the media service is unreachable (HTTP ${String(response.status)})`,
         cause: null,
+        ...identity,
       });
     }
 
-    return response;
+    return { response, identity };
   });
 
 const send = (
   request: MediaRequest,
 ): Effect.Effect<MediaResponse, TransportError | ProtocolError> =>
-  Effect.gen(function* () {
-    const response = yield* fetchResponse(request, "application/json");
-
-    return { status: response.status, ok: response.ok, body: yield* readJson(request, response) };
-  });
+  Effect.flatMap(fetchResponse(request, "application/json"), (fetched) =>
+    readResponse(request, fetched),
+  );
 
 const commandFailureOf = (request: MediaRequest, response: MediaResponse): CommandError => {
   const known = decodeCommandFailure(response.body);
 
-  if (Option.isSome(known)) return commandError(known.value);
+  if (Option.isSome(known)) return commandError(known.value, response.identity);
 
   const reason = Option.match(decodeTaggedFailure(response.body), {
     onNone: () => `HTTP ${String(response.status)}`,
     onSome: (tagged) => tagged.tag,
   });
 
-  return commandError({
-    code: STATUS_CODES.get(response.status) ?? "internal",
-    message: `The media service refused ${request.operation}: ${reason}`,
-  });
+  return commandError(
+    {
+      code: STATUS_CODES.get(response.status) ?? "internal",
+      message: `The media service refused ${request.operation}: ${reason}`,
+    },
+    response.identity,
+  );
 };
 
 const decodeSuccess = <A>(
   request: MediaRequest,
   result: Schema.Codec<A, unknown>,
-  body: Schema.Json,
+  response: MediaResponse,
 ): Effect.Effect<A, ProtocolError> =>
-  Schema.decodeEffect(result)(body).pipe(
+  Schema.decodeEffect(result)(response.body).pipe(
     Effect.mapError(
       (cause) =>
         new ProtocolError({
           operation: request.operation,
           message: `Protocol error in ${request.operation}: unexpected media service response`,
           cause,
+          ...response.identity,
         }),
     ),
   );
@@ -231,7 +263,7 @@ export const requestJson = <A>(
 
     if (!response.ok) return yield* commandFailureOf(request, response);
 
-    return yield* decodeSuccess(request, result, response.body);
+    return yield* decodeSuccess(request, result, response);
   }).pipe(Effect.withSpan("MediaHttp.request", { attributes: { operation: request.operation } }));
 
 /** An answer streamed line by line: its headers, then its lines as they arrive. */
@@ -248,12 +280,11 @@ export interface LineResponse {
  */
 export const requestLines = (request: MediaRequest): Effect.Effect<LineResponse, CallError> =>
   Effect.gen(function* () {
-    const response = yield* fetchResponse(request, "application/x-ndjson");
+    const fetched = yield* fetchResponse(request, "application/x-ndjson");
+    const { response } = fetched;
 
     if (!response.ok) {
-      const body = yield* readJson(request, response);
-
-      return yield* commandFailureOf(request, { status: response.status, ok: false, body });
+      return yield* commandFailureOf(request, yield* readResponse(request, fetched));
     }
 
     const lines = Stream.fromReadableStream({
@@ -263,6 +294,7 @@ export const requestLines = (request: MediaRequest): Effect.Effect<LineResponse,
           operation: request.operation,
           message: `Transport failed during ${request.operation}: the stream was cut off`,
           cause,
+          ...fetched.identity,
         }),
     }).pipe(Stream.decodeText(), Stream.splitLines);
 
@@ -285,8 +317,7 @@ export const requestPlayback = <A>(
   Effect.gen(function* () {
     const response = yield* send(request);
 
-    if (response.ok)
-      return yield* decodeSuccess(request, Schema.toCodecJson(result), response.body);
+    if (response.ok) return yield* decodeSuccess(request, Schema.toCodecJson(result), response);
 
     const failure = decodePlaybackFailure(response.body);
 
@@ -296,5 +327,6 @@ export const requestPlayback = <A>(
       operation: request.operation,
       message: `Protocol error in ${request.operation}: the media service failed with HTTP ${String(response.status)} and an unknown body`,
       cause: response.body,
+      ...response.identity,
     });
   }).pipe(Effect.withSpan("MediaHttp.playback", { attributes: { operation: request.operation } }));

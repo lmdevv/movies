@@ -1,4 +1,4 @@
-import type { CommandError } from "@movies/contracts/errors";
+import type { CommandError, RequestIdentity } from "@movies/contracts/errors";
 import { PlaybackApiError } from "@movies/contracts/media-playback";
 import type { CallError } from "@movies/sdk/effect";
 import { Match, Schema } from "effect";
@@ -108,8 +108,11 @@ export const ExitCode = {
 /** A process exit code. */
 export type ExitCode = (typeof ExitCode)[keyof typeof ExitCode];
 
-/** The stable `code` and readable `message` printed for an error. */
-export interface ErrorReport {
+/**
+ * The stable `code` and readable `message` printed for an error, with the media service's
+ * `requestId` when it answered the failed request.
+ */
+export interface ErrorReport extends RequestIdentity {
   readonly code: string;
   readonly message: string;
 }
@@ -127,6 +130,15 @@ const commandCode: (error: CommandError) => string = Match.type<CommandError>().
     Internal: () => "internal",
   }),
 );
+
+const requestIdOf = (error: RequestIdentity): RequestIdentity =>
+  error.requestId === undefined ? {} : { requestId: error.requestId };
+
+const commandReport = (error: CommandError): ErrorReport => ({
+  code: commandCode(error),
+  message: error.message,
+  ...requestIdOf(error),
+});
 
 /** Maps an error to its exit code. */
 export const exitCodeOf: (error: CliError) => ExitCode = Match.type<CliError>().pipe(
@@ -154,20 +166,28 @@ export const exitCodeOf: (error: CliError) => ExitCode = Match.type<CliError>().
   }),
 );
 
-/** Maps an error to the `{ code, message }` pair printed on stderr. */
+/** Maps an error to the `{ code, message, requestId }` report printed on stderr. */
 export const reportOf: (error: CliError) => ErrorReport = Match.type<CliError>().pipe(
   Match.tagsExhaustive({
-    Unauthenticated: (error) => ({ code: commandCode(error), message: error.message }),
-    Forbidden: (error) => ({ code: commandCode(error), message: error.message }),
-    NotFound: (error) => ({ code: commandCode(error), message: error.message }),
-    InvalidArgs: (error) => ({ code: commandCode(error), message: error.message }),
-    Conflict: (error) => ({ code: commandCode(error), message: error.message }),
-    Expired: (error) => ({ code: commandCode(error), message: error.message }),
-    StaleRevision: (error) => ({ code: commandCode(error), message: error.message }),
-    RateLimited: (error) => ({ code: commandCode(error), message: error.message }),
-    Internal: (error) => ({ code: commandCode(error), message: error.message }),
-    TransportError: (error) => ({ code: "unavailable", message: error.message }),
-    ProtocolError: (error) => ({ code: "protocol_error", message: error.message }),
+    Unauthenticated: commandReport,
+    Forbidden: commandReport,
+    NotFound: commandReport,
+    InvalidArgs: commandReport,
+    Conflict: commandReport,
+    Expired: commandReport,
+    StaleRevision: commandReport,
+    RateLimited: commandReport,
+    Internal: commandReport,
+    TransportError: (error) => ({
+      code: "unavailable",
+      message: error.message,
+      ...requestIdOf(error),
+    }),
+    ProtocolError: (error) => ({
+      code: "protocol_error",
+      message: error.message,
+      ...requestIdOf(error),
+    }),
     UsageError: (error) => ({ code: "usage", message: error.message }),
     ConfigFileError: (error) => ({ code: "config_error", message: error.message }),
     JobError: (error) => ({ code: error.code, message: error.message }),

@@ -25,14 +25,26 @@ export const routesLayer = Layer.mergeAll(
   RateLimit.layer,
   HttpRouter.cors({
     allowedOrigins: ["*"],
-    allowedHeaders: ["authorization", "content-type", "range"],
-    exposedHeaders: ["content-range", "content-length", "accept-ranges"],
+    allowedHeaders: ["authorization", "content-type", "range", "x-request-id"],
+    exposedHeaders: ["content-range", "content-length", "accept-ranges", "x-request-id"],
   }),
 );
 
-/** Keeps playback tokens in `/media/` URLs out of Effect's automatic server spans. */
-const tokenSafeTracing = Layer.succeed(HttpMiddleware.TracerDisabledWhen)((request) =>
-  request.url.startsWith("/media/"),
+const SPAN_BASE = "http://media.invalid";
+
+/**
+ * Whether Effect's automatic server span may record request URL `url`: never for `/media/`, whose
+ * URLs carry playback tokens, and never for a URL the span would read with another host, as it
+ * reads `//invite/<code>` or `/\invite/<code>`, exporting the code as the whole path.
+ */
+export const tracesRequest = (url: string): boolean => {
+  const parsed = URL.parse(url, SPAN_BASE);
+
+  return parsed !== null && parsed.origin === SPAN_BASE && !parsed.pathname.startsWith("/media/");
+};
+
+const tokenSafeTracing = Layer.succeed(HttpMiddleware.TracerDisabledWhen)(
+  (request) => !tracesRequest(request.url),
 );
 
 /**

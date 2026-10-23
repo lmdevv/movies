@@ -4,9 +4,9 @@
  * Nothing here should ever see a token or secret: request logs carry paths without query strings,
  * tool errors scrub absolute paths, and configuration secrets stay `Redacted`. As a last line of
  * defense every log line and every OTLP export is redacted on the way out: fields named like
- * credentials, and values shaped like tokens, API keys, admin keys, and credential query
- * parameters. Exports matter as much as logs: HTTP spans record `url.full` and `url.query`, which
- * carry playback tokens.
+ * credentials, and values shaped like tokens, API keys, admin keys, credential query parameters,
+ * and invite codes in invite links. Exports matter as much as logs: HTTP spans record `url.full`
+ * and `url.query`, which carry playback tokens.
  */
 import { Effect, Formatter, Layer, Logger, Option, Predicate, References, Schema } from "effect";
 import { FetchHttpClient, HttpBody } from "effect/http";
@@ -21,6 +21,68 @@ const REDACTED = "<redacted>";
 
 const SECRET_FIELD =
   /(?:token|secret|password|passwd|api[-_]?key|authorization|cookie|credentials?)$/i;
+
+const URL_FIELDS: ReadonlySet<string> = new Set([
+  "http.url",
+  "http.target",
+  "url.full",
+  "url.path",
+  "url.original",
+]);
+
+const QUERY_FIELD = "url.query";
+
+const URL_IN_TEXT = /\b[a-z][a-z\d+.-]*:\/\/[^\s"'<>]+/gi;
+
+const REQUEST_LINE = /\b(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS) (\/[^\s"'<>]*)/g;
+
+const URL_PARTS = /^([a-z][a-z\d+.-]*:\/\/[^/?#]*)?([^?#]*)(?:\?([^#]*))?(#.*)?$/is;
+
+const MAY_HOLD_INVITE = /invite|%|\\/i;
+
+const PATH_SEPARATOR = /[/\\]/;
+
+const decodeComponent = Option.liftThrowable(decodeURIComponent);
+
+const isInvite = (segment: string | undefined): boolean => segment?.toLowerCase() === "invite";
+
+/**
+ * `path` with the segment after any `invite` segment redacted, as the web app routes
+ * `/invite/<code>` in any case and with repeated, encoded, or backward slashes, which URL parsing
+ * reads as slashes. A redacted path comes back decoded and with its slashes collapsed; any other
+ * path comes back unchanged.
+ */
+const redactInvitePath = (path: string): string => {
+  const decoded = Option.getOrElse(decodeComponent(path), () => path);
+  const segments = decoded.split(PATH_SEPARATOR).filter((segment) => segment.length > 0);
+
+  if (!segments.some((_, index) => index > 0 && isInvite(segments[index - 1]))) return path;
+
+  const redacted = segments.map((segment, index) =>
+    index > 0 && isInvite(segments[index - 1]) ? REDACTED : segment,
+  );
+
+  return `${PATH_SEPARATOR.test(decoded.charAt(0)) ? "/" : ""}${redacted.join("/")}`;
+};
+
+/** `query` with every parameter value that holds an invite link redacted, at any depth. */
+const redactInviteQuery = (query: string): string => {
+  if (!MAY_HOLD_INVITE.test(query)) return query;
+  const params = [...new URLSearchParams(query)];
+  const redacted = params.map(([name, value]): [string, string] => [name, redactInviteUrl(value)]);
+
+  return redacted.every(([, value], index) => value === params[index]?.[1])
+    ? query
+    : new URLSearchParams(redacted).toString();
+};
+
+/** `url`, absolute or a path with its query, with invite codes redacted from its path and query. */
+const redactInviteUrl = (url: string): string => {
+  if (!MAY_HOLD_INVITE.test(url)) return url;
+  const [, origin = "", path = "", query, fragment = ""] = URL_PARTS.exec(url) ?? [];
+
+  return `${origin}${redactInvitePath(path)}${query === undefined ? "" : `?${redactInviteQuery(query)}`}${fragment}`;
+};
 
 const SECRET_VALUES: ReadonlyArray<readonly [RegExp, string]> = [
   // Credential query parameters and assignments, as in `?token=…` or `X-Plex-Token=…`.
@@ -42,16 +104,33 @@ const SECRET_VALUES: ReadonlyArray<readonly [RegExp, string]> = [
   [/\b[\w-]+\|[0-9a-f]{32,}\b/g, REDACTED],
 ];
 
-const redactText = (text: string): string =>
+/**
+ * `text` with every token-shaped value replaced, as every log line and export is redacted. In free
+ * text only absolute URLs and request lines such as `GET /invite/…` (HTTP server errors describe
+ * their request that way) lose invite codes; `redactJson` redacts URL-valued fields as URLs.
+ */
+export const redactText = (text: string): string =>
   SECRET_VALUES.reduce(
     (redacted, [pattern, replacement]) => redacted.replace(pattern, replacement),
-    text,
+    text
+      .replace(URL_IN_TEXT, redactInviteUrl)
+      .replace(
+        REQUEST_LINE,
+        (_, method: string, url: string) => `${method} ${redactInviteUrl(url)}`,
+      ),
   );
+
+const isUrlField = (key: string): boolean => key === QUERY_FIELD || URL_FIELDS.has(key);
+
+const redactUrlField = (key: string, value: string): string =>
+  redactText(key === QUERY_FIELD ? redactInviteQuery(value) : redactInviteUrl(value));
 
 const isJsonArray = (value: Schema.JsonArray | Schema.JsonObject): value is Schema.JsonArray =>
   Array.isArray(value);
 
 const decodeJson = Schema.decodeOption(Schema.fromJsonString(Schema.Json));
+
+const isStringValue = Schema.is(Schema.Struct({ stringValue: Schema.String }));
 
 /**
  * `value` with credential fields and token-shaped strings replaced, at any depth, including JSON
@@ -67,10 +146,17 @@ const redactJson = (value: Schema.Json): Schema.Json => {
 
   const attributeKey = value["key"];
   const secretAttribute = Predicate.isString(attributeKey) && SECRET_FIELD.test(attributeKey);
+  const urlAttribute = Predicate.isString(attributeKey) && isUrlField(attributeKey);
 
   return Object.fromEntries(
     Object.entries(value).map(([key, field]): [string, Schema.Json] => {
       if (secretAttribute && key === "value") return [key, { stringValue: REDACTED }];
+
+      if (urlAttribute && key === "value" && isStringValue(field)) {
+        return [key, { stringValue: redactUrlField(attributeKey, field.stringValue) }];
+      }
+
+      if (isUrlField(key) && Predicate.isString(field)) return [key, redactUrlField(key, field)];
 
       return [key, SECRET_FIELD.test(key) ? REDACTED : redactJson(field)];
     }),
@@ -87,7 +173,8 @@ export const redactJsonText = (text: string): string =>
 const redactString = (text: string): string =>
   /^\s*[[{]/.test(text) ? redactJsonText(text) : redactText(text);
 
-const redactedLine = Logger.map(Logger.formatStructured, (structured) =>
+/** The JSON line of a log record, redacted, as the console and the retained log receive it. */
+export const redactedLine = Logger.map(Logger.formatStructured, (structured) =>
   redactJsonText(Formatter.formatJson(structured)),
 );
 
@@ -131,6 +218,7 @@ export const layer = Layer.unwrap(
       OtlpLogger.layer({ url: `${endpoint}/v1/logs`, resource }),
     ).pipe(Layer.provide(redactedSerialization), Layer.provide(FetchHttpClient.layer));
 
-    return Layer.mergeAll(logs, telemetry);
+    // The OTLP logger keeps only the loggers present when it is built, so it is built after them.
+    return Layer.provideMerge(telemetry, logs);
   }),
 ).pipe(Layer.provide(RetainedLogs.layer));

@@ -1,4 +1,4 @@
-import { ConfigProvider, Effect } from "effect";
+import { ConfigProvider, Effect, Schema } from "effect";
 
 import { runCli } from "../cli";
 import { Output } from "../output";
@@ -41,3 +41,12 @@ export const runInProcess = async (
 
   return { code, stdout: stdout.join("\n"), stderr: stderr.join("\n") };
 };
+
+const decodeJsonLine = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json));
+
+/** The JSON value of each line of an invocation's stderr, failing on a line that is not JSON. */
+export const stderrRecords = (stderr: string): ReadonlyArray<Schema.Json> =>
+  stderr
+    .trimEnd()
+    .split("\n")
+    .map((line) => decodeJsonLine(line));
