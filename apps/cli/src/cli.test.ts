@@ -15,7 +15,7 @@ import { diagnosticsCommands } from "./diagnostics-commands";
 import { roomCommands } from "./room-commands";
 import { withMediaService } from "./testing/media-service";
 import type { CliRun } from "./testing/run-cli";
-import { runInProcess } from "./testing/run-cli";
+import { runInProcess, stderrRecords } from "./testing/run-cli";
 import { watchCommands } from "./watch-commands";
 
 const home = mkdtempSync(join(tmpdir(), "movies-cli-test-"));
@@ -470,6 +470,47 @@ describe("troubleshooting commands", () => {
           "movies: Admins only",
           `Request ID: ${REQUEST_ID}`,
         ]);
+      },
+    );
+  });
+
+  it("prints debug logs on stderr only with --verbose, as NDJSON unless --human", async () => {
+    await withSignedInMedia(
+      (_request, response) => {
+        response.writeHead(200, {
+          "content-type": "application/x-ndjson",
+          "x-request-id": REQUEST_ID,
+        });
+        response.end(hostileRecord);
+      },
+      async (signedIn) => {
+        const quiet = await signedIn("logs", "--json");
+        const negated = await signedIn("--verbose", "logs", "--json", "--no-verbose");
+        const verbose = await signedIn("--verbose", "logs", "--json");
+        const trailing = await signedIn("logs", "--json", "--verbose");
+        const human = await signedIn("logs", "--human", "--verbose");
+
+        expect(quiet.stderr).toBe("");
+        expect(negated.stderr).toBe("");
+
+        for (const run of [verbose, trailing]) {
+          expect(run.code, run.stderr).toBe(ExitCode.ok);
+          expect(run.stdout).toBe(hostileRecord.trim());
+          expect(stderrRecords(run.stderr)).toMatchObject([
+            {
+              message: "MediaHttp.response",
+              level: "DEBUG",
+              annotations: { operation: "logs", status: 200, requestId: REQUEST_ID },
+            },
+          ]);
+        }
+
+        expect(human.stderr).toMatch(
+          new RegExp(
+            `DEBUG MediaHttp\\.response operation=logs status=200 requestId=${REQUEST_ID}`,
+            "u",
+          ),
+        );
       },
     );
   });

@@ -309,6 +309,7 @@ const globalFlagLines = pad([
   ["--format json|table", "Output format; JSON (the default) for agents, tables for people"],
   ["--human", "Same as --format table"],
   ["--profile <name>", "Use another stored server profile (or set MOVIES_PROFILE)"],
+  ["--verbose", "Print debug logs on stderr too, not only warnings and errors"],
   ["-h, --help", "Show help for any command"],
   ["--version", "Print the version"],
 ]);

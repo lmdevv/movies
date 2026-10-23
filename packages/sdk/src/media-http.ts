@@ -190,6 +190,10 @@ const fetchResponse = (
 
     const identity = identityOf(response);
 
+    yield* Effect.logDebug("MediaHttp.response").pipe(
+      Effect.annotateLogs({ operation: request.operation, status: response.status, ...identity }),
+    );
+
     if (GATEWAY_STATUSES.has(response.status)) {
       return yield* new TransportError({
         operation: request.operation,

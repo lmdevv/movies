@@ -89,6 +89,10 @@ selects another stored server. `movies logout` signs out and forgets the key and
   When the media service answered the failed request, the error also carries `requestId`:
   `movies logs --grep <request-id>` finds that request's records. `--human` (or `--format
   table`) prints tables and sentences instead, with the ID on a `Request ID:` line.
+- Stdout carries only the result. Log records go to stderr, one JSON object per line
+  (`message`, `level`, `timestamp`, `annotations`) beside the error line, or as text with
+  `--human`: warnings and errors by default, and debug records too with `--verbose`, such as
+  `MediaHttp.response` with each media service answer's `requestId`.
 - Commands that queue a job (scans, metadata refreshes, backups, migrations) return a `jobId` at
   once. Add `--wait` to follow it until it ends; progress goes to stderr. A registry command's
   output then becomes `{ "result", "job" }`; the `scan`, `import`, and `backup` shortcuts keep

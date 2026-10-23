@@ -213,6 +213,7 @@ export const globalOptions: ParseArgsOptionsConfig = {
   profile: { type: "string" },
   format: { type: "string" },
   human: { type: "boolean" },
+  verbose: { type: "boolean" },
 };
 
 /** `--wait` and `--timeout <seconds>`, for commands that queue a background job. */
