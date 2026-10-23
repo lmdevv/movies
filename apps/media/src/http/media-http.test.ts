@@ -8,6 +8,7 @@ import {
   HealthResponse,
   NegotiateResponse,
   type PlaybackQuality,
+  SeekResponse,
 } from "@movies/contracts/media-playback";
 
 import * as ArtworkKeys from "../artwork/artwork-keys.ts";
@@ -88,6 +89,8 @@ interface WireBatch {
 }
 
 const decodeNegotiation = Schema.decodeUnknownEffect(Schema.toCodecJson(NegotiateResponse));
+
+const decodeSeek = Schema.decodeUnknownEffect(SeekResponse);
 
 const local = (baseUrl: string, url: string): string => {
   const parsed = new URL(url);
@@ -183,6 +186,46 @@ const fetchSegment = Effect.fn(function* (playlistUrl: string, index: number) {
   const segment = yield* get(new URL(`${index}.m4s${playlist.search}`, playlist).toString());
 
   return { init, segment };
+});
+
+const decodeVideoPackets = Schema.decodeEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      packets: Schema.NonEmptyArray(
+        Schema.Struct({
+          pts_time: Schema.FiniteFromString,
+          duration_time: Schema.FiniteFromString,
+        }),
+      ),
+    }),
+  ),
+);
+
+const videoSpan = Effect.fn(function* (data: Uint8Array) {
+  const fs = yield* FileSystem.FileSystem;
+  const tools = yield* MediaTools.Service;
+  const file = yield* fs.makeTempFileScoped({ suffix: ".mp4" });
+
+  yield* fs.writeFile(file, data);
+
+  const output = yield* tools.ffprobe([
+    "-v",
+    "error",
+    "-select_streams",
+    "v:0",
+    "-show_entries",
+    "packet=pts_time,duration_time",
+    "-of",
+    "json",
+    file,
+  ]);
+
+  const { packets } = yield* decodeVideoPackets(output).pipe(Effect.orDie);
+
+  return {
+    start: Math.min(...packets.map((packet) => packet.pts_time)),
+    end: Math.max(...packets.map((packet) => packet.pts_time + packet.duration_time)),
+  };
 });
 
 const concat = (...parts: ReadonlyArray<Uint8Array>): Uint8Array => {
@@ -407,6 +450,53 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const whole = yield* probeBytes(concat(yield* bytes(init), ...parts));
 
         assert.approximately(whole.durationSeconds, 12, 0.3);
+      }),
+    );
+
+    it.effect.fails("starts a resumed or sought remux on the segment the playlist names", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const { library } = yield* FixtureWorkspace.Service;
+        const fileId = server.fileId("movies", library.remuxMovie);
+        const token = signTestToken({ fid: fileId, sid: "preroll" });
+        const frame = 1 / 24;
+
+        const segmentMatches = Effect.fn(function* (playlistUrl: string, position: number) {
+          const text = yield* (yield* get(playlistUrl)).text.pipe(Effect.orDie);
+
+          const durations = [...text.matchAll(/#EXTINF:([\d.]+),/g)].map((match) =>
+            Number(match[1]),
+          );
+
+          const starts = durations.map((_, index) =>
+            durations.slice(0, index).reduce((total, duration) => total + duration, 0),
+          );
+
+          const index = starts.findLastIndex((start) => start <= position);
+          const { init, segment } = yield* fetchSegment(playlistUrl, index);
+
+          assert.strictEqual(segment.status, 200);
+          const span = yield* videoSpan(concat(yield* bytes(init), yield* bytes(segment)));
+
+          assert.approximately(span.start, starts[index] ?? 0, frame);
+          assert.approximately(span.end - span.start, durations[index] ?? 0, frame);
+        });
+
+        const resumed = yield* negotiated({ token, capabilities: withDolbyAudio, startSeconds: 7 });
+
+        assert.strictEqual(resumed.mode, "remux");
+        yield* segmentMatches(local(server.baseUrl, resumed.url), 7);
+
+        const seek = yield* post(`${server.baseUrl}/api/playback/seek`, {
+          token,
+          streamId: resumed.streamId ?? "",
+          positionSeconds: 5,
+        });
+
+        const sought = yield* decodeSeek(yield* json(seek)).pipe(Effect.orDie);
+
+        assert.strictEqual(sought.generation, 2);
+        yield* segmentMatches(local(server.baseUrl, sought.playlistUrl), 5);
       }),
     );
 

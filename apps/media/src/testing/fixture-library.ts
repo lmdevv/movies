@@ -18,7 +18,11 @@ export interface FixtureLibrary {
    * chapters ("Opening" to 0:05, then "Credits").
    */
   readonly directMovie: string;
-  /** H.264 with AC-3 and E-AC-3 tracks in MKV, an embedded SRT, and sidecar SRT and ASS subtitles. */
+  /**
+   * H.264 with B-frames, AC-3 and E-AC-3 tracks in MKV, an embedded SRT, and sidecar SRT and ASS
+   * subtitles. 12 seconds, a keyframe every 2 seconds. The B-frames make ffmpeg's stream-copy seek
+   * start one keyframe early.
+   */
   readonly remuxMovie: string;
   /** HEVC Main 10 tagged as HDR10 (BT.2020, PQ) in MKV. */
   readonly hdrMovie: string;
@@ -187,6 +191,8 @@ export const generateFixtureLibrary = async (root: string): Promise<FixtureLibra
         "-map",
         "3:s",
         ...h264,
+        "-bf",
+        "2",
         "-c:a:0",
         "ac3",
         "-c:a:1",
