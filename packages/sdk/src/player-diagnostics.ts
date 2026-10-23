@@ -1,11 +1,14 @@
 import {
+  AudioRendition,
   type ClientDiagnosticEvent,
   ClientDiagnosticsRequest,
   type ClientPlatform,
   DIAGNOSTICS_ROUTES,
   MAX_CLIENT_EVENTS,
   PlayerObservation,
+  type PlayerEngine,
   type RecoveryAction,
+  type StartupStages,
 } from "@movies/contracts/diagnostics";
 import type { PlaybackSessionId } from "@movies/contracts/ids";
 import {
@@ -14,6 +17,7 @@ import {
   Duration,
   Effect,
   Option,
+  Predicate,
   Queue,
   Redacted,
   Schedule,
@@ -32,6 +36,88 @@ const MAX_REASON_LENGTH = 120;
 export const recovery = (action: RecoveryAction, reason: string): PlayerObservation =>
   PlayerObservation.cases.Recovery.make({ action, reason: reason.slice(0, MAX_REASON_LENGTH) });
 
+const decodeRendition = Schema.decodeOption(AudioRendition);
+
+/** A rendition with `language`, or without it when the service would refuse that tag. */
+const renditionDroppingBadLanguage = (
+  codec: string,
+  channels: number,
+  language: string | null | undefined,
+): Option.Option<AudioRendition> =>
+  Option.orElse(
+    Option.flatMap(Option.fromNullishOr(language), (tag) =>
+      decodeRendition({ codec, channels, language: tag }),
+    ),
+    () => decodeRendition({ codec, channels }),
+  );
+
+const audioOf = ({ started, stream }: Playback): Option.Option<AudioRendition> =>
+  Option.flatMap(Option.fromNullishOr(stream.audio), ({ streamIndex, codec, channels }) =>
+    renditionDroppingBadLanguage(
+      codec,
+      channels,
+      started.file.probe.audio.find((each) => each.index === streamIndex)?.language,
+    ),
+  );
+
+/** The stream of `playback` attached to a player of `engine`, with the audio rendition it plays. */
+export const attached = (playback: Playback, engine: PlayerEngine): PlayerObservation =>
+  PlayerObservation.cases.Attached.make({
+    mode: playback.stream.mode,
+    engine,
+    ...Option.match(audioOf(playback), { onNone: () => ({}), onSome: (audio) => ({ audio }) }),
+  });
+
+/**
+ * The renewal of the playback token, when renegotiating `before` into `after` renewed it at `now`,
+ * with how long before or after the old token's expiry that happened.
+ */
+export const tokenRenewal = (
+  before: Playback,
+  after: Playback,
+  now: number,
+): Option.Option<PlayerObservation> => {
+  if (after.started.token === before.started.token) return Option.none();
+  const seconds = Math.round((before.started.tokenExpiresAt - now) / 1000);
+
+  return Option.some(
+    recovery(
+      "renew-token",
+      seconds >= 0
+        ? `Renewed the playback token ${String(seconds)} s before it expired`
+        : `Renewed the playback token ${String(-seconds)} s after it expired`,
+    ),
+  );
+};
+
+/**
+ * A point a player reaches on the way from the viewer's play intent to the first frame. Each
+ * player reports the stages it can see.
+ */
+export type StartupStage = "negotiated" | "manifestLoaded" | "firstFragmentLoaded" | "firstFrame";
+
+const STAGE_FIELDS = {
+  negotiated: "negotiatedMs",
+  manifestLoaded: "manifestLoadedMs",
+  firstFragmentLoaded: "firstFragmentMs",
+  firstFrame: "firstFrameMs",
+} as const satisfies Record<StartupStage, keyof StartupStages>;
+
+interface StartupTrace {
+  readonly intentAt: number;
+  readonly reached: ReadonlyMap<StartupStage, number>;
+}
+
+const stagesOf = ({ intentAt, reached }: StartupTrace): StartupStages => {
+  const stages: { -readonly [Field in keyof StartupStages]: StartupStages[Field] } = {};
+
+  for (const [stage, at] of reached) {
+    stages[STAGE_FIELDS[stage]] = Math.max(0, Math.round(at - intentAt));
+  }
+
+  return stages;
+};
+
 /** Records what a player saw. */
 export interface Recorder {
   /**
@@ -39,6 +125,13 @@ export interface Recorder {
    * batch. Never blocks or fails.
    */
   readonly record: (observation: PlayerObservation) => void;
+  /**
+   * The viewer asked to play at `at` (now by default). The next startup reports its stages from
+   * here; an earlier intent's stages are dropped.
+   */
+  readonly intent: (at?: number) => void;
+  /** The player reached `stage` now; only the first time after the latest intent counts. */
+  readonly reached: (stage: StartupStage) => void;
   /**
    * Ends a startup or stall in progress as `closed` and samples dropped frames one last time,
    * reading the player now, so a caller can release the player right after. The player is never
@@ -85,6 +178,21 @@ interface Pending {
 interface Wait {
   readonly kind: "startup" | "stall";
   readonly since: number;
+}
+
+type WaitEndedBy = "playing" | "paused" | "closed";
+
+interface EndedStartup {
+  readonly positionSeconds: number;
+  readonly durationMs: number;
+  readonly endedBy: WaitEndedBy;
+  readonly at: number;
+  readonly playback: Playback;
+}
+
+interface FragmentLoads {
+  readonly sessionId: PlaybackSessionId;
+  readonly count: number;
 }
 
 const toEvents = (
@@ -159,11 +267,30 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
     lastPlayback: Option.none<Playback>(),
     played: Option.none<PlaybackSessionId>(),
     counted: { dropped: 0, decoded: 0 } satisfies FrameCounts,
+    trace: Option.none<StartupTrace>(),
+    held: Option.none<EndedStartup>(),
+    fragments: Option.none<FragmentLoads>(),
     closed: false,
   };
 
   const playbackNow = (): Option.Option<Playback> =>
     Option.orElse(options.playback(), () => state.lastPlayback);
+
+  const numbered = (observation: PlayerObservation, playback: Playback): PlayerObservation => {
+    if (!Predicate.isTagged(observation, "FragmentLoaded")) return observation;
+    const { sessionId } = playback.started;
+
+    const index = Option.match(state.fragments, {
+      onNone: () => 0,
+      onSome: (loads) => (loads.sessionId === sessionId ? loads.count : 0),
+    });
+
+    state.fragments = Option.some({ sessionId, count: index + 1 });
+
+    return observation.index === undefined
+      ? PlayerObservation.cases.FragmentLoaded.make({ ...observation, index })
+      : observation;
+  };
 
   const note = (observation: PlayerObservation): void => {
     const playback = playbackNow();
@@ -171,10 +298,66 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
     if (Option.isNone(playback)) return;
     state.lastPlayback = playback;
     Queue.offerUnsafe(queue, {
-      observation,
+      observation: numbered(observation, playback.value),
       at: clock.currentTimeMillisUnsafe(),
       playback: playback.value,
     });
+  };
+
+  const sendStartup = ({ at, playback, ...ended }: EndedStartup): void => {
+    Queue.offerUnsafe(queue, {
+      observation: PlayerObservation.cases.StartupEnded.make({
+        ...ended,
+        ...Option.match(state.trace, {
+          onNone: () => ({}),
+          onSome: (trace) => ({ stages: stagesOf(trace) }),
+        }),
+      }),
+      at,
+      playback,
+    });
+
+    if (ended.endedBy === "playing") state.trace = Option.none();
+  };
+
+  const releaseHeld = (): void => {
+    const held = state.held;
+
+    state.held = Option.none();
+
+    if (Option.isSome(held)) sendStartup(held.value);
+  };
+
+  const endStartup = (ended: Omit<EndedStartup, "at" | "playback">): void => {
+    const playback = playbackNow();
+
+    if (Option.isNone(playback)) return;
+    state.lastPlayback = playback;
+    const startup = { ...ended, at: clock.currentTimeMillisUnsafe(), playback: playback.value };
+
+    // A player can say it plays before it shows a frame, so the first frame may still come.
+    const framePending = Option.exists(state.trace, (trace) => !trace.reached.has("firstFrame"));
+
+    if (ended.endedBy === "playing" && framePending) state.held = Option.some(startup);
+    else sendStartup(startup);
+  };
+
+  const intent = (at: number = clock.currentTimeMillisUnsafe()): void => {
+    if (state.closed) return;
+    releaseHeld();
+    state.trace = Option.some({ intentAt: at, reached: new Map() });
+  };
+
+  const reached = (stage: StartupStage): void => {
+    if (state.closed || Option.isNone(state.trace) || state.trace.value.reached.has(stage)) return;
+    const trace = state.trace.value;
+
+    state.trace = Option.some({
+      ...trace,
+      reached: new Map(trace.reached).set(stage, clock.currentTimeMillisUnsafe()),
+    });
+
+    if (stage === "firstFrame") releaseHeld();
   };
 
   const positionSeconds = () => Math.max(0, player.positionMs() / 1000);
@@ -196,21 +379,18 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
     if (kind === "stall") note(PlayerObservation.cases.BufferingStarted.make(where()));
   };
 
-  const endWait = (endedBy: "playing" | "paused" | "closed"): void => {
+  const endWait = (endedBy: WaitEndedBy): void => {
     if (Option.isNone(state.waiting)) return;
     const { kind, since } = state.waiting.value;
     const durationMs = Math.max(0, Math.round(clock.currentTimeMillisUnsafe() - since));
 
     state.waiting = Option.none();
-    note(
-      kind === "stall"
-        ? PlayerObservation.cases.BufferingEnded.make({ ...where(), durationMs, endedBy })
-        : PlayerObservation.cases.StartupEnded.make({
-            positionSeconds: positionSeconds(),
-            durationMs,
-            endedBy,
-          }),
-    );
+
+    if (kind === "stall") {
+      note(PlayerObservation.cases.BufferingEnded.make({ ...where(), durationMs, endedBy }));
+    } else {
+      endStartup({ positionSeconds: positionSeconds(), durationMs, endedBy });
+    }
   };
 
   const onPlayerEvent = (event: PlayerEvent): void => {
@@ -243,13 +423,25 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   const close = (): void => {
     if (state.closed) return;
     endWait("closed");
+    releaseHeld();
     sampleFrames();
     state.closed = true;
   };
 
+  const releaseOverdue = (): void => {
+    const now = clock.currentTimeMillisUnsafe();
+
+    if (Option.exists(state.held, ({ at }) => now - at >= Duration.toMillis(FLUSH_INTERVAL))) {
+      releaseHeld();
+    }
+  };
+
   const flush = oneBatchAtATime.withPermits(1)(
     Effect.gen(function* () {
-      yield* Effect.sync(sampleFrames);
+      yield* Effect.sync(() => {
+        releaseOverdue();
+        sampleFrames();
+      });
       const pending = yield* Queue.clear(queue);
       const now = yield* Clock.currentTimeMillis;
       const byToken = Arr.groupBy(pending, (each) => each.playback.started.token);
@@ -275,5 +467,5 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
     ),
   );
 
-  return { record: note, close } satisfies Recorder;
+  return { record: note, intent, reached, close } satisfies Recorder;
 });

@@ -198,6 +198,7 @@ function PlayerSession({
         });
       },
       quality: startQuality,
+      intentAt: Date.now(),
     });
 
     setController(created);

@@ -292,12 +292,14 @@ const SEEK_FRACTION = 0.8;
 
 const PAST_THE_HELD_SEGMENTS_SECONDS = 100;
 
-const latestWebTimeline = async () => {
+const DRIFT_SAMPLED_PAST_SECONDS = 12;
+
+const latestWebTimeline = async (measuredDrift = false) => {
   const [session] = await owner.sdk.media("diagnostics.sessions", {});
 
   if (session === undefined || session.platform !== "web") return null;
 
-  return owner.sdk.media("diagnostics.playback", { sessionId: session.sessionId });
+  return owner.sdk.media("diagnostics.playback", { sessionId: session.sessionId, measuredDrift });
 };
 
 const activeRung = (target: Page) =>
@@ -745,6 +747,49 @@ test("an MPEG-TS file remuxes to HLS", async () => {
   await revealControls(page);
   await page.getByRole("button", { name: "Stream info" }).click();
   await expect(activeRung(page)).toHaveText("Remux");
+});
+
+test("the playback timeline splits startup by stage, names the audio, and samples drift", async () => {
+  await playFromStart(MOVIES.remux, "remux");
+  await expectPlayingPast(page, DRIFT_SAMPLED_PAST_SECONDS, 45_000);
+
+  await expect
+    .poll(async () => (await latestWebTimeline(true))?.drift.status ?? null, { timeout: 30_000 })
+    .toBe("measured");
+
+  const diagnostics = await latestWebTimeline(true);
+  const entries = diagnostics?.entries ?? [];
+
+  const stages = entries.flatMap((entry) =>
+    entry.kind === "startup" && entry.details["startupMs"] !== undefined
+      ? [
+          ["negotiatedMs", "manifestLoadedMs", "firstFragmentMs", "firstFrameMs"].map((stage) =>
+            Number(entry.details[stage]),
+          ),
+        ]
+      : [],
+  );
+
+  const [negotiated = NaN, manifest = NaN, fragment = NaN, frame = NaN] = stages[0] ?? [];
+
+  expect(stages, "one startup with every stage").toHaveLength(1);
+  expect(negotiated).toBeGreaterThan(0);
+  expect(manifest).toBeGreaterThanOrEqual(negotiated);
+  expect(fragment).toBeGreaterThanOrEqual(manifest);
+  expect(frame).toBeGreaterThanOrEqual(fragment);
+  expect(
+    entries.filter((entry) => entry.kind === "startup" && entry.details["index"] !== undefined)
+      .length,
+    "the first segment loads",
+  ).toBeGreaterThan(0);
+  expect(
+    entries.find((entry) => entry.kind === "player-attached")?.details["audioCodec"],
+  ).toBeTruthy();
+  expect(diagnostics?.drift).toMatchObject({
+    status: "measured",
+    method: "video-frame-vs-media-clock",
+  });
+  expect((await latestWebTimeline(false))?.drift.status).toBe("not-measured");
 });
 
 test("a stall while segments are held back reaches the playback timeline", async () => {
