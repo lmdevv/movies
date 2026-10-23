@@ -1365,7 +1365,7 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
     );
 
     it.effect(
-      "keeps a member's real failures at WARN however many expired tokens are replayed",
+      "keeps a member's real failures at WARN, in the replayed session too, however many expired tokens are replayed",
       () =>
         Effect.gen(function* () {
           const server = yield* MediaTestServer.Service;
@@ -1386,19 +1386,24 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
             }
           }
 
-          const live = yield* get(
-            `${server.baseUrl}/media/hls/${UNKNOWN_STREAM}/1/0.m4s?token=${signTestToken({ fid: "file_1", sid: "after-replay" })}`,
-          );
+          for (const sid of ["after-replay", "replayed-0"]) {
+            const live = yield* get(
+              `${server.baseUrl}/media/hls/${UNKNOWN_STREAM}/1/99.m4s?token=${signTestToken({ fid: "file_1", sid })}`,
+            );
 
-          assert.strictEqual(live.status, 404);
+            assert.strictEqual(live.status, 404);
 
-          assert.deepStrictEqual(
-            server
-              .logged()
-              .filter((entry) => entry.annotations["sessionId"] === "after-replay")
-              .map((entry) => [entry.message, entry.level]),
-            [["MediaRoutes.request_failed", "WARN"]],
-          );
+            assert.deepStrictEqual(
+              server
+                .logged()
+                .filter(
+                  (entry) =>
+                    entry.annotations["sessionId"] === sid && entry.annotations["status"] === 404,
+                )
+                .map((entry) => [entry.message, entry.level]),
+              [["MediaRoutes.request_failed", "WARN"]],
+            );
+          }
         }),
     );
 

@@ -8,16 +8,16 @@ const SESSION_BUDGET = { burst: 30, perSecond: 0.5 };
 const USER_BUDGET = { burst: 60, perSecond: 1 };
 
 /**
- * What a failure is charged to besides its session: an account's own failures, or refusals of an
- * authentic token that expired or is for another purpose. Anyone holding an old leaked token can
- * replay it, so its refusals get an account bucket of their own and never use up the budget of
- * the account's real failures.
+ * Whether a failure is the account's own, or a refusal of an authentic token that expired or is for
+ * another purpose. Anyone holding an old leaked token can replay it while its session is still
+ * renewed, so refusals get session and account buckets of their own and never use up the budget of
+ * the session's or the account's real failures.
  */
 export type FailureKind = "failure" | "token-refused";
 
-const ACCOUNT_BUCKETS: Record<FailureKind, string> = {
-  failure: "user",
-  "token-refused": "refused",
+const BUCKETS: Record<FailureKind, { readonly session: string; readonly account: string }> = {
+  failure: { session: "session", account: "user" },
+  "token-refused": { session: "refused-session", account: "refused" },
 };
 
 interface Suppressed {
@@ -47,8 +47,8 @@ export const makeFailureBudget = (): FailureBudget => {
     allow: ({ sessionId, userId }, kind, now) => {
       const wait = take(
         [
-          [`session\u0000${sessionId}`, SESSION_BUDGET],
-          [`${ACCOUNT_BUCKETS[kind]}\u0000${userId}`, USER_BUDGET],
+          [`${BUCKETS[kind].session}\u0000${sessionId}`, SESSION_BUDGET],
+          [`${BUCKETS[kind].account}\u0000${userId}`, USER_BUDGET],
         ],
         now,
       );
