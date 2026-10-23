@@ -10,6 +10,7 @@ import { NotFoundPage, RouteErrorPage } from "./components/shell/route-states";
 import { ENV, MEDIA_BASE_URL } from "./env";
 import { parseSearch, stringifySearch } from "./lib/search-params";
 import { routeTree } from "./routeTree.gen";
+import { ReportUnhandledErrors } from "./session/error-reporting";
 import { ProfileChoiceProvider } from "./session/profile-choice";
 
 const convex = new ConvexReactClient(ENV.VITE_CONVEX_URL);
@@ -31,6 +32,7 @@ const router = createRouter({
   Wrap: function Providers({ children }: { readonly children: ReactNode }) {
     return (
       <MoviesProvider client={convex} storage={window.localStorage} mediaUrl={MEDIA_BASE_URL}>
+        <ReportUnhandledErrors />
         <ProfileChoiceProvider>{children}</ProfileChoiceProvider>
       </MoviesProvider>
     );
