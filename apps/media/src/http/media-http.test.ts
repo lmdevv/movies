@@ -135,41 +135,33 @@ const negotiated = Effect.fn(function* (body: Parameters<typeof negotiate>[0]) {
   return yield* decodeNegotiation(result.body).pipe(Effect.orDie);
 });
 
-const probeBytes = Effect.fn(function* (data: Uint8Array) {
+const ffprobeBytes = Effect.fn(function* (
+  data: Uint8Array,
+  suffix: string,
+  args: ReadonlyArray<string>,
+) {
   const fs = yield* FileSystem.FileSystem;
   const tools = yield* MediaTools.Service;
-  const file = yield* fs.makeTempFileScoped({ suffix: ".mp4" });
+  const file = yield* fs.makeTempFileScoped({ suffix });
 
   yield* fs.writeFile(file, data);
 
-  const output = yield* tools.ffprobe([
-    "-v",
-    "error",
+  return { file, output: yield* tools.ffprobe(["-v", "error", ...args, file]) };
+});
+
+const probeBytes = Effect.fn(function* (data: Uint8Array) {
+  const { file, output } = yield* ffprobeBytes(data, ".mp4", [
     "-print_format",
     "json",
     "-show_format",
     "-show_streams",
-    file,
   ]);
 
   return yield* parseFfprobeJson(output, file);
 });
 
 const probeImage = Effect.fn(function* (data: Uint8Array) {
-  const fs = yield* FileSystem.FileSystem;
-  const tools = yield* MediaTools.Service;
-  const file = yield* fs.makeTempFileScoped({ suffix: ".jpg" });
-
-  yield* fs.writeFile(file, data);
-
-  const output = yield* tools.ffprobe([
-    "-v",
-    "error",
-    "-print_format",
-    "json",
-    "-show_streams",
-    file,
-  ]);
+  const { output } = yield* ffprobeBytes(data, ".jpg", ["-print_format", "json", "-show_streams"]);
 
   return yield* Schema.decodeEffect(
     Schema.fromJsonString(
@@ -201,31 +193,34 @@ const decodeVideoPackets = Schema.decodeEffect(
   ),
 );
 
-const videoSpan = Effect.fn(function* (data: Uint8Array) {
-  const fs = yield* FileSystem.FileSystem;
-  const tools = yield* MediaTools.Service;
-  const file = yield* fs.makeTempFileScoped({ suffix: ".mp4" });
-
-  yield* fs.writeFile(file, data);
-
-  const output = yield* tools.ffprobe([
-    "-v",
-    "error",
+const videoPackets = Effect.fn(function* (data: Uint8Array) {
+  const { output } = yield* ffprobeBytes(data, ".mp4", [
     "-select_streams",
     "v:0",
     "-show_entries",
     "packet=pts_time,duration_time",
     "-of",
     "json",
-    file,
   ]);
 
-  const { packets } = yield* decodeVideoPackets(output).pipe(Effect.orDie);
+  return (yield* decodeVideoPackets(output).pipe(Effect.orDie)).packets;
+});
 
-  return {
-    start: Math.min(...packets.map((packet) => packet.pts_time)),
-    end: Math.max(...packets.map((packet) => packet.pts_time + packet.duration_time)),
-  };
+const spanOf = (
+  packets: ReadonlyArray<{ readonly pts_time: number; readonly duration_time: number }>,
+) => ({
+  start: Math.min(...packets.map((packet) => packet.pts_time)),
+  end: Math.max(...packets.map((packet) => packet.pts_time + packet.duration_time)),
+});
+
+const playlistSegments = Effect.fn(function* (playlistUrl: string) {
+  const text = yield* (yield* get(playlistUrl)).text.pipe(Effect.orDie);
+  const durations = [...text.matchAll(/#EXTINF:([\d.]+),/g)].map((match) => Number(match[1]));
+
+  return durations.map((duration, index) => ({
+    start: durations.slice(0, index).reduce((total, previous) => total + previous, 0),
+    duration,
+  }));
 });
 
 const concat = (...parts: ReadonlyArray<Uint8Array>): Uint8Array => {
@@ -462,24 +457,19 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const frame = 1 / 24;
 
         const segmentMatches = Effect.fn(function* (playlistUrl: string, position: number) {
-          const text = yield* (yield* get(playlistUrl)).text.pipe(Effect.orDie);
-
-          const durations = [...text.matchAll(/#EXTINF:([\d.]+),/g)].map((match) =>
-            Number(match[1]),
-          );
-
-          const starts = durations.map((_, index) =>
-            durations.slice(0, index).reduce((total, duration) => total + duration, 0),
-          );
-
-          const index = starts.findLastIndex((start) => start <= position);
+          const segments = yield* playlistSegments(playlistUrl);
+          const index = segments.findLastIndex((segment) => segment.start <= position);
+          const planned = segments[index];
           const { init, segment } = yield* fetchSegment(playlistUrl, index);
 
           assert.strictEqual(segment.status, 200);
-          const span = yield* videoSpan(concat(yield* bytes(init), yield* bytes(segment)));
 
-          assert.approximately(span.start, starts[index] ?? 0, frame);
-          assert.approximately(span.end - span.start, durations[index] ?? 0, frame);
+          const span = spanOf(
+            yield* videoPackets(concat(yield* bytes(init), yield* bytes(segment))),
+          );
+
+          assert.approximately(span.start, planned?.start ?? 0, frame);
+          assert.approximately(span.end - span.start, planned?.duration ?? 0, frame);
         });
 
         const resumed = yield* negotiated({ token, capabilities: withDolbyAudio, startSeconds: 7 });
