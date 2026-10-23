@@ -69,15 +69,21 @@ export const attached = (playback: Playback, engine: PlayerEngine): PlayerObserv
   });
 
 /**
- * The renewal of the playback token, when renegotiating `before` into `after` renewed it at `now`,
- * with how long before or after the old token's expiry that happened.
+ * The renewal of the playback token, when `after` continues `before`'s session with another token
+ * at `now`, with how long before or after the old token's expiry that happened.
  */
-export const tokenRenewal = (
+const tokenRenewal = (
   before: Playback,
   after: Playback,
   now: number,
 ): Option.Option<PlayerObservation> => {
-  if (after.started.token === before.started.token) return Option.none();
+  if (
+    after.started.sessionId !== before.started.sessionId ||
+    after.started.token === before.started.token
+  ) {
+    return Option.none();
+  }
+
   const seconds = Math.round((before.started.tokenExpiresAt - now) / 1000);
 
   return Option.some(
@@ -152,7 +158,8 @@ export interface Options {
   /**
    * The playback playing now, if one does. An event goes out with the token of the playback that
    * played when it happened, or else the last one that played: a token stays good for its
-   * session's last events once the session ended.
+   * session's last events once the session ended. Another token in the same session is reported
+   * as a `renew-token` recovery, with the new token.
    */
   readonly playback: () => Option.Option<Playback>;
   /** Seconds the player holds ahead of its position. */
@@ -276,6 +283,26 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   const playbackNow = (): Option.Option<Playback> =>
     Option.orElse(options.playback(), () => state.lastPlayback);
 
+  /** The playback an event goes out with now, after noting a token renewal since the last one. */
+  const resolvePlayback = (): Option.Option<Playback> => {
+    const playback = playbackNow();
+
+    if (Option.isNone(playback)) return playback;
+    const at = clock.currentTimeMillisUnsafe();
+
+    const renewal = Option.flatMap(state.lastPlayback, (last) =>
+      tokenRenewal(last, playback.value, at),
+    );
+
+    state.lastPlayback = playback;
+
+    if (Option.isSome(renewal)) {
+      Queue.offerUnsafe(queue, { observation: renewal.value, at, playback: playback.value });
+    }
+
+    return playback;
+  };
+
   const numbered = (observation: PlayerObservation, playback: Playback): PlayerObservation => {
     if (!Predicate.isTagged(observation, "FragmentLoaded")) return observation;
     const { sessionId } = playback.started;
@@ -293,10 +320,9 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   };
 
   const note = (observation: PlayerObservation): void => {
-    const playback = playbackNow();
+    const playback = resolvePlayback();
 
     if (Option.isNone(playback)) return;
-    state.lastPlayback = playback;
     Queue.offerUnsafe(queue, {
       observation: numbered(observation, playback.value),
       at: clock.currentTimeMillisUnsafe(),
@@ -329,10 +355,9 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   };
 
   const endStartup = (ended: Omit<EndedStartup, "at" | "playback">): void => {
-    const playback = playbackNow();
+    const playback = resolvePlayback();
 
     if (Option.isNone(playback)) return;
-    state.lastPlayback = playback;
     const startup = { ...ended, at: clock.currentTimeMillisUnsafe(), playback: playback.value };
 
     // A player can say it plays before it shows a frame, so the first frame may still come.

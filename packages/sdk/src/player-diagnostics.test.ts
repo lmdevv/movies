@@ -14,7 +14,7 @@ import { MediaOrigin } from "./media-http";
 import type { Playback } from "./playback";
 import type { PlayerEvent, PlayerPort } from "./room-sync/player-port";
 import type { FrameCounts } from "./player-diagnostics";
-import { attached, reportDiagnostics, tokenRenewal } from "./player-diagnostics";
+import { attached, reportDiagnostics } from "./player-diagnostics";
 import { makeFakePlayer } from "./testing/fake-player";
 
 const batches: Array<ClientDiagnosticsRequest> = [];
@@ -135,6 +135,9 @@ const recovery = (reason: string) =>
   PlayerObservation.cases.Recovery.make({ action: "new-session", reason });
 
 const received = () => batches.flatMap((batch) => batch.events);
+
+const renewal = (reason: string) =>
+  PlayerObservation.cases.Recovery.make({ action: "renew-token", reason });
 
 const makeElement = () => {
   const listeners = new Set<(event: PlayerEvent) => void>();
@@ -272,8 +275,8 @@ describe("playback diagnostics", () => {
       Effect.gen(function* () {
         const player = yield* makeFakePlayer(0);
         const scope = yield* Scope.make();
-        const first = playbackAt(base, "v1.first.session");
-        const second = playbackAt(base, "v1.second.session");
+        const first = playbackAt(base, "v1.first.session", "session-1");
+        const second = playbackAt(base, "v1.second.session", "session-2");
         let playing = Option.some(first);
 
         const recorder = yield* reportDiagnostics(player, {
@@ -298,6 +301,62 @@ describe("playback diagnostics", () => {
         ).toMatchObject([
           ["v1.first.session", [{ reason: "first" }, { reason: "between" }]],
           ["v1.second.session", [{ reason: "second" }]],
+        ]);
+      }),
+    ));
+
+  it("notes a token renewed in the same session, sent with the new token", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const player = yield* makeFakePlayer(0);
+        const scope = yield* Scope.make();
+        const before = playbackAt(base, "v1.old.token", "session-1");
+        const renewed = playbackAt(base, "v1.new.token", "session-1");
+        const late = playbackAt(base, "v1.late.token", "session-1");
+        const next = playbackAt(base, "v1.next.session", "session-2");
+        const expiresAt = before.started.tokenExpiresAt;
+        let playing = Option.some(before);
+
+        yield* TestClock.setTime(expiresAt - 240_000);
+
+        const recorder = yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => playing,
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        recorder.record(recovery("old"));
+        playing = Option.some(renewed);
+        recorder.record(recovery("renewed"));
+        recorder.record(recovery("again"));
+        yield* TestClock.adjust(270_000);
+        playing = Option.some(late);
+        recorder.record(recovery("late"));
+        playing = Option.some(next);
+        recorder.record(recovery("next"));
+        yield* Scope.close(scope, Exit.void);
+
+        expect(
+          batches.map((batch) => [
+            Redacted.value(batch.token),
+            batch.events.map((event) => event.observation),
+          ]),
+        ).toStrictEqual([
+          ["v1.old.token", [recovery("old")]],
+          [
+            "v1.new.token",
+            [
+              renewal("Renewed the playback token 240 s before it expired"),
+              recovery("renewed"),
+              recovery("again"),
+            ],
+          ],
+          [
+            "v1.late.token",
+            [renewal("Renewed the playback token 30 s after it expired"), recovery("late")],
+          ],
+          ["v1.next.session", [recovery("next")]],
         ]);
       }),
     ));
@@ -907,32 +966,6 @@ describe("player observations", () => {
     );
     expect(attached(withAudio(undefined), "html-video")).toStrictEqual(
       PlayerObservation.cases.Attached.make({ mode: "remux", engine: "html-video" }),
-    );
-  });
-
-  it("records a token renewal with how long before or after expiry it came", () => {
-    const before = playbackAt(base, "v1.old.token");
-    const after = playbackAt(base, "v1.new.token");
-    const expiresAt = before.started.tokenExpiresAt;
-
-    expect(tokenRenewal(before, after, expiresAt - 240_000)).toStrictEqual(
-      Option.some(
-        PlayerObservation.cases.Recovery.make({
-          action: "renew-token",
-          reason: "Renewed the playback token 240 s before it expired",
-        }),
-      ),
-    );
-    expect(tokenRenewal(before, after, expiresAt + 30_000)).toStrictEqual(
-      Option.some(
-        PlayerObservation.cases.Recovery.make({
-          action: "renew-token",
-          reason: "Renewed the playback token 30 s after it expired",
-        }),
-      ),
-    );
-    expect(tokenRenewal(before, playbackAt(base, "v1.old.token"), expiresAt)).toStrictEqual(
-      Option.none(),
     );
   });
 });

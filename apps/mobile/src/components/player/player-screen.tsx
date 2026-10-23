@@ -78,6 +78,8 @@ interface Attempt {
   readonly key: number;
   readonly startAtMs: number | null;
   readonly failures: number;
+  /** The play intent the attempt's startup counts from, in milliseconds since the epoch. */
+  readonly intentAt: number | null;
 }
 
 const IDLE_SNAPSHOT: PlayerSnapshot = {
@@ -139,8 +141,14 @@ interface StartChoices {
 }
 
 type Restart =
-  | { readonly kind: "again"; readonly failed: boolean }
-  | { readonly kind: "at"; readonly positionMs: number; readonly choices: StartChoices };
+  /** `intentAt` when the viewer asked to try again; the attempt's own intent stands otherwise. */
+  | { readonly kind: "again"; readonly failed: boolean; readonly intentAt?: number }
+  | {
+      readonly kind: "at";
+      readonly positionMs: number;
+      readonly choices: StartChoices;
+      readonly intentAt: number | null;
+    };
 
 interface PlayerSessionProps {
   readonly params: WatchParams;
@@ -185,12 +193,13 @@ function PlayerSession({
 
   useEffect(() => {
     const created = new PlayerController(runtime, {
-      onNewSession: (positionMs) => {
+      onNewSession: (positionMs, intentAt) => {
         const ended = created.getSnapshot();
 
         restart.current({
           kind: "at",
           positionMs,
+          intentAt,
           choices: {
             quality: ended.quality,
             tracks: { audioStreamIndex: ended.audioStreamIndex, subtitleId: ended.subtitleId },
@@ -198,7 +207,7 @@ function PlayerSession({
         });
       },
       quality: startQuality,
-      intentAt: Date.now(),
+      intentAt: attempt.intentAt,
     });
 
     setController(created);
@@ -207,7 +216,7 @@ function PlayerSession({
       created.dispose();
       setController(null);
     };
-  }, [runtime, startQuality]);
+  }, [runtime, startQuality, attempt.intentAt]);
 
   const request = useMemo(
     (): Playback.PlaybackRequest => ({
@@ -839,8 +848,11 @@ function PlayerSession({
         <StoppedPanel
           stop={stopped}
           onRetry={() => {
-            if (snapshot.playback === null) restart.current({ kind: "again", failed: false });
-            else controller?.retry();
+            if (snapshot.playback === null) {
+              restart.current({ kind: "again", failed: false, intentAt: Date.now() });
+            } else {
+              controller?.retry();
+            }
           }}
           onLowerQuality={snapshot.playback === null ? null : () => controller?.tryLowerQuality()}
           onClose={close}
@@ -1008,6 +1020,7 @@ export function PlayerScreen({ params }: { readonly params: WatchParams }) {
       key: 0,
       startAtMs: at,
       failures: 0,
+      intentAt: Date.now(),
     };
   });
 
@@ -1016,8 +1029,18 @@ export function PlayerScreen({ params }: { readonly params: WatchParams }) {
 
     setAttempt((current) =>
       next.kind === "again"
-        ? { ...current, key: current.key + 1, failures: next.failed ? current.failures + 1 : 0 }
-        : { key: current.key + 1, startAtMs: next.positionMs, failures: 0 },
+        ? {
+            ...current,
+            key: current.key + 1,
+            failures: next.failed ? current.failures + 1 : 0,
+            intentAt: next.intentAt ?? current.intentAt,
+          }
+        : {
+            key: current.key + 1,
+            startAtMs: next.positionMs,
+            failures: 0,
+            intentAt: next.intentAt,
+          },
     );
   }, []);
 
@@ -1037,6 +1060,7 @@ export function PlayerScreen({ params }: { readonly params: WatchParams }) {
           step={data.step}
           onPlay={(quality) => {
             if (quality !== null) setChoices((current) => ({ ...current, quality }));
+            setAttempt((current) => ({ ...current, intentAt: Date.now() }));
             data.allow();
           }}
         />

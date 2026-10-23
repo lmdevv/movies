@@ -451,18 +451,6 @@ export class PlaybackController {
     return this.#loading?.play ?? !this.#element.paused;
   }
 
-  /** Plays `next` from now on; a renewed token is reported with the new token, which the service accepts. */
-  #replacePlayback(next: Playback.Playback): void {
-    const previous = this.#playback;
-
-    this.#playback = next;
-
-    if (previous === null) return;
-    const renewal = PlayerDiagnostics.tokenRenewal(previous, next, Date.now());
-
-    if (Option.isSome(renewal)) this.#observe(renewal.value);
-  }
-
   async #load(playback: Playback.Playback, play: boolean, chosen: StreamChoice): Promise<void> {
     this.#detach();
 
@@ -471,7 +459,7 @@ export class PlaybackController {
 
     this.#loading = { atMs: stream.startSeconds * 1000, play };
     this.#switching = null;
-    this.#replacePlayback(playback);
+    this.#playback = playback;
     this.#update({
       stream,
       started: playback.started,
@@ -722,7 +710,6 @@ export class PlaybackController {
   async #restart(positionMs: number, play = true): Promise<void> {
     const ticket = ++this.#negotiation;
 
-    this.#diagnostics?.recorder.intent();
     this.#detach();
     this.#playback = null;
     await this.#closeReporting();
@@ -854,6 +841,7 @@ export class PlaybackController {
       subtitleId: null,
       phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.2 }),
     });
+    this.#diagnostics?.recorder.intent();
     void this.#restart(positionMs, play);
 
     return true;

@@ -101,12 +101,19 @@ const inGeneration = (
 
 /** What the controller needs from the screen. */
 export interface PlayerControllerOptions {
-  /** Start a new playback session at `positionMs`: the old one ended elsewhere. */
-  readonly onNewSession: (positionMs: number) => void;
+  /**
+   * Start a new playback session at `positionMs`: the old one ended elsewhere. `intentAt` is the
+   * play intent its startup counts from: the viewer's while the old session showed no frame or the
+   * viewer retried, else none.
+   */
+  readonly onNewSession: (positionMs: number, intentAt: number | null) => void;
   /** The quality to start at, from App Settings' Streaming Quality. */
   readonly quality: QualityChoice;
-  /** When the viewer asked to play, in milliseconds since the epoch; startup stages count from it. */
-  readonly intentAt: number;
+  /**
+   * When the viewer asked to play, in milliseconds since the epoch; startup stages count from it.
+   * None for a session the player started on its own after one played.
+   */
+  readonly intentAt: number | null;
 }
 
 /** Plays one session's streams. Create it, `start` it with the session, and `dispose` it. */
@@ -225,7 +232,8 @@ export class PlayerController {
 
     if (Exit.isSuccess(started)) {
       this.#diagnostics = { recorder: started.value, scope };
-      started.value.intent(this.#options.intentAt);
+
+      if (this.#options.intentAt !== null) started.value.intent(this.#options.intentAt);
       started.value.reached("negotiated");
     }
   }
@@ -254,18 +262,6 @@ export class PlayerController {
   seek(positionMs: number): void {
     this.#seeks += 1;
     this.port.seek(positionMs);
-  }
-
-  /** Plays `next` from now on; a renewed token is reported with the new token, which the service accepts. */
-  #replacePlayback(next: Playback.Playback): void {
-    const previous = this.#playback;
-
-    this.#playback = next;
-
-    if (previous === null) return;
-    const renewal = PlayerDiagnostics.tokenRenewal(previous, next, Date.now());
-
-    if (Option.isSome(renewal)) this.#observe(renewal.value);
   }
 
   #load(playback: Playback.Playback, positionMs: number): void {
@@ -308,7 +304,7 @@ export class PlayerController {
 
     this.#retire(this.#video);
     this.#video = video;
-    this.#replacePlayback(playback);
+    this.#playback = playback;
     this.#generationStart = positionMs / 1000;
     this.port.attach(
       video,
@@ -447,7 +443,7 @@ export class PlayerController {
     const playback = this.#playback;
 
     if (playback === null || PlaybackStep.$is("NewSession")(step)) {
-      this.#options.onNewSession(positionMs);
+      this.#options.onNewSession(positionMs, this.#frameShown ? null : this.#options.intentAt);
 
       return;
     }
@@ -668,11 +664,12 @@ export class PlayerController {
     const positionMs = this.port.positionMs();
 
     if (this.#playback === null) {
-      this.#options.onNewSession(positionMs);
+      this.#options.onNewSession(positionMs, Date.now());
 
       return;
     }
 
+    this.#diagnostics?.recorder.intent();
     void this.port.play();
     void this.#renegotiate(positionMs);
   }
