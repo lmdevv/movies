@@ -158,6 +158,36 @@ export interface AudioRendition extends Schema.Schema.Type<typeof AudioRendition
 /** The largest drift sample the service accepts, in milliseconds either way. */
 export const MAX_DRIFT_MS = 60_000;
 
+/** The most drift samples one `DriftSampled` report summarizes. */
+export const DRIFT_WINDOW_SAMPLES = 6;
+
+const DriftMs = Schema.Int.check(
+  Schema.isBetween({ minimum: -MAX_DRIFT_MS, maximum: MAX_DRIFT_MS }),
+);
+
+/** How many drift samples there were, their median, and the one furthest from zero. */
+export interface DriftSummary {
+  readonly samples: number;
+  readonly medianMs: number;
+  readonly worstMs: number;
+}
+
+/** The summary of drift samples `values`, in milliseconds; the median is rounded. */
+export const summarizeDrift = (values: readonly [number, ...Array<number>]): DriftSummary => {
+  const sorted = values.toSorted((left, right) => left - right);
+
+  const centre = sorted.slice(
+    Math.floor((sorted.length - 1) / 2),
+    Math.floor(sorted.length / 2) + 1,
+  );
+
+  return {
+    samples: values.length,
+    medianMs: Math.round(centre.reduce((total, ms) => total + ms, 0) / centre.length),
+    worstMs: values.reduce((worst, ms) => (Math.abs(ms) > Math.abs(worst) ? ms : worst)),
+  };
+};
+
 /** Something a player saw. */
 export const PlayerObservation = Schema.TaggedUnion({
   /** A stream was attached to the player, with its audio rendition when the player knows it. */
@@ -212,15 +242,17 @@ export const PlayerObservation = Schema.TaggedUnion({
    */
   Recovery: { action: RecoveryAction, reason: Schema.String.check(Schema.isMaxLength(120)) },
   /**
-   * One audio/video drift sample while playing: how far the media time of the video frame being
-   * shown is ahead of the media clock at the moment it shows, in milliseconds. Browsers drive the
-   * media clock from the audio output, so a negative value means the picture trails the sound.
-   * Players without frame presentation times (AVPlayer through expo-video) send none.
+   * Audio/video drift over one window of samples while playing (`DRIFT_WINDOW_SAMPLES` at most).
+   * A sample is how far the media time of the video frame being shown is ahead of the media clock
+   * at the moment it shows, in milliseconds. Browsers drive the media clock from the audio output,
+   * so a negative value means the picture trails the sound. Players without frame presentation
+   * times (AVPlayer through expo-video) send none.
    */
   DriftSampled: {
-    videoAheadMs: Schema.Int.check(
-      Schema.isBetween({ minimum: -MAX_DRIFT_MS, maximum: MAX_DRIFT_MS }),
-    ),
+    samples: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: DRIFT_WINDOW_SAMPLES })),
+    medianMs: DriftMs,
+    /** The sample furthest from zero, with its sign. */
+    worstMs: DriftMs,
   },
 });
 
@@ -336,7 +368,8 @@ export const DriftNotMeasured = Schema.Struct({
 
 /**
  * Drift from the player's `DriftSampled` reports: the video frame shown against the media clock,
- * in milliseconds, negative when the picture trails the sound.
+ * in milliseconds, negative when the picture trails the sound. `medianMs` is the median of the
+ * reports' medians.
  */
 export const DriftMeasured = Schema.Struct({
   status: Schema.Literal("measured"),

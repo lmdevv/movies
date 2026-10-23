@@ -308,25 +308,88 @@ describe("startup and audio evidence", () => {
     );
   });
 
-  it("lists the session's first segment loads as startup, one based", () => {
+  it("folds the session's first segment loads into its startup, slow ones included", () => {
+    const load = (index: number, occurredMs: number, elapsedMs: number) =>
+      player(
+        elapsedMs >= 1000 ? LogEvent.fragmentLoaded : LogEvent.startupFragment,
+        occurredMs + 500,
+        occurredMs,
+        { streamId: "s1", segment: index, elapsedMs, firstByteMs: 20, bytes: 400_000, index },
+        elapsedMs >= 1000 ? "WARN" : "INFO",
+      );
+
+    const timeline = timelineWith([
+      load(0, 900, 240),
+      load(1, 1000, 1400),
+      load(2, 1500, 60),
+      player(LogEvent.startupEnded, 3000, 1600, {
+        streamId: "s1",
+        positionSeconds: 0,
+        startupMs: 1200,
+        endedBy: "playing",
+      }),
+      load(3, 2000, 80),
+    ]);
+
+    const startups = timeline.entries.filter((entry) => entry.kind === "startup");
+
+    assert.deepStrictEqual(
+      startups.map((entry) => entry.summary),
+      [
+        "Started playing after 1.2 s; first 4 segment loads: median 160 ms, slowest 1.4 s (segment 1)",
+      ],
+    );
+    assert.deepStrictEqual(
+      startups[0]?.details["segmentLoads"],
+      [0, 1, 2, 3].map((index) => ({
+        index,
+        segment: index,
+        elapsedMs: [240, 1400, 60, 80][index] ?? 0,
+        firstByteMs: 20,
+        bytes: 400_000,
+      })),
+    );
+    assert.strictEqual(timeline.counts.slowFragments, 1);
+    assert.strictEqual(
+      timeline.entries.filter((entry) => entry.kind === "slow-fragment").length,
+      1,
+    );
+  });
+
+  it("says so when segment loads came in but no startup ended", () => {
     const timeline = timelineWith([
       player(LogEvent.startupFragment, 2000, 900, {
         streamId: "s1",
-        segment: 3,
+        segment: 0,
         elapsedMs: 240,
         firstByteMs: 80,
         bytes: 400_000,
-        index: 3,
+        index: 0,
       }),
     ]);
 
-    const load = timeline.entries.find((entry) => entry.kind === "startup");
+    assert.isFalse(timeline.entries.some((entry) => entry.kind === "startup"));
+    assert.isTrue(timeline.missing.some((gap) => gap.includes("1 segment load during startup")));
+  });
 
-    assert.deepStrictEqual(
-      [load?.source, load?.summary],
-      ["player", "Segment 3 loaded in 240 ms, first byte after 80 ms (load 4 of the session)"],
-    );
-    assert.strictEqual(timeline.counts.slowFragments, 0);
+  it("counts no routine token renewal as a recovery, though the timeline shows it", () => {
+    const timeline = timelineWith([
+      player(LogEvent.recovery, 2000, 900, {
+        streamId: "s1",
+        action: "renew-token",
+        reason: "Renewed the playback token 300 s before it expired",
+      }),
+      player(
+        LogEvent.recovery,
+        3000,
+        1900,
+        { streamId: "s1", action: "renegotiate", reason: "Stream gone" },
+        "WARN",
+      ),
+    ]);
+
+    assert.strictEqual(timeline.counts.recoveries, 1);
+    assert.strictEqual(timeline.entries.filter((entry) => entry.kind === "recovery").length, 2);
   });
 
   it("tells the audio a player attached with, when the player knows it", () => {
@@ -368,8 +431,13 @@ describe("startup and audio evidence", () => {
 });
 
 describe("audio/video drift", () => {
-  const sample = (occurredMs: number, videoAheadMs: number) =>
-    player(LogEvent.driftSampled, occurredMs + 500, occurredMs, { streamId: "s1", videoAheadMs });
+  const window = (occurredMs: number, samples: number, medianMs: number, worstMs: number) =>
+    player(LogEvent.driftSampled, occurredMs + 500, occurredMs, {
+      streamId: "s1",
+      samples,
+      medianMs,
+      worstMs,
+    });
 
   const attached = player(LogEvent.playerAttached, 5000, 100, {
     streamId: "s1",
@@ -377,29 +445,29 @@ describe("audio/video drift", () => {
     engine: "hls.js",
   });
 
-  it("measures drift from the player's samples: their median, and the worst with its sign", () => {
-    const odd = timelineWith([
-      attached,
-      ...[-12, -10, -41, -15, 3].map((ms, index) => sample(10_000 * (index + 1), ms)),
-    ]);
+  const windows = [
+    window(60_000, 6, -12, -41),
+    window(120_000, 6, -10, 25),
+    window(150_000, 3, -15, -15),
+  ];
 
-    const even = timelineWith([
-      attached,
-      ...[-10, -20, 30, -4].map((ms, index) => sample(10_000 * (index + 1), ms)),
-    ]);
+  it("measures drift from the player's windows: the median of their medians, and the worst", () => {
+    const odd = timelineWith([attached, ...windows]);
+
+    const even = timelineWith([attached, window(60_000, 6, -10, 30), window(120_000, 2, -20, -22)]);
 
     assert.deepStrictEqual(odd.drift, {
       status: "measured",
       method: "video-frame-vs-media-clock",
-      samples: 5,
+      samples: 15,
       medianMs: -12,
       worstMs: -41,
     });
     assert.deepStrictEqual(even.drift, {
       status: "measured",
       method: "video-frame-vs-media-clock",
-      samples: 4,
-      medianMs: -7,
+      samples: 8,
+      medianMs: -15,
       worstMs: 30,
     });
     assert.deepStrictEqual(
@@ -408,8 +476,8 @@ describe("audio/video drift", () => {
     );
   });
 
-  it("counts a player that sent only drift samples as a player that reported", () => {
-    const timeline = timelineWith([sample(10_000, -5)]);
+  it("counts a player that sent only drift windows as a player that reported", () => {
+    const timeline = timelineWith([window(60_000, 6, -5, -9)]);
 
     assert.strictEqual(timeline.drift.status, "measured");
     assert.isFalse(timeline.missing.some((gap) => gap.includes("player sent no diagnostics")));
@@ -435,15 +503,12 @@ describe("audio/video drift", () => {
   });
 
   it("hands a measured drift to a client before it as not measured, with its numbers", () => {
-    const measured = timelineWith([
-      attached,
-      ...[-12, -10, -41, -15, 3].map((ms, index) => sample(10_000 * (index + 1), ms)),
-    ]).drift;
+    const measured = timelineWith([attached, ...windows]).drift;
 
     assert.deepStrictEqual(driftFor(measured, false), {
       status: "not-measured",
       reason:
-        "This client predates measured drift; update it to see it. The player sampled it 5 times: median -12 ms, worst -41 ms (video frame against the media clock; negative means the picture trails the sound).",
+        "This client predates measured drift; update it to see it. The player sampled it 15 times: median -12 ms, worst -41 ms (video frame against the media clock; negative means the picture trails the sound).",
     });
     assert.deepStrictEqual(driftFor(measured, true), measured);
 

@@ -249,19 +249,29 @@ and newer [movies] progress is kept unless the source played the item more recen
   `startup` is how long the player waited for the session to first play, never a stall. Newer
   players split it in its `details`: `negotiatedMs`, `manifestLoadedMs`, `firstFragmentMs`, and
   `firstFrameMs`, each in milliseconds from the viewer's play intent; a stage the player did not
-  see is absent. The session's first 12 segment loads are `startup` entries too, with their load
-  number. `player-attached` names the audio the player got (`audioCodec`, `audioChannels`,
+  see is absent. The first `startup` entry also holds the session's first 12 segment loads in
+  `details.segmentLoads` (`index`, `segment`, `elapsedMs`, `firstByteMs`, `bytes`), with their
+  median and slowest in its summary; when no startup ended, `missing` says how many loads were
+  left out. `player-attached` names the audio the player got (`audioCodec`, `audioChannels`,
   `audioLanguage`) when it knows it. `buffering-started` and `buffering-ended` are the player's
-  own stalls after that; `slow-fragment` is hls.js waiting on a segment; `recovery` is the player
-  starting over, except `renew-token`, a routine renewal of the playback token that is no
-  warning.
-- The timeline never guesses. `drift` is `measured` only from browsers: `medianMs` and `worstMs`
-  over `samples` are the media time of the video frame on screen minus the media clock when it
-  showed, so a negative value means the picture trails the sound. Otherwise it is
-  `not-measured` with the reason: the iOS app (AVPlayer) cannot measure it, the browser sent no
-  samples, or the player sent no diagnostics. `missing` names what the logs cannot tell, such as
-  a player that sent no diagnostics (mpv and VLC send none) or a `LOG_LEVEL` above `info` that
-  keeps no `INFO` records. Say so rather than inferring a cause.
+  own stalls after that. `slow-fragment` is hls.js waiting a second or more on a segment, at
+  `WARN`, whether or not it is among the first 12. `recovery` is the player starting over, except
+  `renew-token`: a routine renewal of the playback token, at `INFO`, shown but not counted in
+  `counts.recoveries`.
+- The timeline never guesses. `drift` is `measured` only from browsers. The player takes a sample
+  every 10 s while it plays (none in the 2 s after it starts playing or seeks), and reports one
+  summary a minute. A sample is the media time of the video frame on screen minus the media clock
+  when it showed, so a negative value means the picture trails the sound. `samples` counts them,
+  `medianMs` is the median of the per-minute medians, and `worstMs` is the sample furthest from
+  zero, with its sign. Otherwise `drift` is `not-measured` with one of these reasons: the iOS app
+  cannot measure it (AVPlayer through expo-video exposes neither frame times nor its audio clock);
+  `LOG_LEVEL` is above `info`, which keeps no drift reports; the browser sent none (it lacks
+  `requestVideoFrameCallback`, it stopped before its first sample 10 s in, or its web app predates drift
+  sampling); or the player sent no diagnostics at all. A client that does not send
+  `measuredDrift` gets a measured drift as `not-measured`, with the numbers in the reason.
+  `missing` names what the logs cannot tell, such as a player that sent no diagnostics (mpv and
+  VLC send none) or a `LOG_LEVEL` above `info` that keeps no `INFO` records. Say so rather than
+  inferring a cause.
 - `movies logs` needs an admin session (`forbidden` otherwise) and the media service URL
   (`MOVIES_MEDIA_URL`). It prints for people by default; `--json` prints the NDJSON records for
   parsing. Records older than `LOG_RETENTION_DAYS` (14) are gone. When stderr says older records

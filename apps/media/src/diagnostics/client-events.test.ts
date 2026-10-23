@@ -377,13 +377,12 @@ describe("client diagnostics", () => {
       assert.deepStrictEqual(
         timeline.entries.map((entry) => [entry.kind, entry.level]),
         [
-          ["startup", "INFO"],
-          ["startup", "INFO"],
           ["slow-fragment", "WARN"],
           ["slow-fragment", "WARN"],
         ],
       );
       assert.strictEqual(timeline.counts.slowFragments, 2);
+      assert.isTrue(timeline.missing.some((gap) => gap.includes("3 segment loads during startup")));
     }),
   );
 
@@ -398,7 +397,7 @@ describe("client diagnostics", () => {
           [LogEvent.recovery, "WARN", "renegotiate"],
         ],
       );
-      assert.strictEqual(timelineFrom(logged).counts.recoveries, 2);
+      assert.strictEqual(timelineFrom(logged).counts.recoveries, 1);
       assert.strictEqual(sessionsOf(logged)[0]?.warnings, 1);
     }),
   );
@@ -423,7 +422,14 @@ describe("client diagnostics", () => {
             stages: { negotiatedMs: 400, firstFrameMs: 1900 },
           }),
         },
-        { ageMs: 0, observation: PlayerObservation.cases.DriftSampled.make({ videoAheadMs: -12 }) },
+        {
+          ageMs: 0,
+          observation: PlayerObservation.cases.DriftSampled.make({
+            samples: 6,
+            medianMs: -12,
+            worstMs: -41,
+          }),
+        },
       ]);
 
       assert.deepStrictEqual(
@@ -441,7 +447,7 @@ describe("client diagnostics", () => {
       });
       assert.deepInclude(logged[1]?.annotations, { negotiatedMs: 400, firstFrameMs: 1900 });
       assert.notProperty(logged[1]?.annotations, "manifestLoadedMs");
-      assert.strictEqual(logged[2]?.annotations["videoAheadMs"], -12);
+      assert.deepInclude(logged[2]?.annotations, { samples: 6, medianMs: -12, worstMs: -41 });
     }),
   );
 
@@ -501,7 +507,7 @@ describe("client diagnostics", () => {
           ],
         );
 
-        const added = ["audioCodec", "negotiatedMs", "firstFrameMs", "index", "videoAheadMs"];
+        const added = ["audioCodec", "negotiatedMs", "firstFrameMs", "index", "worstMs"];
 
         assert.isTrue(
           logged.every((entry) => added.every((key) => !(key in entry.annotations))),

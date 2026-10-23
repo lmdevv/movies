@@ -4,16 +4,18 @@ import {
   type DiagnosedSession,
   type DiagnosticsCounts,
   type Drift,
+  type DriftSummary,
   type LogRecord,
   type PlaybackDiagnostics,
   type TimelineEntry,
   type TimelineKind,
+  summarizeDrift,
 } from "@movies/contracts/diagnostics";
 import { PlaybackSessionId, UserId } from "@movies/contracts/ids";
 import { EpochMillis } from "@movies/contracts/units";
 import { LogLevel, Option, Predicate, type Schema } from "effect";
 
-import { LogEvent, SLOW_MS } from "./log-events.ts";
+import { LogEvent, SLOW_MS, STARTUP_FRAGMENTS } from "./log-events.ts";
 
 type Annotations = LogRecord["annotations"];
 
@@ -38,6 +40,12 @@ const duration = (value: Schema.Json | undefined): string => {
 
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${String(Math.round(ms))} ms`;
 };
+
+const plural = (count: number, one: string): string =>
+  `${String(count)} ${one}${count === 1 ? "" : "s"}`;
+
+const medianOf = (values: readonly [number, ...Array<number>]): number =>
+  summarizeDrift(values).medianMs;
 
 const pad = (part: number): string => String(part).padStart(2, "0");
 
@@ -184,15 +192,6 @@ const RULES = new Map<string, Rule>([
     },
   ],
   [
-    LogEvent.startupFragment,
-    {
-      kind: "startup",
-      source: "player",
-      summary: (fields) =>
-        `Segment ${text(fields["segment"])} loaded in ${duration(fields["elapsedMs"])}, first byte after ${duration(fields["firstByteMs"])} (load ${String(number(fields["index"]) + 1)} of the session)`,
-    },
-  ],
-  [
     LogEvent.bufferingStarted,
     {
       kind: "buffering-started",
@@ -336,7 +335,9 @@ const countsOf = (entries: ReadonlyArray<TimelineEntry>): DiagnosticsCounts => (
   slowSegments: countOf(entries, "slow-segment"),
   failedRequests: countOf(entries, "request-failed"),
   playerErrors: countOf(entries, "player-error"),
-  recoveries: countOf(entries, "recovery"),
+  recoveries: entries.filter(
+    (entry) => entry.kind === "recovery" && entry.details["action"] !== "renew-token",
+  ).length,
   slowFragments: countOf(entries, "slow-fragment"),
   droppedFrames: sumOf(entries, "dropped-frames", "dropped"),
 });
@@ -349,6 +350,7 @@ const platformOf = (records: ReadonlyArray<LogRecord>): ClientPlatform | null =>
 
 interface Keeping {
   readonly fromPlayer: boolean;
+  readonly unplacedLoads: number;
   readonly truncated: boolean;
   readonly logLevel: LogLevel.LogLevel;
   readonly suppressedFailures: number;
@@ -357,7 +359,7 @@ interface Keeping {
 const missingEvidence = (
   entries: ReadonlyArray<TimelineEntry>,
   platform: ClientPlatform | null,
-  { fromPlayer, truncated, logLevel, suppressedFailures }: Keeping,
+  { fromPlayer, unplacedLoads, truncated, logLevel, suppressedFailures }: Keeping,
 ): ReadonlyArray<string> => {
   const dropsInfo = LogLevel.isGreaterThan(logLevel, "Info");
 
@@ -410,43 +412,55 @@ const missingEvidence = (
       ? ["Segment load times come from hls.js only; this player does not report them."]
       : []),
     ...(platform === "ios" ? ["Dropped frames: AVPlayer does not report them."] : []),
+    ...(unplacedLoads > 0
+      ? [
+          `The player reported ${plural(unplacedLoads, "segment load")} during startup but no startup that ended, so they are not shown.`,
+        ]
+      : []),
   ];
 };
+
+interface SegmentLoad {
+  readonly index: number;
+  readonly segment: number;
+  readonly elapsedMs: number;
+  readonly firstByteMs: number;
+  readonly bytes: number;
+}
 
 const DRIFT_METHOD =
   "video frame against the media clock; negative means the picture trails the sound";
 
-const driftSamplesOf = (records: ReadonlyArray<LogRecord>): ReadonlyArray<number> =>
+const finite = (value: Schema.Json | undefined): value is number =>
+  Predicate.isNumber(value) && Number.isFinite(value);
+
+const driftWindowsOf = (records: ReadonlyArray<LogRecord>): ReadonlyArray<DriftSummary> =>
   records.flatMap((record) => {
-    const ms = record.annotations["videoAheadMs"];
+    const { samples, medianMs, worstMs } = record.annotations;
 
     return messageOf(record) === LogEvent.driftSampled &&
-      Predicate.isNumber(ms) &&
-      Number.isInteger(ms)
-      ? [ms]
+      finite(samples) &&
+      finite(medianMs) &&
+      finite(worstMs)
+      ? [{ samples, medianMs, worstMs }]
       : [];
   });
 
 const driftOf = (
-  samples: ReadonlyArray<number>,
+  windows: ReadonlyArray<DriftSummary>,
   platform: ClientPlatform | null,
   fromPlayer: boolean,
   logLevel: LogLevel.LogLevel,
 ): Drift => {
-  if (samples.length > 0) {
-    const sorted = samples.toSorted((left, right) => left - right);
+  const [first, ...rest] = windows;
 
-    const centre = sorted.slice(
-      Math.floor((sorted.length - 1) / 2),
-      Math.floor(sorted.length / 2) + 1,
-    );
-
+  if (first !== undefined) {
     return {
       status: "measured",
       method: "video-frame-vs-media-clock",
-      samples: samples.length,
-      medianMs: Math.round(centre.reduce((total, ms) => total + ms, 0) / centre.length),
-      worstMs: samples.reduce((worst, ms) => (Math.abs(ms) > Math.abs(worst) ? ms : worst)),
+      samples: windows.reduce((total, window) => total + window.samples, 0),
+      medianMs: medianOf([first.medianMs, ...rest.map((window) => window.medianMs)]),
+      worstMs: summarizeDrift([first.worstMs, ...rest.map((window) => window.worstMs)]).worstMs,
     };
   }
 
@@ -462,6 +476,7 @@ const driftOf = (
   return { status: "not-measured", reason };
 };
 
+/** `drift` as a caller decodes it: measured only when it sent `measuredDrift`. */
 export const driftFor = (drift: Drift, measuredDrift: boolean): Drift =>
   drift.status === "not-measured" || measuredDrift
     ? drift
@@ -469,6 +484,76 @@ export const driftFor = (drift: Drift, measuredDrift: boolean): Drift =>
         status: "not-measured",
         reason: `This client predates measured drift; update it to see it. The player sampled it ${drift.samples === 1 ? "once" : `${String(drift.samples)} times`}: median ${String(drift.medianMs)} ms, worst ${String(drift.worstMs)} ms (${DRIFT_METHOD}).`,
       };
+
+const startupLoadsOf = (records: ReadonlyArray<LogRecord>): ReadonlyArray<SegmentLoad> =>
+  records
+    .flatMap((record) => {
+      const { index, segment, elapsedMs, firstByteMs, bytes } = record.annotations;
+      const message = messageOf(record);
+
+      return (message === LogEvent.startupFragment || message === LogEvent.fragmentLoaded) &&
+        finite(index) &&
+        index < STARTUP_FRAGMENTS
+        ? [
+            {
+              index,
+              segment: number(segment),
+              elapsedMs: number(elapsedMs),
+              firstByteMs: number(firstByteMs),
+              bytes: number(bytes),
+            },
+          ]
+        : [];
+    })
+    .toSorted((left, right) => left.index - right.index);
+
+const loadsSummary = (loads: ReadonlyArray<SegmentLoad>): string => {
+  const [first, ...rest] = loads;
+
+  if (first === undefined) return "";
+
+  const slowest = rest.reduce(
+    (worst, load) => (load.elapsedMs > worst.elapsedMs ? load : worst),
+    first,
+  );
+
+  const median = medianOf([first.elapsedMs, ...rest.map((load) => load.elapsedMs)]);
+
+  return `; first ${plural(loads.length, "segment load")}: median ${duration(median)}, slowest ${duration(slowest.elapsedMs)} (segment ${String(slowest.segment)})`;
+};
+
+/** The timeline entries, and whether the startup segment loads found a startup entry. */
+interface PlacedLoads {
+  readonly entries: ReadonlyArray<TimelineEntry>;
+  readonly placed: boolean;
+}
+
+/**
+ * Puts the session's first segment loads on its first startup entry, so `startup` stays one entry
+ * per startup; `placed` is false when there is no startup entry to hold them.
+ */
+const withStartupLoads = (
+  entries: ReadonlyArray<TimelineEntry>,
+  loads: ReadonlyArray<SegmentLoad>,
+): PlacedLoads => {
+  const at = entries.findIndex((entry) => entry.kind === "startup");
+  const startup = entries[at];
+
+  if (loads.length === 0 || startup === undefined) return { entries, placed: false };
+
+  return {
+    entries: entries.with(at, {
+      at: startup.at,
+      source: startup.source,
+      kind: startup.kind,
+      level: startup.level,
+      streamId: startup.streamId,
+      summary: `${startup.summary}${loadsSummary(loads)}`,
+      details: { ...startup.details, segmentLoads: loads.map((load) => ({ ...load })) },
+    }),
+    placed: true,
+  };
+};
 
 /**
  * The timeline of session `sessionId` from its records, oldest first; none when no record names a
@@ -481,17 +566,22 @@ export const timelineOf = (
   truncated: boolean,
   logLevel: LogLevel.LogLevel = "Info",
 ): Option.Option<PlaybackDiagnostics> => {
-  const entries = records
-    .flatMap((record) => Option.toArray(entryOf(record)))
-    .toSorted((left, right) => left.at - right.at);
+  const loads = startupLoadsOf(records);
+
+  const { entries, placed } = withStartupLoads(
+    records
+      .flatMap((record) => Option.toArray(entryOf(record)))
+      .toSorted((left, right) => left.at - right.at),
+    loads,
+  );
 
   const first = entries[0];
   const last = entries.at(-1);
 
   if (first === undefined || last === undefined) return Option.none();
   const platform = platformOf(records);
-  const samples = driftSamplesOf(records);
-  const fromPlayer = samples.length > 0 || entries.some((entry) => entry.source === "player");
+  const windows = driftWindowsOf(records);
+  const fromPlayer = windows.length > 0 || entries.some((entry) => entry.source === "player");
 
   return Option.some({
     sessionId,
@@ -499,9 +589,10 @@ export const timelineOf = (
     lastSeenAt: last.at,
     platform,
     counts: countsOf(entries),
-    drift: driftOf(samples, platform, fromPlayer, logLevel),
+    drift: driftOf(windows, platform, fromPlayer, logLevel),
     missing: missingEvidence(entries, platform, {
       fromPlayer,
+      unplacedLoads: placed ? 0 : loads.length,
       truncated,
       logLevel,
       suppressedFailures: records

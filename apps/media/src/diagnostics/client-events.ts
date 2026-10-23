@@ -138,8 +138,10 @@ const logObservation = (observation: PlayerObservation, fields: ReturnType<typeo
         ? Effect.logInfo(LogEvent.recovery)
         : Effect.logWarning(LogEvent.recovery)
       ).pipe(Effect.annotateLogs({ ...fields, action, reason })),
-    DriftSampled: ({ videoAheadMs }) =>
-      Effect.logInfo(LogEvent.driftSampled).pipe(Effect.annotateLogs({ ...fields, videoAheadMs })),
+    DriftSampled: ({ samples, medianMs, worstMs }) =>
+      Effect.logInfo(LogEvent.driftSampled).pipe(
+        Effect.annotateLogs({ ...fields, samples, medianMs, worstMs }),
+      ),
   });
 
 const make = Effect.gen(function* () {

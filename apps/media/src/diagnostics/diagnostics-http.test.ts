@@ -422,9 +422,9 @@ layer(serverLayer, { timeout: 30_000 })("log and diagnostics routes", (it) => {
           action: "renew-token",
           reason: "token expiring",
         }),
-        sessionDPlayer(LogEvent.driftSampled, 17_300, { videoAheadMs: -12 }),
-        sessionDPlayer(LogEvent.driftSampled, 27_300, { videoAheadMs: -41 }),
-        sessionDPlayer(LogEvent.driftSampled, 37_300, { videoAheadMs: -8 }),
+        sessionDPlayer(LogEvent.driftSampled, 67_300, { samples: 6, medianMs: -12, worstMs: -41 }),
+        sessionDPlayer(LogEvent.driftSampled, 127_300, { samples: 6, medianMs: -10, worstMs: -20 }),
+        sessionDPlayer(LogEvent.driftSampled, 157_300, { samples: 2, medianMs: -15, worstMs: -16 }),
       ]) {
         appendRecord(logs, entry);
       }
@@ -443,16 +443,16 @@ layer(serverLayer, { timeout: 30_000 })("log and diagnostics routes", (it) => {
       );
 
       assert.strictEqual(legacy.drift.status, "not-measured");
-      assert.include(legacy.drift.reason, "3 times: median -12 ms, worst -41 ms");
+      assert.include(legacy.drift.reason, "14 times: median -12 ms, worst -41 ms");
       assert.deepStrictEqual(
         legacy.entries.map((entry) => entry.kind),
-        ["stream-started", "player-attached", "startup", "startup", "recovery"],
+        ["stream-started", "player-attached", "startup", "recovery"],
       );
-      assert.strictEqual(legacy.counts.recoveries, 1);
+      assert.strictEqual(legacy.counts.recoveries, 0);
       assert.deepStrictEqual(current.drift, {
         status: "measured",
         method: "video-frame-vs-media-clock",
-        samples: 3,
+        samples: 14,
         medianMs: -12,
         worstMs: -41,
       });
