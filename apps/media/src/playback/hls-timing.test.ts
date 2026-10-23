@@ -131,7 +131,7 @@ const AC3_TS: Source = {
   container: "ts",
 };
 
-const ALL_TIMING: ReadonlyArray<Property> = ["planned", "video seam", "audio seam"];
+const ENCODER_SEAM: ReadonlyArray<Property> = ["audio seam"];
 
 const CASES: ReadonlyArray<Case> = [
   {
@@ -139,77 +139,71 @@ const CASES: ReadonlyArray<Case> = [
     source: AAC_MP4,
     video: "copy",
     audio: "copy",
-    expectedFailures: ALL_TIMING,
+    expectedFailures: [],
   },
   {
     name: "remux, AC-3 copied from MPEG-TS",
     source: AC3_TS,
     video: "copy",
     audio: "copy",
-    expectedFailures: ["audio seam"],
+    expectedFailures: [],
   },
-  {
-    name: "remux, E-AC-3 to AAC",
-    source: EAC3,
-    video: "copy",
-    audio: "aac",
-    expectedFailures: [...ALL_TIMING, "init"],
-  },
+  { name: "remux, E-AC-3 to AAC", source: EAC3, video: "copy", audio: "aac", expectedFailures: [] },
   {
     name: "remux, jittered DTS to AAC",
     source: DTS_JITTER,
     video: "copy",
     audio: "aac",
-    expectedFailures: [...ALL_TIMING, "init", "even"],
+    expectedFailures: [],
   },
   {
     name: "remux, E-AC-3 with a gap to AAC",
     source: EAC3_GAP,
     video: "copy",
     audio: "aac",
-    expectedFailures: [...ALL_TIMING, "init", "even"],
+    expectedFailures: [],
   },
   {
     name: "remux, 44.1 kHz AAC to AAC",
     source: AAC_44,
     video: "copy",
     audio: "aac",
-    expectedFailures: [...ALL_TIMING, "init"],
+    expectedFailures: [],
   },
   {
     name: "remux, AC-3 from MPEG-TS to AAC",
     source: AC3_TS,
     video: "copy",
     audio: "aac",
-    expectedFailures: ["audio seam"],
+    expectedFailures: [],
   },
   {
     name: "software, E-AC-3 to AAC",
     source: EAC3,
     video: "software",
     audio: "aac",
-    expectedFailures: ALL_TIMING,
+    expectedFailures: ENCODER_SEAM,
   },
   {
     name: "software, AAC copied",
     source: AAC_MP4,
     video: "software",
     audio: "copy",
-    expectedFailures: ALL_TIMING,
+    expectedFailures: ENCODER_SEAM,
   },
   {
     name: "Quick Sync, E-AC-3 to AAC",
     source: EAC3,
     video: "qsv",
     audio: "aac",
-    expectedFailures: ALL_TIMING,
+    expectedFailures: ENCODER_SEAM,
   },
   {
     name: "VA-API, E-AC-3 to AAC",
     source: EAC3,
     video: "vaapi",
     audio: "aac",
-    expectedFailures: ALL_TIMING,
+    expectedFailures: [],
   },
 ];
 
