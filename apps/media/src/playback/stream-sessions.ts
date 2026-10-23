@@ -571,13 +571,16 @@ const make = Effect.gen(function* () {
       if (finished || pastEnd) {
         const members = produced.members.get(index) ?? [];
 
-        // A planned start ffmpeg did not cut at: serve the fragment that covers it.
+        // A planned start ffmpeg did not cut at: serve the fragment that covers it, or the first
+        // fragment when that one came before the generation's start and was dropped.
         const covering =
           members.length > 0
             ? members
-            : fragments
-                .filter((fragment) => fragment.start <= (session.plan.starts[index] ?? 0))
-                .slice(-1);
+            : [
+                fragments.findLast(
+                  (fragment) => fragment.start <= (session.plan.starts[index] ?? 0),
+                ) ?? fragments[0],
+              ].filter(Predicate.isNotUndefined);
 
         yield* Ref.set(session.served, true);
 
