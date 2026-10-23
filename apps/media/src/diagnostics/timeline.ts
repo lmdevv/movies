@@ -15,7 +15,7 @@ import { PlaybackSessionId, UserId } from "@movies/contracts/ids";
 import { EpochMillis } from "@movies/contracts/units";
 import { LogLevel, Option, Predicate, type Schema } from "effect";
 
-import { LogEvent, SLOW_MS, STARTUP_FRAGMENTS } from "./log-events.ts";
+import { LogEvent, SLOW_MS } from "./log-events.ts";
 
 type Annotations = LogRecord["annotations"];
 
@@ -44,8 +44,14 @@ const duration = (value: Schema.Json | undefined): string => {
 const plural = (count: number, one: string): string =>
   `${String(count)} ${one}${count === 1 ? "" : "s"}`;
 
-const medianOf = (values: readonly [number, ...Array<number>]): number =>
-  summarizeDrift(values).medianMs;
+const medianOf = (values: readonly [number, ...Array<number>]): number => {
+  const sorted = values.toSorted((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+
+  return sorted.length % 2 === 1
+    ? (sorted[middle] ?? 0)
+    : Math.round(((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2);
+};
 
 const pad = (part: number): string => String(part).padStart(2, "0");
 
@@ -488,12 +494,9 @@ export const driftFor = (drift: Drift, measuredDrift: boolean): Drift =>
 const startupLoadsOf = (records: ReadonlyArray<LogRecord>): ReadonlyArray<SegmentLoad> =>
   records
     .flatMap((record) => {
-      const { index, segment, elapsedMs, firstByteMs, bytes } = record.annotations;
-      const message = messageOf(record);
+      const { index, segment, elapsedMs, firstByteMs, bytes, startup } = record.annotations;
 
-      return (message === LogEvent.startupFragment || message === LogEvent.fragmentLoaded) &&
-        finite(index) &&
-        index < STARTUP_FRAGMENTS
+      return messageOf(record) === LogEvent.fragmentLoaded && startup === true && finite(index)
         ? [
             {
               index,

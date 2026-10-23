@@ -311,10 +311,18 @@ describe("startup and audio evidence", () => {
   it("folds the session's first segment loads into its startup, slow ones included", () => {
     const load = (index: number, occurredMs: number, elapsedMs: number) =>
       player(
-        elapsedMs >= 1000 ? LogEvent.fragmentLoaded : LogEvent.startupFragment,
+        LogEvent.fragmentLoaded,
         occurredMs + 500,
         occurredMs,
-        { streamId: "s1", segment: index, elapsedMs, firstByteMs: 20, bytes: 400_000, index },
+        {
+          streamId: "s1",
+          segment: index,
+          elapsedMs,
+          firstByteMs: 20,
+          bytes: 400_000,
+          index,
+          startup: true,
+        },
         elapsedMs >= 1000 ? "WARN" : "INFO",
       );
 
@@ -358,13 +366,14 @@ describe("startup and audio evidence", () => {
 
   it("says so when segment loads came in but no startup ended", () => {
     const timeline = timelineWith([
-      player(LogEvent.startupFragment, 2000, 900, {
+      player(LogEvent.fragmentLoaded, 2000, 900, {
         streamId: "s1",
         segment: 0,
         elapsedMs: 240,
         firstByteMs: 80,
         bytes: 400_000,
         index: 0,
+        startup: true,
       }),
     ]);
 

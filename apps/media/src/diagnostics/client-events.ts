@@ -5,7 +5,7 @@ import {
   PlayerObservation,
 } from "@movies/contracts/diagnostics";
 import type { PlaybackTokenInvalid } from "@movies/contracts/playback-token";
-import { Clock, Context, Effect, Layer, Option } from "effect";
+import { Clock, Context, Effect, Layer, Option, Predicate } from "effect";
 
 import { makeLimiter } from "../http/rate-limit.ts";
 import type { PlaybackGrant } from "../playback/playback-token.ts";
@@ -55,7 +55,11 @@ const commonFields = (
   claimedStreamId: ownStream ? null : (event.streamId ?? null),
 });
 
-const logObservation = (observation: PlayerObservation, fields: ReturnType<typeof commonFields>) =>
+const logObservation = (
+  observation: PlayerObservation,
+  fields: ReturnType<typeof commonFields>,
+  startup: boolean,
+) =>
   PlayerObservation.match(observation, {
     Attached: ({ mode, engine, audio }) => {
       const attached = Effect.logInfo(LogEvent.playerAttached).pipe(
@@ -124,11 +128,18 @@ const logObservation = (observation: PlayerObservation, fields: ReturnType<typeo
       const loaded = (
         durationMs >= SLOW_MS
           ? Effect.logWarning(LogEvent.fragmentLoaded)
-          : index !== undefined && index < STARTUP_FRAGMENTS
-            ? Effect.logInfo(LogEvent.startupFragment)
+          : startup
+            ? Effect.logInfo(LogEvent.fragmentLoaded)
             : Effect.logDebug(LogEvent.fragmentLoaded)
       ).pipe(
-        Effect.annotateLogs({ ...fields, segment, elapsedMs: durationMs, firstByteMs, bytes }),
+        Effect.annotateLogs({
+          ...fields,
+          segment,
+          elapsedMs: durationMs,
+          firstByteMs,
+          bytes,
+          startup,
+        }),
       );
 
       return index === undefined ? loaded : loaded.pipe(Effect.annotateLogs("index", index));
@@ -144,10 +155,34 @@ const logObservation = (observation: PlayerObservation, fields: ReturnType<typeo
       ),
   });
 
+/** How many sessions the startup load indexes are remembered for, newest kept. */
+const TRACKED_SESSIONS = 1000;
+
 const make = Effect.gen(function* () {
   const verifier = yield* PlaybackToken.Service;
   const owners = yield* StreamOwners.Service;
   const take = makeLimiter();
+  const startupIndexes = new Map<string, Set<number>>();
+
+  const admitStartup = (sessionId: string, observation: PlayerObservation): boolean => {
+    if (!Predicate.isTagged(observation, "FragmentLoaded")) return false;
+    const { index } = observation;
+
+    if (index === undefined || index >= STARTUP_FRAGMENTS) return false;
+    const seen = startupIndexes.get(sessionId) ?? new Set<number>();
+
+    if (seen.has(index)) return false;
+    startupIndexes.delete(sessionId);
+    startupIndexes.set(sessionId, seen.add(index));
+
+    const oldest = startupIndexes.keys().next();
+
+    if (startupIndexes.size > TRACKED_SESSIONS && oldest.done !== true) {
+      startupIndexes.delete(oldest.value);
+    }
+
+    return true;
+  };
 
   const record = Effect.fn("ClientDiagnostics.record")(function* (
     request: ClientDiagnosticsRequest,
@@ -180,6 +215,7 @@ const make = Effect.gen(function* () {
             logObservation(
               event.observation,
               commonFields(event, grant, request.platform, receivedAt, ownStream),
+              admitStartup(grant.sessionId, event.observation),
             ),
         ),
       { discard: true },

@@ -363,12 +363,17 @@ describe("client diagnostics", () => {
       ]);
 
       assert.deepStrictEqual(
-        logged.map((entry) => [entry.message, entry.level, entry.annotations["index"]]),
+        logged.map((entry) => [
+          entry.message,
+          entry.level,
+          entry.annotations["index"],
+          entry.annotations["startup"],
+        ]),
         [
-          [LogEvent.startupFragment, "INFO", 0],
-          [LogEvent.startupFragment, "INFO", 11],
-          [LogEvent.fragmentLoaded, "WARN", 5],
-          [LogEvent.fragmentLoaded, "WARN", 40],
+          [LogEvent.fragmentLoaded, "INFO", 0, true],
+          [LogEvent.fragmentLoaded, "INFO", 11, true],
+          [LogEvent.fragmentLoaded, "WARN", 5, true],
+          [LogEvent.fragmentLoaded, "WARN", 40, false],
         ],
       );
 
@@ -383,6 +388,36 @@ describe("client diagnostics", () => {
       );
       assert.strictEqual(timeline.counts.slowFragments, 2);
       assert.isTrue(timeline.missing.some((gap) => gap.includes("3 segment loads during startup")));
+    }),
+  );
+
+  it.live("admits each startup index once a session, whatever index the player claims", () =>
+    Effect.gen(function* () {
+      const { logged } = yield* recording(
+        Effect.flatMap(ClientDiagnostics.Service, (recorder) =>
+          Effect.gen(function* () {
+            yield* recorder.record(batch([fragment(90, 0), fragment(90, 0), fragment(90, 0)]));
+            yield* recorder.record(
+              batch(Array.from({ length: 15 }, (_, index) => fragment(90, index + 1))),
+            );
+            yield* recorder.record(batch([fragment(90, 0)], "session_other"));
+          }),
+        ),
+      );
+
+      const admitted = (sessionId: string) =>
+        logged
+          .filter(
+            (entry) =>
+              entry.annotations["sessionId"] === sessionId && entry.annotations["startup"] === true,
+          )
+          .map((entry) => entry.annotations["index"]);
+
+      assert.deepStrictEqual(
+        admitted("session_test"),
+        Array.from({ length: 12 }, (_, index) => index),
+      );
+      assert.deepStrictEqual(admitted("session_other"), [0]);
     }),
   );
 

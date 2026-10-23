@@ -19,7 +19,6 @@ export const LogEvent = {
   playerError: "Player.error",
   droppedFrames: "Player.dropped_frames",
   fragmentLoaded: "Player.fragment_loaded",
-  startupFragment: "Player.startup_fragment",
   recovery: "Player.recovery",
   driftSampled: "Player.drift_sampled",
 } as const;
@@ -34,7 +33,7 @@ export const SLOW_MS = 1000;
 export const SLOW_STARTUP_MS = 5000;
 
 /**
- * How many of a playback session's first segment loads log at `INFO`. The quick start cuts the
+ * How many of a playback session's first segment loads log as startup loads, at `INFO` when fast. The quick start cuts the
  * first 8 s into 1, 1, 2, 2, and 2 s segments, then 4 s ones, and hls.js buffers 30 s ahead, so
  * the player's first buffer takes about 11 loads.
  */

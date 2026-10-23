@@ -85,7 +85,7 @@ const line = (
 const sessionDPlayer = (
   message: string,
   offsetMs: number,
-  annotations: Readonly<Record<string, string | number | null>>,
+  annotations: Readonly<Record<string, string | number | boolean | null>>,
 ) =>
   line(message, offsetMs, {
     sessionId: "session_d",
@@ -402,12 +402,13 @@ layer(serverLayer, { timeout: 30_000 })("log and diagnostics routes", (it) => {
           audioChannels: 2,
           audioLanguage: "eng",
         }),
-        sessionDPlayer(LogEvent.startupFragment, 7200, {
+        sessionDPlayer(LogEvent.fragmentLoaded, 7200, {
           segment: 0,
           elapsedMs: 120,
           firstByteMs: 40,
           bytes: 100_000,
           index: 0,
+          startup: true,
         }),
         sessionDPlayer(LogEvent.startupEnded, 7300, {
           positionSeconds: 0,
