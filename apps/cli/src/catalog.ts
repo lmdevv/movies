@@ -335,7 +335,8 @@ export const rootHelp = (version: string): string =>
     ...globalFlagLines,
     "",
     exitCodeLine,
-    'Output is JSON on stdout; errors are {"error":{"code","message"}} on stderr.',
+    'Output is JSON on stdout; errors are {"error":{"code","message"}} on stderr, with "requestId"',
+    "when the media service answered: movies logs --grep <request-id> finds its records.",
   ].join("\n");
 
 const groupSummary = (group: string): string => {

@@ -86,7 +86,9 @@ selects another stored server. `movies logout` signs out and forgets the key and
   device. Choose the profile with `movies profiles use <name-or-id>`.
 - IDs are opaque strings from earlier results. Never invent them.
 - Results print as JSON on stdout. Errors print on stderr as `{"error":{"code","message"}}`.
-  `--human` (or `--format table`) prints tables and sentences instead.
+  When the media service answered the failed request, the error also carries `requestId`:
+  `movies logs --grep <request-id>` finds that request's records. `--human` (or `--format
+  table`) prints tables and sentences instead, with the ID on a `Request ID:` line.
 - Commands that queue a job (scans, metadata refreshes, backups, migrations) return a `jobId` at
   once. Add `--wait` to follow it until it ends; progress goes to stderr. A registry command's
   output then becomes `{ "result", "job" }`; the `scan`, `import`, and `backup` shortcuts keep
@@ -256,6 +258,8 @@ and newer [movies] progress is kept unless the source played the item more recen
   than treating the empty answer as a quiet log. `--follow` exits `unavailable` when the
   service goes away, as it does when it restarts. HTTP request lines are `DEBUG`: they are
   there only while the service runs with `LOG_LEVEL=debug`.
+- A failed media service command prints `error.requestId`. `movies logs --grep <request-id>`
+  finds every record of that request; its `DEBUG` access lines exist only at `LOG_LEVEL=debug`.
 - `movies play` failures from the media service print `playback_<recovery>` codes:
   `playback_unsupported` (this player cannot play the file in any mode), `playback_retry_later`
   (exit 9: transcoders busy or the media service cannot reach its files right now),

@@ -254,6 +254,8 @@ const withSignedInMedia = (
 
 const hostile = "a\u001b[2Jb\u007fc\u0085d\u009be\u202ef\u2028g\u2066h\u200fi";
 
+const REQUEST_ID = "4fad7a5c-9b6e-4c3d-8ebf-7a8b9cadbec5";
+
 const hostileRecord = `${JSON.stringify({
   message: `Player.error ${hostile}`,
   level: "WARN",
@@ -434,6 +436,41 @@ describe("troubleshooting commands", () => {
           },
         ),
       ),
+    );
+  });
+
+  it("prints the request ID of a failed media service answer, to find its log lines", async () => {
+    await withSignedInMedia(
+      (request, response) => {
+        const refused = request.url === "/api/logs";
+
+        response.writeHead(refused ? 403 : 500, {
+          "content-type": "application/json",
+          "x-request-id": REQUEST_ID,
+        });
+        response.end(
+          refused
+            ? JSON.stringify({ code: "forbidden", message: "Admins only" })
+            : "<html>Internal error</html>",
+        );
+      },
+      async (signedIn) => {
+        const refused = await signedIn("logs");
+        const garbled = await signedIn("diagnostics", "sessions");
+        const human = await signedIn("logs", "--human");
+
+        expect(refused.code).toBe(ExitCode.forbidden);
+        expect(JSON.parse(refused.stderr)).toStrictEqual({
+          error: { code: "forbidden", message: "Admins only", requestId: REQUEST_ID },
+        });
+        expect(JSON.parse(garbled.stderr)).toMatchObject({
+          error: { code: "protocol_error", requestId: REQUEST_ID },
+        });
+        expect(human.stderr.split("\n")).toStrictEqual([
+          "movies: Admins only",
+          `Request ID: ${REQUEST_ID}`,
+        ]);
+      },
     );
   });
 

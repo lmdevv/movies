@@ -395,6 +395,8 @@ const reportError = (error: CliError, format: Format): Effect.Effect<void, never
 
     yield* output.err(`movies: ${report.message}`);
 
+    if (report.requestId !== undefined) yield* output.err(`Request ID: ${report.requestId}`);
+
     if (Predicate.isTagged(error, "UsageError")) {
       yield* output.err(
         error.command === null ? "Run movies --help." : `Run movies ${error.command} --help.`,
