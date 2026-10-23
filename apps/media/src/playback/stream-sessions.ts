@@ -161,6 +161,7 @@ interface Fragment {
 interface Generation {
   readonly number: number;
   readonly startSegment: number;
+  readonly from: number;
   readonly directory: string;
   readonly scope: Scope.Closeable;
   readonly exit: Deferred.Deferred<void, MediaTools.MediaToolFailed>;
@@ -268,7 +269,7 @@ const make = Effect.gen(function* () {
     }
   }, Effect.uninterruptible);
 
-  const refreshFragments = Effect.fnUntraced(function* (session: Session, generation: Generation) {
+  const refreshFragments = Effect.fnUntraced(function* (generation: Generation) {
     const known = new Set((yield* Ref.get(generation.fragments)).map((fragment) => fragment.path));
 
     const names = yield* fs
@@ -301,15 +302,7 @@ const make = Effect.gen(function* () {
             ).pipe(Effect.orElseSucceed(() => Option.none<Fragment>())),
     );
 
-    const parsed = fresh.flatMap((fragment) => (Option.isSome(fragment) ? [fragment.value] : []));
-    const startsAt = session.plan.starts[generation.startSegment] ?? session.plan.end;
-    // ffmpeg's stream-copy seek can start a keyframe before the requested position.
-    const preroll = parsed.filter((fragment) => fragment.start + TIME_EPSILON < startsAt);
-    const added = parsed.filter((fragment) => !preroll.includes(fragment));
-
-    yield* Effect.forEach(preroll, (fragment) => fs.remove(fragment.path).pipe(Effect.ignore), {
-      discard: true,
-    });
+    const added = fresh.flatMap((fragment) => (Option.isSome(fragment) ? [fragment.value] : []));
 
     if (added.length > 0) {
       yield* Ref.update(generation.fragments, (current) =>
@@ -323,15 +316,24 @@ const make = Effect.gen(function* () {
     generation: Generation,
     fragments: ReadonlyArray<Fragment>,
   ): Produced => {
+    // ffmpeg's stream-copy seek can start a keyframe or more before `from`, and a keyframe index a
+    // few milliseconds late puts `from` just after the fragment that starts the segment.
+    const lead = fragments.findLastIndex(
+      (fragment) => fragment.start <= generation.from + TIME_EPSILON,
+    );
+
     const members = new Map<number, Array<Fragment>>();
 
-    for (const fragment of fragments) {
-      const index = segmentAt(session.plan, fragment.start + TIME_EPSILON);
+    for (const fragment of fragments.slice(Math.max(0, lead))) {
+      const index = Math.max(
+        generation.startSegment,
+        segmentAt(session.plan, fragment.start + TIME_EPSILON),
+      );
 
       members.set(index, [...(members.get(index) ?? []), fragment]);
     }
 
-    return { members, head: Math.max(generation.startSegment - 1, ...members.keys()) };
+    return { members, head: Math.max(generation.startSegment, ...members.keys()) };
   };
 
   const startGeneration = Effect.fn("StreamSessions.startGeneration")(function* (
@@ -400,6 +402,7 @@ const make = Effect.gen(function* () {
     const generation: Generation = {
       number,
       startSegment,
+      from,
       directory,
       scope,
       exit,
@@ -541,7 +544,7 @@ const make = Effect.gen(function* () {
       }
 
       const finished = yield* Deferred.isDone(generation.exit);
-      yield* refreshFragments(session, generation);
+      yield* refreshFragments(generation);
       const fragments = yield* Ref.get(generation.fragments);
       const produced = producedRange(session, generation, fragments);
       const next = session.plan.starts[index + 1];
@@ -571,16 +574,13 @@ const make = Effect.gen(function* () {
       if (finished || pastEnd) {
         const members = produced.members.get(index) ?? [];
 
-        // A planned start ffmpeg did not cut at: serve the fragment that covers it, or the first
-        // fragment when that one came before the generation's start and was dropped.
+        // A planned start ffmpeg did not cut at: serve the fragment that covers it.
         const covering =
           members.length > 0
             ? members
-            : [
-                fragments.findLast(
-                  (fragment) => fragment.start <= (session.plan.starts[index] ?? 0),
-                ) ?? fragments[0],
-              ].filter(Predicate.isNotUndefined);
+            : fragments
+                .filter((fragment) => fragment.start <= (session.plan.starts[index] ?? 0))
+                .slice(-1);
 
         yield* Ref.set(session.served, true);
 
@@ -601,10 +601,8 @@ const make = Effect.gen(function* () {
     const generation = yield* Ref.get(session.generation);
 
     if (generation.number === 0 || (yield* Deferred.isDone(generation.exit))) return;
-    yield* refreshFragments(session, generation);
+    yield* refreshFragments(generation);
     const produced = producedRange(session, generation, yield* Ref.get(generation.fragments));
-
-    if (produced.head < generation.startSegment) return;
     const requested = yield* Ref.get(session.requested);
     const startOf = (index: number) => session.plan.starts[index] ?? session.plan.end;
     const ahead = startOf(produced.head) - startOf(requested);
@@ -657,7 +655,7 @@ const make = Effect.gen(function* () {
     return yield* session.lock.withPermits(1)(
       Effect.gen(function* () {
         const current = yield* Ref.get(session.generation);
-        yield* refreshFragments(session, current);
+        yield* refreshFragments(current);
         const produced = producedRange(session, current, yield* Ref.get(current.fragments));
 
         if (index >= current.startSegment && index <= produced.head + LOOKAHEAD_SEGMENTS)
@@ -778,6 +776,7 @@ const make = Effect.gen(function* () {
     const placeholder: Generation = {
       number: 0,
       startSegment: 0,
+      from: segmentPlan.starts[0] ?? segmentPlan.end,
       directory: "",
       scope: yield* Scope.fork(scope, "sequential"),
       exit: yield* Deferred.make<void, MediaTools.MediaToolFailed>(),

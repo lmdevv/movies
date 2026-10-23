@@ -360,7 +360,7 @@ describe.skipIf(!hasFfmpeg)("stream failures", () => {
       60_000,
     );
 
-    it.effect.fails(
+    it.effect(
       "keeps a starting generation when the player asks a few segments ahead",
       () =>
         Effect.gen(function* () {

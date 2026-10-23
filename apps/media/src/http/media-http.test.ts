@@ -496,7 +496,7 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
       }),
     );
 
-    it.effect.fails("starts a resume on its keyframe when the keyframe index places it late", () =>
+    it.effect("starts a resume on its keyframe when the keyframe index places it late", () =>
       Effect.gen(function* () {
         const server = yield* MediaTestServer.Service;
         const workspace = yield* FixtureWorkspace.Service;
