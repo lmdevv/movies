@@ -21,6 +21,7 @@ import { ActiveProfileContext } from "@/session/active-profile";
 import { ConnectionProvider, useConnection, useServer } from "@/session/connection";
 import { CurrentRoomProvider } from "@/session/current-room";
 import { DownloadsProvider, rememberProfile, useOfflineProfile } from "@/session/downloads";
+import { ReportRenderErrors } from "@/session/error-reporting";
 import { OfflineContext } from "@/session/offline";
 import { FirstRunProvider, useHomeAfterSetup } from "@/session/first-run";
 import { InviteLinks } from "@/session/invite-links";
@@ -334,13 +335,15 @@ function App() {
 
   return (
     <SdkProvider key={connection.convexUrl} connection={connection}>
-      <ProfileChoiceProvider>
-        <FirstRunProvider>
-          <DownloadsProvider>
-            <ConnectedApp />
-          </DownloadsProvider>
-        </FirstRunProvider>
-      </ProfileChoiceProvider>
+      <ReportRenderErrors>
+        <ProfileChoiceProvider>
+          <FirstRunProvider>
+            <DownloadsProvider>
+              <ConnectedApp />
+            </DownloadsProvider>
+          </FirstRunProvider>
+        </ProfileChoiceProvider>
+      </ReportRenderErrors>
     </SdkProvider>
   );
 }
