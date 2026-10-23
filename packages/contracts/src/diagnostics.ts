@@ -124,15 +124,55 @@ export type RecoveryAction = typeof RecoveryAction.Type;
 
 const WaitEndedBy = Schema.Literals(["playing", "paused", "closed"]);
 
+/**
+ * Milliseconds from the viewer's play intent to each startup stage the player saw. A stage the
+ * player cannot observe, or did not reach, is absent: AVPlayer reports no segment loads, and
+ * direct play loads no playlist or segments.
+ */
+export const StartupStages = Schema.Struct({
+  /** The service answered the negotiation with a stream. */
+  negotiatedMs: Schema.optional(Count),
+  /** The player loaded the stream's playlist. */
+  manifestLoadedMs: Schema.optional(Count),
+  /** The player loaded the stream's first media segment. */
+  firstFragmentMs: Schema.optional(Count),
+  /** The player showed the stream's first frame. */
+  firstFrameMs: Schema.optional(Count),
+});
+
+/** Milliseconds from the viewer's play intent to each startup stage the player saw. */
+export interface StartupStages extends Schema.Schema.Type<typeof StartupStages> {}
+
+/** The audio rendition a stream plays, as the player receives it. */
+export const AudioRendition = Schema.Struct({
+  /** ffmpeg codec name, such as `aac` or `eac3`. */
+  codec: Schema.String.check(Schema.isBetweenLength(1, 32)),
+  channels: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 64 })),
+  /** The track's language tag, absent when the file names none. */
+  language: Schema.optional(Schema.String.check(Schema.isBetweenLength(1, 16))),
+});
+
+/** The audio rendition a stream plays. */
+export interface AudioRendition extends Schema.Schema.Type<typeof AudioRendition> {}
+
+/** The largest drift sample the service accepts, in milliseconds either way. */
+export const MAX_DRIFT_MS = 60_000;
+
 /** Something a player saw. */
 export const PlayerObservation = Schema.TaggedUnion({
-  /** A stream was attached to the player. */
-  Attached: { mode: PlaybackMode, engine: PlayerEngine },
+  /** A stream was attached to the player, with its audio rendition when the player knows it. */
+  Attached: { mode: PlaybackMode, engine: PlayerEngine, audio: Schema.optional(AudioRendition) },
   /**
    * The player waited `durationMs` for the playback session's stream to play for the first time,
-   * then it played, the viewer paused, or the player closed. Never a stall.
+   * then it played, the viewer paused, or the player closed. Never a stall. `stages` splits the
+   * time from the viewer's play intent, from players that measure it.
    */
-  StartupEnded: { positionSeconds: Seconds, durationMs: Count, endedBy: WaitEndedBy },
+  StartupEnded: {
+    positionSeconds: Seconds,
+    durationMs: Count,
+    endedBy: WaitEndedBy,
+    stages: Schema.optional(StartupStages),
+  },
   /**
    * Playback stopped to wait for data while the viewer wanted it to play, after the playback
    * session had played.
@@ -155,10 +195,33 @@ export const PlayerObservation = Schema.TaggedUnion({
   },
   /** Frames the decoder dropped since the previous report, out of those it decoded. */
   DroppedFrames: { dropped: Count, decoded: Count },
-  /** hls.js finished loading one segment. */
-  FragmentLoaded: { segment: Count, durationMs: Count, firstByteMs: Count, bytes: Count },
-  /** The player recovered, or tried to, from a failure. */
+  /**
+   * hls.js finished loading one segment. `index` counts the loads of the playback session from 0,
+   * from players that count them.
+   */
+  FragmentLoaded: {
+    segment: Count,
+    durationMs: Count,
+    firstByteMs: Count,
+    bytes: Count,
+    index: Schema.optional(Count),
+  },
+  /**
+   * The player recovered, or tried to, from a failure. `renew-token` is a routine renewal of the
+   * playback token before or after it expired.
+   */
   Recovery: { action: RecoveryAction, reason: Schema.String.check(Schema.isMaxLength(120)) },
+  /**
+   * One audio/video drift sample while playing: how far the media time of the video frame being
+   * shown is ahead of the media clock at the moment it shows, in milliseconds. Browsers drive the
+   * media clock from the audio output, so a negative value means the picture trails the sound.
+   * Players without frame presentation times (AVPlayer through expo-video) send none.
+   */
+  DriftSampled: {
+    videoAheadMs: Schema.Int.check(
+      Schema.isBetween({ minimum: -MAX_DRIFT_MS, maximum: MAX_DRIFT_MS }),
+    ),
+  },
 });
 
 /** Something a player saw. */
@@ -265,10 +328,30 @@ export const DiagnosticsCounts = Schema.Struct({
 /** Totals over a session's timeline. */
 export interface DiagnosticsCounts extends Schema.Schema.Type<typeof DiagnosticsCounts> {}
 
-const NotMeasured = Schema.Struct({
+/** Drift the player did not or could not measure, and why; never guessed. */
+export const DriftNotMeasured = Schema.Struct({
   status: Schema.Literal("not-measured"),
   reason: Schema.String,
 });
+
+/**
+ * Drift from the player's `DriftSampled` reports: the video frame shown against the media clock,
+ * in milliseconds, negative when the picture trails the sound.
+ */
+export const DriftMeasured = Schema.Struct({
+  status: Schema.Literal("measured"),
+  method: Schema.Literal("video-frame-vs-media-clock"),
+  samples: Count,
+  medianMs: Schema.Int,
+  /** The sample furthest from zero, with its sign. */
+  worstMs: Schema.Int,
+});
+
+/** Audio/video drift of a playback session. */
+export const Drift = Schema.Union([DriftNotMeasured, DriftMeasured]);
+
+/** Audio/video drift of a playback session. */
+export type Drift = typeof Drift.Type;
 
 /**
  * The timeline of one playback session from the retained logs. `missing` names evidence the logs
@@ -280,8 +363,11 @@ export const PlaybackDiagnostics = Schema.Struct({
   lastSeenAt: EpochMillis,
   platform: Schema.NullOr(ClientPlatform),
   counts: DiagnosticsCounts,
-  /** Audio/video drift: no player reports it, so it is never guessed. */
-  drift: NotMeasured,
+  /**
+   * Audio/video drift. `measured` only for callers that ask for it (`measuredDrift`); clients
+   * before it decode `not-measured` only.
+   */
+  drift: Drift,
   missing: Schema.Array(Schema.String),
   /** More records matched than one timeline holds; the earliest were left out. */
   truncated: Schema.Boolean,

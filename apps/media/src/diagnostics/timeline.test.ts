@@ -4,7 +4,7 @@ import { Option } from "effect";
 import { assert, describe, it } from "vitest";
 
 import { LogEvent } from "./log-events.ts";
-import { ownersOf, sessionsOf, timelineOf } from "./timeline.ts";
+import { driftFor, ownersOf, sessionsOf, timelineOf } from "./timeline.ts";
 
 const BASE = Date.UTC(2026, 9, 21, 20);
 
@@ -257,6 +257,199 @@ describe("playback timeline", () => {
 
   it("is none for records without playback events", () => {
     assert.isTrue(Option.isNone(timelineOf(SESSION, [record("Sent HTTP response", 0, {})], false)));
+  });
+});
+
+const timelineWith = (records: ReadonlyArray<LogRecord>, logLevel: "Info" | "Warn" = "Info") =>
+  Option.getOrThrow(
+    timelineOf(
+      SESSION,
+      [record(LogEvent.streamStarted, 0, { streamId: "s1", mode: "remux" }), ...records],
+      false,
+      logLevel,
+    ),
+  );
+
+describe("startup and audio evidence", () => {
+  it("splits a startup from the play intent, and keeps a startup without stages as it was", () => {
+    const timeline = timelineWith([
+      player(LogEvent.startupEnded, 3000, 1200, {
+        streamId: "s1",
+        positionSeconds: 0,
+        startupMs: 1200,
+        endedBy: "playing",
+        negotiatedMs: 400,
+        manifestLoadedMs: 600,
+        firstFragmentMs: 1100,
+        firstFrameMs: 1900,
+      }),
+      player(LogEvent.startupEnded, 9000, 8000, {
+        streamId: "s1",
+        positionSeconds: 0,
+        startupMs: 2500,
+        endedBy: "paused",
+        negotiatedMs: 300,
+      }),
+      player(LogEvent.startupEnded, 20_000, 18_000, {
+        streamId: "s1",
+        positionSeconds: 0,
+        startupMs: 300,
+        endedBy: "playing",
+      }),
+    ]);
+
+    assert.deepStrictEqual(
+      timeline.entries.filter((entry) => entry.kind === "startup").map((entry) => entry.summary),
+      [
+        "Started playing after 1.2 s; from play intent: negotiated 400 ms, playlist 600 ms, first segment 1.1 s, first frame 1.9 s",
+        "Waited 2.5 s to start, then the viewer paused; from play intent: negotiated 300 ms",
+        "Started playing after 300 ms",
+      ],
+    );
+  });
+
+  it("lists the session's first segment loads as startup, one based", () => {
+    const timeline = timelineWith([
+      player(LogEvent.startupFragment, 2000, 900, {
+        streamId: "s1",
+        segment: 3,
+        elapsedMs: 240,
+        firstByteMs: 80,
+        bytes: 400_000,
+        index: 3,
+      }),
+    ]);
+
+    const load = timeline.entries.find((entry) => entry.kind === "startup");
+
+    assert.deepStrictEqual(
+      [load?.source, load?.summary],
+      ["player", "Segment 3 loaded in 240 ms, first byte after 80 ms (load 4 of the session)"],
+    );
+    assert.strictEqual(timeline.counts.slowFragments, 0);
+  });
+
+  it("tells the audio a player attached with, when the player knows it", () => {
+    const timeline = timelineWith([
+      player(LogEvent.playerAttached, 1000, 100, {
+        streamId: "s1",
+        mode: "remux",
+        engine: "hls.js",
+        audioCodec: "aac",
+        audioChannels: 2,
+        audioLanguage: "eng",
+      }),
+      player(LogEvent.playerAttached, 2000, 200, {
+        streamId: "s1",
+        mode: "remux",
+        engine: "hls.js",
+        audioCodec: "eac3",
+        audioChannels: 6,
+        audioLanguage: null,
+      }),
+      player(LogEvent.playerAttached, 3000, 300, {
+        streamId: "s1",
+        mode: "remux",
+        engine: "hls.js",
+      }),
+    ]);
+
+    assert.deepStrictEqual(
+      timeline.entries
+        .filter((entry) => entry.kind === "player-attached")
+        .map((entry) => entry.summary),
+      [
+        "Player attached: hls.js on web, remux; audio aac 2 ch, eng",
+        "Player attached: hls.js on web, remux; audio eac3 6 ch",
+        "Player attached: hls.js on web, remux",
+      ],
+    );
+  });
+});
+
+describe("audio/video drift", () => {
+  const sample = (occurredMs: number, videoAheadMs: number) =>
+    player(LogEvent.driftSampled, occurredMs + 500, occurredMs, { streamId: "s1", videoAheadMs });
+
+  const attached = player(LogEvent.playerAttached, 5000, 100, {
+    streamId: "s1",
+    mode: "remux",
+    engine: "hls.js",
+  });
+
+  it("measures drift from the player's samples: their median, and the worst with its sign", () => {
+    const odd = timelineWith([
+      attached,
+      ...[-12, -10, -41, -15, 3].map((ms, index) => sample(10_000 * (index + 1), ms)),
+    ]);
+
+    const even = timelineWith([
+      attached,
+      ...[-10, -20, 30, -4].map((ms, index) => sample(10_000 * (index + 1), ms)),
+    ]);
+
+    assert.deepStrictEqual(odd.drift, {
+      status: "measured",
+      method: "video-frame-vs-media-clock",
+      samples: 5,
+      medianMs: -12,
+      worstMs: -41,
+    });
+    assert.deepStrictEqual(even.drift, {
+      status: "measured",
+      method: "video-frame-vs-media-clock",
+      samples: 4,
+      medianMs: -7,
+      worstMs: 30,
+    });
+    assert.deepStrictEqual(
+      odd.entries.map((entry) => entry.kind),
+      ["stream-started", "player-attached"],
+    );
+  });
+
+  it("counts a player that sent only drift samples as a player that reported", () => {
+    const timeline = timelineWith([sample(10_000, -5)]);
+
+    assert.strictEqual(timeline.drift.status, "measured");
+    assert.isFalse(timeline.missing.some((gap) => gap.includes("player sent no diagnostics")));
+  });
+
+  it("says why drift is not measured, from the evidence there is", () => {
+    const reasonOf = (timeline: ReturnType<typeof timelineWith>): string =>
+      timeline.drift.status === "not-measured" ? timeline.drift.reason : "measured";
+
+    const ios = timelineWith([
+      player(LogEvent.playerAttached, 5000, 100, {
+        streamId: "s1",
+        mode: "remux",
+        engine: "avplayer",
+        platform: "ios",
+      }),
+    ]);
+
+    assert.include(reasonOf(ios), "AVPlayer");
+    assert.include(reasonOf(timelineWith([attached])), "browser sent no drift samples");
+    assert.include(reasonOf(timelineWith([])), "player sent no diagnostics");
+    assert.include(reasonOf(timelineWith([], "Warn")), "LOG_LEVEL=warn");
+  });
+
+  it("hands a measured drift to a client before it as not measured, with its numbers", () => {
+    const measured = timelineWith([
+      attached,
+      ...[-12, -10, -41, -15, 3].map((ms, index) => sample(10_000 * (index + 1), ms)),
+    ]).drift;
+
+    assert.deepStrictEqual(driftFor(measured, false), {
+      status: "not-measured",
+      reason:
+        "This client predates measured drift; update it to see it. The player sampled it 5 times: median -12 ms, worst -41 ms (video frame against the media clock; negative means the picture trails the sound).",
+    });
+    assert.deepStrictEqual(driftFor(measured, true), measured);
+
+    const unmeasured = timelineWith([attached]).drift;
+
+    assert.deepStrictEqual(driftFor(unmeasured, false), unmeasured);
   });
 });
 

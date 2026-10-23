@@ -515,6 +515,43 @@ describe("troubleshooting commands", () => {
     );
   });
 
+  it("asks the service for measured drift and prints it", async () => {
+    await withSignedInMedia(
+      (request, response) => {
+        let body = "";
+
+        request.on("data", (chunk: Buffer) => {
+          body += chunk.toString();
+        });
+        request.on("end", () => {
+          const measured = body.includes('"measuredDrift":true');
+
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(
+            JSON.stringify({
+              ...timeline,
+              drift: measured
+                ? {
+                    status: "measured",
+                    method: "video-frame-vs-media-clock",
+                    samples: 54,
+                    medianMs: -12,
+                    worstMs: -41,
+                  }
+                : { status: "not-measured", reason: "This client predates measured drift." },
+            }),
+          );
+        });
+      },
+      async (signedIn) => {
+        const run = await signedIn("diagnostics", "playback", "s1", "--human");
+
+        expect(run.code, run.stderr).toBe(ExitCode.ok);
+        expect(run.stdout).toContain("Audio/video drift: median -12 ms, worst -41 ms over 54");
+      },
+    );
+  });
+
   it("asks for a session ID and says where to find one", async () => {
     const run = await movies("diagnostics", "playback");
 

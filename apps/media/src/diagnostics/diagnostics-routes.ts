@@ -2,7 +2,17 @@ import { type LogQuery, MAX_LOG_LIMIT } from "@movies/contracts/diagnostics";
 import { NotFound, RateLimited } from "@movies/contracts/errors";
 import { EpochMillis } from "@movies/contracts/units";
 import type { Viewer } from "@movies/contracts/models/account";
-import { Clock, Duration, Effect, FileSystem, Layer, Option, Path, References } from "effect";
+import {
+  Clock,
+  Duration,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Path,
+  References,
+  Struct,
+} from "effect";
 import type { HttpRouter } from "effect/http";
 
 import type * as ViewerAuth from "../convex/viewer-auth.ts";
@@ -10,7 +20,7 @@ import { commandRoute } from "../http/command-routes.ts";
 import { makeLimiter } from "../http/rate-limit.ts";
 import * as LogReader from "../logging/log-reader.ts";
 import * as RetainedLogs from "../logging/retained-logs.ts";
-import { ownersOf, sessionsOf, timelineOf } from "./timeline.ts";
+import { driftFor, ownersOf, sessionsOf, timelineOf } from "./timeline.ts";
 
 const RECENT = Duration.days(1);
 
@@ -72,7 +82,7 @@ export const layer: Layer.Layer<
 
     yield* commandRoute(
       "diagnostics.playback",
-      Effect.fn("DiagnosticsRoutes.playback")(function* ({ sessionId }, viewer) {
+      Effect.fn("DiagnosticsRoutes.playback")(function* ({ sessionId, measuredDrift }, viewer) {
         yield* allowRead(viewer);
         const found = yield* read({ sessionId });
         const records = found.matches.map((match) => match.record);
@@ -93,7 +103,9 @@ export const layer: Layer.Layer<
           });
         }
 
-        return timeline.value;
+        return Struct.evolve(timeline.value, {
+          drift: (drift) => driftFor(drift, measuredDrift === true),
+        });
       }),
     );
 

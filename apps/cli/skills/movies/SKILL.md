@@ -246,13 +246,22 @@ and newer [movies] progress is kept unless the source played the item more recen
   the player went quiet longer than `STREAM_IDLE_SECONDS` and the service closed the stream.
   A `request-failed` 401 with `Playback token has expired` means the player kept using its
   playback token past expiry; the player must renew it with `playback.renewToken` before then.
-  `startup` is how long the player waited for the session to first play, never a stall;
-  `buffering-started` and `buffering-ended` are the player's own stalls after that;
-  `slow-fragment` is hls.js waiting on a segment; `recovery` is the player starting over.
-- The timeline never guesses: `drift` is always `not-measured`, because no player reports
-  audio/video sync, and `missing` names what the logs cannot tell, such as a player that sent no
-  diagnostics (mpv and VLC send none) or a `LOG_LEVEL` above `info` that keeps no `INFO`
-  records. Say so rather than inferring a cause.
+  `startup` is how long the player waited for the session to first play, never a stall. Newer
+  players split it in its `details`: `negotiatedMs`, `manifestLoadedMs`, `firstFragmentMs`, and
+  `firstFrameMs`, each in milliseconds from the viewer's play intent; a stage the player did not
+  see is absent. The session's first 12 segment loads are `startup` entries too, with their load
+  number. `player-attached` names the audio the player got (`audioCodec`, `audioChannels`,
+  `audioLanguage`) when it knows it. `buffering-started` and `buffering-ended` are the player's
+  own stalls after that; `slow-fragment` is hls.js waiting on a segment; `recovery` is the player
+  starting over, except `renew-token`, a routine renewal of the playback token that is no
+  warning.
+- The timeline never guesses. `drift` is `measured` only from browsers: `medianMs` and `worstMs`
+  over `samples` are the media time of the video frame on screen minus the media clock when it
+  showed, so a negative value means the picture trails the sound. Otherwise it is
+  `not-measured` with the reason: the iOS app (AVPlayer) cannot measure it, the browser sent no
+  samples, or the player sent no diagnostics. `missing` names what the logs cannot tell, such as
+  a player that sent no diagnostics (mpv and VLC send none) or a `LOG_LEVEL` above `info` that
+  keeps no `INFO` records. Say so rather than inferring a cause.
 - `movies logs` needs an admin session (`forbidden` otherwise) and the media service URL
   (`MOVIES_MEDIA_URL`). It prints for people by default; `--json` prints the NDJSON records for
   parsing. Records older than `LOG_RETENTION_DAYS` (14) are gone. When stderr says older records
@@ -303,7 +312,7 @@ and newer [movies] progress is kept unless the source played the item more recen
 - `movies restore <backup-file-or-id>`: Restore the database from a backup; every session signs in again.
 - `movies logs [--follow] [--since <duration|time>] [--until <duration|time>] [--level trace|debug|info|warn|error|fatal] [--session-id <id>] [--stream-id <id>] [--slow <duration>] [--grep <text>] [--limit <int>] [--json|--human]`: Read the media service's retained log, newest last (admin sessions only); --follow keeps printing new records, --since 15m or a time starts there, --slow 1s keeps timed requests at least that long, --json prints the NDJSON records; a followed log the service ends fails as unavailable.
 - `movies diagnostics sessions [--since <duration|time>] [--json|--human]`: List the playback sessions the retained log mentions (the last day by default), newest first; members see their own.
-- `movies diagnostics playback <session-id> [--json|--human]`: Print a playback session's timeline: streams and why they ended, slow and failed segments with their time split, the player's stalls, errors, and recoveries, and the evidence that is missing; audio/video drift is reported as not measured.
+- `movies diagnostics playback <session-id> [--json|--human]`: Print a playback session's timeline: streams and why they ended, slow and failed segments with their time split, the player's startup, stalls, errors, and recoveries, audio/video drift where the player measures it, and the evidence that is missing.
 - `movies commands [--markdown]`: List every command with its flags and argument JSON Schema.
 - `movies call <command-name> [--json <object>]`: Run any registry command by its dotted name, such as rooms.pause.
 

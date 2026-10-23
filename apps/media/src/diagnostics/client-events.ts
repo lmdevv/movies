@@ -11,7 +11,13 @@ import { makeLimiter } from "../http/rate-limit.ts";
 import type { PlaybackGrant } from "../playback/playback-token.ts";
 import * as PlaybackToken from "../playback/playback-token.ts";
 import * as StreamOwners from "../playback/stream-owners.ts";
-import { grantAnnotations, LogEvent, SLOW_MS, SLOW_STARTUP_MS } from "./log-events.ts";
+import {
+  grantAnnotations,
+  LogEvent,
+  SLOW_MS,
+  SLOW_STARTUP_MS,
+  STARTUP_FRAGMENTS,
+} from "./log-events.ts";
 
 /** Records players' events. */
 export interface Interface {
@@ -51,15 +57,34 @@ const commonFields = (
 
 const logObservation = (observation: PlayerObservation, fields: ReturnType<typeof commonFields>) =>
   PlayerObservation.match(observation, {
-    Attached: ({ mode, engine }) =>
-      Effect.logInfo(LogEvent.playerAttached).pipe(
+    Attached: ({ mode, engine, audio }) => {
+      const attached = Effect.logInfo(LogEvent.playerAttached).pipe(
         Effect.annotateLogs({ ...fields, mode, engine }),
-      ),
-    StartupEnded: ({ positionSeconds, durationMs, endedBy }) =>
+      );
+
+      return audio === undefined
+        ? attached
+        : attached.pipe(
+            Effect.annotateLogs({
+              audioCodec: audio.codec,
+              audioChannels: audio.channels,
+              audioLanguage: audio.language ?? null,
+            }),
+          );
+    },
+    StartupEnded: ({ positionSeconds, durationMs, endedBy, stages }) =>
       (durationMs >= SLOW_STARTUP_MS
         ? Effect.logWarning(LogEvent.startupEnded)
         : Effect.logInfo(LogEvent.startupEnded)
-      ).pipe(Effect.annotateLogs({ ...fields, positionSeconds, startupMs: durationMs, endedBy })),
+      ).pipe(
+        Effect.annotateLogs({
+          ...fields,
+          positionSeconds,
+          startupMs: durationMs,
+          endedBy,
+          ...Object.fromEntries(Object.entries(stages ?? {}).filter(([, ms]) => ms !== undefined)),
+        }),
+      ),
     BufferingStarted: ({ positionSeconds, bufferedAheadSeconds }) =>
       Effect.logInfo(LogEvent.bufferingStarted).pipe(
         Effect.annotateLogs({ ...fields, positionSeconds, bufferedAheadSeconds }),
@@ -95,15 +120,26 @@ const logObservation = (observation: PlayerObservation, fields: ReturnType<typeo
       Effect.logInfo(LogEvent.droppedFrames).pipe(
         Effect.annotateLogs({ ...fields, dropped, decoded }),
       ),
-    FragmentLoaded: ({ segment, durationMs, firstByteMs, bytes }) =>
-      (durationMs >= SLOW_MS
-        ? Effect.logWarning(LogEvent.fragmentLoaded)
-        : Effect.logDebug(LogEvent.fragmentLoaded)
+    FragmentLoaded: ({ segment, durationMs, firstByteMs, bytes, index }) => {
+      const loaded = (
+        durationMs >= SLOW_MS
+          ? Effect.logWarning(LogEvent.fragmentLoaded)
+          : index !== undefined && index < STARTUP_FRAGMENTS
+            ? Effect.logInfo(LogEvent.startupFragment)
+            : Effect.logDebug(LogEvent.fragmentLoaded)
       ).pipe(
         Effect.annotateLogs({ ...fields, segment, elapsedMs: durationMs, firstByteMs, bytes }),
-      ),
+      );
+
+      return index === undefined ? loaded : loaded.pipe(Effect.annotateLogs("index", index));
+    },
     Recovery: ({ action, reason }) =>
-      Effect.logWarning(LogEvent.recovery).pipe(Effect.annotateLogs({ ...fields, action, reason })),
+      (action === "renew-token"
+        ? Effect.logInfo(LogEvent.recovery)
+        : Effect.logWarning(LogEvent.recovery)
+      ).pipe(Effect.annotateLogs({ ...fields, action, reason })),
+    DriftSampled: ({ videoAheadMs }) =>
+      Effect.logInfo(LogEvent.driftSampled).pipe(Effect.annotateLogs({ ...fields, videoAheadMs })),
   });
 
 const make = Effect.gen(function* () {

@@ -230,7 +230,7 @@ export const shortcuts: ReadonlyArray<Shortcut> = [
     path: "diagnostics playback",
     synopsis: "diagnostics playback <session-id> [--json|--human]",
     summary:
-      "Print a playback session's timeline: streams and why they ended, slow and failed segments with their time split, the player's stalls, errors, and recoveries, and the evidence that is missing; audio/video drift is reported as not measured",
+      "Print a playback session's timeline: streams and why they ended, slow and failed segments with their time split, the player's startup, stalls, errors, and recoveries, audio/video drift where the player measures it, and the evidence that is missing",
     section: "Troubleshooting",
   },
   {

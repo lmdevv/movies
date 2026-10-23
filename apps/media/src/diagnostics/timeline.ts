@@ -3,6 +3,7 @@ import {
   type ClientPlatform,
   type DiagnosedSession,
   type DiagnosticsCounts,
+  type Drift,
   type LogRecord,
   type PlaybackDiagnostics,
   type TimelineEntry,
@@ -56,6 +57,26 @@ const STARTUP_ENDINGS = new Map([
   ["paused", "the viewer paused"],
   ["closed", "the player closed"],
 ]);
+
+const STARTUP_STAGES = [
+  ["negotiatedMs", "negotiated"],
+  ["manifestLoadedMs", "playlist"],
+  ["firstFragmentMs", "first segment"],
+  ["firstFrameMs", "first frame"],
+] as const;
+
+const stagesOf = (fields: Annotations): string => {
+  const known = STARTUP_STAGES.flatMap(([field, label]) =>
+    Predicate.isNumber(fields[field]) ? [`${label} ${duration(fields[field])}`] : [],
+  );
+
+  return known.length === 0 ? "" : `; from play intent: ${known.join(", ")}`;
+};
+
+const audioOf = (fields: Annotations): string =>
+  Predicate.isString(fields["audioCodec"])
+    ? `; audio ${fields["audioCodec"]} ${text(fields["audioChannels"])} ch${Predicate.isString(fields["audioLanguage"]) ? `, ${fields["audioLanguage"]}` : ""}`
+    : "";
 
 const STREAM_END_REASONS = new Map([
   ["idle", "no requests for STREAM_IDLE_SECONDS, so the service closed it"],
@@ -143,7 +164,7 @@ const RULES = new Map<string, Rule>([
       kind: "player-attached",
       source: "player",
       summary: (fields) =>
-        `Player attached: ${text(fields["engine"])} on ${text(fields["platform"])}, ${text(fields["mode"])}`,
+        `Player attached: ${text(fields["engine"])} on ${text(fields["platform"])}, ${text(fields["mode"])}${audioOf(fields)}`,
     },
   ],
   [
@@ -154,10 +175,21 @@ const RULES = new Map<string, Rule>([
       summary: (fields) => {
         const ending = STARTUP_ENDINGS.get(text(fields["endedBy"]));
 
-        return ending === undefined
-          ? `Started playing after ${duration(fields["startupMs"])}`
-          : `Waited ${duration(fields["startupMs"])} to start, then ${ending}`;
+        return `${
+          ending === undefined
+            ? `Started playing after ${duration(fields["startupMs"])}`
+            : `Waited ${duration(fields["startupMs"])} to start, then ${ending}`
+        }${stagesOf(fields)}`;
       },
+    },
+  ],
+  [
+    LogEvent.startupFragment,
+    {
+      kind: "startup",
+      source: "player",
+      summary: (fields) =>
+        `Segment ${text(fields["segment"])} loaded in ${duration(fields["elapsedMs"])}, first byte after ${duration(fields["firstByteMs"])} (load ${String(number(fields["index"]) + 1)} of the session)`,
     },
   ],
   [
@@ -316,6 +348,7 @@ const platformOf = (records: ReadonlyArray<LogRecord>): ClientPlatform | null =>
   records.map((record) => record.annotations["platform"]).find(isPlatform) ?? null;
 
 interface Keeping {
+  readonly fromPlayer: boolean;
   readonly truncated: boolean;
   readonly logLevel: LogLevel.LogLevel;
   readonly suppressedFailures: number;
@@ -324,9 +357,8 @@ interface Keeping {
 const missingEvidence = (
   entries: ReadonlyArray<TimelineEntry>,
   platform: ClientPlatform | null,
-  { truncated, logLevel, suppressedFailures }: Keeping,
+  { fromPlayer, truncated, logLevel, suppressedFailures }: Keeping,
 ): ReadonlyArray<string> => {
-  const fromPlayer = entries.some((entry) => entry.source === "player");
   const dropsInfo = LogLevel.isGreaterThan(logLevel, "Info");
 
   const engines = new Set(
@@ -381,8 +413,62 @@ const missingEvidence = (
   ];
 };
 
-const DRIFT_REASON =
-  "No player reports audio/video sync, so drift is not measured. Stalls, dropped frames, encoder restarts, and stream changes around the time it was noticed are the evidence available.";
+const DRIFT_METHOD =
+  "video frame against the media clock; negative means the picture trails the sound";
+
+const driftSamplesOf = (records: ReadonlyArray<LogRecord>): ReadonlyArray<number> =>
+  records.flatMap((record) => {
+    const ms = record.annotations["videoAheadMs"];
+
+    return messageOf(record) === LogEvent.driftSampled &&
+      Predicate.isNumber(ms) &&
+      Number.isInteger(ms)
+      ? [ms]
+      : [];
+  });
+
+const driftOf = (
+  samples: ReadonlyArray<number>,
+  platform: ClientPlatform | null,
+  fromPlayer: boolean,
+  logLevel: LogLevel.LogLevel,
+): Drift => {
+  if (samples.length > 0) {
+    const sorted = samples.toSorted((left, right) => left - right);
+
+    const centre = sorted.slice(
+      Math.floor((sorted.length - 1) / 2),
+      Math.floor(sorted.length / 2) + 1,
+    );
+
+    return {
+      status: "measured",
+      method: "video-frame-vs-media-clock",
+      samples: samples.length,
+      medianMs: Math.round(centre.reduce((total, ms) => total + ms, 0) / centre.length),
+      worstMs: samples.reduce((worst, ms) => (Math.abs(ms) > Math.abs(worst) ? ms : worst)),
+    };
+  }
+
+  const reason =
+    platform === "ios"
+      ? "AVPlayer through expo-video exposes neither the times of the frames it shows nor its audio clock, so the iOS app cannot measure audio/video drift."
+      : LogLevel.isGreaterThan(logLevel, "Info")
+        ? `The media service logs at ${logLevel.toUpperCase()} and above (LOG_LEVEL=${logLevel.toLowerCase()}), so it keeps no drift samples, which are INFO records.`
+        : fromPlayer
+          ? "The browser sent no drift samples: it lacks requestVideoFrameCallback, it never played for 10 s, or the web app predates drift sampling."
+          : "The player sent no diagnostics, so drift is not measured. Stalls, dropped frames, encoder restarts, and stream changes around the time it was noticed are the evidence available.";
+
+  return { status: "not-measured", reason };
+};
+
+export const driftFor = (drift: Drift, measuredDrift: boolean): Drift =>
+  drift.status === "not-measured" || measuredDrift
+    ? drift
+    : {
+        status: "not-measured",
+        reason: `This client predates measured drift; update it to see it. The player sampled it ${drift.samples === 1 ? "once" : `${String(drift.samples)} times`}: median ${String(drift.medianMs)} ms, worst ${String(drift.worstMs)} ms (${DRIFT_METHOD}).`,
+      };
 
 /**
  * The timeline of session `sessionId` from its records, oldest first; none when no record names a
@@ -404,6 +490,8 @@ export const timelineOf = (
 
   if (first === undefined || last === undefined) return Option.none();
   const platform = platformOf(records);
+  const samples = driftSamplesOf(records);
+  const fromPlayer = samples.length > 0 || entries.some((entry) => entry.source === "player");
 
   return Option.some({
     sessionId,
@@ -411,8 +499,9 @@ export const timelineOf = (
     lastSeenAt: last.at,
     platform,
     counts: countsOf(entries),
-    drift: { status: "not-measured", reason: DRIFT_REASON },
+    drift: driftOf(samples, platform, fromPlayer, logLevel),
     missing: missingEvidence(entries, platform, {
+      fromPlayer,
       truncated,
       logLevel,
       suppressedFailures: records
