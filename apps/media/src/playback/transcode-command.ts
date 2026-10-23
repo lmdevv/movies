@@ -249,6 +249,8 @@ const AAC_FRAME_SAMPLES = 1024;
 
 const SEEK_LEAD = 4;
 
+const KEYFRAME_MARGIN = 1;
+
 const AUDIO_LEAD = 0.5;
 
 const samplesAt = (time: number): number => Math.round(time * AAC_RATE);
@@ -281,12 +283,27 @@ const aacTiming = (audioStartSample: number): ReadonlyArray<string> => [
 ];
 
 /**
+ * A copy plan cuts segments on keyframes, so its longest segment after `from` is at least the
+ * file's keyframe interval. The last segment's length is unknown; it gets x264's default longest
+ * interval, 250 frames, at 24 fps.
+ */
+const keyframeInterval = (starts: ReadonlyArray<number>): number =>
+  starts.length < 2
+    ? 250 / 24
+    : starts.slice(1).reduce((longest, start, index) => {
+        const previous = starts[index] ?? start;
+
+        return Math.max(longest, start - previous);
+      }, 0);
+
+/**
  * Every run's AAC frames sit on one grid of 1024-sample frames from the source timeline's zero,
  * and start a frame after the file, so no priming frame has a negative timestamp. A run that
- * copies video seeks `SEEK_LEAD` early: the muxer then cuts the first planned segment's audio at
- * the frame an earlier run cut, and the session drops the fragments before it. Its audio starts
- * earlier still, so the first fragment has audio and `init.mp4` the same edit lists as other
- * runs'.
+ * copies video seeks before the keyframe ahead of `from`, so it has a fragment to drop even where
+ * a seek lands past the target's keyframe, as in MPEG-TS: the muxer then cuts the first planned
+ * segment's audio at the frame an earlier run cut, and the session drops the fragments before it.
+ * Its audio starts earlier still, so the first fragment has audio and `init.mp4` the same edit
+ * lists as other runs'.
  */
 const runStart = (command: EncodeSource): RunStart => {
   const fileAudioStart = frameCeil(Math.max(0, samplesAt(command.sourceStart))) + AAC_FRAME_SAMPLES;
@@ -298,7 +315,8 @@ const runStart = (command: EncodeSource): RunStart => {
   };
 
   if (VideoPlan.$is("Copy")(command.video)) {
-    const seek = command.from - SEEK_LEAD;
+    const lead = Math.max(SEEK_LEAD, keyframeInterval(command.segmentStarts) + KEYFRAME_MARGIN);
+    const seek = command.from - lead;
     const audioStartSample = frameFloor(samplesAt(seek - AUDIO_LEAD));
 
     return audioStartSample > fileAudioStart

@@ -194,7 +194,7 @@ const CASES: ReadonlyArray<Case> = [
     source: AC3_TS_LONG_GOP,
     video: "copy",
     audio: "aac",
-    expectedFailures: ["audio seam"],
+    expectedFailures: [],
   },
   {
     name: "software, E-AC-3 to AAC",
