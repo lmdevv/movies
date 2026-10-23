@@ -752,7 +752,7 @@ test("an MPEG-TS file remuxes to HLS", async () => {
 test("the playback timeline splits startup by stage, names the audio, and samples drift", async () => {
   await playFromStart(MOVIES.remux, "remux");
   await expectPlayingPast(page, DRIFT_SAMPLED_PAST_SECONDS, 45_000);
-  await page.goto("/");
+  await leaveWithEscape(page);
 
   await expect
     .poll(async () => (await latestWebTimeline(true))?.drift.status ?? null, { timeout: 30_000 })
