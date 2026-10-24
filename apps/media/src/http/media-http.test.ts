@@ -21,6 +21,7 @@ import * as MediaTools from "../media/media-tools.ts";
 import * as EndedSessions from "../playback/ended-sessions.ts";
 import { parseFfprobeJson } from "../media/media-probe.ts";
 import * as FileResolver from "../playback/file-resolver.ts";
+import { FRAGMENT_HEAD_BYTES, fragmentStartSeconds } from "../playback/fmp4-fragments.ts";
 import * as KeyframeIndex from "../playback/keyframe-index.ts";
 import * as PlaybackReporter from "../playback/playback-reporter.ts";
 import {
@@ -71,6 +72,16 @@ const smallScreen: ClientCapabilities = {
   audioCodecs: browser.audioCodecs,
   maxWidth: 1920,
   maxHeight: 120,
+  hls: false,
+  mse: true,
+};
+
+const smallScreenWithDolbyAudio: ClientCapabilities = {
+  containers: smallScreen.containers,
+  videoCodecs: smallScreen.videoCodecs,
+  audioCodecs: withDolbyAudio.audioCodecs,
+  maxWidth: smallScreen.maxWidth,
+  maxHeight: smallScreen.maxHeight,
   hls: false,
   mse: true,
 };
@@ -225,6 +236,36 @@ const videoPackets = Effect.fn(function* (data: Uint8Array) {
   ]);
 
   return (yield* decodeVideoPackets(output).pipe(Effect.orDie)).packets;
+});
+
+const decodeAudioPackets = Schema.decodeEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      packets: Schema.NonEmptyArray(
+        Schema.Struct({
+          pts_time: Schema.FiniteFromString,
+          /** ffprobe 6 leaves it out for a priming frame it trims. */
+          duration_time: Schema.optional(Schema.FiniteFromString),
+        }),
+      ),
+    }),
+  ),
+);
+
+const audioPackets = Effect.fn(function* (data: Uint8Array) {
+  const { output } = yield* ffprobeBytes(data, ".mp4", [
+    "-select_streams",
+    "a:0",
+    "-show_entries",
+    "packet=pts_time,duration_time",
+    "-of",
+    "json",
+  ]);
+
+  return (yield* decodeAudioPackets(output).pipe(Effect.orDie)).packets.map((packet) => ({
+    pts_time: packet.pts_time,
+    duration_time: packet.duration_time ?? 0,
+  }));
 });
 
 const spanOf = (
@@ -977,6 +1018,81 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         assert.approximately(span.start, planned?.start ?? 0, frame);
         assert.approximately(span.end - span.start, planned?.duration ?? 0, frame);
       }),
+    );
+
+    it.effect(
+      "revives a released stream with the audio the earlier run left off at",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+          const { library } = yield* FixtureWorkspace.Service;
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const fileId = server.fileId("movies", library.remuxMovie);
+
+          const revivedAudio = Effect.fn(function* (capabilities: ClientCapabilities) {
+            const token = signTestToken({ fid: fileId, sid: `revived-${crypto.randomUUID()}` });
+            const stream = yield* negotiated({ token, capabilities });
+            const playlistUrl = local(server.baseUrl, stream.url);
+            const segments = yield* playlistSegments(playlistUrl);
+            const index = segments.findLastIndex((segment) => segment.start <= 7);
+            const before = yield* fetchSegment(playlistUrl, index - 1);
+
+            yield* Effect.sleep("2500 millis");
+
+            const after = yield* fetchSegment(playlistUrl, index);
+            const init = yield* bytes(before.init);
+
+            const resumed = server
+              .logged()
+              .find(
+                (entry) =>
+                  entry.message === "Stream.resumed" &&
+                  entry.annotations["streamId"] === stream.streamId,
+              );
+
+            const generation = resumed?.annotations["generation"];
+
+            if (!Predicate.isNumber(generation)) return assert.fail("the stream was not revived");
+
+            const run = path.join(server.transcodeDir, stream.streamId ?? "", String(generation));
+
+            const fragments = (yield* fs.readDirectory(run)).filter((name) =>
+              name.endsWith(".m4s"),
+            );
+
+            const starts = yield* Effect.forEach(fragments, (name) =>
+              Effect.map(
+                fs.readFile(path.join(run, name)),
+                (data) => fragmentStartSeconds(data.subarray(0, FRAGMENT_HEAD_BYTES)) ?? Number.NaN,
+              ),
+            );
+
+            return {
+              mode: stream.mode,
+              planned: segments[index]?.start ?? 0,
+              firstFragment: Math.min(...starts),
+              before: spanOf(yield* audioPackets(concat(init, yield* bytes(before.segment)))),
+              after: spanOf(yield* audioPackets(concat(init, yield* bytes(after.segment)))),
+            };
+          });
+
+          // Remux with AC-3 to AAC: the revived run seeks from the segment before, not the file's
+          // start, and its AAC frames continue the earlier run's.
+          const remux = yield* revivedAudio(browser);
+
+          assert.strictEqual(remux.mode, "audio-transcode");
+          assert.isAbove(remux.firstFragment, 0);
+          assert.approximately(remux.after.start, remux.before.end, 0.0015);
+
+          // Encode with AC-3 copied: the revived run drops the copied audio its seek landed before,
+          // which it can only do knowing the track runs on.
+          const encode = yield* revivedAudio(smallScreenWithDolbyAudio);
+
+          assert.strictEqual(encode.mode, "transcode-software");
+          assert.isAtMost(encode.planned - encode.after.start, 0.033);
+        }),
+      60_000,
     );
   });
 

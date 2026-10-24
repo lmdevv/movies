@@ -38,6 +38,8 @@ export const AudioTrack = Schema.Struct({
   language: Schema.optional(Schema.String),
   title: Schema.optional(Schema.String),
   default: Schema.Boolean,
+  /** Where the track's last packet ends on the file's timeline, in seconds, when the file says. */
+  endSeconds: Schema.optional(Schema.Finite),
 });
 
 /** One audio track. */
@@ -104,6 +106,8 @@ const Disposition = Schema.Struct({
 const Tags = Schema.Struct({
   language: Schema.optionalKey(Schema.String),
   title: Schema.optionalKey(Schema.String),
+  /** Matroska's per-track length, such as `00:21:43.008000000`. */
+  DURATION: Schema.optionalKey(Schema.String),
 });
 
 const FfprobeStream = Schema.Struct({
@@ -127,6 +131,8 @@ const FfprobeStream = Schema.Struct({
   sample_rate: Schema.optionalKey(Schema.String),
   disposition: Schema.optionalKey(Disposition),
   tags: Schema.optionalKey(Tags),
+  start_time: Schema.optionalKey(Schema.String),
+  duration: Schema.optionalKey(Schema.String),
 });
 
 type FfprobeStream = typeof FfprobeStream.Type;
@@ -227,6 +233,19 @@ const toVideo = (stream: FfprobeStream): VideoStream | undefined => {
   };
 };
 
+const clockSeconds = (text: string | undefined): number => {
+  const parts = (text ?? "").split(":").map(Number);
+
+  return parts.length === 3 ? parts.reduce((total, part) => total * 60 + part, 0) : Number.NaN;
+};
+
+const endOf = (stream: FfprobeStream): number | undefined => {
+  const duration = finiteOr(stream.duration, clockSeconds(stream.tags?.DURATION));
+  const end = finiteOr(stream.start_time, Number.NaN) + duration;
+
+  return Number.isFinite(end) ? end : undefined;
+};
+
 const toAudio = (stream: FfprobeStream): AudioTrack => {
   const sampleRate = finiteOr(stream.sample_rate, 0);
 
@@ -240,6 +259,7 @@ const toAudio = (stream: FfprobeStream): AudioTrack => {
     language: nonBlank(stream.tags?.language),
     title: nonBlank(stream.tags?.title),
     default: flag(stream.disposition?.default),
+    endSeconds: endOf(stream),
   };
 };
 

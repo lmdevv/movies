@@ -255,6 +255,8 @@ export const AudioStream = Schema.Struct({
   title: Schema.NullOr(Schema.String),
   default: Schema.Boolean,
   bitRate: Schema.NullOr(Schema.Int),
+  /** Where the stream's last packet ends on the file's timeline; absent when the file does not say. */
+  endMs: Schema.optionalKey(Schema.Int),
 });
 
 /** An audio stream. */

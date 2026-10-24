@@ -1,11 +1,12 @@
 /**
  * ffmpeg arguments for one HLS generation. Output keeps the source timeline (`-copyts` with
- * `frag_discont`), so every fragment's `sidx` time matches the session's segment plan, and the
- * HLS muxer starts a new fragment file at every keyframe; the session groups fragments into the
- * planned segments. Transcodes place keyframes on the planned segment starts. Encodes run in
- * software (libx264), on Intel Quick Sync, or through VA-API (Intel and AMD); a GPU decodes the
- * source itself when it can, and tone-maps HDR to SDR (`vpp_qsv`, `tonemap_vaapi`), as does the
- * software path with `zscale`.
+ * `frag_discont`, never shifted to avoid negative timestamps), so every fragment's `sidx` time
+ * matches the session's segment plan wherever a run starts, and the HLS muxer starts a new
+ * fragment file at every keyframe; the session groups fragments into the planned segments.
+ * Transcodes place keyframes on the planned segment starts. Encodes run in software (libx264), on
+ * Intel Quick Sync, or through VA-API (Intel and AMD); a GPU decodes the source itself when it
+ * can, and tone-maps HDR to SDR (`vpp_qsv`, `tonemap_vaapi`), as does the software path with
+ * `zscale`.
  */
 import { AudioPlan, VideoPlan } from "./playback-decision.ts";
 
@@ -23,10 +24,16 @@ export interface HlsCommand {
   readonly audio: AudioPlan;
   /** ffprobe's name for the source audio track's codec, such as `aac`; empty without audio. */
   readonly audioCodec: string;
+  /** Where a copied audio track ends on the source timeline, when its probe says. */
+  readonly copiedAudioEnd: number | undefined;
   /** ffprobe's name for the burned-in subtitle's codec, such as `dvd_subtitle`; empty without. */
   readonly subtitleCodec: string;
   /** Planned segment starts at or after `from`; transcodes force keyframes there. */
   readonly segmentStarts: ReadonlyArray<number>;
+  /**
+   * The planned segment start before `from`, a keyframe when video is copied; none at the first.
+   */
+  readonly previousStart: number | undefined;
   readonly outputDirectory: string;
   readonly qsvDevice: string;
   readonly vaapiDevice: string;
@@ -211,20 +218,136 @@ const videoArgs = (command: EncodeSource): ReadonlyArray<string> =>
  * filter rewrites them and passes AAC that has none through unchanged.
  */
 const copyBitstreamFilter = (codec: string): ReadonlyArray<string> =>
-  codec === "aac" ? ["-bsf:a", "aac_adtstoasc"] : [];
+  codec === "aac" ? ["aac_adtstoasc"] : [];
 
-const audioArgs = (command: EncodeSource): ReadonlyArray<string> =>
+interface AudioTiming {
+  readonly copyFilters: ReadonlyArray<string>;
+  readonly aac: ReadonlyArray<string>;
+}
+
+const audioArgs = (command: EncodeSource, timing: AudioTiming): ReadonlyArray<string> =>
   AudioPlan.$match(command.audio, {
     None: () => ["-an"],
-    Copy: ({ index }) => [
+    Copy: ({ index }) => {
+      const filters = [...copyBitstreamFilter(command.audioCodec), ...timing.copyFilters];
+
+      return [
+        "-map",
+        `0:${index}`,
+        "-c:a",
+        "copy",
+        ...(filters.length === 0 ? [] : ["-bsf:a", filters.join(",")]),
+      ];
+    },
+    Aac: ({ index }) => [
       "-map",
       `0:${index}`,
+      ...timing.aac,
       "-c:a",
-      "copy",
-      ...copyBitstreamFilter(command.audioCodec),
+      "aac",
+      "-ac",
+      "2",
+      "-b:a",
+      "192k",
     ],
-    Aac: ({ index }) => ["-map", `0:${index}`, "-c:a", "aac", "-ac", "2", "-b:a", "192k"],
   });
+
+const AAC_RATE = 48_000;
+
+const AAC_FRAME_SAMPLES = 1024;
+
+const AUDIO_LEAD = 0.5;
+
+/** How far past `from` copied audio must run on before an encode drops what ends by `from`. */
+const AUDIO_END_MARGIN = 0.5;
+
+const samplesAt = (time: number): number => Math.round(time * AAC_RATE);
+
+const frameFloor = (samples: number): number =>
+  Math.floor(samples / AAC_FRAME_SAMPLES) * AAC_FRAME_SAMPLES;
+
+const frameCeil = (samples: number): number =>
+  Math.ceil(samples / AAC_FRAME_SAMPLES) * AAC_FRAME_SAMPLES;
+
+/** Copied audio packets a run drops: those starting before a time, or those ending by it. */
+interface CopiedAudioDrop {
+  readonly time: number;
+  readonly by: "start" | "end";
+}
+
+interface RunStart {
+  readonly seek: number | undefined;
+  readonly audioStartSample: number;
+  readonly dropCopiedAudio: CopiedAudioDrop | undefined;
+}
+
+/**
+ * Drops copied packets by the times they keep under `-copyts`, where `-copypriorss` compares them
+ * with the input's `-ss`, which stays relative to a file that starts later than 0, such as
+ * MPEG-TS.
+ */
+const dropFilter = ({ time, by }: CopiedAudioDrop): string =>
+  by === "start"
+    ? `noise=drop=lt(pts*tb\\,${seconds(time)})`
+    : `noise=drop=lte((pts+d)*tb\\,${seconds(time)})`;
+
+/**
+ * Resamples to `AAC_RATE`, then times frames by their sample count from `audioStartSample`, so
+ * every AAC frame lasts 1024 samples however much the source's timestamps jitter. A gap or overlap
+ * in those timestamps longer than a frame (`min_hard_comp`) becomes silence or is cut, so audio
+ * stays on the source timeline; the default, 0.1 s, let a 60 ms gap play everything after it
+ * early. `first_pts` counts the filter's input samples, so the rate changes in a filter first.
+ */
+const aacTiming = (audioStartSample: number): ReadonlyArray<string> => [
+  "-af",
+  `aresample=${String(AAC_RATE)},aresample=async=1:min_hard_comp=0.02:first_pts=${String(audioStartSample)}`,
+];
+
+/**
+ * Every run's AAC frames sit on one grid of 1024-sample frames from the source timeline's zero,
+ * and start a frame after the file, so no priming frame has a negative timestamp. A run that
+ * copies video seeks to the previous planned start, a keyframe, so it has a fragment to drop even
+ * where a seek lands near its target rather than on a keyframe, as in MPEG-TS: the muxer then
+ * cuts the first planned segment's audio at the frame an earlier run cut, and the session drops
+ * the fragments before it. Its audio starts earlier still, so the first fragment has audio and
+ * `init.mp4` the same edit lists as other runs'. An encode drops copied audio that ends by `from`
+ * only when the track runs on past `from`: an MP4 track without a packet has no `init.mp4` entry
+ * for AC-3 or E-AC-3, so where the end is unknown nothing is dropped.
+ */
+const runStart = (command: EncodeSource): RunStart => {
+  const fileAudioStart = frameCeil(Math.max(0, samplesAt(command.sourceStart))) + AAC_FRAME_SAMPLES;
+
+  const fromFile: RunStart = {
+    seek: undefined,
+    audioStartSample: fileAudioStart,
+    dropCopiedAudio: { time: 0, by: "start" },
+  };
+
+  if (VideoPlan.$is("Copy")(command.video)) {
+    if (command.previousStart === undefined) return fromFile;
+
+    const seek = command.previousStart;
+    const audioStartSample = frameFloor(samplesAt(seek - AUDIO_LEAD));
+
+    return audioStartSample > fileAudioStart
+      ? { seek: seek - command.sourceStart, audioStartSample, dropCopiedAudio: undefined }
+      : fromFile;
+  }
+
+  const offset = command.from - command.sourceStart;
+
+  if (offset <= 0.001) return fromFile;
+
+  return {
+    seek: offset,
+    audioStartSample: Math.max(fileAudioStart, frameFloor(samplesAt(command.from))),
+    dropCopiedAudio:
+      command.copiedAudioEnd !== undefined &&
+      command.copiedAudioEnd >= command.from + AUDIO_END_MARGIN
+        ? { time: command.from, by: "end" }
+        : undefined,
+  };
+};
 
 /**
  * The `-init_hw_device` value for Quick Sync on the render node `device`. With oneVPL builds,
@@ -284,7 +407,7 @@ const subtitleReading = (command: EncodeSource) => {
 
 /** The full ffmpeg argument list for `command`. */
 export const hlsCommandArgs = (command: HlsCommand): ReadonlyArray<string> => {
-  const offset = command.from - command.sourceStart;
+  const start = runStart(command);
   const subtitles = subtitleReading(command);
 
   return [
@@ -296,7 +419,7 @@ export const hlsCommandArgs = (command: HlsCommand): ReadonlyArray<string> => {
     ...hardwareInput(command),
     // A canvas size applies to the input it precedes: the subtitle's, which is this one from 0 s.
     ...(subtitles.second ? [] : subtitles.canvas),
-    ...(offset > 0.001 ? ["-ss", seconds(offset)] : []),
+    ...(start.seek === undefined ? [] : ["-ss", seconds(start.seek)]),
     "-copyts",
     "-i",
     command.input,
@@ -310,7 +433,10 @@ export const hlsCommandArgs = (command: HlsCommand): ReadonlyArray<string> => {
         ]
       : []),
     ...videoArgs(command),
-    ...audioArgs(command),
+    ...audioArgs(command, {
+      copyFilters: start.dropCopiedAudio === undefined ? [] : [dropFilter(start.dropCopiedAudio)],
+      aac: aacTiming(start.audioStartSample),
+    }),
     "-map_metadata",
     "-1",
     "-map_chapters",
@@ -319,6 +445,8 @@ export const hlsCommandArgs = (command: HlsCommand): ReadonlyArray<string> => {
     "-dn",
     "-max_muxing_queue_size",
     "4096",
+    "-avoid_negative_ts",
+    "disabled",
     "-f",
     "hls",
     "-hls_time",
@@ -358,8 +486,10 @@ export const mp4CommandArgs = (command: Mp4Command): ReadonlyArray<string> => {
     video: command.video,
     audio: command.audio,
     audioCodec: command.audioCodec,
+    copiedAudioEnd: undefined,
     subtitleCodec: "",
     segmentStarts: [],
+    previousStart: undefined,
     qsvDevice: command.qsvDevice,
     vaapiDevice: command.vaapiDevice,
   };
@@ -376,7 +506,7 @@ export const mp4CommandArgs = (command: Mp4Command): ReadonlyArray<string> => {
     "-i",
     command.input,
     ...videoArgs(source),
-    ...audioArgs(source),
+    ...audioArgs(source, { copyFilters: [], aac: [] }),
     "-map_metadata",
     "-1",
     "-map_chapters",

@@ -15,8 +15,10 @@ const command = (audio: AudioPlan, audioCodec: string): HlsCommand => ({
   video: VideoPlan.Copy(),
   audio,
   audioCodec,
+  copiedAudioEnd: undefined,
   subtitleCodec: "",
   segmentStarts: [1.4, 3.4],
+  previousStart: undefined,
   outputDirectory: "/tmp/stream/1",
   qsvDevice: "/dev/dri/renderD128",
   vaapiDevice: "/dev/dri/renderD129",
@@ -57,7 +59,7 @@ describe("hlsCommandArgs", () => {
       "-c:a",
       "copy",
       "-bsf:a",
-      "aac_adtstoasc",
+      "aac_adtstoasc,noise=drop=lt(pts*tb\\,0.000000)",
     ]);
   });
 
@@ -67,6 +69,8 @@ describe("hlsCommandArgs", () => {
       "0:1",
       "-c:a",
       "copy",
+      "-bsf:a",
+      "noise=drop=lt(pts*tb\\,0.000000)",
     ]);
     expect(hlsCommandArgs(command(AudioPlan.Aac({ index: 1 }), "ac3"))).not.toContain(
       "aac_adtstoasc",

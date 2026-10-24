@@ -24,7 +24,13 @@ interface StreamJson {
     readonly hearing_impaired?: number;
     readonly attached_pic?: number;
   };
-  readonly tags?: { readonly language?: string; readonly title?: string };
+  readonly tags?: {
+    readonly language?: string;
+    readonly title?: string;
+    readonly DURATION?: string;
+  };
+  readonly start_time?: string;
+  readonly duration?: string;
 }
 
 const ffprobe = (streams: ReadonlyArray<StreamJson>, formatName = "matroska,webm") =>
@@ -72,7 +78,8 @@ describe("parseFfprobeJson", () => {
             channel_layout: "7.1",
             sample_rate: "48000",
             disposition: { default: 1 },
-            tags: { language: "eng", title: "Atmos" },
+            tags: { language: "eng", title: "Atmos", DURATION: "01:29:59.750000000" },
+            start_time: "0.500000",
           },
           {
             index: 3,
@@ -110,6 +117,7 @@ describe("parseFfprobeJson", () => {
         language: "eng",
         title: "Atmos",
         default: true,
+        endSeconds: 5400.25,
       });
       assert.deepStrictEqual(
         probe.subtitles.map((track) => [
@@ -123,6 +131,30 @@ describe("parseFfprobeJson", () => {
           ["ass", "text", false, true],
         ],
       );
+    }),
+  );
+
+  it.effect("reads where an audio track ends from its duration, or not at all", () =>
+    Effect.gen(function* () {
+      const probe = yield* parseFfprobeJson(
+        ffprobe(
+          [
+            {
+              index: 1,
+              codec_type: "audio",
+              codec_name: "ac3",
+              start_time: "1.400000",
+              duration: "6.016000",
+            },
+            { index: 2, codec_type: "audio", codec_name: "ac3", start_time: "1.400000" },
+          ],
+          "mpegts",
+        ),
+        "/media/recording.ts",
+      );
+
+      assert.approximately(probe.audio[0]?.endSeconds ?? 0, 7.416, 0.000_001);
+      assert.isUndefined(probe.audio[1]?.endSeconds);
     }),
   );
 

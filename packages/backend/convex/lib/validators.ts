@@ -385,6 +385,7 @@ const audioStream = v.object({
   title: nullable(v.string()),
   default: v.boolean(),
   bitRate: nullable(v.number()),
+  endMs: v.optional(v.number()),
 });
 
 const subtitleStream = v.object({

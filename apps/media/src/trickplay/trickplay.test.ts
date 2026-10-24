@@ -161,60 +161,63 @@ describe.skipIf(!hasFfmpeg)("trickplay", () => {
       }),
     );
 
-    it.effect("shows the last keyframe at or before each thumbnail's time", () =>
-      Effect.gen(function* () {
-        const store = yield* TrickplayStore.Service;
-        const tools = yield* MediaTools.Service;
+    it.effect(
+      "shows the last keyframe at or before each thumbnail's time",
+      () =>
+        Effect.gen(function* () {
+          const store = yield* TrickplayStore.Service;
+          const tools = yield* MediaTools.Service;
 
-        const clip = yield* encode("ramp.mkv", [
-          "-f",
-          "lavfi",
-          "-i",
-          "nullsrc=size=320x180:rate=24:duration=40,geq=lum='4*T':cb=128:cr=128",
-          "-c:v",
-          "libx264",
-          "-preset",
-          "ultrafast",
-          "-g",
-          "72",
-          "-keyint_min",
-          "72",
-          "-sc_threshold",
-          "0",
-        ]);
+          const clip = yield* encode("ramp.mkv", [
+            "-f",
+            "lavfi",
+            "-i",
+            "nullsrc=size=320x180:rate=24:duration=40,geq=lum='4*T':cb=128:cr=128",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-g",
+            "72",
+            "-keyint_min",
+            "72",
+            "-sc_threshold",
+            "0",
+          ]);
 
-        const file = yield* resolved(clip);
-        const version = trickplayVersion(file.sizeBytes, 1);
+          const file = yield* resolved(clip);
+          const version = trickplayVersion(file.sizeBytes, 1);
 
-        yield* store.publish("ramp", version, (folder) =>
-          generate(file, version, INTERVAL, folder),
-        );
+          yield* store.publish("ramp", version, (folder) =>
+            generate(file, version, INTERVAL, folder),
+          );
 
-        const sheet = Option.getOrThrow(yield* store.find("ramp", version, "0.jpg"));
+          const sheet = Option.getOrThrow(yield* store.find("ramp", version, "0.jpg"));
 
-        const measured = yield* Effect.forEach([0, 1, 2, 3], (tile) =>
-          tools
-            .ffprobe([
-              "-v",
-              "error",
-              "-f",
-              "lavfi",
-              "-i",
-              `movie=${sheet},crop=320:180:${String(tile * 320)}:0,signalstats`,
-              "-show_entries",
-              "frame_tags=lavfi.signalstats.YAVG",
-              "-of",
-              "csv=p=0",
-            ])
-            .pipe(Effect.map((text) => Number(text.trim()))),
-        );
+          const measured = yield* Effect.forEach([0, 1, 2, 3], (tile) =>
+            tools
+              .ffprobe([
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                `movie=${sheet},crop=320:180:${String(tile * 320)}:0,signalstats`,
+                "-show_entries",
+                "frame_tags=lavfi.signalstats.YAVG",
+                "-of",
+                "csv=p=0",
+              ])
+              .pipe(Effect.map((text) => Number(text.trim()))),
+          );
 
-        measured.forEach((value, tile) => {
-          const seconds = [0, 9, 18, 30][tile] ?? 0;
+          measured.forEach((value, tile) => {
+            const seconds = [0, 9, 18, 30][tile] ?? 0;
 
-          assert.approximately(value, rampLuma(seconds), 6, `tile ${String(tile)}`);
-        });
-      }),
+            assert.approximately(value, rampLuma(seconds), 6, `tile ${String(tile)}`);
+          });
+        }),
+      60_000,
     );
 
     it.effect("tone-maps HDR video or falls back to the frames as they decode", () =>

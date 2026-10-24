@@ -118,6 +118,39 @@ export const segmentAt = (plan: SegmentPlan, seconds: number): number => {
 const segmentDuration = (plan: SegmentPlan, index: number): number =>
   (plan.starts[index + 1] ?? plan.end) - (plan.starts[index] ?? plan.end);
 
+export const FRAGMENT_EPSILON_SECONDS = 0.005;
+
+/**
+ * The planned segments a generation's fragments make up, each fragment in the segment its start
+ * falls in and none before `startSegment`. Fragments before the last one that starts by `from`
+ * are left out: ffmpeg's stream-copy seek can start a keyframe or more before `from`, and a
+ * keyframe index a few milliseconds late puts `from` just after the fragment that starts the
+ * segment. `fragments` must be in start order.
+ */
+export const groupFragments = <F extends { readonly start: number }>(
+  plan: SegmentPlan,
+  startSegment: number,
+  from: number,
+  fragments: ReadonlyArray<F>,
+): ReadonlyMap<number, ReadonlyArray<F>> => {
+  const lead = fragments.findLastIndex(
+    (fragment) => fragment.start <= from + FRAGMENT_EPSILON_SECONDS,
+  );
+
+  const members = new Map<number, ReadonlyArray<F>>();
+
+  for (const fragment of fragments.slice(Math.max(0, lead))) {
+    const index = Math.max(
+      startSegment,
+      segmentAt(plan, fragment.start + FRAGMENT_EPSILON_SECONDS),
+    );
+
+    members.set(index, [...(members.get(index) ?? []), fragment]);
+  }
+
+  return members;
+};
+
 /** URIs a rendered playlist points at, relative to the playlist itself. */
 export interface PlaylistUris {
   readonly init: string;
