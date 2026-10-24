@@ -285,6 +285,11 @@ const plural = (count: number, one: string, many = `${one}s`): string =>
 
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
 
+const driftLine = (drift: PlaybackDiagnostics["drift"]): string =>
+  drift.status === "measured"
+    ? `Audio/video drift: median ${String(drift.medianMs)} ms, worst ${String(drift.worstMs)} ms over ${plural(drift.samples, "sample")} (video frame against the media clock; negative means the picture trails the sound)`
+    : `Audio/video drift: not measured. ${printable(drift.reason)}`;
+
 /** The timeline for people: a summary, what is not known, then one line per event. */
 export const renderTimeline = (diagnostics: PlaybackDiagnostics): string => {
   const { counts } = diagnostics;
@@ -302,7 +307,7 @@ export const renderTimeline = (diagnostics: PlaybackDiagnostics): string => {
       plural(counts.slowFragments, "slow segment load"),
       plural(counts.droppedFrames, "dropped frame"),
     ].join(", "),
-    `Audio/video drift: not measured. ${printable(diagnostics.drift.reason)}`,
+    driftLine(diagnostics.drift),
     ...(diagnostics.missing.length === 0
       ? []
       : ["Missing evidence:", ...diagnostics.missing.map((gap) => `  - ${printable(gap)}`)]),
@@ -354,6 +359,7 @@ const playbackTimeline: ShortcutCommand = {
       const diagnostics = yield* connection.withSession(
         connection.client.media("diagnostics.playback", {
           sessionId: PlaybackSessionId.make(sessionId.value),
+          measuredDrift: true,
         }),
       );
 

@@ -6,7 +6,6 @@ import type {
   RoomId,
   TitleId,
 } from "@movies/contracts/ids";
-import { PlayerObservation } from "@movies/contracts/diagnostics";
 import type { ClientCapabilities, NegotiateResponse } from "@movies/contracts/media-playback";
 import type { StartedPlayback } from "@movies/contracts/models/playback";
 import { Milliseconds } from "@movies/contracts/units";
@@ -16,6 +15,7 @@ import { Data, Effect, Exit, Option, Predicate, Result, Scope } from "effect";
 
 import { withoutFailedPath } from "./capabilities";
 import { bufferedAheadSeconds, frameCounts, recoveryObservation } from "./diagnostics";
+import { sampleDrift } from "./drift";
 import type { QualityChoice } from "./quality";
 import { qualityCap } from "./quality";
 import { ELEMENT_SEEKER, MediaElementPlayer, isBuffered } from "./media-element-player";
@@ -215,6 +215,7 @@ export class PlaybackController {
   #diagnostics: {
     readonly recorder: PlayerDiagnostics.Recorder;
     readonly scope: Scope.Closeable;
+    readonly stopDrift: () => void;
   } | null = null;
   #reported: Playback.Playback | null = null;
   #disposed = false;
@@ -283,8 +284,15 @@ export class PlaybackController {
    * Starts the session, then negotiates or asks where to start. A version the request names that
    * is gone from disk gives way to the one the server picks.
    */
-  async start(): Promise<void> {
+  start(): Promise<void> {
     performance.mark(PLAYBACK_MARKS.start);
+    this.#startDiagnostics();
+    this.#diagnostics?.recorder.intent();
+
+    return this.#begin();
+  }
+
+  async #begin(): Promise<void> {
     this.#update({ phase: PlaybackPhase.Starting() });
 
     const ticket = ++this.#negotiation;
@@ -298,7 +306,7 @@ export class PlaybackController {
       if (this.#fileId !== null && refusesFile(created.failure)) {
         this.#fileId = null;
 
-        return this.start();
+        return this.#begin();
       }
 
       return this.#follow(afterSessionFailure(created.failure), 0, created.failure.message);
@@ -359,6 +367,7 @@ export class PlaybackController {
 
     if (started === null || !PlaybackPhase.$is("Choosing")(phase)) return;
 
+    this.#diagnostics?.recorder.intent();
     void this.#negotiate(started, from === "resume" ? phase.resumeAtMs : 0);
   }
 
@@ -409,6 +418,7 @@ export class PlaybackController {
 
     const playback: Playback.Playback = { started, stream: negotiated.success };
 
+    this.#diagnostics?.recorder.reached("negotiated");
     this.#pickCarriedSubtitle(negotiated.success);
     this.#update({ phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.7 }) });
     this.#startReporting(playback);
@@ -465,8 +475,13 @@ export class PlaybackController {
       (failure) => {
         if (generation === this.#generation) this.#onStreamFailure(failure);
       },
-      (observation) => {
-        if (generation === this.#generation) this.#observe(observation);
+      {
+        observe: (observation) => {
+          if (generation === this.#generation) this.#observe(observation);
+        },
+        reached: (stage) => {
+          if (generation === this.#generation) this.#diagnostics?.recorder.reached(stage);
+        },
       },
     );
 
@@ -478,10 +493,7 @@ export class PlaybackController {
 
     this.#attached = attached;
     this.#observe(
-      PlayerObservation.cases.Attached.make({
-        mode: stream.mode,
-        engine: attached.engine === "hls.js" ? "hls.js" : "html-video",
-      }),
+      PlayerDiagnostics.attached(playback, attached.engine === "hls.js" ? "hls.js" : "html-video"),
     );
     this.#loadedBurnIn = chosen.burnIn;
     this.#update({ loadedQuality: chosen.quality });
@@ -829,6 +841,7 @@ export class PlaybackController {
       subtitleId: null,
       phase: PlaybackPhase.Preparing({ startAtMs: positionMs, progress: 0.2 }),
     });
+    this.#diagnostics?.recorder.intent();
     void this.#restart(positionMs, play);
 
     return true;
@@ -898,11 +911,13 @@ export class PlaybackController {
       );
     }
 
+    this.#diagnostics?.recorder.tokenRenewed(playback, renewed.success);
     await this.#load(
       renewed.success,
       options.play ?? (wasPlaying || !isPlaying(this.#snapshot.phase)),
       chosen,
     );
+
     this.#catchUpOnChoices(version, ticket);
   }
 
@@ -1048,10 +1063,13 @@ export class PlaybackController {
       return;
     }
 
+    this.#diagnostics?.recorder.intent();
     void this.#negotiate(started, this.player.positionMs());
   }
 
   readonly #onFirstFrame = (): void => {
+    this.#diagnostics?.recorder.reached("firstFrame");
+
     if (isPlaying(this.#snapshot.phase)) return;
 
     performance.mark(PLAYBACK_MARKS.firstFrame, { detail: { mode: this.#snapshot.stream?.mode } });
@@ -1078,11 +1096,10 @@ export class PlaybackController {
     void this.#runtime.runPromiseExit(
       Scope.provide(scope)(Playback.reportProgress(playback, this.output)),
     );
-    this.#startDiagnostics();
   }
 
   #startDiagnostics(): void {
-    if (this.#diagnostics !== null) return;
+    if (this.#disposed || this.#diagnostics !== null) return;
 
     const scope = Scope.makeUnsafe();
 
@@ -1097,7 +1114,15 @@ export class PlaybackController {
       ),
     );
 
-    if (Exit.isSuccess(started)) this.#diagnostics = { recorder: started.value, scope };
+    if (Exit.isSuccess(started)) {
+      const recorder = started.value;
+
+      this.#diagnostics = {
+        recorder,
+        scope,
+        stopDrift: sampleDrift(this.#element, recorder.record),
+      };
+    }
   }
 
   #closeDiagnostics(): void {
@@ -1106,6 +1131,7 @@ export class PlaybackController {
     this.#diagnostics = null;
 
     if (diagnostics !== null) {
+      diagnostics.stopDrift();
       diagnostics.recorder.close();
       void this.#runtime.runPromiseExit(Scope.close(diagnostics.scope, Exit.void));
     }

@@ -132,4 +132,21 @@ describe("the playback timeline for people", () => {
     expect(printed).toContain("  - Dropped frames: AVPlayer does not report them.");
     expect(printed).toMatch(/server +WARN +slow-segment +Segment 12 took 32\.9 s/u);
   });
+
+  it("prints a measured drift with its median, worst, and how it was measured", () => {
+    const printed = renderTimeline({
+      ...diagnostics,
+      drift: {
+        status: "measured",
+        method: "video-frame-vs-media-clock",
+        samples: 54,
+        medianMs: -12,
+        worstMs: -41,
+      },
+    });
+
+    expect(printed).toContain(
+      "Audio/video drift: median -12 ms, worst -41 ms over 54 samples (video frame against the media clock; negative means the picture trails the sound)",
+    );
+  });
 });

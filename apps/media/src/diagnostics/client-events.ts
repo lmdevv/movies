@@ -5,13 +5,19 @@ import {
   PlayerObservation,
 } from "@movies/contracts/diagnostics";
 import type { PlaybackTokenInvalid } from "@movies/contracts/playback-token";
-import { Clock, Context, Effect, Layer, Option } from "effect";
+import { Clock, Context, Effect, Layer, Option, Predicate } from "effect";
 
 import { makeLimiter } from "../http/rate-limit.ts";
 import type { PlaybackGrant } from "../playback/playback-token.ts";
 import * as PlaybackToken from "../playback/playback-token.ts";
 import * as StreamOwners from "../playback/stream-owners.ts";
-import { grantAnnotations, LogEvent, SLOW_MS, SLOW_STARTUP_MS } from "./log-events.ts";
+import {
+  grantAnnotations,
+  LogEvent,
+  SLOW_MS,
+  SLOW_STARTUP_MS,
+  STARTUP_FRAGMENTS,
+} from "./log-events.ts";
 
 /** Records players' events. */
 export interface Interface {
@@ -49,17 +55,40 @@ const commonFields = (
   claimedStreamId: ownStream ? null : (event.streamId ?? null),
 });
 
-const logObservation = (observation: PlayerObservation, fields: ReturnType<typeof commonFields>) =>
+const logObservation = (
+  observation: PlayerObservation,
+  fields: ReturnType<typeof commonFields>,
+  startup: boolean,
+) =>
   PlayerObservation.match(observation, {
-    Attached: ({ mode, engine }) =>
-      Effect.logInfo(LogEvent.playerAttached).pipe(
+    Attached: ({ mode, engine, audio }) => {
+      const attached = Effect.logInfo(LogEvent.playerAttached).pipe(
         Effect.annotateLogs({ ...fields, mode, engine }),
-      ),
-    StartupEnded: ({ positionSeconds, durationMs, endedBy }) =>
+      );
+
+      return audio === undefined
+        ? attached
+        : attached.pipe(
+            Effect.annotateLogs({
+              audioCodec: audio.codec,
+              audioChannels: audio.channels,
+              audioLanguage: audio.language ?? null,
+            }),
+          );
+    },
+    StartupEnded: ({ positionSeconds, durationMs, endedBy, stages }) =>
       (durationMs >= SLOW_STARTUP_MS
         ? Effect.logWarning(LogEvent.startupEnded)
         : Effect.logInfo(LogEvent.startupEnded)
-      ).pipe(Effect.annotateLogs({ ...fields, positionSeconds, startupMs: durationMs, endedBy })),
+      ).pipe(
+        Effect.annotateLogs({
+          ...fields,
+          positionSeconds,
+          startupMs: durationMs,
+          endedBy,
+          ...Object.fromEntries(Object.entries(stages ?? {}).filter(([, ms]) => ms !== undefined)),
+        }),
+      ),
     BufferingStarted: ({ positionSeconds, bufferedAheadSeconds }) =>
       Effect.logInfo(LogEvent.bufferingStarted).pipe(
         Effect.annotateLogs({ ...fields, positionSeconds, bufferedAheadSeconds }),
@@ -95,21 +124,65 @@ const logObservation = (observation: PlayerObservation, fields: ReturnType<typeo
       Effect.logInfo(LogEvent.droppedFrames).pipe(
         Effect.annotateLogs({ ...fields, dropped, decoded }),
       ),
-    FragmentLoaded: ({ segment, durationMs, firstByteMs, bytes }) =>
-      (durationMs >= SLOW_MS
-        ? Effect.logWarning(LogEvent.fragmentLoaded)
-        : Effect.logDebug(LogEvent.fragmentLoaded)
+    FragmentLoaded: ({ segment, durationMs, firstByteMs, bytes, index }) => {
+      const loaded = (
+        durationMs >= SLOW_MS
+          ? Effect.logWarning(LogEvent.fragmentLoaded)
+          : startup
+            ? Effect.logInfo(LogEvent.fragmentLoaded)
+            : Effect.logDebug(LogEvent.fragmentLoaded)
       ).pipe(
-        Effect.annotateLogs({ ...fields, segment, elapsedMs: durationMs, firstByteMs, bytes }),
-      ),
+        Effect.annotateLogs({
+          ...fields,
+          segment,
+          elapsedMs: durationMs,
+          firstByteMs,
+          bytes,
+          startup,
+        }),
+      );
+
+      return index === undefined ? loaded : loaded.pipe(Effect.annotateLogs("index", index));
+    },
     Recovery: ({ action, reason }) =>
-      Effect.logWarning(LogEvent.recovery).pipe(Effect.annotateLogs({ ...fields, action, reason })),
+      (action === "renew-token"
+        ? Effect.logInfo(LogEvent.recovery)
+        : Effect.logWarning(LogEvent.recovery)
+      ).pipe(Effect.annotateLogs({ ...fields, action, reason })),
+    DriftSampled: ({ samples, medianMs, worstMs }) =>
+      Effect.logInfo(LogEvent.driftSampled).pipe(
+        Effect.annotateLogs({ ...fields, samples, medianMs, worstMs }),
+      ),
   });
+
+/** How many sessions the startup load indexes are remembered for, newest kept. */
+const TRACKED_SESSIONS = 1000;
 
 const make = Effect.gen(function* () {
   const verifier = yield* PlaybackToken.Service;
   const owners = yield* StreamOwners.Service;
   const take = makeLimiter();
+  const startupIndexes = new Map<string, Set<number>>();
+
+  const admitStartup = (sessionId: string, observation: PlayerObservation): boolean => {
+    if (!Predicate.isTagged(observation, "FragmentLoaded")) return false;
+    const { index } = observation;
+
+    if (index === undefined || index >= STARTUP_FRAGMENTS) return false;
+    const seen = startupIndexes.get(sessionId) ?? new Set<number>();
+
+    if (seen.has(index)) return false;
+    startupIndexes.delete(sessionId);
+    startupIndexes.set(sessionId, seen.add(index));
+
+    const oldest = startupIndexes.keys().next();
+
+    if (startupIndexes.size > TRACKED_SESSIONS && oldest.done !== true) {
+      startupIndexes.delete(oldest.value);
+    }
+
+    return true;
+  };
 
   const record = Effect.fn("ClientDiagnostics.record")(function* (
     request: ClientDiagnosticsRequest,
@@ -142,6 +215,7 @@ const make = Effect.gen(function* () {
             logObservation(
               event.observation,
               commonFields(event, grant, request.platform, receivedAt, ownStream),
+              admitStartup(grant.sessionId, event.observation),
             ),
         ),
       { discard: true },

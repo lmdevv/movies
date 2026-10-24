@@ -1,4 +1,4 @@
-import { PlayerObservation } from "@movies/contracts/diagnostics";
+import type { PlayerObservation } from "@movies/contracts/diagnostics";
 import type { ClientCapabilities, NegotiateResponse } from "@movies/contracts/media-playback";
 import { Milliseconds } from "@movies/contracts/units";
 import type { Movies } from "@movies/sdk/effect";
@@ -101,10 +101,18 @@ const inGeneration = (
 
 /** What the controller needs from the screen. */
 export interface PlayerControllerOptions {
-  /** Start a new playback session at `positionMs`: the old one ended elsewhere. */
-  readonly onNewSession: (positionMs: number) => void;
+  /**
+   * Start a new playback session at `positionMs`: the old one ended elsewhere. `intentAt` is the
+   * play intent its startup counts from: the viewer's latest, unless the old session played since.
+   */
+  readonly onNewSession: (positionMs: number, intentAt: number | null) => void;
   /** The quality to start at, from App Settings' Streaming Quality. */
   readonly quality: QualityChoice;
+  /**
+   * When the viewer asked to play, in milliseconds since the epoch; startup stages count from it.
+   * None for a session the player started on its own after one played.
+   */
+  readonly intentAt: number | null;
 }
 
 /** Plays one session's streams. Create it, `start` it with the session, and `dispose` it. */
@@ -221,7 +229,12 @@ export class PlayerController {
       ),
     );
 
-    if (Exit.isSuccess(started)) this.#diagnostics = { recorder: started.value, scope };
+    if (Exit.isSuccess(started)) {
+      this.#diagnostics = { recorder: started.value, scope };
+
+      if (this.#options.intentAt !== null) started.value.intent(this.#options.intentAt);
+      started.value.reached("negotiated");
+    }
   }
 
   #observe(observation: PlayerObservation): void {
@@ -268,14 +281,25 @@ export class PlayerController {
     video.staysActiveInBackground = true;
     video.showNowPlayingNotification = true;
     video.allowsExternalPlayback = true;
-    this.#videoSubscriptions.set(
-      video,
-      video.addListener("statusChange", ({ status, error }) => {
-        if (generation !== this.#generation) return;
 
-        if (status === "error") this.#onPlayerError(error?.message);
-      }),
-    );
+    const statusChanges = video.addListener("statusChange", ({ status, error }) => {
+      if (generation !== this.#generation) return;
+
+      if (status === "error") this.#onPlayerError(error?.message);
+    });
+
+    const sourceLoads = video.addListener("sourceLoad", () => {
+      if (generation === this.#generation && stream.mode !== "direct") {
+        this.#diagnostics?.recorder.reached("manifestLoaded");
+      }
+    });
+
+    this.#videoSubscriptions.set(video, {
+      remove: () => {
+        statusChanges.remove();
+        sourceLoads.remove();
+      },
+    });
 
     this.#retire(this.#video);
     this.#video = video;
@@ -287,7 +311,7 @@ export class PlayerController {
       stream.mode === "direct" ? NATIVE_SEEKER : this.#hlsSeeker(),
     );
     this.#update({ video, playback, audioStreamIndex: stream.audio?.streamIndex ?? null });
-    this.#observe(PlayerObservation.cases.Attached.make({ mode: stream.mode, engine: "avplayer" }));
+    this.#observe(PlayerDiagnostics.attached(playback, "avplayer"));
     this.#scheduleRenewal(stream);
   }
 
@@ -308,6 +332,7 @@ export class PlayerController {
    */
   showedFrame(): void {
     this.#frameShown = true;
+    this.#diagnostics?.recorder.reached("firstFrame");
 
     if (PlayerPhase.$is("Preparing")(this.#snapshot.phase)) {
       this.#update({ phase: PlayerPhase.Playing() });
@@ -417,7 +442,14 @@ export class PlayerController {
     const playback = this.#playback;
 
     if (playback === null || PlaybackStep.$is("NewSession")(step)) {
-      this.#options.onNewSession(positionMs);
+      this.#options.onNewSession(
+        positionMs,
+        Option.getOrNull(
+          Option.flatMap(Option.fromNullishOr(this.#diagnostics), ({ recorder }) =>
+            recorder.intentAt(),
+          ),
+        ),
+      );
 
       return;
     }
@@ -534,6 +566,8 @@ export class PlayerController {
       );
     }
 
+    this.#diagnostics?.recorder.tokenRenewed(playback, renewed.success);
+    this.#diagnostics?.recorder.reached("negotiated");
     this.#load(renewed.success, positionMs);
   }
 
@@ -638,11 +672,12 @@ export class PlayerController {
     const positionMs = this.port.positionMs();
 
     if (this.#playback === null) {
-      this.#options.onNewSession(positionMs);
+      this.#options.onNewSession(positionMs, Date.now());
 
       return;
     }
 
+    this.#diagnostics?.recorder.intent();
     void this.port.play();
     void this.#renegotiate(positionMs);
   }

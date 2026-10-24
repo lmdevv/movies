@@ -1,13 +1,23 @@
 import { assert, describe, it } from "@effect/vitest";
 import {
   type ClientDiagnosticEvent,
-  type ClientDiagnosticsRequest,
+  ClientDiagnosticsRequest,
   type LogRecord,
   PlayerObservation,
 } from "@movies/contracts/diagnostics";
 import { PlaybackSessionId } from "@movies/contracts/ids";
 import { StreamId } from "@movies/contracts/media-playback";
-import { Duration, Effect, Layer, Logger, Option, Predicate, Redacted, Result } from "effect";
+import {
+  Duration,
+  Effect,
+  Layer,
+  Logger,
+  Option,
+  Predicate,
+  Redacted,
+  Result,
+  Schema,
+} from "effect";
 import { TestClock } from "effect/testing";
 
 import { decodeRecord } from "../logging/log-query.ts";
@@ -17,6 +27,7 @@ import * as StreamOwners from "../playback/stream-owners.ts";
 import { signTestToken, testConfigLayer } from "../testing/test-config.ts";
 import * as ClientDiagnostics from "./client-events.ts";
 import { LogEvent } from "./log-events.ts";
+import { sessionsOf, timelineOf } from "./timeline.ts";
 
 const recorderLayer = ClientDiagnostics.layer.pipe(
   Layer.provideMerge(PlaybackToken.layer),
@@ -73,6 +84,33 @@ const startup = (durationMs: number): ClientDiagnosticEvent => ({
     endedBy: "playing",
   }),
 });
+
+const fragment = (durationMs: number, index?: number): ClientDiagnosticEvent => {
+  const loaded = { segment: index ?? 99, durationMs, firstByteMs: 20, bytes: 1000 };
+
+  return {
+    ageMs: 0,
+    observation: PlayerObservation.cases.FragmentLoaded.make(
+      index === undefined ? loaded : { ...loaded, index },
+    ),
+  };
+};
+
+const recovery = (action: "renew-token" | "renegotiate"): ClientDiagnosticEvent => ({
+  ageMs: 0,
+  observation: PlayerObservation.cases.Recovery.make({ action, reason: "token expiring" }),
+});
+
+const recorded = (events: ReadonlyArray<ClientDiagnosticEvent>) =>
+  Effect.map(
+    recording(
+      Effect.flatMap(ClientDiagnostics.Service, (recorder) => recorder.record(batch(events))),
+    ),
+    ({ logged }) => logged,
+  );
+
+const timelineFrom = (logged: ReadonlyArray<LogRecord>) =>
+  Option.getOrThrow(timelineOf(PlaybackSessionId.make("session_test"), logged, false));
 
 describe("client diagnostics", () => {
   it.live("logs each event under its player name with the verified session and account", () =>
@@ -312,5 +350,204 @@ describe("client diagnostics", () => {
 
       assert.isTrue(Predicate.isTagged(result, "DiagnosticsRateLimited"));
     }),
+  );
+  it.live("keeps the session's first segment loads as startup, and later ones only when slow", () =>
+    Effect.gen(function* () {
+      const logged = yield* recorded([
+        fragment(90, 0),
+        fragment(90, 11),
+        fragment(90, 12),
+        fragment(1500, 5),
+        fragment(1500, 40),
+        fragment(90),
+      ]);
+
+      assert.deepStrictEqual(
+        logged.map((entry) => [
+          entry.message,
+          entry.level,
+          entry.annotations["index"],
+          entry.annotations["startup"],
+        ]),
+        [
+          [LogEvent.fragmentLoaded, "INFO", 0, true],
+          [LogEvent.fragmentLoaded, "INFO", 11, true],
+          [LogEvent.fragmentLoaded, "WARN", 5, true],
+          [LogEvent.fragmentLoaded, "WARN", 40, false],
+        ],
+      );
+
+      const timeline = timelineFrom(logged);
+
+      assert.deepStrictEqual(
+        timeline.entries.map((entry) => [entry.kind, entry.level]),
+        [
+          ["slow-fragment", "WARN"],
+          ["slow-fragment", "WARN"],
+        ],
+      );
+      assert.strictEqual(timeline.counts.slowFragments, 2);
+      assert.isTrue(timeline.missing.some((gap) => gap.includes("3 segment loads during startup")));
+    }),
+  );
+
+  it.live("admits each startup index once a session, whatever index the player claims", () =>
+    Effect.gen(function* () {
+      const { logged } = yield* recording(
+        Effect.flatMap(ClientDiagnostics.Service, (recorder) =>
+          Effect.gen(function* () {
+            yield* recorder.record(batch([fragment(90, 0), fragment(90, 0), fragment(90, 0)]));
+            yield* recorder.record(
+              batch(Array.from({ length: 15 }, (_, index) => fragment(90, index + 1))),
+            );
+            yield* recorder.record(batch([fragment(90, 0)], "session_other"));
+          }),
+        ),
+      );
+
+      const admitted = (sessionId: string) =>
+        logged
+          .filter(
+            (entry) =>
+              entry.annotations["sessionId"] === sessionId && entry.annotations["startup"] === true,
+          )
+          .map((entry) => entry.annotations["index"]);
+
+      assert.deepStrictEqual(
+        admitted("session_test"),
+        Array.from({ length: 12 }, (_, index) => index),
+      );
+      assert.deepStrictEqual(admitted("session_other"), [0]);
+    }),
+  );
+
+  it.live("logs a routine token renewal as a recovery that is no warning", () =>
+    Effect.gen(function* () {
+      const logged = yield* recorded([recovery("renew-token"), recovery("renegotiate")]);
+
+      assert.deepStrictEqual(
+        logged.map((entry) => [entry.message, entry.level, entry.annotations["action"]]),
+        [
+          [LogEvent.recovery, "INFO", "renew-token"],
+          [LogEvent.recovery, "WARN", "renegotiate"],
+        ],
+      );
+      assert.strictEqual(timelineFrom(logged).counts.recoveries, 1);
+      assert.strictEqual(sessionsOf(logged)[0]?.warnings, 1);
+    }),
+  );
+
+  it.live("logs the attached audio, the startup stages, and drift samples", () =>
+    Effect.gen(function* () {
+      const logged = yield* recorded([
+        {
+          ageMs: 0,
+          observation: PlayerObservation.cases.Attached.make({
+            mode: "remux",
+            engine: "hls.js",
+            audio: { codec: "eac3", channels: 6 },
+          }),
+        },
+        {
+          ageMs: 0,
+          observation: PlayerObservation.cases.StartupEnded.make({
+            positionSeconds: 0,
+            durationMs: 1200,
+            endedBy: "playing",
+            stages: { negotiatedMs: 400, firstFrameMs: 1900 },
+          }),
+        },
+        {
+          ageMs: 0,
+          observation: PlayerObservation.cases.DriftSampled.make({
+            samples: 6,
+            medianMs: -12,
+            worstMs: -41,
+          }),
+        },
+      ]);
+
+      assert.deepStrictEqual(
+        logged.map((entry) => [entry.message, entry.level]),
+        [
+          [LogEvent.playerAttached, "INFO"],
+          [LogEvent.startupEnded, "INFO"],
+          [LogEvent.driftSampled, "INFO"],
+        ],
+      );
+      assert.deepInclude(logged[0]?.annotations, {
+        audioCodec: "eac3",
+        audioChannels: 6,
+        audioLanguage: null,
+      });
+      assert.deepInclude(logged[1]?.annotations, { negotiatedMs: 400, firstFrameMs: 1900 });
+      assert.notProperty(logged[1]?.annotations, "manifestLoadedMs");
+      assert.deepInclude(logged[2]?.annotations, { samples: 6, medianMs: -12, worstMs: -41 });
+    }),
+  );
+
+  it.live(
+    "takes a batch from a player before startup stages and drift, and logs it as before",
+    () =>
+      Effect.gen(function* () {
+        const request = yield* Schema.decodeEffect(Schema.toCodecJson(ClientDiagnosticsRequest))({
+          token: signTestToken({ fid: "file_1", sid: "session_test" }),
+          platform: "web",
+          events: [
+            { ageMs: 0, observation: { _tag: "Attached", mode: "remux", engine: "hls.js" } },
+            {
+              ageMs: 0,
+              observation: {
+                _tag: "StartupEnded",
+                positionSeconds: 0,
+                durationMs: 300,
+                endedBy: "playing",
+              },
+            },
+            {
+              ageMs: 0,
+              observation: {
+                _tag: "FragmentLoaded",
+                segment: 0,
+                durationMs: 90,
+                firstByteMs: 20,
+                bytes: 1000,
+              },
+            },
+            {
+              ageMs: 0,
+              observation: {
+                _tag: "FragmentLoaded",
+                segment: 1,
+                durationMs: 1500,
+                firstByteMs: 20,
+                bytes: 1000,
+              },
+            },
+            { ageMs: 0, observation: { _tag: "Recovery", action: "renegotiate", reason: "gone" } },
+          ],
+        });
+
+        const { logged } = yield* recording(
+          Effect.flatMap(ClientDiagnostics.Service, (recorder) => recorder.record(request)),
+        );
+
+        assert.deepStrictEqual(
+          logged.map((entry) => [entry.message, entry.level]),
+          [
+            [LogEvent.playerAttached, "INFO"],
+            [LogEvent.startupEnded, "INFO"],
+            [LogEvent.fragmentLoaded, "WARN"],
+            [LogEvent.recovery, "WARN"],
+          ],
+        );
+
+        const added = ["audioCodec", "negotiatedMs", "firstFrameMs", "index", "worstMs"];
+
+        assert.isTrue(
+          logged.every((entry) => added.every((key) => !(key in entry.annotations))),
+          JSON.stringify(logged.map((entry) => entry.annotations)),
+        );
+      }),
   );
 });

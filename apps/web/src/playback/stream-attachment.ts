@@ -1,5 +1,6 @@
 import { PlayerObservation } from "@movies/contracts/diagnostics";
 import type { NegotiateResponse } from "@movies/contracts/media-playback";
+import type { PlayerDiagnostics } from "@movies/sdk/effect";
 import type { ErrorData, FragLoadedData } from "hls.js";
 
 /** Why a stream stopped playing. */
@@ -13,6 +14,11 @@ export type StreamFailure =
 
 /** Receives what the player saw, for the player diagnostics. */
 export type Observe = (observation: PlayerObservation) => void;
+
+export interface StreamReport {
+  readonly observe: Observe;
+  readonly reached: (stage: PlayerDiagnostics.StartupStage) => void;
+}
 
 const fragmentLoaded = ({ frag }: FragLoadedData): PlayerObservation | null => {
   if (frag.sn === "initSegment") return null;
@@ -109,7 +115,7 @@ const attachToElement = (
   url: string,
   seconds: number,
   onFailure: (failure: StreamFailure) => void,
-  observe: Observe,
+  { observe }: StreamReport,
 ): AttachedStream => {
   const onError = (): void => {
     const failure: StreamFailure =
@@ -164,7 +170,7 @@ const attachHlsJs = async (
   url: string,
   seconds: number,
   onFailure: (failure: StreamFailure) => void,
-  observe: Observe,
+  { observe, reached }: StreamReport,
 ): Promise<AttachedStream> => {
   const { default: Hls } = await preloadHlsJs();
   let mediaRecoveries = 0;
@@ -191,7 +197,13 @@ const attachHlsJs = async (
   hls.on(Hls.Events.FRAG_LOADED, (_event, data) => {
     const loaded = fragmentLoaded(data);
 
-    if (loaded !== null) observe(loaded);
+    if (loaded === null) return;
+    observe(loaded);
+    reached("firstFragmentLoaded");
+  });
+
+  hls.on(Hls.Events.MANIFEST_LOADED, () => {
+    reached("manifestLoaded");
   });
 
   hls.on(Hls.Events.ERROR, (_event, data) => {
@@ -245,8 +257,9 @@ const attachHlsJs = async (
 
 /**
  * Plays `stream` in `element` from `seconds`. `onFailure` hears about failures the stream cannot
- * recover from by itself; hls.js retries busy answers (503) on its own first. `observe` hears
- * the element's failures, and hls.js segment loads, errors, and recoveries.
+ * recover from by itself; hls.js retries busy answers (503) on its own first. `report` hears
+ * the element's failures, and hls.js segment loads, errors, recoveries, and startup stages; the
+ * element reports no stages.
  */
 export const attachStream = (
   element: HTMLVideoElement,
@@ -254,8 +267,8 @@ export const attachStream = (
   seconds: number,
   hlsJs: boolean,
   onFailure: (failure: StreamFailure) => void,
-  observe: Observe,
+  report: StreamReport,
 ): Promise<AttachedStream> =>
   stream.mode !== "direct" && hlsJs
-    ? attachHlsJs(element, stream.url, seconds, onFailure, observe)
-    : Promise.resolve(attachToElement(element, stream.url, seconds, onFailure, observe));
+    ? attachHlsJs(element, stream.url, seconds, onFailure, report)
+    : Promise.resolve(attachToElement(element, stream.url, seconds, onFailure, report));

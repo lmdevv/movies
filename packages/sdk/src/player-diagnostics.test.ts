@@ -2,7 +2,9 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 
 import { ClientDiagnosticsRequest, PlayerObservation } from "@movies/contracts/diagnostics";
+import type { NegotiateResponse } from "@movies/contracts/media-playback";
 import { StreamId } from "@movies/contracts/media-playback";
+import type { AudioStream } from "@movies/contracts/models/catalog";
 import { StartedPlayback } from "@movies/contracts/models/playback";
 import { Effect, Exit, Layer, Option, Predicate, Redacted, Schema, Scope } from "effect";
 import { TestClock } from "effect/testing";
@@ -12,7 +14,7 @@ import { MediaOrigin } from "./media-http";
 import type { Playback } from "./playback";
 import type { PlayerEvent, PlayerPort } from "./room-sync/player-port";
 import type { FrameCounts } from "./player-diagnostics";
-import { reportDiagnostics } from "./player-diagnostics";
+import { attached, reportDiagnostics } from "./player-diagnostics";
 import { makeFakePlayer } from "./testing/fake-player";
 
 const batches: Array<ClientDiagnosticsRequest> = [];
@@ -53,10 +55,16 @@ beforeEach(() => {
   batches.length = 0;
 });
 
+interface AudioChoice {
+  readonly stream: NegotiateResponse["audio"];
+  readonly tracks: ReadonlyArray<AudioStream>;
+}
+
 const playbackAt = (
   mediaBaseUrl: string,
   token = "v1.payload.signature",
   sessionId = "session-1",
+  audio: AudioChoice = { stream: undefined, tracks: [] },
 ): Playback => ({
   started: Schema.decodeSync(StartedPlayback)({
     sessionId,
@@ -74,7 +82,7 @@ const playbackAt = (
         durationMs: 600_000,
         bitRate: null,
         video: [],
-        audio: [],
+        audio: audio.tracks,
         subtitles: [],
       },
       externalSubtitles: [],
@@ -95,6 +103,7 @@ const playbackAt = (
     startSeconds: 0,
     durationSeconds: 600,
     video: { codec: "h264", width: 1920, height: 1080, dynamicRange: "sdr" },
+    audio: audio.stream,
     subtitles: [],
     expiresAt: 1_760_000_000_000,
   },
@@ -126,6 +135,9 @@ const recovery = (reason: string) =>
   PlayerObservation.cases.Recovery.make({ action: "new-session", reason });
 
 const received = () => batches.flatMap((batch) => batch.events);
+
+const renewal = (reason: string) =>
+  PlayerObservation.cases.Recovery.make({ action: "renew-token", reason });
 
 const makeElement = () => {
   const listeners = new Set<(event: PlayerEvent) => void>();
@@ -263,8 +275,8 @@ describe("playback diagnostics", () => {
       Effect.gen(function* () {
         const player = yield* makeFakePlayer(0);
         const scope = yield* Scope.make();
-        const first = playbackAt(base, "v1.first.session");
-        const second = playbackAt(base, "v1.second.session");
+        const first = playbackAt(base, "v1.first.session", "session-1");
+        const second = playbackAt(base, "v1.second.session", "session-2");
         let playing = Option.some(first);
 
         const recorder = yield* reportDiagnostics(player, {
@@ -289,6 +301,278 @@ describe("playback diagnostics", () => {
         ).toMatchObject([
           ["v1.first.session", [{ reason: "first" }, { reason: "between" }]],
           ["v1.second.session", [{ reason: "second" }]],
+        ]);
+      }),
+    ));
+
+  it("notes a token renewal when it happens, with the new token, in the same session only", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const player = yield* makeFakePlayer(0);
+        const scope = yield* Scope.make();
+        const before = playbackAt(base, "v1.old.token", "session-1");
+        const renewed = playbackAt(base, "v1.new.token", "session-1");
+        const late = playbackAt(base, "v1.late.token", "session-1");
+        const next = playbackAt(base, "v1.next.session", "session-2");
+        const expiresAt = before.started.tokenExpiresAt;
+        let playing = Option.some(before);
+
+        yield* TestClock.setTime(expiresAt - 240_000);
+
+        const recorder = yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => playing,
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        recorder.record(recovery("old"));
+        yield* TestClock.adjust(10_000);
+        recorder.tokenRenewed(before, renewed);
+        yield* TestClock.adjust(5_000);
+        playing = Option.some(renewed);
+        recorder.record(recovery("renewed"));
+        yield* TestClock.adjust(255_000);
+        recorder.tokenRenewed(renewed, late);
+        recorder.tokenRenewed(late, next);
+        yield* Scope.close(scope, Exit.void);
+
+        expect(
+          batches.flatMap((batch) =>
+            batch.events.map((event) => [Redacted.value(batch.token), event.observation]),
+          ),
+        ).toStrictEqual([
+          ["v1.old.token", recovery("old")],
+          ["v1.new.token", renewal("Renewed the playback token 230 s before it expired")],
+          ["v1.new.token", recovery("renewed")],
+          ["v1.late.token", renewal("Renewed the playback token 30 s after it expired")],
+        ]);
+      }),
+    ));
+
+  it("forgets a startup's stages once its session plays, however the startup ended", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const scope = yield* Scope.make();
+        const resumed = playbackAt(base, "v1.resumed.session", "session-1");
+        const followed = playbackAt(base, "v1.followed.session", "session-2");
+        const unblocked = playbackAt(base, "v1.unblocked.session", "session-3");
+        const last = playbackAt(base, "v1.last.session", "session-4");
+        const { element, player } = makeElement();
+        let playing = Option.some(resumed);
+
+        const recorder = yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => playing,
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        recorder.intent();
+        element.paused = false;
+        element.emit("waiting");
+        yield* TestClock.adjust(200);
+        recorder.reached("negotiated");
+        yield* TestClock.adjust(100);
+        element.paused = true;
+        element.emit("paused");
+        yield* TestClock.adjust(60_000);
+        element.paused = false;
+        element.emit("playing");
+
+        playing = Option.some(followed);
+        element.emit("waiting");
+        yield* TestClock.adjust(400);
+        element.emit("playing");
+
+        playing = Option.some(unblocked);
+        element.paused = true;
+        recorder.intent();
+        recorder.reached("negotiated");
+        yield* TestClock.adjust(30_000);
+        element.paused = false;
+        element.emit("playing");
+
+        playing = Option.some(last);
+        element.emit("waiting");
+        yield* TestClock.adjust(600);
+        element.emit("playing");
+        yield* Scope.close(scope, Exit.void);
+
+        expect(
+          batches.map((batch) => [
+            Redacted.value(batch.token),
+            batch.events.map((event) => event.observation),
+          ]),
+        ).toStrictEqual([
+          [
+            "v1.resumed.session",
+            [
+              PlayerObservation.cases.StartupEnded.make({
+                positionSeconds: 0,
+                durationMs: 300,
+                endedBy: "paused",
+                stages: { negotiatedMs: 200 },
+              }),
+            ],
+          ],
+          [
+            "v1.followed.session",
+            [
+              PlayerObservation.cases.StartupEnded.make({
+                positionSeconds: 0,
+                durationMs: 400,
+                endedBy: "playing",
+              }),
+            ],
+          ],
+          [
+            "v1.last.session",
+            [
+              PlayerObservation.cases.StartupEnded.make({
+                positionSeconds: 0,
+                durationMs: 600,
+                endedBy: "playing",
+              }),
+            ],
+          ],
+        ]);
+      }),
+    ));
+
+  it("forgets an intent made while its session already played, at the next play", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const scope = yield* Scope.make();
+        const played = playbackAt(base, "v1.played.session", "session-1");
+        const later = playbackAt(base, "v1.later.session", "session-2");
+        const { element, player } = makeElement();
+        let playing = Option.some(played);
+
+        const recorder = yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => playing,
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        element.paused = false;
+        element.emit("playing");
+        recorder.intent();
+        recorder.reached("negotiated");
+        yield* TestClock.adjust(100);
+        element.emit("playing");
+
+        yield* TestClock.adjust(3_600_000);
+        playing = Option.some(later);
+        element.emit("waiting");
+        yield* TestClock.adjust(500);
+        element.emit("playing");
+        yield* Scope.close(scope, Exit.void);
+
+        expect(
+          batches.flatMap((batch) => batch.events.map((event) => event.observation)),
+        ).toStrictEqual([
+          PlayerObservation.cases.StartupEnded.make({
+            positionSeconds: 0,
+            durationMs: 500,
+            endedBy: "playing",
+          }),
+        ]);
+      }),
+    ));
+
+  it("measures stages only to the first startup that ends, so a pause starts none over", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const scope = yield* Scope.make();
+        const playback = playbackAt(base);
+        const { element, player } = makeElement();
+
+        const recorder = yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => Option.some(playback),
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        recorder.intent();
+        element.paused = false;
+        element.emit("waiting");
+        yield* TestClock.adjust(200);
+        recorder.reached("negotiated");
+        element.paused = true;
+        element.emit("paused");
+        yield* TestClock.adjust(30_000);
+        element.paused = false;
+        element.emit("waiting");
+        yield* TestClock.adjust(300);
+        recorder.reached("firstFrame");
+        element.emit("playing");
+        yield* Scope.close(scope, Exit.void);
+
+        expect(
+          batches.flatMap((batch) => batch.events.map((event) => event.observation)),
+        ).toStrictEqual([
+          PlayerObservation.cases.StartupEnded.make({
+            positionSeconds: 0,
+            durationMs: 200,
+            endedBy: "paused",
+            stages: { negotiatedMs: 200 },
+          }),
+          PlayerObservation.cases.StartupEnded.make({
+            positionSeconds: 0,
+            durationMs: 300,
+            endedBy: "playing",
+          }),
+        ]);
+      }),
+    ));
+
+  it("names the latest play intent until its session plays", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const scope = yield* Scope.make();
+        const playback = playbackAt(base);
+        const { element, player } = makeElement();
+
+        yield* TestClock.setTime(10_000);
+
+        const recorder = yield* reportDiagnostics(player, {
+          platform: "ios",
+          playback: () => Option.some(playback),
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        const before = recorder.intentAt();
+
+        recorder.intent(8_500);
+        const given = recorder.intentAt();
+
+        yield* TestClock.adjust(1_000);
+        recorder.intent();
+        const retried = recorder.intentAt();
+
+        element.paused = false;
+        element.emit("waiting");
+        yield* TestClock.adjust(300);
+        element.paused = true;
+        element.emit("paused");
+        const paused = recorder.intentAt();
+
+        element.paused = false;
+        element.emit("playing");
+        const played = recorder.intentAt();
+
+        yield* Scope.close(scope, Exit.void);
+
+        expect([before, given, retried, paused, played]).toStrictEqual([
+          Option.none(),
+          Option.some(8_500),
+          Option.some(11_000),
+          Option.some(11_000),
+          Option.none(),
         ]);
       }),
     ));
@@ -579,4 +863,328 @@ describe("playback diagnostics", () => {
         expect(batches.map((batch) => batch.events.length)).toStrictEqual([100, 50]);
       }),
     ));
+
+  it("splits a startup into stages from the latest play intent, the first time each is reached", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const scope = yield* Scope.make();
+        const playback = playbackAt(base);
+        const { element, player } = makeElement();
+
+        const recorder = yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => Option.some(playback),
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        recorder.reached("negotiated");
+        yield* TestClock.adjust(1_000);
+        recorder.intent();
+        recorder.reached("negotiated");
+        yield* TestClock.adjust(1_000);
+        recorder.intent();
+        element.paused = false;
+        element.emit("waiting");
+        yield* TestClock.adjust(200);
+        recorder.reached("negotiated");
+        yield* TestClock.adjust(300);
+        recorder.reached("manifestLoaded");
+        yield* TestClock.adjust(100);
+        recorder.reached("firstFragmentLoaded");
+        recorder.reached("manifestLoaded");
+        yield* TestClock.adjust(150);
+        recorder.reached("firstFrame");
+        element.emit("playing");
+        recorder.reached("firstFrame");
+        yield* Scope.close(scope, Exit.void);
+
+        expect(received().map((event) => event.observation)).toStrictEqual([
+          PlayerObservation.cases.StartupEnded.make({
+            positionSeconds: 0,
+            durationMs: 750,
+            endedBy: "playing",
+            stages: {
+              negotiatedMs: 200,
+              manifestLoadedMs: 500,
+              firstFragmentMs: 600,
+              firstFrameMs: 750,
+            },
+          }),
+        ]);
+      }),
+    ));
+
+  it("measures stages from the intent time it is given", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const scope = yield* Scope.make();
+        const playback = playbackAt(base);
+        const { element, player } = makeElement();
+
+        yield* TestClock.setTime(10_000);
+
+        const recorder = yield* reportDiagnostics(player, {
+          platform: "ios",
+          playback: () => Option.some(playback),
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        recorder.intent(8_500);
+        recorder.reached("negotiated");
+        element.paused = false;
+        element.emit("waiting");
+        yield* TestClock.adjust(400);
+        recorder.reached("firstFrame");
+        yield* TestClock.adjust(100);
+        element.paused = true;
+        element.emit("paused");
+        yield* Scope.close(scope, Exit.void);
+
+        expect(received().map((event) => event.observation)).toStrictEqual([
+          PlayerObservation.cases.StartupEnded.make({
+            positionSeconds: 0,
+            durationMs: 500,
+            endedBy: "paused",
+            stages: { negotiatedMs: 1_500, firstFrameMs: 1_900 },
+          }),
+        ]);
+      }),
+    ));
+
+  it("holds a startup that played before its first frame until the frame shows", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const scope = yield* Scope.make();
+        const playback = playbackAt(base);
+        const { element, player } = makeElement();
+
+        const recorder = yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => Option.some(playback),
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        recorder.intent();
+        element.paused = false;
+        element.emit("waiting");
+        yield* TestClock.adjust(400);
+        recorder.reached("negotiated");
+        yield* TestClock.adjust(100);
+        element.emit("playing");
+        yield* TestClock.adjust(30);
+        recorder.reached("firstFrame");
+        yield* TestClock.adjust(1_000);
+        recorder.reached("firstFrame");
+        yield* Scope.close(scope, Exit.void);
+
+        expect(received()).toStrictEqual([
+          {
+            ageMs: 1_030,
+            streamId: "AAAAAAAAAAAAAAAAAAAAAA",
+            observation: PlayerObservation.cases.StartupEnded.make({
+              positionSeconds: 0,
+              durationMs: 500,
+              endedBy: "playing",
+              stages: { negotiatedMs: 400, firstFrameMs: 530 },
+            }),
+          },
+        ]);
+      }),
+    ));
+
+  it("sends a held startup with the stages it knows when the player closes", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const scope = yield* Scope.make();
+        const playback = playbackAt(base);
+        const { element, player } = makeElement();
+
+        const recorder = yield* reportDiagnostics(player, {
+          platform: "ios",
+          playback: () => Option.some(playback),
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        recorder.intent();
+        recorder.reached("negotiated");
+        element.paused = false;
+        element.emit("waiting");
+        yield* TestClock.adjust(500);
+        element.emit("playing");
+        yield* TestClock.adjust(1_500);
+        recorder.close();
+        recorder.reached("firstFrame");
+        yield* Scope.close(scope, Exit.void);
+
+        expect(received()).toStrictEqual([
+          {
+            ageMs: 1_500,
+            streamId: "AAAAAAAAAAAAAAAAAAAAAA",
+            observation: PlayerObservation.cases.StartupEnded.make({
+              positionSeconds: 0,
+              durationMs: 500,
+              endedBy: "playing",
+              stages: { negotiatedMs: 0 },
+            }),
+          },
+        ]);
+      }),
+    ));
+
+  it("sends a held startup with a later batch when no first frame comes", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const playback = playbackAt(base);
+        const { element, player } = makeElement();
+
+        const recorder = yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => Option.some(playback),
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        });
+
+        recorder.intent();
+        element.paused = false;
+        element.emit("waiting");
+        yield* TestClock.adjust(300);
+        recorder.reached("negotiated");
+        yield* TestClock.adjust(700);
+        element.emit("playing");
+        recorder.record(PlayerObservation.cases.Attached.make({ mode: "remux", engine: "hls.js" }));
+        yield* TestClock.adjust(4_000);
+        yield* until(() => batches.length > 0);
+
+        expect(received()).toMatchObject([{ observation: { _tag: "Attached" } }]);
+
+        yield* TestClock.adjust(5_000);
+        yield* until(() => batches.length > 1);
+
+        expect(batches[1]?.events).toStrictEqual([
+          {
+            ageMs: 9_000,
+            streamId: "AAAAAAAAAAAAAAAAAAAAAA",
+            observation: PlayerObservation.cases.StartupEnded.make({
+              positionSeconds: 0,
+              durationMs: 1_000,
+              endedBy: "playing",
+              stages: { negotiatedMs: 300 },
+            }),
+          },
+        ]);
+      }),
+    ));
+
+  it("numbers fragment loads from 0 in each playback session until it first plays", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const player = yield* makeFakePlayer(0);
+        const scope = yield* Scope.make();
+        const first = playbackAt(base, "v1.first.session", "session-1");
+        const renewed = playbackAt(base, "v1.renewed.session", "session-1");
+        const next = playbackAt(base, "v1.next.session", "session-2");
+        let playing = Option.some(first);
+
+        const recorder = yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => playing,
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        const load = (segment: number): void => {
+          recorder.record(
+            PlayerObservation.cases.FragmentLoaded.make({
+              segment,
+              durationMs: 50,
+              firstByteMs: 10,
+              bytes: 1_000,
+            }),
+          );
+        };
+
+        load(4);
+        load(5);
+        playing = Option.some(renewed);
+        load(6);
+        player.userPlay();
+        load(7);
+        playing = Option.some(next);
+        load(0);
+        load(1);
+        yield* Scope.close(scope, Exit.void);
+
+        expect(
+          received().flatMap(({ observation }) =>
+            Predicate.isTagged(observation, "FragmentLoaded")
+              ? [[observation.segment, observation.index]]
+              : [],
+          ),
+        ).toStrictEqual([
+          [4, 0],
+          [5, 1],
+          [6, 2],
+          [7, undefined],
+          [0, 0],
+          [1, 1],
+        ]);
+      }),
+    ));
+});
+
+const probeAudio = (index: number, language: string | null): AudioStream => ({
+  index,
+  codec: "eac3",
+  profile: null,
+  channels: 6,
+  channelLayout: "5.1(side)",
+  language,
+  title: null,
+  default: index === 1,
+  bitRate: null,
+});
+
+const withAudio = (stream: NegotiateResponse["audio"]): Playback =>
+  playbackAt(base, "v1.payload.signature", "session-1", {
+    stream,
+    tracks: [probeAudio(1, "eng"), probeAudio(2, null), probeAudio(3, "en-Latn-GB-x-private")],
+  });
+
+describe("player observations", () => {
+  it("names the audio rendition a stream plays when it attaches", () => {
+    expect(
+      attached(withAudio({ streamIndex: 1, codec: "aac", channels: 2 }), "hls.js"),
+    ).toStrictEqual(
+      PlayerObservation.cases.Attached.make({
+        mode: "remux",
+        engine: "hls.js",
+        audio: { codec: "aac", channels: 2, language: "eng" },
+      }),
+    );
+    expect(
+      attached(withAudio({ streamIndex: 2, codec: "eac3", channels: 6 }), "avplayer"),
+    ).toStrictEqual(
+      PlayerObservation.cases.Attached.make({
+        mode: "remux",
+        engine: "avplayer",
+        audio: { codec: "eac3", channels: 6 },
+      }),
+    );
+    expect(
+      attached(withAudio({ streamIndex: 3, codec: "aac", channels: 2 }), "hls.js"),
+    ).toStrictEqual(
+      PlayerObservation.cases.Attached.make({
+        mode: "remux",
+        engine: "hls.js",
+        audio: { codec: "aac", channels: 2 },
+      }),
+    );
+    expect(attached(withAudio(undefined), "html-video")).toStrictEqual(
+      PlayerObservation.cases.Attached.make({ mode: "remux", engine: "html-video" }),
+    );
+  });
 });
