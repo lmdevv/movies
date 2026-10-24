@@ -89,6 +89,11 @@ const route = (path: string, response: ServerResponse): void => {
       return respond(response, 200, JSON.stringify({ ok: true }));
     case "/failure":
       return respond(response, 403, JSON.stringify({ code: "forbidden", message: "Admins only" }));
+    case "/limited":
+      response.writeHead(429, { "content-type": "application/json", "retry-after": "42" });
+      response.end(JSON.stringify({ code: "rate_limited", message: "Too many" }));
+
+      return;
     case "/tagged":
       return respond(response, 422, JSON.stringify({ _tag: "UnsupportedPlayback", reason: "x" }));
     case "/gone":
@@ -178,6 +183,12 @@ describe("media service requests", () => {
   it("turns a { code, message } failure into its command error", async () => {
     expect(await outcome("/failure")).toMatchObject({
       failure: { _tag: "Forbidden", message: "Admins only" },
+    });
+  });
+
+  it("says how long to wait when the service limits the caller", async () => {
+    expect(await outcome("/limited")).toMatchObject({
+      failure: { _tag: "RateLimited", message: "Too many", retryAfterSeconds: 42 },
     });
   });
 

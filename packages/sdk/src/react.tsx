@@ -13,6 +13,7 @@ import {
   Exit,
   Fiber,
   Layer,
+  type LogLevel,
   ManagedRuntime,
   Option,
   Redacted,
@@ -99,10 +100,13 @@ export interface MoviesProviderProps {
   readonly storage: KeyValueStore;
   /** The key the session is stored under; `movies.session` when omitted. */
   readonly storageKey?: string;
+  /**
+   * The least severe SDK log line the console shows; `Warn` when omitted, so the console shows
+   * problems rather than the SDK's routine. `Debug` shows every request.
+   */
+  readonly logLevel?: LogLevel.LogLevel | undefined;
   readonly children: ReactNode;
 }
-
-const warningsAndAbove = Layer.succeed(References.MinimumLogLevel, "Warn");
 
 /**
  * Provides the SDK and the Convex client to the tree. The runtime is created and disposed by one
@@ -110,7 +114,7 @@ const warningsAndAbove = Layer.succeed(References.MinimumLogLevel, "Warn");
  * use; children render once it exists.
  */
 export const MoviesProvider = (props: MoviesProviderProps): ReactNode => {
-  const { client, mediaUrl, storage, storageKey } = props;
+  const { client, mediaUrl, storage, storageKey, logLevel = "Warn" } = props;
   const [runtime, setRuntime] = useState<Runtime | null>(null);
 
   useEffect(() => {
@@ -123,7 +127,7 @@ export const MoviesProvider = (props: MoviesProviderProps): ReactNode => {
           Layer.effect(ConvexTransport.ConvexTransport, ConvexTransport.make(reactAdapter(client))),
         ),
         Layer.provide(TokenStorage.layerKeyValue(storage, storageKey ?? "movies.session")),
-        Layer.merge(warningsAndAbove),
+        Layer.merge(Layer.succeed(References.MinimumLogLevel, logLevel)),
       ),
     );
 
@@ -133,7 +137,7 @@ export const MoviesProvider = (props: MoviesProviderProps): ReactNode => {
       setRuntime(null);
       void created.dispose();
     };
-  }, [client, mediaUrl, storage, storageKey]);
+  }, [client, mediaUrl, storage, storageKey, logLevel]);
 
   if (runtime === null) return null;
 

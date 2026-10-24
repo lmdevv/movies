@@ -27,6 +27,17 @@ interface Received {
 
 const received: Array<Received> = [];
 
+interface Answer {
+  readonly status: number;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly body: string;
+}
+
+const ACCEPTED: Answer = { status: 204, headers: {}, body: "" };
+
+/** What the fake media service answers every report with. */
+let answer: Answer = ACCEPTED;
+
 const media = createServer((request: IncomingMessage, response: ServerResponse) => {
   const chunks: Array<Buffer> = [];
 
@@ -37,8 +48,8 @@ const media = createServer((request: IncomingMessage, response: ServerResponse) 
       auth: request.headers.authorization,
       body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
     });
-    response.writeHead(204);
-    response.end();
+    response.writeHead(answer.status, answer.headers);
+    response.end(answer.body);
   });
 });
 
@@ -59,6 +70,7 @@ afterAll(() => {
 
 beforeEach(() => {
   received.length = 0;
+  answer = ACCEPTED;
 });
 
 const NOW = Date.now();
@@ -166,6 +178,18 @@ describe("reportOf", () => {
     });
   });
 
+  it("describes a plain object that was thrown as its JSON", () => {
+    expect(
+      ClientErrors.reportOf({ reason: "offline", attempts: 3 }, { ...context, kind: "uncaught" }),
+    ).toMatchObject({ name: "NonError", message: '{"reason":"offline","attempts":3}' });
+  });
+
+  it("cuts the JSON of a large thrown object to the message bound", () => {
+    const cut = ClientErrors.reportOf({ text: "x".repeat(5000) }, context);
+
+    expect(cut.message).toHaveLength(CLIENT_ERROR_LIMITS.message);
+  });
+
   it("names an error whose name is not text by the fallback", () => {
     const error = new Error("boom");
 
@@ -230,18 +254,63 @@ describe("ClientErrors", () => {
     withSdk(true, () =>
       Effect.gen(function* () {
         yield* report(new TypeError("boom"));
+        yield* report(new TypeError("boom"));
         yield* report(new TypeError("boom"), { ...context, kind: "uncaught" });
         yield* report(new TypeError("other"));
 
         expect(received.map((entry) => entry.body)).toMatchObject([
-          { message: "boom" },
+          { message: "boom", kind: "route" },
+          { message: "boom", kind: "uncaught" },
           { message: "other" },
         ]);
 
         yield* TestClock.adjust(ClientErrors.REPEAT_WINDOW_MS);
         yield* report(new TypeError("boom"));
 
-        expect(received).toHaveLength(3);
+        expect(received).toHaveLength(4);
+      }),
+    ));
+
+  it("keeps a repeat out of the window even when its send failed", () =>
+    withSdk(true, () =>
+      Effect.gen(function* () {
+        answer = {
+          status: 500,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ code: "internal", message: "Down" }),
+        };
+
+        yield* report(new TypeError("boom"));
+        yield* report(new TypeError("boom"));
+
+        expect(received).toHaveLength(1);
+      }),
+    ));
+
+  it("sends nothing for as long as the service asks after refusing a report", () =>
+    withSdk(true, () =>
+      Effect.gen(function* () {
+        answer = {
+          status: 429,
+          headers: { "content-type": "application/json", "retry-after": "120" },
+          body: JSON.stringify({ code: "rate_limited", message: "Too many error reports" }),
+        };
+
+        yield* report(new TypeError("first"));
+        answer = ACCEPTED;
+        yield* report(new TypeError("second"));
+        yield* TestClock.adjust(119_000);
+        yield* report(new TypeError("third"));
+
+        expect(received).toHaveLength(1);
+
+        yield* TestClock.adjust(1000);
+        yield* report(new TypeError("fourth"));
+
+        expect(received.map((entry) => entry.body)).toMatchObject([
+          { message: "first" },
+          { message: "fourth" },
+        ]);
       }),
     ));
 });

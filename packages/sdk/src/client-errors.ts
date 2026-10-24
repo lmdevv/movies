@@ -1,8 +1,10 @@
 /**
  * Apps' unexpected errors, such as a crashed screen or an unhandled rejection, written to the media
  * service's retained log so whoever runs the server can find them with `movies logs`. Nothing is
- * sent while signed out, and an error that repeats is sent once per `REPEAT_WINDOW_MS`, so a
- * render loop or a failing poll sends one report rather than a flood.
+ * sent while signed out, and an error that repeats is sent once per `REPEAT_WINDOW_MS`, failed or
+ * not, so a render loop or a failing poll sends one report rather than a flood. After the service
+ * refuses one for its budget, nothing is sent until its `Retry-After` has passed; reports in
+ * between are dropped.
  */
 import {
   CLIENT_ERROR_LIMITS,
@@ -15,6 +17,7 @@ import { RequestId } from "@movies/contracts/request-id";
 import { Clock, Context, Effect, Layer, Option, Predicate, Schema } from "effect";
 
 import { Auth } from "./auth";
+import { decodeTagged } from "./media-http";
 import { MoviesClient } from "./movies-client";
 
 /** Where an app caught an error. */
@@ -33,19 +36,19 @@ export const REPEAT_WINDOW_MS = 30_000;
 
 const MAX_REMEMBERED = 100;
 
+const DEFAULT_PAUSE_SECONDS = 60;
+
 const cut = (text: string, maxLength: number): string =>
   text.length <= maxLength ? text : `${text.slice(0, maxLength - 1)}…`;
 
 const bounded = (text: string, maxLength: number, fallback: string): string =>
   cut(text.length === 0 ? fallback : text, maxLength);
 
-const decodeTagged = Schema.decodeUnknownOption(
-  Schema.Struct({ tag: Schema.String }).pipe(Schema.encodeKeys({ tag: "_tag" })),
-);
-
 const decodeIdentity = Schema.decodeUnknownOption(Schema.Struct({ requestId: RequestId }));
 
 const textOf = Option.liftThrowable(String);
+
+const jsonOf = Option.liftThrowable(JSON.stringify);
 
 const textField = Option.liftPredicate(Predicate.isString);
 
@@ -62,7 +65,11 @@ export const reportOf = (cause: unknown, context: ErrorContext): ClientErrorRepo
   ]).pipe(Option.getOrElse(() => "NonError"));
 
   const message = Option.match(error, {
-    onNone: () => textOf(cause),
+    onNone: () =>
+      Option.orElse(
+        Predicate.isObject(cause) ? Option.flatMap(jsonOf(cause), textField) : Option.none(),
+        () => textOf(cause),
+      ),
     onSome: (value) => textField(value.message),
   }).pipe(Option.getOrElse(() => "A value that cannot be shown"));
 
@@ -116,6 +123,7 @@ const make = Effect.gen(function* () {
   const client = yield* MoviesClient;
   const auth = yield* Auth;
   const sentAt = new Map<string, number>();
+  const pause = { until: 0 };
 
   const isRepeat = (key: string, now: number): boolean => {
     for (const [seen, at] of sentAt) {
@@ -139,14 +147,22 @@ const make = Effect.gen(function* () {
     function* (cause: unknown, context: ErrorContext) {
       if ((yield* auth.currentStatus) !== "signedIn") return;
 
+      const now = yield* Clock.currentTimeMillis;
       const sent = reportOf(cause, context);
-      const key = `${sent.name}\u0000${sent.message}\u0000${sent.route}`;
 
-      if (isRepeat(key, yield* Clock.currentTimeMillis)) return;
+      if (now < pause.until) return;
 
-      yield* client
-        .reportError(sent)
-        .pipe(Effect.tapError(() => Effect.sync(() => sentAt.delete(key))));
+      if (isRepeat(`${sent.kind}\u0000${sent.name}\u0000${sent.message}\u0000${sent.route}`, now)) {
+        return;
+      }
+
+      yield* client.reportError(sent).pipe(
+        Effect.tapErrorTag("RateLimited", (refused) =>
+          Effect.sync(() => {
+            pause.until = now + (refused.retryAfterSeconds ?? DEFAULT_PAUSE_SECONDS) * 1000;
+          }),
+        ),
+      );
     },
     Effect.catchCause((cause) => Effect.logDebug("ClientErrors.dropped", cause)),
   );

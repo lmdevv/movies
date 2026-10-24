@@ -1,4 +1,4 @@
-import { CommandFailure, commandError } from "@movies/contracts/errors";
+import { CommandFailure, RateLimited, commandError } from "@movies/contracts/errors";
 import type { CommandError, ErrorCode, RequestIdentity } from "@movies/contracts/errors";
 import { REQUEST_ID_HEADER, RequestId } from "@movies/contracts/request-id";
 import { PlaybackApiError } from "@movies/contracts/media-playback";
@@ -78,7 +78,10 @@ const TaggedFailure = Schema.Struct({ tag: Schema.String }).pipe(
 
 const decodeCommandFailure = Schema.decodeUnknownOption(CommandFailure);
 
-const decodeTaggedFailure = Schema.decodeUnknownOption(TaggedFailure);
+/** The `_tag` of a tagged value, such as an HttpApi failure body or an SDK error. */
+export const decodeTagged = Schema.decodeUnknownOption(TaggedFailure);
+
+const isSeconds = (seconds: number): boolean => Number.isInteger(seconds) && seconds >= 0;
 
 const decodePlaybackFailure = Schema.decodeUnknownOption(Schema.toCodecJson(PlaybackApiError));
 
@@ -119,6 +122,8 @@ interface MediaResponse {
   readonly status: number;
   readonly ok: boolean;
   readonly body: Schema.Json;
+  /** The `Retry-After` seconds of a refused request. */
+  readonly retryAfterSeconds: Option.Option<number>;
   readonly identity: RequestIdentity;
 }
 
@@ -153,7 +158,12 @@ const readResponse = (
             ),
           );
 
-    return { status: response.status, ok: response.ok, body, identity };
+    const retryAfterSeconds = Option.fromNullishOr(response.headers.get("retry-after")).pipe(
+      Option.map(Number),
+      Option.filter(isSeconds),
+    );
+
+    return { status: response.status, ok: response.ok, body, identity, retryAfterSeconds };
   });
 
 const fetchResponse = (
@@ -213,12 +223,12 @@ const send = (
     readResponse(request, fetched),
   );
 
-const commandFailureOf = (request: MediaRequest, response: MediaResponse): CommandError => {
+const failureOf = (request: MediaRequest, response: MediaResponse): CommandError => {
   const known = decodeCommandFailure(response.body);
 
   if (Option.isSome(known)) return commandError(known.value, response.identity);
 
-  const reason = Option.match(decodeTaggedFailure(response.body), {
+  const reason = Option.match(decodeTagged(response.body), {
     onNone: () => `HTTP ${String(response.status)}`,
     onSome: (tagged) => tagged.tag,
   });
@@ -230,6 +240,18 @@ const commandFailureOf = (request: MediaRequest, response: MediaResponse): Comma
     },
     response.identity,
   );
+};
+
+const commandFailureOf = (request: MediaRequest, response: MediaResponse): CommandError => {
+  const failure = failureOf(request, response);
+
+  return failure instanceof RateLimited && Option.isSome(response.retryAfterSeconds)
+    ? new RateLimited({
+        message: failure.message,
+        retryAfterSeconds: response.retryAfterSeconds.value,
+        ...response.identity,
+      })
+    : failure;
 };
 
 const decodeSuccess = <A>(
