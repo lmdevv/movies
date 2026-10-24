@@ -1,6 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { planGridSegments, planKeyframeSegments, renderPlaylist, segmentAt } from "./hls-plan.ts";
+import {
+  planGridSegments,
+  planKeyframeSegments,
+  reachOf,
+  renderPlaylist,
+  segmentAt,
+} from "./hls-plan.ts";
 
 describe("HLS segment plans", () => {
   it("cuts transcodes on a fixed grid and merges a tiny tail", () => {
@@ -121,5 +127,27 @@ describe("HLS segment plans", () => {
         "",
       ].join("\n"),
     );
+  });
+
+  it("trusts a written fragment's end only when it lands on the next start", () => {
+    const first = { start: 12, end: 15.958 };
+
+    expect(reachOf([first], 16)).toEqual({ followed: false, written: false });
+    expect(reachOf([{ start: 12, end: 16.003 }], 16)).toEqual({ followed: false, written: true });
+    expect(reachOf([{ start: 12, end: 15.997 }], 16)).toEqual({ followed: false, written: true });
+    expect(reachOf([{ start: 12, end: 16.04 }], 16)).toEqual({ followed: false, written: false });
+    expect(reachOf([{ start: 12, end: undefined }], 16)).toEqual({
+      followed: false,
+      written: false,
+    });
+    expect(reachOf([first, { start: 15.958, end: 16.04 }], 16)).toEqual({
+      followed: false,
+      written: false,
+    });
+    expect(reachOf([first, { start: 16.002, end: 20 }], 16)).toEqual({
+      followed: true,
+      written: true,
+    });
+    expect(reachOf([first], undefined)).toEqual({ followed: false, written: false });
   });
 });

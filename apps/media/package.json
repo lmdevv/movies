@@ -10,7 +10,7 @@
     "start": "node --enable-source-maps dist/main.js",
     "typecheck": "tsc --noEmit",
     "fixtures": "node scripts/generate-fixtures.ts",
-    "timing": "MOVIES_TIMING=1 vitest run --root ../.. apps/media/src/timing",
+    "timing": "MOVIES_TIMING=1 vitest run --root ../.. --silent=false apps/media/src/timing",
     "timing:hls": "MOVIES_TIMING=1 vitest run --root ../.. --silent=false apps/media/src/playback/hls-timing.test.ts",
     "test:stack": "MOVIES_STACK_TESTS=1 vitest run --root ../.. --no-file-parallelism apps/media/src/stack"
   },

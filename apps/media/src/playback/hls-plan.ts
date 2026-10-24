@@ -118,7 +118,7 @@ export const segmentAt = (plan: SegmentPlan, seconds: number): number => {
 const segmentDuration = (plan: SegmentPlan, index: number): number =>
   (plan.starts[index + 1] ?? plan.end) - (plan.starts[index] ?? plan.end);
 
-export const FRAGMENT_EPSILON_SECONDS = 0.005;
+const FRAGMENT_EPSILON_SECONDS = 0.005;
 
 /**
  * The planned segments a generation's fragments make up, each fragment in the segment its start
@@ -149,6 +149,37 @@ export const groupFragments = <F extends { readonly start: number }>(
   }
 
   return members;
+};
+
+/** How far the fragments written so far reach toward the next planned start. */
+export interface Reach {
+  /** A fragment starts at or after the next start, so the encoder got past it. */
+  readonly followed: boolean;
+  /**
+   * A fragment ends at the next start, so the segment before it is whole; an end well past the
+   * next start is not trusted, as ffmpeg did not cut there.
+   */
+  readonly written: boolean;
+}
+
+/** How far `fragments` reach toward `next`, the start of the segment after the one awaited. */
+export const reachOf = (
+  fragments: ReadonlyArray<{ readonly start: number; readonly end: number | undefined }>,
+  next: number | undefined,
+): Reach => {
+  if (next === undefined) return { followed: false, written: false };
+
+  const followed = fragments.some((fragment) => fragment.start + FRAGMENT_EPSILON_SECONDS >= next);
+
+  return {
+    followed,
+    written:
+      followed ||
+      fragments.some(
+        (fragment) =>
+          fragment.end !== undefined && Math.abs(fragment.end - next) <= FRAGMENT_EPSILON_SECONDS,
+      ),
+  };
 };
 
 /** URIs a rendered playlist points at, relative to the playlist itself. */

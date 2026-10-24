@@ -9,7 +9,7 @@ import { type MediaProbe, probeFile } from "../media/media-probe.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import { ffmpegAvailable, qsvUsable, vaapiUsable } from "../testing/fixture-library.ts";
 import { testConfigLayer } from "../testing/test-config.ts";
-import { FRAGMENT_HEAD_BYTES, fragmentStartSeconds } from "./fmp4-fragments.ts";
+import { FRAGMENT_HEAD_BYTES, fragmentSpan } from "./fmp4-fragments.ts";
 import {
   groupFragments,
   planGridSegments,
@@ -540,7 +540,7 @@ const runFrom = Effect.fn("HlsTiming.runFrom")(function* (
       const fragment = path.join(outputDirectory, name);
       const head = (yield* fs.readFile(fragment)).subarray(0, FRAGMENT_HEAD_BYTES);
 
-      return { path: fragment, start: fragmentStartSeconds(head) ?? Number.NaN };
+      return { path: fragment, start: fragmentSpan(head)?.start ?? Number.NaN };
     }),
   );
 

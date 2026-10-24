@@ -21,7 +21,7 @@ import * as MediaTools from "../media/media-tools.ts";
 import * as EndedSessions from "../playback/ended-sessions.ts";
 import { parseFfprobeJson } from "../media/media-probe.ts";
 import * as FileResolver from "../playback/file-resolver.ts";
-import { FRAGMENT_HEAD_BYTES, fragmentStartSeconds } from "../playback/fmp4-fragments.ts";
+import { FRAGMENT_HEAD_BYTES, fragmentSpan } from "../playback/fmp4-fragments.ts";
 import * as KeyframeIndex from "../playback/keyframe-index.ts";
 import * as PlaybackReporter from "../playback/playback-reporter.ts";
 import {
@@ -1064,7 +1064,7 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
             const starts = yield* Effect.forEach(fragments, (name) =>
               Effect.map(
                 fs.readFile(path.join(run, name)),
-                (data) => fragmentStartSeconds(data.subarray(0, FRAGMENT_HEAD_BYTES)) ?? Number.NaN,
+                (data) => fragmentSpan(data.subarray(0, FRAGMENT_HEAD_BYTES))?.start ?? Number.NaN,
               ),
             );
 
