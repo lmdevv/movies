@@ -28,8 +28,6 @@ const SECONDS = 300;
 
 const RESUME_SECONDS = 200;
 
-const FIRST_GENERATION = 1;
-
 const SOURCES = {
   "1080p": {
     name: "Startup 1080p (2020)/Startup 1080p (2020).mkv",
@@ -129,6 +127,7 @@ const makeLibrary = Effect.gen(function* () {
 
 const writtenAt = Effect.fn(function* (
   streamId: string,
+  generation: number,
   origin: number,
   names: ReadonlyArray<string>,
 ) {
@@ -137,7 +136,7 @@ const writtenAt = Effect.fn(function* (
   const path = yield* Path.Path;
 
   const times = yield* Effect.forEach(names, (name) =>
-    fs.stat(path.join(server.transcodeDir, streamId, String(FIRST_GENERATION), name)).pipe(
+    fs.stat(path.join(server.transcodeDir, streamId, String(generation), name)).pipe(
       Effect.map((info) => [name, Option.getOrUndefined(info.mtime)?.getTime()] as const),
       Effect.orElseSucceed(() => [name, undefined] as const),
     ),
@@ -218,11 +217,12 @@ const startPlayback = Effect.fn(function* (
     { concurrency: "unbounded" },
   );
 
-  const written = yield* writtenAt(negotiation.streamId ?? "", wallOrigin, [
-    "init.mp4",
-    "f0.m4s",
-    "f1.m4s",
-  ]);
+  const written = yield* writtenAt(
+    negotiation.streamId ?? "",
+    negotiation.generation ?? 1,
+    wallOrigin,
+    ["init.mp4", "f0.m4s", "f1.m4s"],
+  );
 
   yield* HttpClient.execute(
     HttpClientRequest.post(`${server.baseUrl}/api/playback/stop`).pipe(
