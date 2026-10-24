@@ -43,10 +43,10 @@ import type { ResolvedMediaFile } from "./file-resolver.ts";
 import { FRAGMENT_HEAD_BYTES, fragmentSpan } from "./fmp4-fragments.ts";
 import * as HardwareAcceleration from "./hardware-acceleration.ts";
 import {
-  FRAGMENT_EPSILON_SECONDS,
   groupFragments,
   planGridSegments,
   planKeyframeSegments,
+  reachOf,
   type SegmentPlan,
   segmentAt,
 } from "./hls-plan.ts";
@@ -675,17 +675,7 @@ const make = Effect.gen(function* () {
       const produced = producedRange(session, generation, fragments);
       const next = session.plan.starts[index + 1];
 
-      const followed =
-        next !== undefined &&
-        fragments.some((fragment) => fragment.start + FRAGMENT_EPSILON_SECONDS >= next);
-
-      const written =
-        followed ||
-        (next !== undefined &&
-          fragments.some(
-            (fragment) =>
-              fragment.end !== undefined && fragment.end + FRAGMENT_EPSILON_SECONDS >= next,
-          ));
+      const { followed, written } = reachOf(fragments, next);
 
       if (finished) {
         const result = yield* Deferred.await(generation.exit).pipe(Effect.exit);
