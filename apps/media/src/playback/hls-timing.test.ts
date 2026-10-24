@@ -163,6 +163,14 @@ const AC3_SHORT: Source = {
   container: "mkv",
 };
 
+/** MPEG-TS whose AC-3 ends before planned segment 2, which is not the last. */
+const AC3_TS_SHORT: Source = {
+  name: "ac3-ts-short",
+  audioArgs: [...sine(48_000, 6), "-c:a", "ac3", "-output_ts_offset", "1.4"],
+  container: "ts",
+  seconds: 16,
+};
+
 const AC3_TS_LONG_GOP: Source = {
   name: "ac3-long-gop",
   audioArgs: [...sine(48_000, 30), "-c:a", "ac3", "-output_ts_offset", "1.4"],
@@ -251,6 +259,13 @@ const CASES: ReadonlyArray<Case> = [
     video: "software",
     audio: "copy",
     expectedFailures: ENCODER_SEAM,
+  },
+  {
+    name: "software, AC-3 copied from MPEG-TS, ending two segments before the video",
+    source: AC3_TS_SHORT,
+    video: "software",
+    audio: "copy",
+    expectedFailures: [...ENCODER_SEAM, "planned", "video seam", "init audio", "audio start"],
   },
   {
     name: "Quick Sync, E-AC-3 to AAC",
