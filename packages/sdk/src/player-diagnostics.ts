@@ -96,6 +96,8 @@ const STAGE_FIELDS = {
 interface StartupTrace {
   readonly intentAt: number;
   readonly reached: ReadonlyMap<StartupStage, number>;
+  /** A startup already went out with these stages; a later one of the intent gets none. */
+  readonly reported: boolean;
 }
 
 const stagesOf = ({ intentAt, reached }: StartupTrace): StartupStages => {
@@ -282,8 +284,14 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   };
 
   const numbered = (observation: PlayerObservation, playback: Playback): PlayerObservation => {
-    if (!Predicate.isTagged(observation, "FragmentLoaded")) return observation;
     const { sessionId } = playback.started;
+
+    if (
+      !Predicate.isTagged(observation, "FragmentLoaded") ||
+      Option.contains(state.played, sessionId)
+    ) {
+      return observation;
+    }
 
     const index = Option.match(state.fragments, {
       onNone: () => 0,
@@ -312,16 +320,16 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
     Queue.offerUnsafe(queue, {
       observation: PlayerObservation.cases.StartupEnded.make({
         ...ended,
-        ...Option.match(state.trace, {
-          onNone: () => ({}),
-          onSome: (trace) => ({ stages: stagesOf(trace) }),
-        }),
+        ...Option.match(
+          Option.filter(state.trace, (trace) => !trace.reported),
+          { onNone: () => ({}), onSome: (trace) => ({ stages: stagesOf(trace) }) },
+        ),
       }),
       at,
       playback,
     });
 
-    if (ended.endedBy === "playing") state.trace = Option.none();
+    state.trace = Option.map(state.trace, (trace) => ({ ...trace, reported: true }));
   };
 
   const releaseHeld = (): void => {
@@ -348,7 +356,7 @@ export const reportDiagnostics = Effect.fn("PlayerDiagnostics.report")(function*
   const intent = (at: number = clock.currentTimeMillisUnsafe()): void => {
     if (state.closed) return;
     releaseHeld();
-    state.trace = Option.some({ intentAt: at, reached: new Map() });
+    state.trace = Option.some({ intentAt: at, reached: new Map(), reported: false });
   };
 
   const reached = (stage: StartupStage): void => {

@@ -482,6 +482,53 @@ describe("playback diagnostics", () => {
       }),
     ));
 
+  it("measures stages only to the first startup that ends, so a pause starts none over", () =>
+    onTestClock(
+      Effect.gen(function* () {
+        const scope = yield* Scope.make();
+        const playback = playbackAt(base);
+        const { element, player } = makeElement();
+
+        const recorder = yield* reportDiagnostics(player, {
+          platform: "web",
+          playback: () => Option.some(playback),
+          bufferedAheadSeconds: () => 0,
+          frames: () => Option.none(),
+        }).pipe(Scope.provide(scope));
+
+        recorder.intent();
+        element.paused = false;
+        element.emit("waiting");
+        yield* TestClock.adjust(200);
+        recorder.reached("negotiated");
+        element.paused = true;
+        element.emit("paused");
+        yield* TestClock.adjust(30_000);
+        element.paused = false;
+        element.emit("waiting");
+        yield* TestClock.adjust(300);
+        recorder.reached("firstFrame");
+        element.emit("playing");
+        yield* Scope.close(scope, Exit.void);
+
+        expect(
+          batches.flatMap((batch) => batch.events.map((event) => event.observation)),
+        ).toStrictEqual([
+          PlayerObservation.cases.StartupEnded.make({
+            positionSeconds: 0,
+            durationMs: 200,
+            endedBy: "paused",
+            stages: { negotiatedMs: 200 },
+          }),
+          PlayerObservation.cases.StartupEnded.make({
+            positionSeconds: 0,
+            durationMs: 300,
+            endedBy: "playing",
+          }),
+        ]);
+      }),
+    ));
+
   it("names the latest play intent until its session plays", () =>
     onTestClock(
       Effect.gen(function* () {
@@ -1032,7 +1079,7 @@ describe("playback diagnostics", () => {
       }),
     ));
 
-  it("numbers fragment loads from 0 in each playback session", () =>
+  it("numbers fragment loads from 0 in each playback session until it first plays", () =>
     onTestClock(
       Effect.gen(function* () {
         const player = yield* makeFakePlayer(0);
@@ -1064,6 +1111,8 @@ describe("playback diagnostics", () => {
         load(5);
         playing = Option.some(renewed);
         load(6);
+        player.userPlay();
+        load(7);
         playing = Option.some(next);
         load(0);
         load(1);
@@ -1079,6 +1128,7 @@ describe("playback diagnostics", () => {
           [4, 0],
           [5, 1],
           [6, 2],
+          [7, undefined],
           [0, 0],
           [1, 1],
         ]);

@@ -434,6 +434,12 @@ interface SegmentLoad {
   readonly bytes: number;
 }
 
+interface StartupLoad {
+  readonly at: number;
+  readonly streamId: string | null;
+  readonly load: SegmentLoad;
+}
+
 const DRIFT_METHOD =
   "video frame against the media clock; negative means the picture trails the sound";
 
@@ -491,24 +497,27 @@ export const driftFor = (drift: Drift, measuredDrift: boolean): Drift =>
         reason: `This client predates measured drift; update it to see it. The player sampled it ${drift.samples === 1 ? "once" : `${String(drift.samples)} times`}: median ${String(drift.medianMs)} ms, worst ${String(drift.worstMs)} ms (${DRIFT_METHOD}).`,
       };
 
-const startupLoadsOf = (records: ReadonlyArray<LogRecord>): ReadonlyArray<SegmentLoad> =>
+const startupLoadsOf = (records: ReadonlyArray<LogRecord>): ReadonlyArray<StartupLoad> =>
   records
     .flatMap((record) => {
-      const { index, segment, elapsedMs, firstByteMs, bytes, startup } = record.annotations;
+      const { index, segment, elapsedMs, firstByteMs, bytes, startup, streamId } =
+        record.annotations;
 
       return messageOf(record) === LogEvent.fragmentLoaded && startup === true && finite(index)
-        ? [
-            {
+        ? Option.toArray(occurredAt(record)).map((at) => ({
+            at,
+            streamId: Predicate.isString(streamId) ? streamId : null,
+            load: {
               index,
               segment: number(segment),
               elapsedMs: number(elapsedMs),
               firstByteMs: number(firstByteMs),
               bytes: number(bytes),
             },
-          ]
+          }))
         : [];
     })
-    .toSorted((left, right) => left.index - right.index);
+    .toSorted((left, right) => left.load.index - right.load.index);
 
 const loadsSummary = (loads: ReadonlyArray<SegmentLoad>): string => {
   const [first, ...rest] = loads;
@@ -533,16 +542,24 @@ interface PlacedLoads {
 
 /**
  * Puts the session's first segment loads on its first startup entry, so `startup` stays one entry
- * per startup; `placed` is false when there is no startup entry to hold them.
+ * per startup: only loads of that entry's stream up to when it ended, since a player that seeks or
+ * changes stream before its numbering stops loads segments that are no part of the startup.
+ * `placed` is false when there is no startup entry to hold them.
  */
 const withStartupLoads = (
   entries: ReadonlyArray<TimelineEntry>,
-  loads: ReadonlyArray<SegmentLoad>,
+  startupLoads: ReadonlyArray<StartupLoad>,
 ): PlacedLoads => {
   const at = entries.findIndex((entry) => entry.kind === "startup");
   const startup = entries[at];
 
-  if (loads.length === 0 || startup === undefined) return { entries, placed: false };
+  if (startup === undefined) return { entries, placed: startupLoads.length === 0 };
+
+  const loads = startupLoads.flatMap((each) =>
+    each.streamId === startup.streamId && each.at <= startup.at ? [each.load] : [],
+  );
+
+  if (loads.length === 0) return { entries, placed: true };
 
   return {
     entries: entries.with(at, {
@@ -552,7 +569,16 @@ const withStartupLoads = (
       level: startup.level,
       streamId: startup.streamId,
       summary: `${startup.summary}${loadsSummary(loads)}`,
-      details: { ...startup.details, segmentLoads: loads.map((load) => ({ ...load })) },
+      details: {
+        ...startup.details,
+        segmentLoads: loads.map(({ index, segment, elapsedMs, firstByteMs, bytes }) => ({
+          index,
+          segment,
+          elapsedMs,
+          firstByteMs,
+          bytes,
+        })),
+      },
     }),
     placed: true,
   };

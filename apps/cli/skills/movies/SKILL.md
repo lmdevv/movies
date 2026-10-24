@@ -249,9 +249,11 @@ and newer [movies] progress is kept unless the source played the item more recen
   `startup` is how long the player waited for the session to first play, never a stall. Newer
   players split it in its `details`: `negotiatedMs`, `manifestLoadedMs`, `firstFragmentMs`, and
   `firstFrameMs`, each in milliseconds from the viewer's play intent; a stage the player did not
-  see is absent. The first `startup` entry also holds the session's first 12 segment loads in
-  `details.segmentLoads` (`index`, `segment`, `elapsedMs`, `firstByteMs`, `bytes`), with their
-  median and slowest in its summary; when no startup ended, `missing` says how many loads were
+  see is absent. A stage is measured to the first startup that ends; a startup after the viewer
+  paused it carries none. The first `startup` entry also holds the segment loads before it ended,
+  of its own stream and at most 12, in `details.segmentLoads` (`index`, `segment`, `elapsedMs`,
+  `firstByteMs`, `bytes`), with their median and slowest in its summary: loads after a seek or a
+  stream change never count as startup. When no startup ended, `missing` says how many loads were
   left out. `player-attached` names the audio the player got (`audioCodec`, `audioChannels`,
   `audioLanguage`) when it knows it. `buffering-started` and `buffering-ended` are the player's
   own stalls after that. `slow-fragment` is hls.js waiting a second or more on a segment, at

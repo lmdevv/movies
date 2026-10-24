@@ -1099,7 +1099,7 @@ export class PlaybackController {
   }
 
   #startDiagnostics(): void {
-    if (this.#diagnostics !== null) return;
+    if (this.#disposed || this.#diagnostics !== null) return;
 
     const scope = Scope.makeUnsafe();
 

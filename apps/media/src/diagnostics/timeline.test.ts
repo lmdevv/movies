@@ -270,6 +270,31 @@ const timelineWith = (records: ReadonlyArray<LogRecord>, logLevel: "Info" | "War
     ),
   );
 
+const streamLoad = (streamId: string, index: number, occurredMs: number, elapsedMs: number) =>
+  player(
+    LogEvent.fragmentLoaded,
+    occurredMs + 500,
+    occurredMs,
+    {
+      streamId,
+      segment: index,
+      elapsedMs,
+      firstByteMs: 20,
+      bytes: 400_000,
+      index,
+      startup: true,
+    },
+    elapsedMs >= 1000 ? "WARN" : "INFO",
+  );
+
+const startupEnded = (streamId: string | null, occurredMs: number) =>
+  player(LogEvent.startupEnded, occurredMs + 500, occurredMs, {
+    streamId,
+    positionSeconds: 0,
+    startupMs: 400,
+    endedBy: "playing",
+  });
+
 describe("startup and audio evidence", () => {
   it("splits a startup from the play intent, and keeps a startup without stages as it was", () => {
     const timeline = timelineWith([
@@ -344,15 +369,15 @@ describe("startup and audio evidence", () => {
     assert.deepStrictEqual(
       startups.map((entry) => entry.summary),
       [
-        "Started playing after 1.2 s; first 4 segment loads: median 160 ms, slowest 1.4 s (segment 1)",
+        "Started playing after 1.2 s; first 3 segment loads: median 240 ms, slowest 1.4 s (segment 1)",
       ],
     );
     assert.deepStrictEqual(
       startups[0]?.details["segmentLoads"],
-      [0, 1, 2, 3].map((index) => ({
+      [0, 1, 2].map((index) => ({
         index,
         segment: index,
-        elapsedMs: [240, 1400, 60, 80][index] ?? 0,
+        elapsedMs: [240, 1400, 60][index] ?? 0,
         firstByteMs: 20,
         bytes: 400_000,
       })),
@@ -362,6 +387,29 @@ describe("startup and audio evidence", () => {
       timeline.entries.filter((entry) => entry.kind === "slow-fragment").length,
       1,
     );
+  });
+
+  it("keeps loads after the startup, or from another stream, out of it", () => {
+    const seeked = timelineWith([
+      streamLoad("s1", 0, 900, 120),
+      streamLoad("s1", 1, 1000, 80),
+      startupEnded("s1", 1600),
+      streamLoad("s1", 2, 6000, 4000),
+      streamLoad("s1", 3, 9000, 3000),
+    ]);
+
+    const switched = timelineWith([startupEnded(null, 1600), streamLoad("s2", 0, 3600, 90)]);
+
+    const startupOf = (timeline: ReturnType<typeof timelineWith>) =>
+      timeline.entries.find((entry) => entry.kind === "startup");
+
+    assert.strictEqual(
+      startupOf(seeked)?.summary,
+      "Started playing after 400 ms; first 2 segment loads: median 100 ms, slowest 120 ms (segment 0)",
+    );
+    assert.strictEqual(startupOf(switched)?.summary, "Started playing after 400 ms");
+    assert.isUndefined(startupOf(switched)?.details["segmentLoads"]);
+    assert.isFalse(switched.missing.some((gap) => gap.includes("during startup")));
   });
 
   it("says so when segment loads came in but no startup ended", () => {
