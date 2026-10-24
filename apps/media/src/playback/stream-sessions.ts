@@ -165,6 +165,8 @@ const SEGMENT_WAIT = Duration.seconds(30);
 
 const START_WAIT = Duration.seconds(20);
 
+const FRAGMENT_FILE = /^f\d+\.m4s$/;
+
 interface Fragment {
   readonly path: string;
   readonly start: number;
@@ -181,6 +183,7 @@ interface Generation {
   readonly exit: Deferred.Deferred<void, MediaTools.MediaToolFailed>;
   readonly fragments: Ref.Ref<ReadonlyArray<Fragment>>;
   readonly refreshLock: Semaphore.Semaphore;
+  readonly written: Ref.Ref<Deferred.Deferred<void>>;
   readonly suspend: (paused: boolean) => Effect.Effect<void>;
   readonly paused: Ref.Ref<boolean>;
 }
@@ -360,7 +363,7 @@ const make = Effect.gen(function* () {
 
       const fresh = yield* Effect.forEach(
         names
-          .filter((name) => /^f\d+\.m4s$/.test(name))
+          .filter((name) => FRAGMENT_FILE.test(name))
           .map((name) => path.join(generation.directory, name)),
         (file) =>
           known.has(file)
@@ -468,6 +471,22 @@ const make = Effect.gen(function* () {
     });
 
     const exit = yield* Deferred.make<void, MediaTools.MediaToolFailed>();
+    const written = yield* Ref.make(yield* Deferred.make<void>());
+
+    yield* fs.watch(directory).pipe(
+      Stream.filter(
+        (event) =>
+          Predicate.isTagged(event, "Create") && FRAGMENT_FILE.test(path.basename(event.path)),
+      ),
+      Stream.runForEach(() =>
+        Deferred.make<void>().pipe(
+          Effect.flatMap((next) => Ref.getAndSet(written, next)),
+          Effect.flatMap((woken) => Deferred.succeed(woken, undefined)),
+        ),
+      ),
+      Effect.ignore,
+      Effect.forkIn(scope, { startImmediately: true }),
+    );
 
     const running = yield* tools.startFfmpeg(args).pipe(
       Scope.provide(scope),
@@ -491,6 +510,7 @@ const make = Effect.gen(function* () {
       exit,
       fragments: yield* Ref.make<ReadonlyArray<Fragment>>([]),
       refreshLock: yield* Semaphore.make(1),
+      written,
       suspend: running === undefined ? () => Effect.void : running.suspend,
       paused: yield* Ref.make(false),
     };
@@ -634,6 +654,7 @@ const make = Effect.gen(function* () {
         });
       }
 
+      const written = yield* Ref.get(generation.written);
       const finished = yield* Deferred.isDone(generation.exit);
       yield* refreshFragments(generation);
       const fragments = yield* Ref.get(generation.fragments);
@@ -683,7 +704,7 @@ const make = Effect.gen(function* () {
       }
 
       if ((yield* Clock.currentTimeMillis) > deadline) return yield* new SegmentNotReady({ index });
-      yield* Effect.sleep(POLL_INTERVAL);
+      yield* Deferred.await(written).pipe(Effect.timeoutOption(POLL_INTERVAL));
     }
   });
 
@@ -1077,6 +1098,7 @@ const make = Effect.gen(function* () {
       exit: yield* Deferred.make<void, MediaTools.MediaToolFailed>(),
       fragments: yield* Ref.make<ReadonlyArray<Fragment>>([]),
       refreshLock: yield* Semaphore.make(1),
+      written: yield* Ref.make(yield* Deferred.make<void>()),
       suspend: () => Effect.void,
       paused: yield* Ref.make(false),
     };
