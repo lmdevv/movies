@@ -17,15 +17,15 @@ import {
   LogQuery,
 } from "@movies/contracts/diagnostics";
 import { InvalidArgs } from "@movies/contracts/errors";
-import { Duration, Effect, FileSystem, Layer, Option, Path, Schema, Stream } from "effect";
+import { Duration, Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import { HttpEffect, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import * as ViewerAuth from "../convex/viewer-auth.ts";
-import { bearerOf, failureResponse, issueText } from "../http/command-routes.ts";
+import { bearerOf, bodyDecoder, failureResponse } from "../http/command-routes.ts";
 import * as LogReader from "./log-reader.ts";
 import * as RetainedLogs from "./retained-logs.ts";
 
-const decodeQuery = Schema.decodeUnknownEffect(Schema.toCodecJson(LogQuery));
+const decodeQuery = bodyDecoder(LogQuery, "Invalid log query");
 
 const KEEPALIVE = Duration.seconds(15);
 
@@ -51,15 +51,7 @@ export const layer: Layer.Layer<
 
       yield* auth.authorize(yield* bearerOf(request), "admin");
 
-      const body = yield* request.json.pipe(
-        Effect.mapError(() => new InvalidArgs({ message: "The body is not JSON" })),
-      );
-
-      const query = yield* decodeQuery(body).pipe(
-        Effect.mapError(
-          (error) => new InvalidArgs({ message: `Invalid log query: ${issueText(error.issue)}` }),
-        ),
-      );
+      const query = yield* decodeQuery(request);
 
       if (query.follow === true && query.until !== undefined) {
         return yield* new InvalidArgs({ message: "A followed log has no end: drop until" });

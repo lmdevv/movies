@@ -10,6 +10,7 @@ import {
   Layer,
   Option,
   Path,
+  Predicate,
   References,
   Struct,
 } from "effect";
@@ -29,6 +30,10 @@ const MAX_SESSIONS = 50;
 const READ_BUDGET = { burst: 10, perSecond: 0.2 };
 
 const isAdmin = (viewer: Viewer): boolean => viewer.scopes.includes("admin");
+
+/** A record of a playback session, so the account's other records, such as error reports, never fill the read. */
+const namesSession: LogReader.Keep = (record) =>
+  Predicate.isString(record.annotations["sessionId"]);
 
 /** Adds the routes. */
 export const layer: Layer.Layer<
@@ -66,14 +71,17 @@ export const layer: Layer.Layer<
         ),
       );
 
-    const read = (filter: Pick<LogQuery, "sessionId" | "since" | "grep">) =>
-      LogReader.read({
-        sessionId: filter.sessionId,
-        since: filter.since,
-        grep: filter.grep,
-        level: "INFO",
-        limit: MAX_LOG_LIMIT,
-      }).pipe(
+    const read = (filter: Pick<LogQuery, "sessionId" | "since" | "grep">, keep?: LogReader.Keep) =>
+      LogReader.read(
+        {
+          sessionId: filter.sessionId,
+          since: filter.since,
+          grep: filter.grep,
+          level: "INFO",
+          limit: MAX_LOG_LIMIT,
+        },
+        keep,
+      ).pipe(
         Effect.scoped,
         Effect.provideService(RetainedLogs.Service, retained),
         Effect.provideService(FileSystem.FileSystem, fs),
@@ -115,10 +123,13 @@ export const layer: Layer.Layer<
         yield* allowRead(viewer);
         const now = yield* Clock.currentTimeMillis;
 
-        const found = yield* read({
-          since: since ?? EpochMillis.make(Math.max(0, now - Duration.toMillis(RECENT))),
-          grep: isAdmin(viewer) ? '"sessionId"' : viewer.user.id,
-        });
+        const found = yield* read(
+          {
+            since: since ?? EpochMillis.make(Math.max(0, now - Duration.toMillis(RECENT))),
+            grep: isAdmin(viewer) ? '"sessionId"' : viewer.user.id,
+          },
+          namesSession,
+        );
 
         return sessionsOf(found.matches.map((match) => match.record))
           .filter((session) => isAdmin(viewer) || session.userId === viewer.user.id)

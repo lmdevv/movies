@@ -20,6 +20,7 @@ import {
   Schema,
 } from "effect";
 import { FetchHttpClient, HttpServer } from "effect/http";
+import { TestClock } from "effect/testing";
 
 import * as ViewerAuth from "../convex/viewer-auth.ts";
 import { serve } from "../http/http-server.ts";
@@ -55,10 +56,14 @@ const viewerOf = (token: string): Option.Option<Viewer> => {
     : Option.none();
 };
 
+/** How many times the routes asked Convex who a token belongs to. */
+const authorized = { count: 0 };
+
 const authLayer = Layer.succeed(
   ViewerAuth.Service,
   ViewerAuth.Service.of({
     authorize: (bearer, access) => {
+      authorized.count += 1;
       const known = viewerOf(Redacted.value(bearer));
 
       if (Option.isNone(known)) {
@@ -281,6 +286,70 @@ layer(serverLayer, { timeout: 30_000 })("client error reports", (it) => {
       assert.isAtMost(statuses.length, 21);
       assert.strictEqual(written.length, statuses.length - 1);
       assert.strictEqual(other.status, 204);
+    }),
+  );
+});
+
+const accepted = (responses: ReadonlyArray<Response>) =>
+  responses.filter((response) => response.status === 204).length;
+
+layer(serverLayer, { timeout: 30_000 })("client error reports across accounts", (it) => {
+  it.effect("cap the reports of every account together, and say how many were left out", () =>
+    Effect.gen(function* () {
+      const id = unique();
+      const responses: Array<Response> = [];
+
+      for (let account = 0; account < 60; account += 1) {
+        responses.push(
+          yield* post("/api/client-errors", Option.some(`member-${id}x${String(account)}`), {
+            ...report,
+            route: `/many/${id}`,
+          }),
+        );
+      }
+
+      const refused = responses.filter((response) => response.status === 429);
+
+      assert.isAtLeast(accepted(responses), 1);
+      assert.isAtLeast(refused.length, 1);
+      assert.strictEqual(responses.at(-1)?.status, 429);
+      assert.strictEqual((yield* grep(`/many/${id}`)).length, accepted(responses));
+
+      yield* TestClock.adjust(Duration.seconds(30));
+
+      const summaries = yield* grep("ClientErrors.suppressed");
+
+      const counted = summaries.reduce(
+        (sum, record) => sum + Number(record.annotations["reports"] ?? 0),
+        0,
+      );
+
+      assert.strictEqual(counted, refused.length);
+      assert.isTrue(summaries.every((record) => record.level === "WARN"));
+    }),
+  );
+});
+
+layer(serverLayer, { timeout: 30_000 })("client error reports in a flood", (it) => {
+  it.effect("refuse a flood before asking Convex who is calling", () =>
+    Effect.gen(function* () {
+      const statuses: Array<number> = [];
+
+      for (let attempt = 0; attempt < 400; attempt += 1) {
+        const response = yield* post("/api/client-errors", Option.some("revoked-token"), report);
+
+        statuses.push(response.status);
+
+        if (response.status === 429) break;
+      }
+
+      const before = authorized.count;
+      const again = yield* post("/api/client-errors", Option.some("revoked-token"), report);
+
+      assert.strictEqual(statuses.at(-1), 429);
+      assert.strictEqual(again.status, 429);
+      assert.isNotNull(again.headers.get("retry-after"));
+      assert.strictEqual(authorized.count, before);
     }),
   );
 });

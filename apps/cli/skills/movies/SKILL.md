@@ -292,7 +292,9 @@ and newer [movies] progress is kept unless the source played the item more recen
   `failedRequestId` is the media service request the error came from, so `movies logs --grep
   <failedRequestId>` finds the server's side too. `claimedSessionId` is a playback session the
   app named; the app's claim, not checked. Signed-out apps send nothing, a repeated error is sent
-  once per 30 seconds, and each account is limited, so a missing report is not proof of no error.
+  once per 30 seconds, and the service limits each account and all of them together, so a
+  missing report is not proof of no error. `movies logs --grep ClientErrors.suppressed` counts
+  the reports it refused, by `userId`.
 - `movies play` failures from the media service print `playback_<recovery>` codes:
   `playback_unsupported` (this player cannot play the file in any mode), `playback_retry_later`
   (exit 9: transcoders busy or the media service cannot reach its files right now),

@@ -1,21 +1,32 @@
 /**
  * `POST /api/client-errors`: an app's unexpected error, written to the retained log at `WARN` as
- * `Client.error`. The caller's Convex auth token must belong to a signed-in session, and each
- * account has a budget, so a crash loop cannot rotate the log's history out.
+ * `Client.error`. The caller's Convex auth token must belong to a signed-in session.
+ *
+ * Three budgets keep crash loops from rotating the log's history out: one for requests from
+ * anyone, checked before Convex is asked who is calling; one per account; and one for every
+ * account together, so many accounts at once still cannot. Every 30 s
+ * `ClientErrors.suppressed` counts the reports each account, or anyone not yet known, sent over.
  */
 import { ClientErrorReport, DIAGNOSTICS_ROUTES } from "@movies/contracts/diagnostics";
-import { InvalidArgs, RateLimited } from "@movies/contracts/errors";
+import { RateLimited } from "@movies/contracts/errors";
+import type { UserId } from "@movies/contracts/ids";
 import type { Viewer } from "@movies/contracts/models/account";
-import { Clock, Effect, Layer, Option, Schema } from "effect";
+import { Clock, Duration, Effect, Layer, Option, Schedule } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import * as ViewerAuth from "../convex/viewer-auth.ts";
-import { bearerOf, failureResponse, issueText } from "../http/command-routes.ts";
+import { bearerOf, bodyDecoder, failureResponse } from "../http/command-routes.ts";
 import { makeLimiter } from "../http/rate-limit.ts";
+
+const ATTEMPT_BUDGET = { burst: 120, perSecond: 2 };
 
 const ACCOUNT_BUDGET = { burst: 20, perSecond: 0.1 };
 
-const decodeReport = Schema.decodeUnknownEffect(Schema.toCodecJson(ClientErrorReport));
+const ALL_ACCOUNTS_BUDGET = { burst: 50, perSecond: 0.2 };
+
+const SUPPRESSED_REPORT_INTERVAL = Duration.seconds(30);
+
+const decodeReport = bodyDecoder(ClientErrorReport, "Invalid error report");
 
 const annotationsOf = (report: ClientErrorReport, viewer: Viewer) => ({
   source: "client",
@@ -38,29 +49,55 @@ export const layer: Layer.Layer<never, never, HttpRouter.HttpRouter | ViewerAuth
       const router = yield* HttpRouter.HttpRouter;
       const auth = yield* ViewerAuth.Service;
       const take = makeLimiter();
+      const suppressed = new Map<UserId | null, number>();
+
+      const refuse = (userId: UserId | null, seconds: number) => {
+        suppressed.set(userId, (suppressed.get(userId) ?? 0) + 1);
+
+        return new RateLimited({
+          message: `Too many error reports: try again in ${String(seconds)} s`,
+          retryAfterSeconds: seconds,
+        });
+      };
+
+      const reportSuppressed = Effect.suspend(() => {
+        const counted = [...suppressed];
+
+        suppressed.clear();
+
+        return Effect.forEach(
+          counted,
+          ([userId, reports]) =>
+            Effect.logWarning("ClientErrors.suppressed").pipe(
+              Effect.annotateLogs({ userId, reports }),
+            ),
+          { discard: true },
+        );
+      });
+
+      yield* Effect.forkScoped(
+        Effect.repeat(Effect.delay(reportSuppressed, SUPPRESSED_REPORT_INTERVAL), Schedule.forever),
+      );
 
       const route = Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
+        const attempt = take([["attempts", ATTEMPT_BUDGET]], yield* Clock.currentTimeMillis);
+
+        if (Option.isSome(attempt)) return yield* refuse(null, attempt.value);
+
         const viewer = yield* auth.authorize(yield* bearerOf(request), "authenticated");
-        const wait = take([[viewer.user.id, ACCOUNT_BUDGET]], yield* Clock.currentTimeMillis);
 
-        if (Option.isSome(wait)) {
-          return yield* new RateLimited({
-            message: `Too many error reports: try again in ${String(wait.value)} s`,
-            retryAfterSeconds: wait.value,
-          });
-        }
-
-        const body = yield* request.json.pipe(
-          Effect.mapError(() => new InvalidArgs({ message: "The body is not JSON" })),
+        const wait = take(
+          [
+            [`account\u0000${viewer.user.id}`, ACCOUNT_BUDGET],
+            ["all-accounts", ALL_ACCOUNTS_BUDGET],
+          ],
+          yield* Clock.currentTimeMillis,
         );
 
-        const report = yield* decodeReport(body).pipe(
-          Effect.mapError(
-            (error) =>
-              new InvalidArgs({ message: `Invalid error report: ${issueText(error.issue)}` }),
-          ),
-        );
+        if (Option.isSome(wait)) return yield* refuse(viewer.user.id, wait.value);
+
+        const report = yield* decodeReport(request);
 
         yield* Effect.logWarning("Client.error").pipe(
           Effect.annotateLogs(annotationsOf(report, viewer)),
