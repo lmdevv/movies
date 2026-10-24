@@ -250,14 +250,7 @@ const CASES: ReadonlyArray<Case> = [
     source: AC3_SHORT,
     video: "software",
     audio: "copy",
-    expectedFailures: [
-      ...ENCODER_SEAM,
-      "planned",
-      "video seam",
-      "init audio",
-      "init",
-      "audio start",
-    ],
+    expectedFailures: ENCODER_SEAM,
   },
   {
     name: "Quick Sync, E-AC-3 to AAC",
@@ -293,6 +286,8 @@ interface Run {
   readonly init: Uint8Array;
   /** Streams ffprobe finds in `init.mp4` alone. */
   readonly initStreams: number;
+  /** Whether the run starts in the plan's last segment. */
+  readonly last: boolean;
   readonly segments: ReadonlyArray<SegmentTiming>;
 }
 
@@ -565,7 +560,13 @@ const runFrom = Effect.fn("HlsTiming.runFrom")(function* (
     ),
   );
 
-  return { from, init, initStreams, segments } satisfies Run;
+  return {
+    from,
+    init,
+    initStreams,
+    last: startSegment === plan.starts.length - 1,
+    segments,
+  } satisfies Run;
 });
 
 const continued = (fromStart: Run, resumed: Run): ReadonlyArray<SegmentTiming> => {
@@ -775,7 +776,8 @@ describe.runIf(hasFfmpeg)("HLS timing", () => {
               Effect.gen(function* () {
                 const { resumed } = yield* Measured;
 
-                for (const run of resumed) {
+                // A run in the last segment keeps what its seek lands before: audio may have ended.
+                for (const run of resumed.filter((each) => !each.last)) {
                   const early = run.from - (run.segments[0]?.audio.first ?? Number.NaN);
 
                   assert.isAtMost(

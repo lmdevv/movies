@@ -266,18 +266,27 @@ const frameFloor = (samples: number): number =>
 const frameCeil = (samples: number): number =>
   Math.ceil(samples / AAC_FRAME_SAMPLES) * AAC_FRAME_SAMPLES;
 
+/** Copied audio packets a run drops: those starting before a time, or those ending by it. */
+interface CopiedAudioDrop {
+  readonly time: number;
+  readonly by: "start" | "end";
+}
+
 interface RunStart {
   readonly seek: number | undefined;
   readonly audioStartSample: number;
-  readonly dropCopiedAudioBefore: number | undefined;
+  readonly dropCopiedAudio: CopiedAudioDrop | undefined;
 }
 
 /**
- * Drops copied packets that start before `time`. It compares the times the packets keep under
- * `-copyts`, where `-copypriorss` compares them with the input's `-ss`, which stays relative to a
- * file that starts later than 0, such as MPEG-TS.
+ * Drops copied packets by the times they keep under `-copyts`, where `-copypriorss` compares them
+ * with the input's `-ss`, which stays relative to a file that starts later than 0, such as
+ * MPEG-TS.
  */
-const dropBefore = (time: number): string => `noise=drop=lt(pts*tb\\,${seconds(time)})`;
+const dropFilter = ({ time, by }: CopiedAudioDrop): string =>
+  by === "start"
+    ? `noise=drop=lt(pts*tb\\,${seconds(time)})`
+    : `noise=drop=lte((pts+d)*tb\\,${seconds(time)})`;
 
 /**
  * Resamples to `AAC_RATE`, then times frames by their sample count from `audioStartSample`, so
@@ -298,7 +307,9 @@ const aacTiming = (audioStartSample: number): ReadonlyArray<string> => [
  * drop even where a seek lands near its target rather than on a keyframe, as in MPEG-TS: the
  * muxer then cuts the first planned segment's audio at the frame an earlier run cut, and the
  * session drops the fragments before it. Its audio starts earlier still, so the first fragment
- * has audio and `init.mp4` the same edit lists as other runs'.
+ * has audio and `init.mp4` the same edit lists as other runs'. An encode drops copied audio that
+ * ends by `from`, except in the plan's last segment: audio may end before it, and an MP4 track
+ * without a packet has no `init.mp4` entry for AC-3 or E-AC-3.
  */
 const runStart = (command: EncodeSource): RunStart => {
   const fileAudioStart = frameCeil(Math.max(0, samplesAt(command.sourceStart))) + AAC_FRAME_SAMPLES;
@@ -306,7 +317,7 @@ const runStart = (command: EncodeSource): RunStart => {
   const fromFile: RunStart = {
     seek: undefined,
     audioStartSample: fileAudioStart,
-    dropCopiedAudioBefore: 0,
+    dropCopiedAudio: { time: 0, by: "start" },
   };
 
   if (VideoPlan.$is("Copy")(command.video)) {
@@ -316,7 +327,7 @@ const runStart = (command: EncodeSource): RunStart => {
     const audioStartSample = frameFloor(samplesAt(seek - AUDIO_LEAD));
 
     return audioStartSample > fileAudioStart
-      ? { seek: seek - command.sourceStart, audioStartSample, dropCopiedAudioBefore: undefined }
+      ? { seek: seek - command.sourceStart, audioStartSample, dropCopiedAudio: undefined }
       : fromFile;
   }
 
@@ -327,7 +338,8 @@ const runStart = (command: EncodeSource): RunStart => {
   return {
     seek: offset,
     audioStartSample: Math.max(fileAudioStart, frameFloor(samplesAt(command.from))),
-    dropCopiedAudioBefore: command.from,
+    dropCopiedAudio:
+      command.segmentStarts.length > 1 ? { time: command.from, by: "end" } : undefined,
   };
 };
 
@@ -416,8 +428,7 @@ export const hlsCommandArgs = (command: HlsCommand): ReadonlyArray<string> => {
       : []),
     ...videoArgs(command),
     ...audioArgs(command, {
-      copyFilters:
-        start.dropCopiedAudioBefore === undefined ? [] : [dropBefore(start.dropCopiedAudioBefore)],
+      copyFilters: start.dropCopiedAudio === undefined ? [] : [dropFilter(start.dropCopiedAudio)],
       aac: aacTiming(start.audioStartSample),
     }),
     "-map_metadata",
