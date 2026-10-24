@@ -57,7 +57,15 @@ const ROUNDING = 0.0015;
 
 const RESUME_SEGMENTS = [1, 2] as const;
 
-type Property = "planned" | "audio start" | "video seam" | "audio seam" | "init" | "even" | "sync";
+type Property =
+  | "planned"
+  | "audio start"
+  | "video seam"
+  | "audio seam"
+  | "init"
+  | "init audio"
+  | "even"
+  | "sync";
 
 interface Source {
   readonly name: string;
@@ -148,6 +156,13 @@ const AC3_TS: Source = {
   container: "ts",
 };
 
+/** AC-3 that ends 4.5 s before the video, so a run can start after the last audio packet. */
+const AC3_SHORT: Source = {
+  name: "ac3-short",
+  audioArgs: [...sine(48_000, 7.5), "-c:a", "ac3"],
+  container: "mkv",
+};
+
 const AC3_TS_LONG_GOP: Source = {
   name: "ac3-long-gop",
   audioArgs: [...sine(48_000, 30), "-c:a", "ac3", "-output_ts_offset", "1.4"],
@@ -231,6 +246,20 @@ const CASES: ReadonlyArray<Case> = [
     expectedFailures: ENCODER_SEAM,
   },
   {
+    name: "software, AC-3 copied, ending 4.5 s before the video",
+    source: AC3_SHORT,
+    video: "software",
+    audio: "copy",
+    expectedFailures: [
+      ...ENCODER_SEAM,
+      "planned",
+      "video seam",
+      "init audio",
+      "init",
+      "audio start",
+    ],
+  },
+  {
     name: "Quick Sync, E-AC-3 to AAC",
     source: EAC3,
     video: "qsv",
@@ -262,12 +291,14 @@ interface SegmentTiming {
 interface Run {
   readonly from: number;
   readonly init: Uint8Array;
+  /** Streams ffprobe finds in `init.mp4` alone. */
+  readonly initStreams: number;
   readonly segments: ReadonlyArray<SegmentTiming>;
 }
 
 interface Ends {
-  readonly video: Span;
-  readonly audio: Span;
+  readonly video: { readonly end: number };
+  readonly audio: { readonly end: number };
 }
 
 interface Measurement {
@@ -388,20 +419,29 @@ const span = (packets: ReadonlyArray<Packet>): Span => {
 
 const endGap = (ends: Ends): number => ends.audio.end - ends.video.end;
 
-const lastSegment = (run: Run): Ends => run.segments.at(-1) ?? { video: span([]), audio: span([]) };
+const latestEnd = (spans: ReadonlyArray<Span>): number =>
+  Math.max(...spans.flatMap((each) => (Number.isNaN(each.end) ? [] : [each.end])));
+
+/** Where a run's video and audio end, which can be in different segments. */
+const runEnds = (run: Run): Ends => ({
+  video: { end: latestEnd(run.segments.map((segment) => segment.video)) },
+  audio: { end: latestEnd(run.segments.map((segment) => segment.audio)) },
+});
 
 const probeSpans = Effect.fn("HlsTiming.probeSpans")(function* (file: string) {
   const tools = yield* MediaTools.Service;
 
-  const output = yield* tools.ffprobe([
-    "-v",
-    "error",
-    "-show_entries",
-    "packet=stream_index,pts_time,duration_time",
-    "-of",
-    "json",
-    file,
-  ]);
+  const output = yield* tools
+    .ffprobe([
+      "-v",
+      "error",
+      "-show_entries",
+      "packet=stream_index,pts_time,duration_time",
+      "-of",
+      "json",
+      file,
+    ])
+    .pipe(Effect.catchTag("MediaToolFailed", () => Effect.succeed('{"packets":[]}')));
 
   const { packets } = yield* Schema.decodeEffect(PacketList)(output);
 
@@ -493,6 +533,22 @@ const runFrom = Effect.fn("HlsTiming.runFrom")(function* (
   );
 
   const init = yield* fs.readFile(path.join(outputDirectory, "init.mp4"));
+
+  const initStreams = yield* tools
+    .ffprobe([
+      "-v",
+      "error",
+      "-show_entries",
+      "stream=codec_type",
+      "-of",
+      "csv=p=0",
+      path.join(outputDirectory, "init.mp4"),
+    ])
+    .pipe(
+      Effect.map((output) => output.split("\n").filter((line) => line.trim() !== "").length),
+      Effect.catchTag("MediaToolFailed", () => Effect.succeed(0)),
+    );
+
   const groups = [...groupFragments(plan, startSegment, from, fragments)];
 
   const segments = yield* Effect.forEach(groups, ([index, members]) =>
@@ -509,7 +565,7 @@ const runFrom = Effect.fn("HlsTiming.runFrom")(function* (
     ),
   );
 
-  return { from, init, segments } satisfies Run;
+  return { from, init, initStreams, segments } satisfies Run;
 });
 
 const continued = (fromStart: Run, resumed: Run): ReadonlyArray<SegmentTiming> => {
@@ -581,7 +637,7 @@ const measure = (testCase: Case) =>
         yield* Console.log(
           [
             `${testCase.name} (plan ${plan.starts.map(ms).join(", ")})`,
-            `  audio ends ${ms(endGap(sourceEnds))} ms after video in the source, ${ms(endGap(lastSegment(fromStart)))} ms in a run from the start`,
+            `  audio ends ${ms(endGap(sourceEnds))} ms after video in the source, ${ms(endGap(runEnds(fromStart)))} ms in a run from the start`,
             describeRun("from the start", fromStart.segments),
             ...resumed.map((run) =>
               describeRun(`continued at ${ms(run.from)}`, continued(fromStart, run)),
@@ -684,8 +740,24 @@ describe.runIf(hasFfmpeg)("HLS timing", () => {
             () => checkSeams("audio", testCase.video === "copy" ? ROUNDING : AAC_FRAME + ROUNDING),
           );
 
-          // ffmpeg 9 rounds the first frame's composition offset in MPEG-TS's 90 kHz clock one tick
-          // (11 µs) differently from run to run, so its edit list differs; ffmpeg 6.1 does not.
+          test("init audio")("writes every run's init.mp4 with its video and audio tracks", () =>
+            Effect.gen(function* () {
+              const { fromStart, resumed } = yield* Measured;
+
+              for (const run of [fromStart, ...resumed]) {
+                assert.strictEqual(
+                  run.initStreams,
+                  2,
+                  `init.mp4 of the run from ${ms(run.from)} ms`,
+                );
+              }
+            }),
+          );
+
+          // In MPEG-TS, init.mp4 differs between runs in metadata only: ffmpeg rounds the first
+          // frame's composition offset in the 90 kHz clock one tick (11 µs) differently from run to
+          // run, and estimates AAC's bitrate fields from what it read; which differ depends on the
+          // ffmpeg build. Fragments decode to the same frames and times behind either init.
           if (testCase.source.container !== "ts") {
             test("init")("writes the same init.mp4 in every run", () =>
               Effect.gen(function* () {
@@ -719,7 +791,7 @@ describe.runIf(hasFfmpeg)("HLS timing", () => {
           test("sync")("keeps audio as far from video at the end as the source does", () =>
             Effect.gen(function* () {
               const { sourceEnds, fromStart } = yield* Measured;
-              const drift = endGap(lastSegment(fromStart)) - endGap(sourceEnds);
+              const drift = endGap(runEnds(fromStart)) - endGap(sourceEnds);
 
               assert.isAtMost(
                 Math.abs(drift),
