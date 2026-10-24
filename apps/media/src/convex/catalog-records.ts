@@ -102,6 +102,10 @@ export const toCatalogProbe = (probe: MediaProbe): Probe => ({
     title: track.title ?? null,
     default: track.default,
     bitRate: null,
+    ...Option.match(present(track.endSeconds), {
+      onNone: () => ({}),
+      onSome: (end) => ({ endMs: Math.round(end * 1000) }),
+    }),
   })),
   subtitles: probe.subtitles.map((subtitle) => ({
     index: subtitle.index,
@@ -158,6 +162,7 @@ const toMediaProbe = (probe: Probe): MediaProbe => {
       language: track.language ?? undefined,
       title: track.title ?? undefined,
       default: track.default,
+      endSeconds: track.endMs === undefined ? undefined : track.endMs / 1000,
     })),
     subtitles: probe.subtitles.map((subtitle) => ({
       index: subtitle.index,

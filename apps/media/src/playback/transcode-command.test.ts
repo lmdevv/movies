@@ -15,6 +15,7 @@ const command = (audio: AudioPlan, audioCodec: string): HlsCommand => ({
   video: VideoPlan.Copy(),
   audio,
   audioCodec,
+  copiedAudioEnd: undefined,
   subtitleCodec: "",
   segmentStarts: [1.4, 3.4],
   previousStart: undefined,

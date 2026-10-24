@@ -449,6 +449,12 @@ const make = Effect.gen(function* () {
         Copy: ({ index }) =>
           session.file.probe.audio.find((track) => track.index === index)?.codec ?? "",
       }),
+      copiedAudioEnd: AudioPlan.$match(session.audio, {
+        None: () => undefined,
+        Aac: () => undefined,
+        Copy: ({ index }) =>
+          session.file.probe.audio.find((track) => track.index === index)?.endSeconds,
+      }),
       segmentStarts: session.plan.starts.slice(startSegment),
       previousStart: session.plan.starts[startSegment - 1],
       subtitleCodec:

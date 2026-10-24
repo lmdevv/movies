@@ -41,6 +41,9 @@ const AAC_FRAME = 1024 / 48_000;
  * How early a later run's audio may start: an AAC run opens with its priming frame and up to a
  * frame of silence that puts it on the grid; a copied AC-3 frame lasts 32 ms.
  */
+/** As in `transcode-command.ts`: how far past a run's start copied audio must run on. */
+const AUDIO_END_MARGIN = 0.5;
+
 const AUDIO_START_LIMIT = 2 * AAC_FRAME + 0.001;
 
 /** An encoder pads its last frame out to 1024 samples: up to 23.2 ms at 44.1 kHz. */
@@ -265,7 +268,7 @@ const CASES: ReadonlyArray<Case> = [
     source: AC3_TS_SHORT,
     video: "software",
     audio: "copy",
-    expectedFailures: [...ENCODER_SEAM, "planned", "video seam", "init audio", "audio start"],
+    expectedFailures: ENCODER_SEAM,
   },
   {
     name: "Quick Sync, E-AC-3 to AAC",
@@ -301,8 +304,6 @@ interface Run {
   readonly init: Uint8Array;
   /** Streams ffprobe finds in `init.mp4` alone. */
   readonly initStreams: number;
-  /** Whether the run starts in the plan's last segment. */
-  readonly last: boolean;
   readonly segments: ReadonlyArray<SegmentTiming>;
 }
 
@@ -520,6 +521,7 @@ const runFrom = Effect.fn("HlsTiming.runFrom")(function* (
           ? AudioPlan.Copy({ index: audioIndex })
           : AudioPlan.Aac({ index: audioIndex }),
       audioCodec: probe.audio[0]?.codec ?? "",
+      copiedAudioEnd: testCase.audio === "copy" ? probe.audio[0]?.endSeconds : undefined,
       subtitleCodec: "",
       segmentStarts: plan.starts.slice(startSegment),
       previousStart: plan.starts[startSegment - 1],
@@ -579,7 +581,6 @@ const runFrom = Effect.fn("HlsTiming.runFrom")(function* (
     from,
     init,
     initStreams,
-    last: startSegment === plan.starts.length - 1,
     segments,
   } satisfies Run;
 });
@@ -789,10 +790,12 @@ describe.runIf(hasFfmpeg)("HLS timing", () => {
           if (testCase.video !== "copy") {
             test("audio start")("starts a later run's audio at most a frame before its start", () =>
               Effect.gen(function* () {
-                const { resumed } = yield* Measured;
+                const { resumed, sourceEnds } = yield* Measured;
 
-                // A run in the last segment keeps what its seek lands before: audio may have ended.
-                for (const run of resumed.filter((each) => !each.last)) {
+                // A run that starts after the audio ends keeps what its seek lands before.
+                for (const run of resumed.filter(
+                  (each) => sourceEnds.audio.end >= each.from + AUDIO_END_MARGIN,
+                )) {
                   const early = run.from - (run.segments[0]?.audio.first ?? Number.NaN);
 
                   assert.isAtMost(

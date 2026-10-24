@@ -24,6 +24,8 @@ export interface HlsCommand {
   readonly audio: AudioPlan;
   /** ffprobe's name for the source audio track's codec, such as `aac`; empty without audio. */
   readonly audioCodec: string;
+  /** Where a copied audio track ends on the source timeline, when its probe says. */
+  readonly copiedAudioEnd: number | undefined;
   /** ffprobe's name for the burned-in subtitle's codec, such as `dvd_subtitle`; empty without. */
   readonly subtitleCodec: string;
   /** Planned segment starts at or after `from`; transcodes force keyframes there. */
@@ -256,6 +258,9 @@ const AAC_FRAME_SAMPLES = 1024;
 
 const AUDIO_LEAD = 0.5;
 
+/** How far past `from` copied audio must run on before an encode drops what ends by `from`. */
+const AUDIO_END_MARGIN = 0.5;
+
 const samplesAt = (time: number): number => Math.round(time * AAC_RATE);
 
 const frameFloor = (samples: number): number =>
@@ -305,9 +310,9 @@ const aacTiming = (audioStartSample: number): ReadonlyArray<string> => [
  * where a seek lands near its target rather than on a keyframe, as in MPEG-TS: the muxer then
  * cuts the first planned segment's audio at the frame an earlier run cut, and the session drops
  * the fragments before it. Its audio starts earlier still, so the first fragment has audio and
- * `init.mp4` the same edit lists as other runs'. An encode drops copied audio that
- * ends by `from`, except in the plan's last segment: audio may end before it, and an MP4 track
- * without a packet has no `init.mp4` entry for AC-3 or E-AC-3.
+ * `init.mp4` the same edit lists as other runs'. An encode drops copied audio that ends by `from`
+ * only when the track runs on past `from`: an MP4 track without a packet has no `init.mp4` entry
+ * for AC-3 or E-AC-3, so where the end is unknown nothing is dropped.
  */
 const runStart = (command: EncodeSource): RunStart => {
   const fileAudioStart = frameCeil(Math.max(0, samplesAt(command.sourceStart))) + AAC_FRAME_SAMPLES;
@@ -337,7 +342,10 @@ const runStart = (command: EncodeSource): RunStart => {
     seek: offset,
     audioStartSample: Math.max(fileAudioStart, frameFloor(samplesAt(command.from))),
     dropCopiedAudio:
-      command.segmentStarts.length > 1 ? { time: command.from, by: "end" } : undefined,
+      command.copiedAudioEnd !== undefined &&
+      command.copiedAudioEnd >= command.from + AUDIO_END_MARGIN
+        ? { time: command.from, by: "end" }
+        : undefined,
   };
 };
 
@@ -478,6 +486,7 @@ export const mp4CommandArgs = (command: Mp4Command): ReadonlyArray<string> => {
     video: command.video,
     audio: command.audio,
     audioCodec: command.audioCodec,
+    copiedAudioEnd: undefined,
     subtitleCodec: "",
     segmentStarts: [],
     previousStart: undefined,
