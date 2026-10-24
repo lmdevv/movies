@@ -281,7 +281,12 @@ in
     streamIdleSeconds = lib.mkOption {
       type = lib.types.ints.positive;
       default = 60;
-      description = "A stream with no requests for this long is closed and its segments deleted.";
+      description = ''
+        A stream's encoder stops, freeing its transcode slot and segments, after this long with
+        no requests and no playing progress. The stream stays, and its next request restarts
+        the encoder. With no playback session reports, as in standalone mode, a stream closes
+        once its encoder has been stopped and unused for ten times this.
+      '';
     };
 
     streamBufferAheadSeconds = lib.mkOption {

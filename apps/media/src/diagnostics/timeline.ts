@@ -15,6 +15,7 @@ import { PlaybackSessionId, UserId } from "@movies/contracts/ids";
 import { EpochMillis } from "@movies/contracts/units";
 import { LogLevel, Option, Predicate, type Schema } from "effect";
 
+import type { StreamEndReason } from "../playback/playback-reporter.ts";
 import { LogEvent, SLOW_MS } from "./log-events.ts";
 
 type Annotations = LogRecord["annotations"];
@@ -92,14 +93,42 @@ const audioOf = (fields: Annotations): string =>
     ? `; audio ${fields["audioCodec"]} ${text(fields["audioChannels"])} ch${Predicate.isString(fields["audioLanguage"]) ? `, ${fields["audioLanguage"]}` : ""}`
     : "";
 
-const STREAM_END_REASONS = new Map([
-  ["idle", "no requests for STREAM_IDLE_SECONDS, so the service closed it"],
-  ["replaced", "a newer negotiation on the same device replaced it"],
-  ["stopped", "the player stopped it"],
-  ["abandoned", "the player went away before the first segment"],
-  ["failed", "the encoder failed"],
-  ["shutdown", "the media service shut down"],
-  ["session-ended", "the playback session ended"],
+const STREAM_END_REASONS: Record<StreamEndReason, string> = {
+  expired: "nothing used it and every playback token that reached it had expired",
+  unattended:
+    "no playback session reports reached the service and nothing used the stream for ten idle periods",
+  "resume-refused": "its player came back while no slot or transcode space was free",
+  replaced: "a newer negotiation on the same device replaced it",
+  stopped: "the player stopped it",
+  abandoned: "the player went away before the first segment",
+  failed: "the encoder failed",
+  shutdown: "the media service shut down",
+  "session-ended": "the playback session ended",
+};
+
+const RETIRED_END_REASONS = {
+  idle: "no requests for STREAM_IDLE_SECONDS, so the service closed it",
+};
+
+const END_REASON_TEXTS: ReadonlyMap<string, string> = new Map(
+  Object.entries({ ...STREAM_END_REASONS, ...RETIRED_END_REASONS }),
+);
+
+const age = (value: Schema.Json | undefined): string => {
+  const ms = number(value);
+
+  return ms >= 60_000 ? `${(ms / 60_000).toFixed(1)} min` : duration(ms);
+};
+
+const progressAge = (value: Schema.Json | undefined): string =>
+  Predicate.isNumber(value) ? `${age(value)} ago` : "never";
+
+const usage = (fields: Annotations): string =>
+  `${text(fields["liveness"])}, last request ${age(fields["lastRequestAgeMs"])} ago, last progress ${progressAge(fields["lastProgressAgeMs"])}`;
+
+const REFUSALS = new Map<string, (fields: Annotations) => string>([
+  ["TranscodeCapacityReached", (fields) => `every ${text(fields["slots"])} slot is taken`],
+  ["InsufficientTranscodeSpace", () => "the transcode folder is out of space"],
 ]);
 
 const RULES = new Map<string, Rule>([
@@ -124,16 +153,43 @@ const RULES = new Map<string, Rule>([
     },
   ],
   [
+    LogEvent.streamReleased,
+    {
+      kind: "stream-moved",
+      source: "server",
+      summary: (fields) =>
+        `Encoder stopped: ${usage(fields)}; the stream stays and restarts on the next request`,
+    },
+  ],
+  [
+    LogEvent.streamResumed,
+    {
+      kind: "stream-moved",
+      source: "server",
+      summary: (fields) =>
+        `Encoder restarted at ${position(fields["fromSeconds"])} (generation ${text(fields["generation"])}) after ${age(fields["releasedForMs"])} stopped`,
+    },
+  ],
+  [
+    LogEvent.resumeRefused,
+    {
+      kind: "stream-moved",
+      source: "server",
+      summary: (fields) =>
+        `Encoder not restarted for segment ${text(fields["segment"])}: ${REFUSALS.get(text(fields["reason"]))?.(fields) ?? text(fields["reason"])}; the stream closes and the player negotiates again`,
+    },
+  ],
+  [
     LogEvent.streamEnded,
     {
       kind: "stream-ended",
       source: "server",
       summary: (fields) => {
         const reason = text(fields["reason"]);
+        const why = END_REASON_TEXTS.get(reason);
+        const used = Predicate.isString(fields["liveness"]) ? ` (${usage(fields)})` : "";
 
-        const why = STREAM_END_REASONS.get(reason);
-
-        return `Stream ended: ${reason}${why === undefined ? "" : `, ${why}`}`;
+        return `Stream ended: ${reason}${why === undefined ? "" : `, ${why}`}${used}`;
       },
     },
   ],
@@ -325,9 +381,9 @@ const neverStarted = (
     if (entry.streamId === null || started.has(entry.streamId)) continue;
 
     if (entry.kind === "stream-ended") {
-      ended.set(entry.streamId, STREAM_END_REASONS.get(text(entry.details["reason"])));
+      ended.set(entry.streamId, END_REASON_TEXTS.get(text(entry.details["reason"])));
     } else if (entry.kind === "encoder-failed" && !ended.has(entry.streamId)) {
-      ended.set(entry.streamId, STREAM_END_REASONS.get("failed"));
+      ended.set(entry.streamId, STREAM_END_REASONS.failed);
     }
   }
 

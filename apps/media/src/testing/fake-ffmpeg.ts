@@ -9,6 +9,11 @@ export interface FakeFfmpegBehavior {
    * as a run that fails after its first segments would.
    */
   readonly qsvFailsAfterSeconds?: number;
+  /**
+   * Quick Sync runs that seek to this many seconds or later exit with status 1 before writing
+   * anything, as a device lost between two runs would; other Quick Sync runs encode in software.
+   */
+  readonly qsvFailsFromSeconds?: number;
   /** HLS runs wait this long before starting, as a slow disk or a busy encoder would. */
   readonly hlsDelayMs?: number;
   /** HLS runs exit with status 1 before writing anything, as a broken source or codec would. */
@@ -17,6 +22,8 @@ export interface FakeFfmpegBehavior {
   readonly hlsFailsFromSeconds?: number;
   /** HLS runs from the start of the file write only this many seconds, then finish. */
   readonly hlsFromStartSeconds?: number;
+  /** The filter list lacks `zscale` and `tonemap`, as a build without libzimg would. */
+  readonly withoutSoftwareToneMapping?: true;
 }
 
 const QSV_ONLY = [
@@ -34,17 +41,31 @@ const behavior = ${JSON.stringify(behavior)};
 const qsvOnly = new Set(${JSON.stringify(QSV_ONLY)});
 let args = process.argv.slice(2);
 const hls = args.includes("hls");
-const qsv = args.includes("h264_qsv") && behavior.qsvFailsAfterSeconds !== undefined;
+const qsv =
+  args.includes("h264_qsv") &&
+  (behavior.qsvFailsAfterSeconds !== undefined || behavior.qsvFailsFromSeconds !== undefined);
+const failsLater = qsv && behavior.qsvFailsAfterSeconds !== undefined;
+
+if (behavior.withoutSoftwareToneMapping === true && args.includes("-filters")) {
+  const listed = spawnSync(${JSON.stringify(realFfmpeg)}, args, { encoding: "utf8" });
+
+  process.stdout.write(
+    listed.stdout
+      .split("\\n")
+      .filter((line) => !/\\s(zscale|tonemap)\\s/.test(line))
+      .join("\\n"),
+  );
+  process.exit(listed.status ?? 1);
+}
 
 if (hls && behavior.hlsDelayMs !== undefined) {
   await new Promise((resolve) => setTimeout(resolve, behavior.hlsDelayMs));
 }
 
 const seekTo = Number(args[args.indexOf("-ss") + 1] ?? 0);
+const seeksFrom = (seconds) => seconds !== undefined && args.includes("-ss") && seekTo >= seconds;
 const damaged =
-  behavior.hlsFailsFromSeconds !== undefined &&
-  args.includes("-ss") &&
-  seekTo >= behavior.hlsFailsFromSeconds;
+  seeksFrom(behavior.hlsFailsFromSeconds) || (qsv && seeksFrom(behavior.qsvFailsFromSeconds));
 
 if (hls && !args.includes("-ss") && behavior.hlsFromStartSeconds !== undefined) {
   const format = args.indexOf("hls") - 1;
@@ -71,7 +92,7 @@ if (qsv) {
       index += 1;
     } else if (arg === "h264_qsv") {
       software.push("libx264");
-    } else if (arg === "-f" && args[index + 1] === "hls") {
+    } else if (failsLater && arg === "-f" && args[index + 1] === "hls") {
       software.push("-t", String(behavior.qsvFailsAfterSeconds), arg);
     } else {
       software.push(arg);
@@ -83,7 +104,7 @@ if (qsv) {
 
 const result = spawnSync(${JSON.stringify(realFfmpeg)}, args, { stdio: "inherit" });
 
-process.exit(qsv ? 1 : (result.status ?? 1));
+process.exit(failsLater ? 1 : (result.status ?? 1));
 `;
 
 /** Writes the stand-in into a new temporary folder and returns its path, for `FFMPEG_PATH`. */

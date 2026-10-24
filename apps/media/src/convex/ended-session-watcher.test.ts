@@ -33,7 +33,7 @@ describe("ended-session watcher", () => {
       const closed = yield* Ref.make<ReadonlyArray<string>>([]);
 
       const streams = Layer.mock(StreamSessions.Service)({
-        endSession: (sessionId) =>
+        closeStreams: (sessionId) =>
           Ref.update(closed, (seen) => [...seen, sessionId]).pipe(Effect.as(1)),
       });
 

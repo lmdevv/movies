@@ -283,6 +283,7 @@ export type PrepareDownloadResponse = typeof PrepareDownloadResponse.Type;
 /** Service health. */
 export const HealthResponse = Schema.Struct({
   status: Schema.Literal("ok"),
+  /** Streams whose encoder runs; a paused stream whose encoder stopped is not counted. */
   activeStreams: Schema.Int,
   hardwareAcceleration: Schema.Literals(["qsv", "vaapi", "none"]),
   /** Whether the service is signed in to Convex; `standalone` when it runs without Convex. */

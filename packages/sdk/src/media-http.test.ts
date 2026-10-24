@@ -4,7 +4,11 @@ import { createServer } from "node:http";
 import { Effect, Option, Predicate, Redacted, Schema, Stream } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { StreamGenerationGone } from "@movies/contracts/media-playback";
+import {
+  StreamGenerationGone,
+  StreamNotFound,
+  TranscodeCapacityReached,
+} from "@movies/contracts/media-playback";
 import { PlaybackTokenInvalid } from "@movies/contracts/playback-token";
 
 import type { MediaRequest } from "./media-http";
@@ -325,6 +329,8 @@ describe("playback API requests", () => {
         new StreamGenerationGone({ streamId: "abc", generation: 1, currentGeneration: 2 }),
       ),
     ).toBe("reload-playlist");
+    expect(recoveryFor(new StreamNotFound({ streamId: "abc" }))).toBe("renegotiate");
+    expect(recoveryFor(new TranscodeCapacityReached({ limit: 1 }))).toBe("retry-later");
     expect(recoveryFor(new PlaybackTokenInvalid({ reason: "expired", message: "x" }))).toBe(
       "renew-token",
     );

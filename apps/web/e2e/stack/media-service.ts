@@ -16,21 +16,36 @@ export const buildMediaService = (): void => {
   execFileSync(process.execPath, [`${mediaDir}/scripts/build.ts`], { stdio: "pipe" });
 };
 
+/**
+ * Writes the media service's stand-in ffmpeg, misbehaving as `behavior` says (its
+ * `FakeFfmpegBehavior`), into a new temporary folder, and returns its path for `FFMPEG_PATH`.
+ */
+export const writeFakeFfmpeg = (behavior: Readonly<Record<string, number | boolean>>): string =>
+  execFileSync(
+    process.execPath,
+    [`${mediaDir}/scripts/write-fake-ffmpeg.ts`, JSON.stringify(behavior)],
+    { encoding: "utf8" },
+  );
+
 /** A running media service. */
 export interface MediaService {
   /** Stops the service and resolves once it exited. */
   readonly stop: () => Promise<void>;
+  /** Everything it logged so far, one JSON record per line. */
+  readonly logs: () => string;
 }
 
 /**
  * Starts the built media service against `stack` with `libraryRoots` approved, and resolves once
- * it is signed in to Convex.
+ * it is signed in to Convex. It encodes in software whatever the stack's `.env.local` says, unless
+ * `overrides`, which win over every other setting, set `HARDWARE_ACCELERATION`.
  *
  * @throws When it exits or does not connect in time, with what it logged.
  */
 export const startMediaService = async (
   stack: StackEnv,
   libraryRoots: ReadonlyArray<string>,
+  overrides: Readonly<Record<string, string>> = {},
 ): Promise<MediaService> => {
   const child = spawn(process.execPath, ["--enable-source-maps", `${mediaDir}/dist/main.js`], {
     env: {
@@ -39,6 +54,7 @@ export const startMediaService = async (
       LIBRARY_ROOTS: libraryRoots.join(","),
       HARDWARE_ACCELERATION: "none",
       MIN_FREE_TRANSCODE_MB: "1",
+      ...overrides,
     },
   });
 
@@ -88,5 +104,5 @@ export const startMediaService = async (
 
   await connected();
 
-  return { stop };
+  return { stop, logs: () => logs };
 };

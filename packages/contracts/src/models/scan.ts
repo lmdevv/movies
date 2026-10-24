@@ -200,15 +200,17 @@ export const ResolvedFile = Schema.Struct({
 /** A file named in a playback token. */
 export interface ResolvedFile extends Schema.Schema.Type<typeof ResolvedFile> {}
 
-/** A playback session's state, for checking a token's `sid` is still active. */
+/** A playback session's state: whether it is still active and whether its player plays. */
 export const SessionStatus = Schema.Struct({
   sessionId: PlaybackSessionId,
   status: Schema.Literals(["active", "ended"]),
   fileId: MediaFileId,
   endedAt: Schema.NullOr(EpochMillis),
+  state: Schema.Literals(["playing", "paused"]),
+  positionMs: Milliseconds,
 });
 
-/** Whether a playback session continues. */
+/** Whether a playback session continues, and whether its player plays. */
 export interface SessionStatus extends Schema.Schema.Type<typeof SessionStatus> {}
 
 /** An ended playback session whose streams the media service should stop. */

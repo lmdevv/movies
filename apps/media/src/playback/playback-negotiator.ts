@@ -192,6 +192,7 @@ const make = Effect.gen(function* () {
     };
 
     if (PlaybackPlan.$is("Direct")(plan)) {
+      yield* sessions.closeStreams(grant.sessionId, "replaced");
       yield* reporter.report(
         PlaybackReporter.PlaybackEvent.cases.ModeChosen.make({
           sessionId: grant.sessionId,

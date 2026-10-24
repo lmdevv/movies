@@ -94,7 +94,7 @@ default. The NixOS options are in brackets.
 | `LIBVA_DRIVER_NAME`           | VA-API driver, such as `iHD`; detected when empty (`extraEnvironment`)    |
 | `MAX_CONCURRENT_TRANSCODES`   | Simultaneous transcodes, 3 (`maxConcurrentTranscodes`)                    |
 | `MAX_CONCURRENT_REMUXES`      | Simultaneous remux and audio-only streams, 10 (`maxConcurrentRemuxes`)    |
-| `STREAM_IDLE_SECONDS`         | An idle stream closes after this, 60 (`streamIdleSeconds`)                |
+| `STREAM_IDLE_SECONDS`         | A quiet stream's encoder stops after this, 60 (`streamIdleSeconds`)       |
 | `STREAM_BUFFER_AHEAD_SECONDS` | How far ffmpeg runs ahead of the player, 120 (`streamBufferAheadSeconds`) |
 | `MIN_FREE_TRANSCODE_MB`       | Free space the transcode folder keeps, 2048 MiB (`minFreeTranscodeMb`)    |
 | `LIBRARY_RECONCILE_MINUTES`   | Full library reconciliation interval, 360 (`libraryReconcileMinutes`)     |

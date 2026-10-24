@@ -1,5 +1,5 @@
 import { assert, describe, layer } from "@effect/vitest";
-import { Duration, Effect, FileSystem, Path, Schema } from "effect";
+import { Duration, Effect, Fiber, FileSystem, Path, Ref, Schedule, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import { LibraryId } from "@movies/contracts/ids";
@@ -12,6 +12,7 @@ import { ffmpegAvailable } from "../testing/fixture-library.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
 import * as MediaTestServer from "../testing/media-test-server.ts";
 import { signTestToken } from "../testing/test-config.ts";
+import * as TestConvex from "../testing/test-convex.ts";
 
 const hasFfmpeg = await ffmpegAvailable();
 
@@ -82,6 +83,104 @@ const writtenFragments = Effect.fn(function* (streamId: string) {
   return names.filter((name) => /^f\d+\.m4s$/.test(name)).length;
 });
 
+const negotiateLong = Effect.fn(function* (sid: string, fileId: string) {
+  const server = yield* MediaTestServer.Service;
+  const token = signTestToken({ fid: fileId, sid });
+
+  const response = yield* HttpClient.execute(
+    HttpClientRequest.post(`${server.baseUrl}/api/playback/negotiate`).pipe(
+      HttpClientRequest.bodyJsonUnsafe({ token, capabilities: smallScreen }),
+    ),
+  ).pipe(Effect.orDie);
+
+  assert.strictEqual(response.status, 200, `negotiating ${sid}`);
+  const negotiated = yield* response.json.pipe(Effect.flatMap(decodeNegotiation), Effect.orDie);
+  const playlist = new URL(negotiated.url.replace(/^https?:\/\/[^/]+/u, server.baseUrl));
+
+  return {
+    token,
+    mode: negotiated.mode,
+    streamId: negotiated.streamId ?? "",
+    file: (name: string) => new URL(`${name}${playlist.search}`, playlist).toString(),
+  };
+});
+
+type LongStream = Effect.Success<ReturnType<typeof negotiateLong>>;
+
+const fetched = (url: string) =>
+  HttpClient.get(url).pipe(
+    Effect.flatMap((response) =>
+      response.arrayBuffer.pipe(
+        Effect.map((body) => ({ status: response.status, body: new Uint8Array(body) })),
+      ),
+    ),
+    Effect.orDie,
+  );
+
+const stop = Effect.fn(function* (stream: LongStream) {
+  const server = yield* MediaTestServer.Service;
+
+  const response = yield* HttpClient.execute(
+    HttpClientRequest.post(`${server.baseUrl}/api/playback/stop`).pipe(
+      HttpClientRequest.bodyJsonUnsafe({ token: stream.token, streamId: stream.streamId }),
+    ),
+  ).pipe(Effect.orDie);
+
+  assert.strictEqual(response.status, 204, `stopping ${stream.streamId}`);
+});
+
+const playing = Effect.fn(function* (sid: string) {
+  const convex = yield* TestConvex.Service;
+  const position = yield* Ref.make(0);
+
+  yield* convex.report(sid, "playing", 0);
+
+  return yield* Ref.updateAndGet(position, (ms) => ms + 300).pipe(
+    Effect.flatMap((ms) => convex.report(sid, "playing", ms)),
+    Effect.repeat(Schedule.spaced("300 millis")),
+    Effect.forkChild,
+  );
+});
+
+const logsOf = Effect.fn(function* (message: string, streamId: string) {
+  const server = yield* MediaTestServer.Service;
+
+  return server
+    .logged()
+    .filter((entry) => entry.message === message && entry.annotations["streamId"] === streamId);
+});
+
+const awaitLogged = (message: string, streamId: string) =>
+  logsOf(message, streamId).pipe(
+    Effect.filterOrFail((records) => records.length > 0),
+    Effect.retry({ schedule: Schedule.spaced("100 millis"), times: 100 }),
+    Effect.orDie,
+  );
+
+const awaitThrottled = (streamId: string) =>
+  Effect.gen(function* () {
+    const before = yield* writtenFragments(streamId);
+    yield* Effect.sleep(Duration.seconds(2));
+    const after = yield* writtenFragments(streamId);
+
+    return before > 0 && after === before ? after : yield* Effect.fail("still writing");
+  }).pipe(Effect.retry({ times: 15 }), Effect.orDie);
+
+const segmentFrom = (playlist: string, seconds: number): number => {
+  const durations = playlist
+    .split("\n")
+    .flatMap((line) => (line.startsWith("#EXTINF:") ? [Number.parseFloat(line.slice(8))] : []));
+
+  let start = 0;
+
+  for (const [index, duration] of durations.entries()) {
+    if (start >= seconds) return index;
+    start += duration;
+  }
+
+  return durations.length - 1;
+};
+
 describe.skipIf(!hasFfmpeg)("stream throttling", () => {
   layer(MediaTestServer.layer({ STREAM_BUFFER_AHEAD_SECONDS: "20" }), {
     excludeTestServices: true,
@@ -128,6 +227,110 @@ describe.skipIf(!hasFfmpeg)("stream throttling", () => {
           assert.isAbove(yield* writtenFragments(streamId), paused);
         }),
       60_000,
+    );
+  });
+
+  layer(
+    MediaTestServer.layer(
+      {
+        STREAM_BUFFER_AHEAD_SECONDS: "20",
+        STREAM_IDLE_SECONDS: "1",
+        MAX_CONCURRENT_TRANSCODES: "1",
+      },
+      { convex: true },
+    ),
+    { excludeTestServices: true, timeout: "120 seconds" },
+  )("with Convex, a one second idle timeout, and one transcode slot", (it) => {
+    it.effect(
+      "keeps a playing session's paused encoder rather than releasing it",
+      () =>
+        Effect.gen(function* () {
+          const convex = yield* TestConvex.Service;
+          const fileId = yield* addLongClip.pipe(Effect.orDie);
+          const sid = `held-${crypto.randomUUID()}`;
+          const feed = yield* playing(sid);
+          const stream = yield* negotiateLong(sid, fileId);
+
+          assert.strictEqual(stream.mode, "transcode-software");
+
+          yield* Effect.sleep(Duration.seconds(4));
+          const paused = yield* writtenFragments(stream.streamId);
+          yield* Effect.sleep(Duration.seconds(2));
+
+          assert.strictEqual(yield* writtenFragments(stream.streamId), paused);
+          assert.deepStrictEqual(yield* logsOf("Stream.released", stream.streamId), []);
+
+          const segment = yield* fetched(stream.file(`${String(paused - 2)}.m4s`));
+
+          assert.strictEqual(segment.status, 200);
+          yield* Effect.sleep(Duration.seconds(3));
+          assert.isAbove(yield* writtenFragments(stream.streamId), paused);
+
+          yield* Fiber.interrupt(feed);
+          yield* convex.end(sid);
+          yield* awaitLogged("Stream.ended", stream.streamId);
+        }),
+      60_000,
+    );
+
+    it.effect(
+      "releases a throttled encoder and restarts it minutes in with the same init segment",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+          const convex = yield* TestConvex.Service;
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const fileId = yield* addLongClip.pipe(Effect.orDie);
+          const sid = `far-${crypto.randomUUID()}`;
+          const feed = yield* playing(sid);
+          const stream = yield* negotiateLong(sid, fileId);
+          const playlist = yield* fetched(stream.file("index.m3u8"));
+          const init = yield* fetched(stream.file("init.mp4"));
+
+          assert.strictEqual(init.status, 200);
+          yield* awaitThrottled(stream.streamId);
+          yield* Fiber.interrupt(feed);
+          yield* convex.report(sid, "paused", 3000);
+
+          const released = yield* awaitLogged("Stream.released", stream.streamId);
+
+          assert.deepInclude(released[0]?.annotations, { liveness: "paused", generation: 1 });
+          assert.isFalse(
+            yield* fs
+              .exists(path.join(server.transcodeDir, stream.streamId, "1"))
+              .pipe(Effect.orDie),
+            "the stopped ffmpeg's run folder is gone",
+          );
+
+          const slot = `slot-${crypto.randomUUID()}`;
+
+          yield* convex.report(slot, "paused", 0);
+          yield* stop(yield* negotiateLong(slot, fileId));
+
+          const far = segmentFrom(new TextDecoder().decode(playlist.body), 240);
+
+          assert.strictEqual(
+            (yield* fetched(stream.file(`${String(far)}.m4s`))).status,
+            200,
+            `segment ${String(far)}, four minutes in`,
+          );
+
+          const resumed = yield* logsOf("Stream.resumed", stream.streamId);
+
+          assert.lengthOf(resumed, 1);
+          assert.deepInclude(resumed[0]?.annotations, { generation: 1, segment: far });
+
+          const second = yield* fetched(stream.file("init.mp4"));
+
+          assert.strictEqual(second.status, 200);
+          assert.deepStrictEqual(second.body, init.body, "the restarted run's init segment");
+          assert.deepStrictEqual(yield* logsOf("Stream.moved", stream.streamId), []);
+
+          yield* convex.end(sid);
+          yield* awaitLogged("Stream.ended", stream.streamId);
+        }),
+      90_000,
     );
   });
 });

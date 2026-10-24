@@ -854,78 +854,128 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
     excludeTestServices: true,
     timeout: "120 seconds",
   })("with short idle timeout and one transcode slot", (it) => {
-    it.effect("limits concurrent transcodes and closes idle streams", () =>
-      Effect.gen(function* () {
-        const server = yield* MediaTestServer.Service;
-        const { library } = yield* FixtureWorkspace.Service;
-        const fs = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const fileId = server.fileId("movies", library.directMovie);
+    it.effect(
+      "limits concurrent transcodes and releases idle encoders, keeping their streams",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+          const { library } = yield* FixtureWorkspace.Service;
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const fileId = server.fileId("movies", library.directMovie);
+          const one = `one-${crypto.randomUUID()}`;
+          const token = signTestToken({ fid: fileId, sid: one });
+          const two = signTestToken({ fid: fileId, sid: `two-${crypto.randomUUID()}` });
+          const first = yield* negotiated({ token, capabilities: smallScreen });
+          const run = path.join(server.transcodeDir, first.streamId ?? "", "1");
 
-        const first = yield* negotiated({
-          token: signTestToken({ fid: fileId, sid: "one" }),
-          capabilities: smallScreen,
-        });
+          const about = (message: string) =>
+            server
+              .logged()
+              .find(
+                (entry) =>
+                  entry.message === message && entry.annotations["streamId"] === first.streamId,
+              );
 
-        assert.isTrue(yield* fs.exists(path.join(server.transcodeDir, first.streamId ?? "")));
+          assert.isTrue(yield* fs.exists(run));
 
-        const second = yield* negotiate({
-          token: signTestToken({ fid: fileId, sid: "two" }),
-          capabilities: smallScreen,
-        });
+          const second = yield* negotiate({ token: two, capabilities: smallScreen });
 
-        assert.strictEqual(second.status, 503);
-        assert.deepStrictEqual(second.body, { _tag: "TranscodeCapacityReached", limit: 1 });
+          assert.strictEqual(second.status, 503);
+          assert.deepStrictEqual(second.body, { _tag: "TranscodeCapacityReached", limit: 1 });
 
-        yield* Effect.sleep("2500 millis");
+          yield* Effect.sleep("2500 millis");
 
-        assert.isFalse(yield* fs.exists(path.join(server.transcodeDir, first.streamId ?? "")));
-        const events = yield* (yield* PlaybackReporter.Recording).events;
+          assert.isFalse(yield* fs.exists(run));
+          assert.strictEqual((yield* get(local(server.baseUrl, first.url))).status, 200);
 
-        assert.isTrue(
-          events.some(
-            (event) =>
-              PlaybackReporter.PlaybackEvent.guards.StreamEnded(event) && event.reason === "idle",
-          ),
-        );
+          const events = yield* (yield* PlaybackReporter.Recording).events;
 
-        const gone = yield* get(local(server.baseUrl, first.url));
+          assert.isFalse(
+            events.some(
+              (event) =>
+                PlaybackReporter.PlaybackEvent.guards.StreamEnded(event) &&
+                event.streamId === first.streamId,
+            ),
+          );
+          assert.deepInclude(about("Stream.released")?.annotations, {
+            sessionId: one,
+            liveness: "unknown",
+            inFlight: 0,
+          });
 
-        assert.strictEqual(gone.status, 404);
+          const retry = yield* negotiated({ token: two, capabilities: smallScreen });
 
-        const logged = server.logged();
+          assert.strictEqual(retry.mode, "transcode-software");
 
-        assert.isTrue(
-          logged.some(
-            (entry) =>
-              entry.message === "Stream.ended" &&
-              entry.annotations["reason"] === "idle" &&
-              entry.annotations["sessionId"] === "one",
-          ),
-        );
+          const stopped = yield* post(`${server.baseUrl}/api/playback/stop`, {
+            token,
+            streamId: first.streamId ?? "",
+          });
 
-        assert.deepInclude(
-          logged.find((entry) => entry.message === "MediaRoutes.request_failed")?.annotations,
-          {
+          assert.strictEqual(stopped.status, 204);
+          assert.strictEqual((yield* get(local(server.baseUrl, first.url))).status, 404);
+
+          const failed = about("MediaRoutes.request_failed");
+
+          assert.deepInclude(failed?.annotations, {
             route: "playlist",
             status: 404,
             error: "Stream not found: renegotiate playback",
-            streamId: first.streamId,
-            sessionId: "one",
+            sessionId: one,
             userId: "user_test",
-          },
-        );
-        assert.strictEqual(
-          logged.find((entry) => entry.message === "MediaRoutes.request_failed")?.level,
-          "WARN",
-        );
+          });
+          assert.strictEqual(failed?.level, "WARN");
 
-        const retry = yield* negotiated({
-          token: signTestToken({ fid: fileId, sid: "two" }),
-          capabilities: smallScreen,
+          const done = yield* post(`${server.baseUrl}/api/playback/stop`, {
+            token: two,
+            streamId: retry.streamId ?? "",
+          });
+
+          assert.strictEqual(done.status, 204);
+        }),
+    );
+
+    it.effect("revives a released remux on the segment the playlist names, without preroll", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const { library } = yield* FixtureWorkspace.Service;
+        const fileId = server.fileId("movies", library.remuxMovie);
+        const token = signTestToken({ fid: fileId, sid: `revived-${crypto.randomUUID()}` });
+        const frame = 1 / 24;
+        const stream = yield* negotiated({ token, capabilities: withDolbyAudio });
+        const playlistUrl = local(server.baseUrl, stream.url);
+
+        assert.strictEqual(stream.mode, "remux");
+        assert.strictEqual((yield* fetchSegment(playlistUrl, 0)).segment.status, 200);
+
+        yield* Effect.sleep("2500 millis");
+
+        const logged = (message: string) =>
+          server
+            .logged()
+            .filter(
+              (entry) =>
+                entry.message === message && entry.annotations["streamId"] === stream.streamId,
+            );
+
+        assert.lengthOf(logged("Stream.released"), 1);
+
+        const segments = yield* playlistSegments(playlistUrl);
+        const index = segments.findLastIndex((segment) => segment.start <= 7);
+        const planned = segments[index];
+        const { init, segment } = yield* fetchSegment(playlistUrl, index);
+
+        assert.strictEqual(segment.status, 200);
+        assert.deepInclude(logged("Stream.resumed")[0]?.annotations, {
+          generation: 1,
+          segment: index,
         });
 
-        assert.strictEqual(retry.mode, "transcode-software");
+        const span = spanOf(yield* videoPackets(concat(yield* bytes(init), yield* bytes(segment))));
+
+        assert.approximately(span.start, planned?.start ?? 0, frame);
+        assert.approximately(span.end - span.start, planned?.duration ?? 0, frame);
       }),
     );
   });

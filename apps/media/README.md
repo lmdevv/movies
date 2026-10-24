@@ -59,7 +59,10 @@ approves nothing, so every scan is refused), `PORT` (4300), `HOST` (all interfac
 (IMDb, Rotten Tomatoes, and Metacritic scores; without it titles keep TMDB's), `WEB_DIST_DIR`,
 `MAX_CONCURRENT_TRANSCODES` (3), `MAX_CONCURRENT_REMUXES` (10: HLS streams that copy the video),
 `HARDWARE_ACCELERATION` (`auto` tries Quick Sync, then VA-API, then software; `qsv`, `vaapi`,
-`none`), `QSV_DEVICE` and `VAAPI_DEVICE` (`/dev/dri/renderD128`), `STREAM_IDLE_SECONDS` (60),
+`none`), `QSV_DEVICE` and `VAAPI_DEVICE` (`/dev/dri/renderD128`), `STREAM_IDLE_SECONDS` (60: a
+stream's encoder stops after this long with no requests and no playing progress; the stream stays,
+and its next request restarts the encoder; with no playback session reports, as in standalone mode,
+a stream closes once its encoder has been stopped and unused for ten times this),
 `STREAM_BUFFER_AHEAD_SECONDS` (120: ffmpeg pauses this far ahead of the player),
 `MIN_FREE_TRANSCODE_MB` (2048), `LIBRARY_RECONCILE_MINUTES` (360), `LIBRARY_WATCH` (`auto`: file
 events on local disks, polling on NFS, SMB/CIFS, 9p and FUSE mounts; `events`; `poll`),

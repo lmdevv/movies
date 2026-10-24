@@ -182,7 +182,8 @@ export const stop = (playback: Playback): Effect.Effect<void, PlaybackCallError>
  * What a player should do after a playback API failure:
  *
  * - `reload-playlist`: a seek replaced the HLS generation; load the current one (`seekStream`).
- * - `renegotiate`: the stream is gone (a restart or idle timeout); call `renegotiate`.
+ * - `renegotiate`: the stream is gone (a restart, an expired token, or a replaced or stopped
+ *   stream); call `renegotiate`.
  * - `renew-token`: the token expired; call `renegotiate`, which renews it first.
  * - `new-session`: the playback session ended (signed out, or another device took over); start a
  *   new one with `start`.
