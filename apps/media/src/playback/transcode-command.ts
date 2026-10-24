@@ -254,8 +254,6 @@ const AAC_RATE = 48_000;
 
 const AAC_FRAME_SAMPLES = 1024;
 
-const SEEK_MARGIN = 0.1;
-
 const AUDIO_LEAD = 0.5;
 
 const samplesAt = (time: number): number => Math.round(time * AAC_RATE);
@@ -303,11 +301,11 @@ const aacTiming = (audioStartSample: number): ReadonlyArray<string> => [
 /**
  * Every run's AAC frames sit on one grid of 1024-sample frames from the source timeline's zero,
  * and start a frame after the file, so no priming frame has a negative timestamp. A run that
- * copies video seeks just before the previous planned start, a keyframe, so it has a fragment to
- * drop even where a seek lands near its target rather than on a keyframe, as in MPEG-TS: the
- * muxer then cuts the first planned segment's audio at the frame an earlier run cut, and the
- * session drops the fragments before it. Its audio starts earlier still, so the first fragment
- * has audio and `init.mp4` the same edit lists as other runs'. An encode drops copied audio that
+ * copies video seeks to the previous planned start, a keyframe, so it has a fragment to drop even
+ * where a seek lands near its target rather than on a keyframe, as in MPEG-TS: the muxer then
+ * cuts the first planned segment's audio at the frame an earlier run cut, and the session drops
+ * the fragments before it. Its audio starts earlier still, so the first fragment has audio and
+ * `init.mp4` the same edit lists as other runs'. An encode drops copied audio that
  * ends by `from`, except in the plan's last segment: audio may end before it, and an MP4 track
  * without a packet has no `init.mp4` entry for AC-3 or E-AC-3.
  */
@@ -323,7 +321,7 @@ const runStart = (command: EncodeSource): RunStart => {
   if (VideoPlan.$is("Copy")(command.video)) {
     if (command.previousStart === undefined) return fromFile;
 
-    const seek = command.previousStart - SEEK_MARGIN;
+    const seek = command.previousStart;
     const audioStartSample = frameFloor(samplesAt(seek - AUDIO_LEAD));
 
     return audioStartSample > fileAudioStart
