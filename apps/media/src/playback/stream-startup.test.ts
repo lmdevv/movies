@@ -1,9 +1,23 @@
 import { assert, describe, layer } from "@effect/vitest";
-import { Duration, Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
+import {
+  Duration,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Path,
+  PlatformError,
+  Schedule,
+  Schema,
+} from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import { type ClientCapabilities, NegotiateResponse } from "@movies/contracts/media-playback";
 
+import { LibraryId } from "@movies/contracts/ids";
+
+import * as LibraryScanner from "../library/library-scanner.ts";
+import * as MemoryLibrary from "../library/memory-library.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import { writeFakeFfmpeg } from "../testing/fake-ffmpeg.ts";
 import { ffmpegAvailable } from "../testing/fixture-library.ts";
@@ -18,13 +32,44 @@ import { hlsCommandArgs } from "./transcode-command.ts";
 
 const hasFfmpeg = await ffmpegAvailable();
 
-const stallsAfterFirstFragment = await writeFakeFfmpeg({ hlsStallsAfterFirstFragment: true });
+const stallsAfterFirstFragment = await writeFakeFfmpeg({ hlsStallsAfterFragments: 1 });
 
-const qsvFailsAfterFirstFragment = await writeFakeFfmpeg({ qsvFailsAfterFirstFragment: true });
+const qsvFailsAfterFirstFragment = await writeFakeFfmpeg({
+  qsvFailsAfterFirstFragmentBefore: 1_000_000,
+});
+
+const failsAfterFirstFragment = await writeFakeFfmpeg({ hlsFailsAfterFirstFragment: true });
+
+const stallsAfterTwoFragments = await writeFakeFfmpeg({ hlsStallsAfterFragments: 2 });
+
+/** Opens of the first fragment fail this many more times, as a briefly busy disk would. */
+const unreadable = { firstFragmentOpens: 0 };
+
+const flakyFirstFragment = (real: FileSystem.FileSystem): FileSystem.FileSystem =>
+  FileSystem.FileSystem.of({
+    ...real,
+    open: (path, options) =>
+      path.endsWith("/1/f0.m4s") && unreadable.firstFragmentOpens > 0
+        ? Effect.suspend(() => {
+            unreadable.firstFragmentOpens -= 1;
+
+            return Effect.fail(
+              PlatformError.systemError({
+                _tag: "Busy",
+                module: "FileSystem",
+                method: "open",
+                description: "the disk is busy",
+              }),
+            );
+          })
+        : real.open(path, options),
+  });
+
+const HALF_SECOND_GOPS = "Half Second Gops (2020)/Half Second Gops (2020).mkv";
 
 const startsLateThenStalls = await writeFakeFfmpeg({
   hlsDelayMs: 1500,
-  hlsStallsAfterFirstFragment: true,
+  hlsStallsAfterFragments: 1,
 });
 
 const LATE_KEYFRAME = 383 / 24;
@@ -35,6 +80,16 @@ const smallScreen: ClientCapabilities = {
   audioCodecs: [{ codec: "aac" }],
   maxWidth: 1920,
   maxHeight: 120,
+  hls: false,
+  mse: true,
+};
+
+const remuxScreen: ClientCapabilities = {
+  containers: [],
+  videoCodecs: [{ codec: "h264", maxBitDepth: 8 }],
+  audioCodecs: [{ codec: "aac" }],
+  maxWidth: 1920,
+  maxHeight: 1080,
   hls: false,
   mse: true,
 };
@@ -267,6 +322,141 @@ describe.skipIf(!hasFfmpeg)("stream startup", () => {
               `f${String(index)} starts where f${String(index - 1)} ends`,
             );
           }
+        }),
+      60_000,
+    );
+  });
+
+  layer(MediaTestServer.layer({ FFMPEG_PATH: failsAfterFirstFragment }), {
+    excludeTestServices: true,
+    timeout: "60 seconds",
+  })((it) => {
+    it.effect(
+      "serves a whole segment from a software run that failed right after writing it",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+          const { library } = yield* FixtureWorkspace.Service;
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const token = signTestToken({ fid: server.fileId("movies", library.directMovie) });
+
+          const negotiated = yield* HttpClient.execute(
+            HttpClientRequest.post(`${server.baseUrl}/api/playback/negotiate`).pipe(
+              HttpClientRequest.bodyJsonUnsafe({ token, capabilities: smallScreen }),
+            ),
+          ).pipe(
+            Effect.flatMap((response) => response.json),
+            Effect.flatMap(decodeNegotiation),
+            Effect.orDie,
+          );
+
+          const first = path.join(server.transcodeDir, negotiated.streamId ?? "", "1", "f0.m4s");
+
+          yield* fs.exists(first).pipe(
+            Effect.filterOrFail((exists) => exists),
+            Effect.retry(Schedule.spaced("50 millis")),
+            Effect.timeout("20 seconds"),
+            Effect.orDie,
+          );
+          yield* Effect.sleep("1 second");
+
+          const url = new URL(negotiated.url);
+
+          const segment = yield* HttpClient.get(
+            `${server.baseUrl}${url.pathname.replace(/index\.m3u8$/u, "0.m4s")}${url.search}`,
+          ).pipe(Effect.orDie);
+
+          assert.strictEqual(segment.status, 200, "the segment the run finished");
+        }),
+      60_000,
+    );
+  });
+
+  layer(
+    MediaTestServer.layer(
+      { FFMPEG_PATH: stallsAfterTwoFragments },
+      { fileSystem: flakyFirstFragment },
+    ),
+    { excludeTestServices: true, timeout: "60 seconds" },
+  )((it) => {
+    it.effect(
+      "waits for a fragment that failed to read before serving the segment it belongs to",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+          const workspace = yield* FixtureWorkspace.Service;
+          const tools = yield* MediaTools.Service;
+          const scanner = yield* LibraryScanner.Service;
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const library = LibraryId.make("half-second-gops");
+          const root = path.join(workspace.root, "half-second-gops");
+          const source = path.join(root, HALF_SECOND_GOPS);
+
+          yield* fs.makeDirectory(path.dirname(source), { recursive: true });
+          yield* tools.ffmpeg([
+            "-hide_banner",
+            "-nostdin",
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x180:rate=24:duration=6",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-g",
+            "12",
+            "-sc_threshold",
+            "0",
+            "-pix_fmt",
+            "yuv420p",
+            "-an",
+            source,
+          ]);
+          yield* scanner.scan({ libraryId: library, root, mode: "incremental" });
+
+          const token = signTestToken({ fid: MemoryLibrary.fileIdOf(library, HALF_SECOND_GOPS) });
+
+          const negotiated = yield* HttpClient.execute(
+            HttpClientRequest.post(`${server.baseUrl}/api/playback/negotiate`).pipe(
+              HttpClientRequest.bodyJsonUnsafe({ token, capabilities: remuxScreen }),
+            ),
+          ).pipe(
+            Effect.flatMap((response) => response.json),
+            Effect.flatMap(decodeNegotiation),
+            Effect.orDie,
+          );
+
+          assert.strictEqual(negotiated.mode, "remux");
+          unreadable.firstFragmentOpens = 2;
+
+          const url = new URL(negotiated.url);
+
+          const segment = yield* HttpClient.get(
+            `${server.baseUrl}${url.pathname.replace(/index\.m3u8$/u, "0.m4s")}${url.search}`,
+          ).pipe(
+            Effect.flatMap((response) => response.arrayBuffer),
+            Effect.timeout("20 seconds"),
+            Effect.orDie,
+          );
+
+          const run = path.join(server.transcodeDir, negotiated.streamId ?? "", "1");
+
+          const whole = yield* Effect.forEach(["f0.m4s", "f1.m4s"], (name) =>
+            fs.stat(path.join(run, name)).pipe(Effect.map((info) => Number(info.size))),
+          ).pipe(Effect.orDie);
+
+          assert.strictEqual(
+            segment.byteLength,
+            whole.reduce((total, size) => total + size, 0),
+            "segment 0 holds both of its fragments",
+          );
+          assert.strictEqual(unreadable.firstFragmentOpens, 0, "the first fragment failed to read");
         }),
       60_000,
     );

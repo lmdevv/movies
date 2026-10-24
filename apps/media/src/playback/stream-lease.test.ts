@@ -38,6 +38,10 @@ const hasFfmpeg = await ffmpegAvailable();
 
 const qsvLostOnRestart = await writeFakeFfmpeg({ qsvFailsFromSeconds: 1 });
 
+const qsvLostAfterEarlyFirstFragment = await writeFakeFfmpeg({
+  qsvFailsAfterFirstFragmentBefore: 2,
+});
+
 const qsvLostWithoutToneMapping = await writeFakeFfmpeg({
   qsvFailsFromSeconds: 1,
   withoutSoftwareToneMapping: true,
@@ -1013,6 +1017,78 @@ describe.skipIf(!hasFfmpeg)("stream liveness", () => {
         yield* stop(stream);
       }),
     );
+  });
+
+  describe("standalone, with Quick Sync that fails after the first fragment of an early run", () => {
+    const server = MediaTestServer.layer(
+      {
+        FFMPEG_PATH: qsvLostAfterEarlyFirstFragment,
+        HARDWARE_ACCELERATION: "qsv",
+        STREAM_IDLE_SECONDS: "1",
+        MAX_CONCURRENT_TRANSCODES: "1",
+      },
+      { fileSystem: scriptedDisk },
+    );
+
+    const fallsBack = Effect.fn(function* (move: "seek" | "revive") {
+      const recording = yield* PlaybackReporter.Recording;
+      const stream = yield* negotiate({ name: `qsv-first-fragment-${move}`, startSeconds: 8 });
+
+      assert.strictEqual(stream.mode, "transcode-qsv");
+      assert.strictEqual(yield* status(stream.file("init.mp4")), 200);
+
+      const seeking = move === "seek";
+
+      if (seeking) {
+        const moved = yield* posted("/api/playback/seek", {
+          token: stream.token,
+          streamId: stream.streamId,
+          positionSeconds: 0,
+        });
+
+        assert.deepInclude(JSON.parse(textOf(moved.body)), { generation: 2 });
+      } else {
+        yield* awaitLogged("Stream.released", stream.streamId);
+      }
+
+      const gone = yield* fetched(stream.file(seeking ? "../2/init.mp4" : "0.m4s"));
+
+      assert.strictEqual(gone.status, 410, "no Quick Sync bytes before the fallback");
+      assert.deepStrictEqual(JSON.parse(textOf(gone.body)), {
+        _tag: "StreamGenerationGone",
+        streamId: stream.streamId,
+        generation: seeking ? 2 : 1,
+        currentGeneration: seeking ? 3 : 2,
+      });
+
+      const changes = (yield* recording.events).flatMap((event) =>
+        PlaybackReporter.PlaybackEvent.guards.ModeChanged(event) &&
+        event.streamId === stream.streamId
+          ? [[event.from, event.to]]
+          : [],
+      );
+
+      assert.deepStrictEqual(changes, [["transcode-qsv", "transcode-software"]]);
+
+      for (const name of ["init.mp4", "0.m4s"]) {
+        const software = `../${seeking ? "3" : "2"}/${name}`;
+
+        assert.strictEqual(yield* status(stream.file(software)), 200, software);
+      }
+
+      yield* stop(stream);
+    });
+
+    for (const move of ["seek", "revive"] as const) {
+      live(
+        `falls back to software before a ${move}'s Quick Sync run serves anything`,
+        () =>
+          Layer.build(server).pipe(
+            Effect.flatMap((context) => fallsBack(move).pipe(Effect.provideContext(context))),
+          ),
+        60_000,
+      );
+    }
   });
 
   describe("standalone, with Quick Sync that fails once a run restarts mid-file", () => {

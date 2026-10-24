@@ -175,8 +175,9 @@ const FRAGMENT_FILE = /^f\d+\.m4s$/;
 
 /**
  * When a segment counts as produced: `written` once its last fragment is, and `followed` once the
- * encoder has also started the next one, which shows a hardware encoder got past its first
- * fragment before the stream commits to it.
+ * encoder has also started the next one. A hardware run's first segment, and so its init, waits
+ * for `followed`, which shows the device got past its first fragment before any of its bytes
+ * reach the player.
  */
 type Readiness = "written" | "followed";
 
@@ -189,6 +190,9 @@ interface Fragment {
 
 interface Generation {
   readonly number: number;
+  readonly streamId: StreamId;
+  /** Whether the run encodes on a GPU, whose failure falls back to software. */
+  readonly hardware: boolean;
   readonly startSegment: number;
   readonly from: number;
   readonly directory: string;
@@ -197,6 +201,7 @@ interface Generation {
   readonly fragments: Ref.Ref<ReadonlyArray<Fragment>>;
   readonly refreshLock: Semaphore.Semaphore;
   readonly wake: MutableRef.MutableRef<Deferred.Deferred<void>>;
+  readonly endUnknownLogged: MutableRef.MutableRef<boolean>;
   readonly suspend: (paused: boolean) => Effect.Effect<void>;
   readonly paused: Ref.Ref<boolean>;
 }
@@ -379,34 +384,41 @@ const make = Effect.gen(function* () {
       const fresh = yield* Effect.forEach(
         names
           .filter((name) => FRAGMENT_FILE.test(name))
-          .map((name) => path.join(generation.directory, name)),
+          .map((name) => path.join(generation.directory, name))
+          .filter((file) => !known.has(file)),
         (file) =>
-          known.has(file)
-            ? Effect.succeedNone
-            : Effect.scoped(
-                Effect.gen(function* () {
-                  const handle = yield* fs.open(file);
-                  const head = yield* handle.readAlloc(FRAGMENT_HEAD_BYTES, { position: 0n });
-                  const info = yield* handle.stat;
+          Effect.scoped(
+            Effect.gen(function* () {
+              const handle = yield* fs.open(file);
+              const head = yield* handle.readAlloc(FRAGMENT_HEAD_BYTES, { position: 0n });
+              const info = yield* handle.stat;
 
-                  const span = Option.flatMap(head, (bytes) =>
-                    Option.fromNullishOr(fragmentSpan(bytes)),
-                  );
+              const span = Option.flatMap(head, (bytes) =>
+                Option.fromNullishOr(fragmentSpan(bytes)),
+              );
 
-                  if (Option.isSome(span) && span.value.end === undefined) {
-                    yield* Effect.logWarning("StreamSessions.fragment_end_unknown").pipe(
-                      Effect.annotateLogs({ fragment: file }),
-                    );
-                  }
+              if (
+                Option.isSome(span) &&
+                span.value.end === undefined &&
+                !MutableRef.getAndSet(generation.endUnknownLogged, true)
+              ) {
+                yield* Effect.logWarning("StreamSessions.fragment_end_unknown").pipe(
+                  Effect.annotateLogs({
+                    streamId: generation.streamId,
+                    generation: generation.number,
+                    fragment: file,
+                  }),
+                );
+              }
 
-                  return Option.map(span, ({ start, end }): Fragment => ({
-                    path: file,
-                    start,
-                    end,
-                    sizeBytes: Number(info.size),
-                  }));
-                }),
-              ).pipe(Effect.orElseSucceed(() => Option.none<Fragment>())),
+              return Option.map(span, ({ start, end }): Fragment => ({
+                path: file,
+                start,
+                end,
+                sizeBytes: Number(info.size),
+              }));
+            }),
+          ).pipe(Effect.orElseSucceed(() => Option.none<Fragment>())),
       );
 
       const added = fresh.flatMap((fragment) => (Option.isSome(fragment) ? [fragment.value] : []));
@@ -416,6 +428,8 @@ const make = Effect.gen(function* () {
           [...current, ...added].toSorted((left, right) => left.start - right.start),
         );
       }
+
+      return added.length === fresh.length;
     },
     (refresh, generation) => generation.refreshLock.withPermits(1)(refresh),
   );
@@ -525,16 +539,21 @@ const make = Effect.gen(function* () {
       Effect.catch((error) => Deferred.fail(exit, error).pipe(Effect.as(undefined))),
     );
 
+    yield* Scope.addFinalizer(scope, Effect.sync(wakeWaits));
+
     if (running !== undefined) {
       yield* running.exit.pipe(
         Effect.exit,
         Effect.flatMap((result) => Deferred.done(exit, result)),
+        Effect.andThen(Effect.sync(wakeWaits)),
         Effect.forkIn(scope),
       );
     }
 
     const generation: Generation = {
       number,
+      streamId: session.streamId,
+      hardware: hardwareOf(yield* Ref.get(session.mode)) !== undefined,
       startSegment,
       from,
       directory,
@@ -543,6 +562,7 @@ const make = Effect.gen(function* () {
       fragments: yield* Ref.make<ReadonlyArray<Fragment>>([]),
       refreshLock: yield* Semaphore.make(1),
       wake,
+      endUnknownLogged: MutableRef.make(false),
       suspend: running === undefined ? () => Effect.void : running.suspend,
       paused: yield* Ref.make(false),
     };
@@ -671,7 +691,6 @@ const make = Effect.gen(function* () {
     generation: Generation,
     index: number,
     maxWait: Duration.Duration,
-    readiness: Readiness = "written",
   ) {
     const deadline = (yield* Clock.currentTimeMillis) + Duration.toMillis(maxWait);
 
@@ -689,17 +708,24 @@ const make = Effect.gen(function* () {
 
       const wake = MutableRef.get(generation.wake);
       const finished = yield* Deferred.isDone(generation.exit);
-      yield* refreshFragments(generation);
+      const parsed = yield* refreshFragments(generation);
       const fragments = yield* Ref.get(generation.fragments);
       const produced = producedRange(session, generation, fragments);
       const next = session.plan.starts[index + 1];
 
       const { followed, written } = reachOf(fragments, next);
 
+      const readiness: Readiness =
+        generation.hardware && index === generation.startSegment ? "followed" : "written";
+
+      // A fragment that failed to parse this time may belong to the segment, so only an encoder
+      // that started the next one proves the segment whole.
+      const ready = readiness === "written" && parsed ? written : followed;
+
       if (finished) {
         const result = yield* Deferred.await(generation.exit).pipe(Effect.exit);
 
-        if (Exit.isFailure(result) && !followed) {
+        if (Exit.isFailure(result) && !ready) {
           const detail = Exit.match(result, {
             onSuccess: () => "",
             onFailure: (cause) => String(cause),
@@ -715,7 +741,7 @@ const make = Effect.gen(function* () {
         }
       }
 
-      if (finished || (readiness === "written" ? written : followed)) {
+      if (finished || ready) {
         const members = produced.members.get(index) ?? [];
 
         // A planned start ffmpeg did not cut at: serve the fragment that covers it.
@@ -852,13 +878,7 @@ const make = Effect.gen(function* () {
     let generation = yield* startGeneration(session, lease, 1, segmentIndex);
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const ready = yield* awaitSegment(
-        session,
-        generation,
-        segmentIndex,
-        START_WAIT,
-        "followed",
-      ).pipe(
+      const ready = yield* awaitSegment(session, generation, segmentIndex, START_WAIT).pipe(
         Effect.as(true),
         Effect.catchTags({
           StreamGenerationGone: () => Effect.succeed(false),
@@ -1128,6 +1148,8 @@ const make = Effect.gen(function* () {
 
     const placeholder: Generation = {
       number: 0,
+      streamId,
+      hardware: false,
       startSegment: 0,
       from: segmentPlan.starts[0] ?? segmentPlan.end,
       directory: "",
@@ -1136,6 +1158,7 @@ const make = Effect.gen(function* () {
       fragments: yield* Ref.make<ReadonlyArray<Fragment>>([]),
       refreshLock: yield* Semaphore.make(1),
       wake: MutableRef.make(Deferred.makeUnsafe<void>()),
+      endUnknownLogged: MutableRef.make(false),
       suspend: () => Effect.void,
       paused: yield* Ref.make(false),
     };

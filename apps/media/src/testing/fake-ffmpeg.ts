@@ -23,15 +23,18 @@ export interface FakeFfmpegBehavior {
   /** HLS runs from the start of the file write only this many seconds, then finish. */
   readonly hlsFromStartSeconds?: number;
   /**
-   * HLS runs write their init segment and first fragment, then hang until stopped, as an encoder
-   * that falls behind right after its first fragment would.
+   * HLS runs write their init segment and this many fragments, then hang until stopped, as an
+   * encoder that falls behind would.
    */
-  readonly hlsStallsAfterFirstFragment?: true;
+  readonly hlsStallsAfterFragments?: number;
   /**
-   * Quick Sync runs write their init segment and first fragment, then exit with status 1, as a
-   * device lost right after its first fragment would.
+   * Quick Sync runs that start before this many seconds write their init segment and first
+   * fragment, then exit with status 1, as a device lost right after its first fragment would;
+   * later Quick Sync runs encode in software.
    */
-  readonly qsvFailsAfterFirstFragment?: true;
+  readonly qsvFailsAfterFirstFragmentBefore?: number;
+  /** HLS runs write their init segment and first fragment, then exit with status 1. */
+  readonly hlsFailsAfterFirstFragment?: true;
   /** The filter list lacks `zscale` and `tonemap`, as a build without libzimg would. */
   readonly withoutSoftwareToneMapping?: true;
 }
@@ -58,7 +61,7 @@ const qsv =
   args.includes("h264_qsv") &&
   (behavior.qsvFailsAfterSeconds !== undefined ||
     behavior.qsvFailsFromSeconds !== undefined ||
-    behavior.qsvFailsAfterFirstFragment === true);
+    behavior.qsvFailsAfterFirstFragmentBefore !== undefined);
 const failsLater = qsv && behavior.qsvFailsAfterSeconds !== undefined;
 
 if (behavior.withoutSoftwareToneMapping === true && args.includes("-filters")) {
@@ -117,8 +120,13 @@ if (qsv) {
   args = software;
 }
 
-const stalls = hls && behavior.hlsStallsAfterFirstFragment === true;
-const failsAfterFirst = qsv && behavior.qsvFailsAfterFirstFragment === true;
+const stalls = hls && behavior.hlsStallsAfterFragments !== undefined;
+const runStart = args.includes("-ss") ? seekTo : 0;
+const failsAfterFirst =
+  (hls && behavior.hlsFailsAfterFirstFragment === true) ||
+  (qsv &&
+    behavior.qsvFailsAfterFirstFragmentBefore !== undefined &&
+    runStart < behavior.qsvFailsAfterFirstFragmentBefore);
 
 if (stalls || failsAfterFirst) {
   const output = dirname(args.at(-1) ?? "");
@@ -130,7 +138,10 @@ if (stalls || failsAfterFirst) {
   try {
     status = spawnSync(${JSON.stringify(realFfmpeg)}, redirected, { stdio: "inherit" }).status ?? 1;
 
-    for (const name of status === 0 ? ["init.mp4", "f0.m4s"] : []) {
+    const kept = stalls ? behavior.hlsStallsAfterFragments : 1;
+    const names = ["init.mp4", ...Array.from({ length: kept }, (_, index) => \`f\${index}.m4s\`)];
+
+    for (const name of status === 0 ? names : []) {
       copyFileSync(join(aside, name), join(output, \`\${name}.tmp\`));
       renameSync(join(output, \`\${name}.tmp\`), join(output, name));
     }
