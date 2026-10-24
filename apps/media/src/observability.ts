@@ -28,6 +28,7 @@ const URL_FIELDS: ReadonlySet<string> = new Set([
   "url.full",
   "url.path",
   "url.original",
+  "route",
 ]);
 
 const QUERY_FIELD = "url.query";

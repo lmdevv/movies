@@ -76,9 +76,28 @@ export const bearerOf = (request: HttpServerRequest.HttpServerRequest) => {
     : Effect.succeed(Redacted.make(token));
 };
 
-/** A schema issue on one line, for `InvalidArgs` messages. */
-export const issueText = (issue: SchemaIssue.Issue): string =>
+const issueText = (issue: SchemaIssue.Issue): string =>
   SchemaIssue.makeFormatterDefault()(issue).replaceAll("\n", " ");
+
+/**
+ * Reads a request's JSON body as `schema`'s JSON form; `InvalidArgs` says the body is not JSON, or
+ * starts with `invalid` and names the schema issue.
+ */
+export const bodyDecoder = <S extends Schema.Top>(schema: S, invalid: string) => {
+  const decode = Schema.decodeUnknownEffect(Schema.toCodecJson(schema));
+
+  return (request: HttpServerRequest.HttpServerRequest) =>
+    request.json.pipe(
+      Effect.mapError(() => new InvalidArgs({ message: "The body is not JSON" })),
+      Effect.flatMap((body) =>
+        decode(body).pipe(
+          Effect.mapError(
+            (error) => new InvalidArgs({ message: `${invalid}: ${issueText(error.issue)}` }),
+          ),
+        ),
+      ),
+    );
+};
 
 /** Registers `handler` at the route of the media command `name`. */
 export const commandRoute = Effect.fnUntraced(function* <Name extends MediaCommandName>(
@@ -88,23 +107,14 @@ export const commandRoute = Effect.fnUntraced(function* <Name extends MediaComma
   const router = yield* HttpRouter.HttpRouter;
   const auth = yield* ViewerAuth.Service;
   const command = commands[name];
-  const decodeArgs = Schema.decodeUnknownEffect(Schema.toCodecJson(command.args));
+  const decodeArgs = bodyDecoder(command.args, `Invalid arguments for ${name}`);
   const encodeResult = Schema.encodeEffect(Schema.toCodecJson(command.result));
 
   const route = Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const viewer = yield* auth.authorize(yield* bearerOf(request), command.scope);
 
-    const body = yield* request.json.pipe(
-      Effect.mapError(() => new InvalidArgs({ message: "The body is not JSON" })),
-    );
-
-    const args = yield* decodeArgs(body).pipe(
-      Effect.mapError(
-        (error) =>
-          new InvalidArgs({ message: `Invalid arguments for ${name}: ${issueText(error.issue)}` }),
-      ),
-    );
+    const args = yield* decodeArgs(request);
 
     const result = yield* handler(args, viewer);
     const encoded = yield* encodeResult(result).pipe(Effect.orDie);

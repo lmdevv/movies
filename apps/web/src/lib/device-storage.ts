@@ -1,5 +1,5 @@
 import { DeviceId, ProfileId } from "@movies/contracts/ids";
-import { Option, Schema } from "effect";
+import { LogLevel, Option, Schema } from "effect";
 
 import { QualityChoice } from "@/playback/quality";
 
@@ -11,11 +11,15 @@ const DEVICE_KEY = "movies.device";
 
 const QUALITY_KEY = "movies.quality.v1";
 
+const LOG_LEVEL_KEY = "movies.logLevel";
+
 const decodeProfileId = Schema.decodeUnknownOption(ProfileId);
 
 const decodeDeviceId = Schema.decodeUnknownOption(DeviceId);
 
 const decodeQuality = Schema.decodeUnknownOption(QualityChoice);
+
+const decodeLogLevel = Schema.decodeUnknownOption(Schema.Literals(LogLevel.values));
 
 const read = (key: string): string | null => {
   try {
@@ -33,6 +37,13 @@ const write = (key: string, value: string | null): void => {
     // Storage can be unavailable (private windows, quotas); the choice then lasts for this visit.
   }
 };
+
+/**
+ * The SDK console level a developer chose on this browser with
+ * `localStorage.setItem("movies.logLevel", "Debug")`; the SDK's default when unset.
+ */
+export const loadLogLevel = (): LogLevel.LogLevel | undefined =>
+  Option.getOrUndefined(decodeLogLevel(read(LOG_LEVEL_KEY)));
 
 /** The profile last chosen on this browser, if any. */
 export const loadProfileChoice = (): ProfileId | null =>

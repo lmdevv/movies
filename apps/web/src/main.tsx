@@ -8,11 +8,15 @@ import ReactDOM from "react-dom/client";
 
 import { NotFoundPage, RouteErrorPage } from "./components/shell/route-states";
 import { ENV, MEDIA_BASE_URL } from "./env";
+import { loadLogLevel } from "./lib/device-storage";
 import { parseSearch, stringifySearch } from "./lib/search-params";
 import { routeTree } from "./routeTree.gen";
+import { ReportUnhandledErrors } from "./session/error-reporting";
 import { ProfileChoiceProvider } from "./session/profile-choice";
 
 const convex = new ConvexReactClient(ENV.VITE_CONVEX_URL);
+
+const logLevel = loadLogLevel();
 
 const router = createRouter({
   routeTree,
@@ -30,7 +34,13 @@ const router = createRouter({
   context: {},
   Wrap: function Providers({ children }: { readonly children: ReactNode }) {
     return (
-      <MoviesProvider client={convex} storage={window.localStorage} mediaUrl={MEDIA_BASE_URL}>
+      <MoviesProvider
+        client={convex}
+        storage={window.localStorage}
+        mediaUrl={MEDIA_BASE_URL}
+        logLevel={logLevel}
+      >
+        <ReportUnhandledErrors />
         <ProfileChoiceProvider>{children}</ProfileChoiceProvider>
       </MoviesProvider>
     );

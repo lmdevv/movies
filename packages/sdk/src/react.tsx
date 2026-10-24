@@ -13,9 +13,11 @@ import {
   Exit,
   Fiber,
   Layer,
+  type LogLevel,
   ManagedRuntime,
   Option,
   Redacted,
+  References,
   Result,
   Scope,
   Stream,
@@ -33,6 +35,8 @@ import {
 
 import * as Auth from "./auth";
 import type { AuthStatus, PasswordSignIn } from "./auth";
+import { ClientErrors } from "./client-errors";
+import type { ErrorContext } from "./client-errors";
 import * as ConvexTransport from "./convex-transport";
 import type { AuthTokenSource, ClientAdapter } from "./convex-transport";
 import * as DeviceLogin from "./device-login";
@@ -96,6 +100,11 @@ export interface MoviesProviderProps {
   readonly storage: KeyValueStore;
   /** The key the session is stored under; `movies.session` when omitted. */
   readonly storageKey?: string;
+  /**
+   * The least severe SDK log line the console shows; `Warn` when omitted, so the console shows
+   * problems rather than the SDK's routine. `Debug` shows every request.
+   */
+  readonly logLevel?: LogLevel.LogLevel | undefined;
   readonly children: ReactNode;
 }
 
@@ -105,7 +114,7 @@ export interface MoviesProviderProps {
  * use; children render once it exists.
  */
 export const MoviesProvider = (props: MoviesProviderProps): ReactNode => {
-  const { client, mediaUrl, storage, storageKey } = props;
+  const { client, mediaUrl, storage, storageKey, logLevel = "Warn" } = props;
   const [runtime, setRuntime] = useState<Runtime | null>(null);
 
   useEffect(() => {
@@ -118,6 +127,7 @@ export const MoviesProvider = (props: MoviesProviderProps): ReactNode => {
           Layer.effect(ConvexTransport.ConvexTransport, ConvexTransport.make(reactAdapter(client))),
         ),
         Layer.provide(TokenStorage.layerKeyValue(storage, storageKey ?? "movies.session")),
+        Layer.merge(Layer.succeed(References.MinimumLogLevel, logLevel)),
       ),
     );
 
@@ -127,7 +137,7 @@ export const MoviesProvider = (props: MoviesProviderProps): ReactNode => {
       setRuntime(null);
       void created.dispose();
     };
-  }, [client, mediaUrl, storage, storageKey]);
+  }, [client, mediaUrl, storage, storageKey, logLevel]);
 
   if (runtime === null) return null;
 
@@ -191,6 +201,24 @@ export const useCommand = <Name extends CommandName>(
   return useCallback(
     (args) => runtime.runPromise(Effect.flatMap(MoviesClient, (client) => client.run(name, args))),
     [runtime, name],
+  );
+};
+
+export type { ErrorContext } from "./client-errors";
+
+/**
+ * Returns a function that writes an app's unexpected error to the media service's retained log.
+ * It sends nothing while signed out, sends a repeated error once per short window, and never
+ * throws.
+ */
+export const useReportError = (): ((cause: unknown, context: ErrorContext) => void) => {
+  const runtime = useMoviesRuntime();
+
+  return useCallback(
+    (cause, context) => {
+      runtime.runFork(Effect.flatMap(ClientErrors, (errors) => errors.report(cause, context)));
+    },
+    [runtime],
   );
 };
 

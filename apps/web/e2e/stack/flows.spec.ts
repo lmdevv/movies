@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { BrowserContext, Page } from "@playwright/test";
 
+import { clientErrors } from "./client-errors";
 import { plantExpiredInvite } from "./expired-invite";
 import { MOVIE_COUNT, generateFixtureLibrary } from "./fixture-library";
 import { freshStack } from "./fresh-stack";
@@ -293,6 +294,47 @@ test("signing out, a wrong password, and signing back in", async () => {
   await expect(page.getByRole("heading", { name: "Who's watching?" })).toBeVisible();
   await page.getByRole("button", { name: owner.name }).click();
   await expect(page).toHaveURL(/\/$/u);
+});
+
+test("app errors reach the server's log while signed in, never while signed out", async ({
+  browser,
+}) => {
+  if (stack === null) return;
+
+  const signedOut = await browser.newContext();
+  const stranger = await signedOut.newPage();
+  const strangerReports: Array<string> = [];
+
+  stranger.on("request", (request) => {
+    if (request.url().includes("/api/client-errors")) strangerReports.push(request.url());
+  });
+
+  await stranger.goto("/sign-in");
+  await expect(stranger.getByRole("heading", { name: "Welcome back." })).toBeVisible();
+  await stranger.evaluate((message) => {
+    void Promise.reject(new Error(message));
+  }, `signed-out-${run}`);
+
+  await page.goto("/dev/crash");
+  await expect(page.getByRole("heading", { name: "Something went wrong" })).toBeVisible();
+  await page.evaluate((message) => {
+    void Promise.reject(new Error(message));
+  }, `signed-in-${run}`);
+
+  const session = await page.evaluate(() => window.localStorage.getItem("movies.session"));
+  const reported = () => clientErrors(stack.mediaUrl, session);
+
+  await expect
+    .poll(reported)
+    .toEqual(
+      expect.arrayContaining([
+        "route This screen crashed on purpose",
+        `unhandled-rejection signed-in-${run}`,
+      ]),
+    );
+  expect((await reported()).join("\n")).not.toContain(`signed-out-${run}`);
+  expect(strangerReports).toStrictEqual([]);
+  await signedOut.close();
 });
 
 test("an invite creates an account once; used and expired invites say so", async ({ browser }) => {

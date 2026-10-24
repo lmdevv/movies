@@ -36,10 +36,15 @@ const overlaps = (file: LogFile, query: LogQuery): boolean =>
   (query.since === undefined || file.modifiedAt + MODIFIED_AT_SLACK_MS >= query.since) &&
   (query.until === undefined || file.startsAt < query.until);
 
-const matchLine = (query: LogQuery, line: string): Option.Option<Match> => {
+/** Which records count, beyond the query; every record when omitted. */
+export type Keep = (record: LogRecord) => boolean;
+
+const keepAll: Keep = () => true;
+
+const matchLine = (query: LogQuery, keep: Keep, line: string): Option.Option<Match> => {
   if (
     !mayMatch(query, line) ||
-    !Option.exists(decodeRecord(line), (raw) => matchesFields(query, raw, line))
+    !Option.exists(decodeRecord(line), (raw) => keep(raw) && matchesFields(query, raw, line))
   ) {
     return Option.none();
   }
@@ -48,7 +53,8 @@ const matchLine = (query: LogQuery, line: string): Option.Option<Match> => {
 
   return decodeRecord(redacted).pipe(
     Option.filter(
-      (record) => matchesText(query, redacted) && matchesFields(query, record, redacted),
+      (record) =>
+        keep(record) && matchesText(query, redacted) && matchesFields(query, record, redacted),
     ),
     Option.map((record) => ({ line: redacted, record })),
   );
@@ -56,8 +62,11 @@ const matchLine = (query: LogQuery, line: string): Option.Option<Match> => {
 
 const nothingFound = () => ({ kept: Array.of<Match>(), total: 0 });
 
-/** Reads the retained log for `query`; following lasts as long as the scope. */
-export const read = Effect.fn("LogReader.read")(function* (query: LogQuery) {
+/**
+ * Reads the retained log for `query`, counting only records `keep` accepts toward its limit;
+ * following lasts as long as the scope.
+ */
+export const read = Effect.fn("LogReader.read")(function* (query: LogQuery, keep: Keep = keepAll) {
   const retained = yield* RetainedLogs.Service;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -69,7 +78,7 @@ export const read = Effect.fn("LogReader.read")(function* (query: LogQuery) {
     fs.stream(path.join(snapshot.directory, file.name), { bytesToRead: file.sizeBytes }).pipe(
       Stream.decodeText(),
       Stream.splitLines,
-      Stream.map((line) => matchLine(query, line)),
+      Stream.map((line) => matchLine(query, keep, line)),
       Stream.filter(Option.isSome),
       Stream.runFold(
         () => ({ kept: Array.of<Match>(), total: 0 }),
@@ -113,7 +122,7 @@ export const read = Effect.fn("LogReader.read")(function* (query: LogQuery) {
     live:
       query.follow === true
         ? Stream.fromSubscription(snapshot.live).pipe(
-            Stream.map((line) => matchLine(query, line)),
+            Stream.map((line) => matchLine(query, keep, line)),
             Stream.filter(Option.isSome),
             Stream.map((match) => match.value.line),
           )

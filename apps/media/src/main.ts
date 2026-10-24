@@ -15,6 +15,7 @@ import * as ConvexFileResolver from "./convex/convex-file-resolver.ts";
 import * as ConvexLibrarySink from "./convex/convex-library-sink.ts";
 import * as ConvexPlaybackReporter from "./convex/convex-playback-reporter.ts";
 import * as EndedSessionWatcher from "./convex/ended-session-watcher.ts";
+import * as ClientErrors from "./diagnostics/client-errors.ts";
 import * as DiagnosticsRoutes from "./diagnostics/diagnostics-routes.ts";
 import * as LibrarySync from "./convex/library-sync.ts";
 import * as MediaBackend from "./convex/media-backend.ts";
@@ -69,6 +70,7 @@ const commandRoutes = Layer.mergeAll(
   FolderRoutes.layer,
   LogsRoutes.layer,
   DiagnosticsRoutes.layer,
+  ClientErrors.layer,
 );
 
 const convexMode = (options: MediaBackend.Options) =>

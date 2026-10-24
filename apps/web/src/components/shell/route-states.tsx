@@ -5,10 +5,11 @@ import { CalmState } from "@movies/ui/components/calm-state";
 import { cn } from "@movies/ui/lib/utils";
 import { Link, useMatches, useRouter } from "@tanstack/react-router";
 import type { ErrorComponentProps } from "@tanstack/react-router";
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect } from "react";
 import type { ReactNode } from "react";
 
 import { AuthPage } from "@/components/auth/auth-page";
+import { useReportAppError } from "@/session/error-reporting";
 
 const InShellContext = createContext(false);
 
@@ -68,13 +69,16 @@ export function NotFoundPage() {
 
 /**
  * A route that threw while rendering. Try again renders it afresh; people who manage the server
- * can open the error itself.
+ * can open the error itself, which is also written to the server's log.
  */
 export function RouteErrorPage({ error, reset }: ErrorComponentProps) {
   const router = useRouter();
+  const report = useReportAppError();
   const { status } = useAuth();
   const viewer = useCommandQuery("account.viewer", status === "signedIn" ? {} : "skip");
   const canManage = viewer.status === "success" && viewer.data.scopes.includes("manage");
+
+  useEffect(() => report(error, "route"), [error, report]);
 
   return (
     <StateFrame>

@@ -199,6 +199,7 @@ movies diagnostics playback <session-id> --human      # its timeline; JSON witho
 movies logs --session-id <session-id> --level warn    # admin: the raw records, printed for people
 movies logs --since 1h --slow 1s --json               # admin: slow segments as NDJSON
 movies logs --follow --level warn                     # admin: watch new warnings as they happen
+movies logs --grep Client.error --since 1d            # admin: errors the web and iOS apps reported
 ```
 
 `movies import` connects, dry-runs, and only then imports what that dry run planned. Read the
@@ -285,6 +286,15 @@ and newer [movies] progress is kept unless the source played the item more recen
   there only while the service runs with `LOG_LEVEL=debug`.
 - A failed media service command prints `error.requestId`. `movies logs --grep <request-id>`
   finds every record of that request; its `DEBUG` access lines exist only at `LOG_LEVEL=debug`.
+- The web and iOS apps report a crashed page or screen and any uncaught error or unhandled
+  rejection (web only) as a `WARN` record `Client.error` with `source: "client"`, the reporting
+  `userId`, `platform`, `appVersion`, `kind`, `route`, `errorName`, `errorMessage`, and `stack`.
+  `failedRequestId` is the media service request the error came from, so `movies logs --grep
+  <failedRequestId>` finds the server's side too. `claimedSessionId` is a playback session the
+  app named; the app's claim, not checked. Signed-out apps send nothing, a repeated error is sent
+  once per 30 seconds, and the service limits each account and all of them together, so a
+  missing report is not proof of no error. `movies logs --grep ClientErrors.suppressed` counts
+  the reports it refused, by `userId`.
 - `movies play` failures from the media service print `playback_<recovery>` codes:
   `playback_unsupported` (this player cannot play the file in any mode), `playback_retry_later`
   (exit 9: transcoders busy or the media service cannot reach its files right now),

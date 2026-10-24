@@ -294,6 +294,20 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
   match. `movies diagnostics playback <session-id>` builds a session's timeline from both sides;
   admins read any session and other accounts only their own, a few times a minute. Audio/video drift is not measured:
   no player reports it.
+- The web and iOS apps report their unexpected errors, a crashed page or screen and (web only)
+  uncaught errors and unhandled rejections, to `POST /api/client-errors` with the signed-in
+  account's token. Each lands as `Client.error` at `WARN` with the account, platform, app
+  version, page, error name, message, and stack, cut to fixed bounds and redacted like every
+  other line. The SDK request id an error carries is kept as `failedRequestId`, and a playback
+  session the app names as `claimedSessionId`, never as `sessionId`, and `movies diagnostics
+  sessions` counts only records that name a session, so error reports never crowd sessions out.
+  An app sends a repeated error once per 30 s and, after a `429`, nothing until its
+  `Retry-After` has passed. The service takes 120 requests at once, then 2 a second, before it
+  asks Convex who is calling; then each account 20 reports at once, then one every 10 s, and
+  every account together 50 at once, then one every 5 s (about 95 MB a day at the largest
+  reports). The rest answer `429` with `Retry-After`, and every 30 s
+  `ClientErrors.suppressed` counts them by account (`userId` null for requests refused before
+  the account was known). `movies logs --grep Client.error` lists the reports.
 - With `OTEL_EXPORTER_OTLP_ENDPOINT` (Compose) or `otlpEndpoint` (NixOS) set to an OTLP/HTTP
   collector, the media service exports traces and logs: library scans, playback negotiation, the
   first HLS segment, seeks, encoder failures and GPU-to-software fallbacks, backups and restores, and

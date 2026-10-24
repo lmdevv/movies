@@ -509,6 +509,29 @@ layer(serverLayer, { timeout: 30_000 })("log and diagnostics routes", (it) => {
     }),
   );
 
+  it.effect("list a member's sessions past their own error reports", () =>
+    Effect.gen(function* () {
+      const { logs } = yield* Server;
+
+      appendRecord(
+        logs,
+        line(LogEvent.streamStarted, 5000, { sessionId: "session_g", userId: "user_a" }),
+      );
+      yield* appendMany(5001, (index) =>
+        line(
+          "Client.error",
+          5001 + index,
+          { source: "client", userId: "user_a", errorMessage: `crash ${String(index)}` },
+          "WARN",
+        ),
+      );
+
+      const member = yield* sessionIdsOf(yield* post("/api/diagnostics/sessions", MEMBER, {}));
+
+      assert.isTrue(member.some((sessionId) => sessionId === "session_g"));
+    }),
+  );
+
   it.effect("limit how often one account reads diagnostics", () =>
     Effect.gen(function* () {
       const answers = yield* Effect.forEach(Array.from({ length: 30 }), () =>
