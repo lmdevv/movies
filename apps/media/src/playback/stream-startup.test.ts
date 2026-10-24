@@ -1,5 +1,5 @@
 import { assert, describe, layer } from "@effect/vitest";
-import { Effect, FileSystem, Option, Path, Schema } from "effect";
+import { Duration, Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import { type ClientCapabilities, NegotiateResponse } from "@movies/contracts/media-playback";
@@ -13,6 +13,7 @@ import { signTestToken } from "../testing/test-config.ts";
 import { FRAGMENT_HEAD_BYTES, fragmentSpan } from "./fmp4-fragments.ts";
 import { AudioPlan, VideoPlan } from "./playback-decision.ts";
 import * as PlaybackReporter from "./playback-reporter.ts";
+import * as StreamSessions from "./stream-sessions.ts";
 import { hlsCommandArgs } from "./transcode-command.ts";
 
 const hasFfmpeg = await ffmpegAvailable();
@@ -20,6 +21,11 @@ const hasFfmpeg = await ffmpegAvailable();
 const stallsAfterFirstFragment = await writeFakeFfmpeg({ hlsStallsAfterFirstFragment: true });
 
 const qsvFailsAfterFirstFragment = await writeFakeFfmpeg({ qsvFailsAfterFirstFragment: true });
+
+const startsLateThenStalls = await writeFakeFfmpeg({
+  hlsDelayMs: 1500,
+  hlsStallsAfterFirstFragment: true,
+});
 
 const LATE_KEYFRAME = 383 / 24;
 
@@ -113,6 +119,42 @@ describe.skipIf(!hasFfmpeg)("stream startup", () => {
             changes.map((change) => [change.from, change.to, change.reason]),
             [["transcode-qsv", "transcode-software", "hardware-unavailable"]],
           );
+        }),
+      60_000,
+    );
+  });
+
+  layer(
+    MediaTestServer.layer({ FFMPEG_PATH: startsLateThenStalls }).pipe(
+      Layer.provide(Layer.succeed(StreamSessions.PollInterval, Duration.minutes(5))),
+    ),
+    { excludeTestServices: true, timeout: "60 seconds" },
+  )((it) => {
+    it.effect(
+      "answers a waiting segment request when its fragment is written, not on the next poll",
+      () =>
+        Effect.gen(function* () {
+          const server = yield* MediaTestServer.Service;
+          const { library } = yield* FixtureWorkspace.Service;
+          const token = signTestToken({ fid: server.fileId("movies", library.directMovie) });
+
+          const negotiated = yield* HttpClient.execute(
+            HttpClientRequest.post(`${server.baseUrl}/api/playback/negotiate`).pipe(
+              HttpClientRequest.bodyJsonUnsafe({ token, capabilities: smallScreen }),
+            ),
+          ).pipe(
+            Effect.flatMap((response) => response.json),
+            Effect.flatMap(decodeNegotiation),
+            Effect.orDie,
+          );
+
+          const url = new URL(negotiated.url);
+
+          const first = yield* HttpClient.get(
+            `${server.baseUrl}${url.pathname.replace(/index\.m3u8$/u, "0.m4s")}${url.search}`,
+          ).pipe(Effect.timeout("20 seconds"), Effect.orDie);
+
+          assert.strictEqual(first.status, 200, "first segment");
         }),
       60_000,
     );
