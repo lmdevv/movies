@@ -27,6 +27,11 @@ export interface FakeFfmpegBehavior {
    * that falls behind right after its first fragment would.
    */
   readonly hlsStallsAfterFirstFragment?: true;
+  /**
+   * Quick Sync runs write their init segment and first fragment, then exit with status 1, as a
+   * device lost right after its first fragment would.
+   */
+  readonly qsvFailsAfterFirstFragment?: true;
   /** The filter list lacks `zscale` and `tonemap`, as a build without libzimg would. */
   readonly withoutSoftwareToneMapping?: true;
 }
@@ -51,7 +56,9 @@ let args = process.argv.slice(2);
 const hls = args.includes("hls");
 const qsv =
   args.includes("h264_qsv") &&
-  (behavior.qsvFailsAfterSeconds !== undefined || behavior.qsvFailsFromSeconds !== undefined);
+  (behavior.qsvFailsAfterSeconds !== undefined ||
+    behavior.qsvFailsFromSeconds !== undefined ||
+    behavior.qsvFailsAfterFirstFragment === true);
 const failsLater = qsv && behavior.qsvFailsAfterSeconds !== undefined;
 
 if (behavior.withoutSoftwareToneMapping === true && args.includes("-filters")) {
@@ -110,19 +117,29 @@ if (qsv) {
   args = software;
 }
 
-if (hls && behavior.hlsStallsAfterFirstFragment === true) {
+const stalls = hls && behavior.hlsStallsAfterFirstFragment === true;
+const failsAfterFirst = qsv && behavior.qsvFailsAfterFirstFragment === true;
+
+if (stalls || failsAfterFirst) {
   const output = dirname(args.at(-1) ?? "");
   const aside = mkdtempSync(join(tmpdir(), "movies-fake-hls-"));
   const redirected = args.map((arg) => (arg.startsWith(output) ? aside + arg.slice(output.length) : arg));
 
-  spawnSync(${JSON.stringify(realFfmpeg)}, redirected, { stdio: "inherit" });
+  let status = 0;
 
-  for (const name of ["init.mp4", "f0.m4s"]) {
-    copyFileSync(join(aside, name), join(output, \`\${name}.tmp\`));
-    renameSync(join(output, \`\${name}.tmp\`), join(output, name));
+  try {
+    status = spawnSync(${JSON.stringify(realFfmpeg)}, redirected, { stdio: "inherit" }).status ?? 1;
+
+    for (const name of status === 0 ? ["init.mp4", "f0.m4s"] : []) {
+      copyFileSync(join(aside, name), join(output, \`\${name}.tmp\`));
+      renameSync(join(output, \`\${name}.tmp\`), join(output, name));
+    }
+  } finally {
+    rmSync(aside, { recursive: true, force: true });
   }
 
-  rmSync(aside, { recursive: true, force: true });
+  if (status !== 0) process.exit(status);
+  if (failsAfterFirst) process.exit(1);
   setInterval(() => {}, 60_000);
 } else {
   const result = spawnSync(${JSON.stringify(realFfmpeg)}, args, { stdio: "inherit" });

@@ -63,10 +63,10 @@ describe("fragmentSpan", () => {
     });
   });
 
-  it("ends a sidx whose references the head cuts off at its start", () => {
+  it("leaves the end unknown when the head cuts a sidx's references off", () => {
     expect(fragmentSpan(new Uint8Array(sidx(0, 1000, 2000, [1000]).slice(0, 40)))).toEqual({
       start: 2,
-      end: 2,
+      end: undefined,
     });
   });
 

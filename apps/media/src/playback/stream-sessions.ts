@@ -167,10 +167,17 @@ const START_WAIT = Duration.seconds(20);
 
 const FRAGMENT_FILE = /^f\d+\.m4s$/;
 
+/**
+ * When a segment counts as produced: `written` once its last fragment is, and `followed` once the
+ * encoder has also started the next one, which shows a hardware encoder got past its first
+ * fragment before the stream commits to it.
+ */
+type Readiness = "written" | "followed";
+
 interface Fragment {
   readonly path: string;
   readonly start: number;
-  readonly end: number;
+  readonly end: number | undefined;
   readonly sizeBytes: number;
 }
 
@@ -377,6 +384,12 @@ const make = Effect.gen(function* () {
                   const span = Option.flatMap(head, (bytes) =>
                     Option.fromNullishOr(fragmentSpan(bytes)),
                   );
+
+                  if (Option.isSome(span) && span.value.end === undefined) {
+                    yield* Effect.logWarning("StreamSessions.fragment_end_unknown").pipe(
+                      Effect.annotateLogs({ fragment: file }),
+                    );
+                  }
 
                   return Option.map(span, ({ start, end }): Fragment => ({
                     path: file,
@@ -639,6 +652,7 @@ const make = Effect.gen(function* () {
     generation: Generation,
     index: number,
     maxWait: Duration.Duration,
+    readiness: Readiness = "written",
   ) {
     const deadline = (yield* Clock.currentTimeMillis) + Duration.toMillis(maxWait);
 
@@ -654,21 +668,29 @@ const make = Effect.gen(function* () {
         });
       }
 
-      const written = yield* Ref.get(generation.written);
+      const wake = yield* Ref.get(generation.written);
       const finished = yield* Deferred.isDone(generation.exit);
       yield* refreshFragments(generation);
       const fragments = yield* Ref.get(generation.fragments);
       const produced = producedRange(session, generation, fragments);
       const next = session.plan.starts[index + 1];
 
-      const pastEnd =
+      const followed =
         next !== undefined &&
-        fragments.some((fragment) => fragment.end + FRAGMENT_EPSILON_SECONDS >= next);
+        fragments.some((fragment) => fragment.start + FRAGMENT_EPSILON_SECONDS >= next);
+
+      const written =
+        followed ||
+        (next !== undefined &&
+          fragments.some(
+            (fragment) =>
+              fragment.end !== undefined && fragment.end + FRAGMENT_EPSILON_SECONDS >= next,
+          ));
 
       if (finished) {
         const result = yield* Deferred.await(generation.exit).pipe(Effect.exit);
 
-        if (Exit.isFailure(result) && !pastEnd) {
+        if (Exit.isFailure(result) && !followed) {
           const detail = Exit.match(result, {
             onSuccess: () => "",
             onFailure: (cause) => String(cause),
@@ -684,7 +706,7 @@ const make = Effect.gen(function* () {
         }
       }
 
-      if (finished || pastEnd) {
+      if (finished || (readiness === "written" ? written : followed)) {
         const members = produced.members.get(index) ?? [];
 
         // A planned start ffmpeg did not cut at: serve the fragment that covers it.
@@ -704,7 +726,7 @@ const make = Effect.gen(function* () {
       }
 
       if ((yield* Clock.currentTimeMillis) > deadline) return yield* new SegmentNotReady({ index });
-      yield* Deferred.await(written).pipe(Effect.timeoutOption(POLL_INTERVAL));
+      yield* Deferred.await(wake).pipe(Effect.timeoutOption(POLL_INTERVAL));
     }
   });
 
@@ -821,7 +843,13 @@ const make = Effect.gen(function* () {
     let generation = yield* startGeneration(session, lease, 1, segmentIndex);
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const ready = yield* awaitSegment(session, generation, segmentIndex, START_WAIT).pipe(
+      const ready = yield* awaitSegment(
+        session,
+        generation,
+        segmentIndex,
+        START_WAIT,
+        "followed",
+      ).pipe(
         Effect.as(true),
         Effect.catchTags({
           StreamGenerationGone: () => Effect.succeed(false),
