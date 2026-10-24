@@ -22,6 +22,11 @@ export interface FakeFfmpegBehavior {
   readonly hlsFailsFromSeconds?: number;
   /** HLS runs from the start of the file write only this many seconds, then finish. */
   readonly hlsFromStartSeconds?: number;
+  /**
+   * HLS runs write their init segment and first fragment, then hang until stopped, as an encoder
+   * that falls behind right after its first fragment would.
+   */
+  readonly hlsStallsAfterFirstFragment?: true;
   /** The filter list lacks `zscale` and `tonemap`, as a build without libzimg would. */
   readonly withoutSoftwareToneMapping?: true;
 }
@@ -36,6 +41,9 @@ const QSV_ONLY = [
 
 const script = (realFfmpeg: string, behavior: FakeFfmpegBehavior): string => `#!/usr/bin/env node
 import { spawnSync } from "node:child_process";
+import { copyFileSync, mkdtempSync, renameSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 const behavior = ${JSON.stringify(behavior)};
 const qsvOnly = new Set(${JSON.stringify(QSV_ONLY)});
@@ -102,9 +110,25 @@ if (qsv) {
   args = software;
 }
 
-const result = spawnSync(${JSON.stringify(realFfmpeg)}, args, { stdio: "inherit" });
+if (hls && behavior.hlsStallsAfterFirstFragment === true) {
+  const output = dirname(args.at(-1) ?? "");
+  const aside = mkdtempSync(join(tmpdir(), "movies-fake-hls-"));
+  const redirected = args.map((arg) => (arg.startsWith(output) ? aside + arg.slice(output.length) : arg));
 
-process.exit(failsLater ? 1 : (result.status ?? 1));
+  spawnSync(${JSON.stringify(realFfmpeg)}, redirected, { stdio: "inherit" });
+
+  for (const name of ["init.mp4", "f0.m4s"]) {
+    copyFileSync(join(aside, name), join(output, \`\${name}.tmp\`));
+    renameSync(join(output, \`\${name}.tmp\`), join(output, name));
+  }
+
+  rmSync(aside, { recursive: true, force: true });
+  setInterval(() => {}, 60_000);
+} else {
+  const result = spawnSync(${JSON.stringify(realFfmpeg)}, args, { stdio: "inherit" });
+
+  process.exit(failsLater ? 1 : (result.status ?? 1));
+}
 `;
 
 /** Writes the stand-in into a new temporary folder and returns its path, for `FFMPEG_PATH`. */

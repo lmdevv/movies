@@ -40,7 +40,7 @@ import { LogEvent } from "../diagnostics/log-events.ts";
 import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import type { ResolvedMediaFile } from "./file-resolver.ts";
-import { FRAGMENT_HEAD_BYTES, fragmentStartSeconds } from "./fmp4-fragments.ts";
+import { FRAGMENT_HEAD_BYTES, fragmentSpan } from "./fmp4-fragments.ts";
 import * as HardwareAcceleration from "./hardware-acceleration.ts";
 import {
   FRAGMENT_EPSILON_SECONDS,
@@ -168,6 +168,7 @@ const START_WAIT = Duration.seconds(20);
 interface Fragment {
   readonly path: string;
   readonly start: number;
+  readonly end: number;
   readonly sizeBytes: number;
 }
 
@@ -370,13 +371,14 @@ const make = Effect.gen(function* () {
                   const head = yield* handle.readAlloc(FRAGMENT_HEAD_BYTES, { position: 0n });
                   const info = yield* handle.stat;
 
-                  const start = Option.flatMap(head, (bytes) =>
-                    Option.fromNullishOr(fragmentStartSeconds(bytes)),
+                  const span = Option.flatMap(head, (bytes) =>
+                    Option.fromNullishOr(fragmentSpan(bytes)),
                   );
 
-                  return Option.map(start, (seconds): Fragment => ({
+                  return Option.map(span, ({ start, end }): Fragment => ({
                     path: file,
-                    start: seconds,
+                    start,
+                    end,
                     sizeBytes: Number(info.size),
                   }));
                 }),
@@ -640,7 +642,7 @@ const make = Effect.gen(function* () {
 
       const pastEnd =
         next !== undefined &&
-        fragments.some((fragment) => fragment.start + FRAGMENT_EPSILON_SECONDS >= next);
+        fragments.some((fragment) => fragment.end + FRAGMENT_EPSILON_SECONDS >= next);
 
       if (finished) {
         const result = yield* Deferred.await(generation.exit).pipe(Effect.exit);
