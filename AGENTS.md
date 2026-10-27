@@ -156,9 +156,7 @@ The example identities must be replaced with the model and tool that actually co
   and set `MOVIES_JELLYFIN_DOCKER=1`; without the image the media suite skips the real-Jellyfin
   case silently, but the web migration spec starts Jellyfin anyway, pulling the image or failing.
 - Repeat runs: `pnpm --filter web exec playwright test --repeat-each=20`, `pnpm test --repeats=20`.
-- Project skills in `.agents/skills/`, pinned in `skills-lock.json`: `before-and-after` attaches UI
-  captures to a PR with `.agents/skills/before-and-after/scripts/format.mjs` and Vercel's
-  `agent-browser` CLI (`npm i -g agent-browser && agent-browser install`), plus `react-doctor`,
+- Project skills in `.agents/skills/`, pinned in `skills-lock.json`: `react-doctor`,
   `react-best-practices`, and `diagnosing-bugs`. They're all model-invoked.
 - `scripts/stack-e2e.sh` builds the image and smoke-tests the packaged stack;
   `scripts/nixos-module-e2e.sh` does the same for the NixOS module on a NixOS host, and

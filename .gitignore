@@ -58,7 +58,7 @@ playwright-report
 .claude/settings.local.json
 .claude/worktrees/
 
-# before-and-after skill captures
+# Screenshots and recordings from verification runs
 /captures/
 
 # Vitest reports written by --reporter json without an output file
