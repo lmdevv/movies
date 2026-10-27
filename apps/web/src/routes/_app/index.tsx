@@ -130,7 +130,7 @@ function HomeRows({ home }: { readonly home: Home }) {
           </MediaRow>
         )}
         {home.recentlyAddedMovies.length === 0 ? null : (
-          <MediaRow title="Recently added" seeAll={<Link to="/movies" />}>
+          <MediaRow title="Just added" seeAll={<Link to="/movies" />}>
             {titleRow(home.recentlyAddedMovies)}
           </MediaRow>
         )}

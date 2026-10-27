@@ -152,7 +152,7 @@ test("first run creates the owner, checks the folder, and shows the scan live", 
 
   await page.getByRole("link", { name: "Continue to [movies]" }).click();
   await expect(page).toHaveURL(/\/$/u);
-  await expect(page.getByRole("region", { name: "Recently added" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Just added" })).toBeVisible();
 });
 
 test("a scan of a folder the media service may not read fails, and retries once it may", async () => {
@@ -177,7 +177,7 @@ test("a scan of a folder the media service may not read fails, and retries once 
 test("home shows the library; a title opens, joins My List, and the keyboard navigates", async () => {
   await page.goto("/");
 
-  const recent = page.getByRole("region", { name: "Recently added" });
+  const recent = page.getByRole("region", { name: "Just added" });
 
   await expect(recent.getByRole("link", { name: "Arrival" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Shows" })).toBeVisible();
