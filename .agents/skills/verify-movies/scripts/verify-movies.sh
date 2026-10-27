@@ -735,6 +735,8 @@ ios_down() {
   id="$(read_state ios_udid)"
   if [[ -n "$id" ]]; then
     on_mac "pkill -INT -f 'recordVideo.*movies-verify-$run-$side' || true; xcrun simctl shutdown $id 2>/dev/null || true; xcrun simctl delete $id" || true
+    # `ios shot` and `ios record` stage their files here before copying them back.
+    on_mac "rm -f /tmp/movies-verify-$run-$side.png /tmp/movies-verify-$run-$side.mp4 /tmp/movies-verify-$run-$side.rec.log" || true
   fi
   # Metro leads its own process group; pnpm ignores SIGTERM, so the group gets SIGKILL after it.
   pid="$(read_state metro_pid)"
