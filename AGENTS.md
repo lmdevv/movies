@@ -166,8 +166,9 @@ The example identities must be replaced with the model and tool that actually co
 - CI runs `check`, both stack jobs, and the Nix job. PRs matching the `paths` in
   `.github/workflows/image.yml` also run its `build and smoke-test`. `main` has no branch
   protection, so check every one yourself before merging. Never merge with admin bypass.
-- Every PR gets Claude's `/code-review`. Do not enable, request, or wait for CodeRabbit or Codex
-  automatic review for this repository.
+- Every PR gets Codex automatic review on GitHub; address its findings before merging. Run
+  Claude's `/code-review` locally before you open or merge one. Do not enable, request, or wait for
+  CodeRabbit or Bugbot.
 - Cloud environments: none yet. Pin the Claude one in `.claude/settings.json`
   (`remote.defaultEnvironmentId`) and write the Codex ID here for `codex cloud exec --env`. Docker
   suites run in Claude cloud only.
@@ -203,7 +204,7 @@ Model choices live in `.agents/pstack-models.md`, not `~/.claude/rules/pstack-mo
 reads its line there.
 
 This file takes precedence over pstack. Keep `coding-standards`, required `// SAFETY:` comments,
-and Claude's `/code-review`; do not request Bugbot, CodeRabbit, or Codex automatic PR review.
+Codex automatic PR review, and Claude's local `/code-review`; do not request Bugbot or CodeRabbit.
 
 <!-- BEGIN:turborepo-agent-rules -->
 
