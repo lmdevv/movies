@@ -242,7 +242,8 @@ matches the side's public URLs.
 $S ios up [--side S] [--device "iPhone 17 Pro"] [--light]
 ```
 
-`ios up` needs the side to be up with setup. It does these steps in order:
+`ios up` needs the side to be up with setup, and it stops before anything else when the Mac has
+less than 3 GB free, or 10 GB when it must build the dev client. It does these steps in order:
 
 1. It forwards the web app, Convex, and Metro ports to the Mac.
 2. It starts Metro.
@@ -253,14 +254,15 @@ $S ios up [--side S] [--device "iPhone 17 Pro"] [--light]
 5. It turns off the dev client's own UI (its first-launch introduction, its floating button, and
    the gestures that open its menu), so screenshots show only the app.
 6. It opens the app on Metro, connects to the side's server, signs in as Lucía, and picks her
-   profile.
+   profile. A new simulator's first sign-in brings up iOS's `Save Password?` sheet over the app;
+   `ios up` and `ios sign-in` answer `Not Now`.
 
 It prints `ready: ios <side> on simulator <udid>` when the app shows Home. Then:
 
 | Command                                          | Does                                                    |
 | ------------------------------------------------ | ------------------------------------------------------- |
 | `ios describe`                                   | Prints the screen's accessibility tree: `label = value \| type #id \| x,y wxh` |
-| `ios find <label>`                               | Prints where `ios tap --label` would tap                |
+| `ios find <label>`                               | Prints where `ios tap --label` would tap, or fails when it's off screen |
 | `ios tap --label L` or `--id ID` or `-x X -y Y`  | Taps an element by its exact accessibility label or id, or a point |
 | `ios type <text>`                                | Replaces the focused field's text                       |
 | `ios sign-in`                                    | Connects and signs in again from the welcome or sign-in screen |
@@ -274,7 +276,10 @@ It prints `ready: ios <side> on simulator <udid>` when the app shows Home. Then:
 
 Read labels from `ios describe` before you tap; never guess coordinates. A label is the whole
 accessibility label. When several elements share a label, `ios tap --label` picks a field or
-button over plain text, then the first on screen. Every `ios` command takes `--side S`.
+button over plain text. It taps only an element whose centre is on screen: a row that scrolls
+sideways lists cards past the edge too, so swipe the row first (`ios swipe 350 729 80 729` on an
+iPhone 17 Pro's Continue Watching). Every tap is a touch held for 0.15 s, since AXe's instant
+tap misses the tab bar. Every `ios` command takes `--side S`.
 
 ## Evidence
 
@@ -372,4 +377,7 @@ feature's file before you drive it, and add to the map when a change adds a feat
   typing drops characters in the app's fields. It sends US keyboard characters only.
 - `ios record` captures the whole screen at device resolution. `evidence publish` shrinks a clip
   over 10 MB to 720 pixels wide; keep iOS clips under a minute.
-- The Mac's disk is nearly full. A dev client build takes about 4 GB there; `down --purge` frees it.
+- The Mac's disk is nearly full. A dev client build takes about 7 GB there (3 for the synced
+  checkout, 4 for the build); `down --purge` frees it, and touches no other run's build.
+- iOS's own sheets, such as `Save Password?`, aren't in `ios describe`, which lists the app's
+  elements only. When taps stop doing anything, take an `ios shot` and look.

@@ -59,6 +59,12 @@ Preconditions:
 - **CLI.** Run `$S cli -- play "Big Buck Bunny"`. It prints JSON with `"mode": "direct"` and a
   `url` on the side's media address (`/media/direct/<file>?token=…`); `curl -s -r 0-1000 <url>`
   answers `206` with `video/mp4`.
+- **iOS.** After `$S ios up`, Home features Pioneer One. Run `$S ios tap --label "Play S1:E1"` and
+  wait a few seconds. The player hides its controls, so `$S ios tap -x 400 -y 200` (landscape)
+  shows them; `$S ios describe | grep 'Playback position'` prints `Playback position = 0:20 of
+  31:36`, and a second read a few seconds later prints a later time. The log shows
+  `"mode":"direct"`. Close the player with `$S ios tap --label Close` while the controls show.
+  Record with `$S ios record start <path.mp4>` and `$S ios record stop`.
 - **Proof.** Record with `$S browser record-start --path captures/verify/<run>/after/playback/sintel.mp4`
   before the first click and `$S browser record-stop` after `wait-video`. Take the still with
   `$S browser screenshot --path captures/verify/<run>/after/playback/player.png` while the
@@ -79,3 +85,6 @@ Preconditions:
 - `HardwareAcceleration.unavailable` warnings in `$S logs` are expected on a host without a GPU;
   the service falls back to `transcode-software`.
 - Playback changes the profile's progress, so later recipes see `Resume` on that title.
+- On iOS, the Continue Watching cards past the screen edge can't be tapped until the row is swiped
+  (`$S ios swipe 350 729 80 729`), and the posters in `Recently Added` and the Search rows have no
+  accessibility labels, so reach a title through Home's featured title or Continue Watching.

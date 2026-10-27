@@ -437,7 +437,9 @@ ios_tree() {
 ios_wait() {
   local label="$1" seconds="${2:-60}"
   for _ in $(seq 1 "$seconds"); do
-    ios_tree 2>/dev/null | grep -qF -- "$label" && return 0
+    # Not `ios_tree | grep -q`: grep stops at the first match, and with pipefail the tree's
+    # writer failing on the closed pipe would fail the match.
+    grep -qF -- "$label" <<<"$(ios_tree 2>/dev/null || true)" && return 0
     sleep 1
   done
   die "\"$label\" did not appear on the simulator within ${seconds}s"
@@ -456,18 +458,36 @@ ios_find() {
       if (name === label || name.startsWith(`${label},`)) found.push(node);
       for (const child of node.children ?? []) walk(child);
     };
-    for (const root of [].concat(JSON.parse(require("node:fs").readFileSync(0, "utf8")))) walk(root);
+    const roots = [].concat(JSON.parse(require("node:fs").readFileSync(0, "utf8")));
+    for (const root of roots) walk(root);
+    // A row that scrolls sideways lists its cards past the screen edge too; a tap there lands on
+    // whatever is on screen at the clamped point, so only an element whose centre shows counts.
+    const screen = roots[0]?.frame ?? { x: 0, y: 0, width: Infinity, height: Infinity };
+    const centre = ({ frame: f }) => [f.x + f.width / 2, f.y + f.height / 2];
+    const shown = found.filter((node) => {
+      const [x, y] = centre(node);
+      return x >= screen.x && x < screen.x + screen.width && y >= screen.y && y < screen.y + screen.height;
+    });
     const rank = (node) => { const i = controls.indexOf(node.type ?? node.role ?? ""); return i < 0 ? 99 : i; };
-    found.sort((a, b) => rank(a) - rank(b));
-    const f = found[0]?.frame;
-    if (!f) { console.error(`no element labeled "${label}" on screen`); process.exit(1); }
-    console.log(`${Math.round(f.x + f.width / 2)} ${Math.round(f.y + f.height / 2)}`);' "$1"
+    shown.sort((a, b) => rank(a) - rank(b));
+    if (shown.length === 0) {
+      console.error(found.length > 0 ? `"${label}" is off screen; swipe it into view` : `no element labeled "${label}" on screen`);
+      process.exit(1);
+    }
+    const [x, y] = centre(shown[0]);
+    console.log(`${Math.round(x)} ${Math.round(y)}`);' "$1"
+}
+
+# Taps a point, in points. A held touch, since AXe's instant tap misses some controls, such as the
+# tab bar and a row swiped open; holding 0.15 s registers on every control as a finger does.
+ios_touch() {
+  on_mac "$axe touch -x $1 -y $2 --down --up --delay 0.15 --udid $(udid)" >/dev/null
 }
 
 ios_tap_label() {
   local point
-  point="$(ios_find "$1")" || die "no element labeled \"$1\" on the simulator; run \`ios describe\`"
-  on_mac "$axe tap -x ${point% *} -y ${point#* } --udid $(udid)" >/dev/null
+  point="$(ios_find "$1")" || die "can't tap \"$1\"; run \`ios describe\`"
+  ios_touch "${point% *}" "${point#* }"
 }
 
 # Replaces the focused field's text. AXe types faster than the app's fields take keystrokes and
@@ -482,7 +502,7 @@ ios_tap_any() {
   local label point
   for label in "$@"; do
     if point="$(ios_find "$label" 2>/dev/null)"; then
-      on_mac "$axe tap -x ${point% *} -y ${point#* } --udid $(udid)" >/dev/null
+      ios_touch "${point% *}" "${point#* }"
       return 0
     fi
   done
@@ -531,6 +551,13 @@ cmd_ios_up() {
   [[ -n "$(read_state people)" ]] || die "start the $side side first: \`up --side $side\` (with setup)"
   [[ -z "$(read_state ios_udid)" ]] || die "the $side side already has a simulator; run \`ios down --side $side\`"
   on_mac "test -x $axe" || die "AXe is missing on $mac at ~/music-ios/tools/axe/axe; unpack the release from github.com/cameroncooke/AXe there"
+  # The Mac's disk runs nearly full, and a full disk fails a build or a boot halfway with errors
+  # that don't say why. A simulator needs about 2 GB; a first build also needs about 7 GB for the
+  # synced checkout and its derived data.
+  local app="\$HOME/$mac_dir/dd-verify-$run/Build/Products/Debug-iphonesimulator/movies.app" free need=3
+  on_mac "test -d $app" || need=10
+  free="$(on_mac "df -g \$HOME | awk 'NR == 2 { print \$4 }'")"
+  ((free >= need)) || die "$mac has ${free} GB free and ios up needs ${need} GB; free space there (\`down --purge\` removes only this run's build)"
 
   local port convex_port metro src
   port="$(read_state port)"
@@ -567,7 +594,6 @@ cmd_ios_up() {
   on_mac "xcrun simctl boot $id && xcrun simctl bootstatus $id -b >/dev/null"
   ((dark)) && on_mac "xcrun simctl ui $id appearance dark"
 
-  local app="\$HOME/$mac_dir/dd-verify-$run/Build/Products/Debug-iphonesimulator/movies.app"
   if ! on_mac "test -d $app"; then
     say "building the iOS dev client on $mac (minutes on a cold build)"
     ios_build "$id" >&2
@@ -597,26 +623,47 @@ cmd_ios_up() {
   echo "ready: ios $side on simulator $id (Metro $metro, server $(url))"
 }
 
+# A first password sign-in on a new simulator brings up iOS's own "Save Password?" sheet over the
+# app. It isn't in the app's tree, so `ios_tree` can't see it, but AXe describes the element at a
+# point. The sheet sits centred with "Not Now" on its left, so look down a third of the way across
+# the screen for it and tap it. Only a top-level match counts: above the button, the point is on
+# the sheet itself, whose children include the button. Returns 1 when no such sheet shows.
+ios_dismiss_save_password() {
+  local size
+  size="$(ios_tree | sed -n '1s/.* \([0-9]*\)x\([0-9]*\)$/\1 \2/p')"
+  [[ -n "$size" ]] || return 1
+  on_mac "x=$(( ${size% *} / 3 )); for y in \$(seq $(( ${size#* } / 3 )) 12 $(( ${size#* } * 9 / 10 ))); do
+      if $axe describe-ui --point \$x,\$y --udid $(udid) 2>/dev/null | grep -E '^  \"AXLabel\" : \"Not Now\"' >/dev/null; then
+        $axe touch -x \$x -y \$y --down --up --delay 0.15 --udid $(udid) >/dev/null; exit 0; fi; done; exit 1"
+}
+
 ios_sign_in() {
   local tree
   tree="$(ios_tree)"
-  if ! grep -q 'Sign In with a Code' <<<"$tree"; then
-    ios_tap_label "Connect to Server"
-    ios_wait "Server address" 30
-    ios_tap_label "Server address"
-    ios_type "$(url)"
-    ios_tap_label "Continue"
-    ios_wait "Sign In with a Code" 60
+  # Already signed in, on the profile picker: only the pick is left.
+  if ! grep -q 'Manage Profiles' <<<"$tree"; then
+    if ! grep -q 'Sign In with a Code' <<<"$tree"; then
+      ios_tap_label "Connect to Server"
+      ios_wait "Server address" 30
+      ios_tap_label "Server address"
+      ios_type "$(url)"
+      ios_tap_label "Continue"
+      ios_wait "Sign In with a Code" 60
+    fi
+    ios_tap_label "Email"
+    ios_type "admin@movies.local"
+    ios_tap_label "Password"
+    ios_type "$password"
+    ios_tap_label "Sign In"
   fi
-  ios_tap_label "Email"
-  ios_type "admin@movies.local"
-  ios_tap_label "Password"
-  ios_type "$password"
-  ios_tap_label "Sign In"
+  local tapped=0
   for _ in $(seq 1 60); do
     tree="$(ios_tree 2>/dev/null || true)"
     if grep -q "^ *Lucía" <<<"$tree" && grep -q 'Manage Profiles' <<<"$tree"; then
+      # Still on the picker after a tap: the system's Save Password sheet took it.
+      ((tapped)) && { ios_dismiss_save_password || true; }
       ios_tap_label "Lucía"
+      tapped=1
     elif grep -q 'Tab Bar' <<<"$tree"; then
       return 0
     fi
@@ -635,7 +682,7 @@ cmd_ios() {
       id="$(udid)"
       kill -0 "$(read_state forward_pid)" 2>/dev/null && echo "ok    ssh forwards to $mac" || { echo "FAIL  ssh forwards to $mac"; failed=1; }
       curl -fsS "http://127.0.0.1:$(read_state metro_port)/status" 2>/dev/null | grep -q running && echo "ok    Metro on $(read_state metro_port)" || { echo "FAIL  Metro"; failed=1; }
-      on_mac "xcrun simctl list devices | grep -q '$id) (Booted)'" && echo "ok    simulator $id booted" || { echo "FAIL  simulator $id"; failed=1; }
+      on_mac "xcrun simctl list devices | grep -F '$id) (Booted)' >/dev/null" && echo "ok    simulator $id booted" || { echo "FAIL  simulator $id"; failed=1; }
       on_mac "curl -fsS $(url)/api/health | grep -q connected" && echo "ok    the Mac reaches $(url)" || { echo "FAIL  the Mac reaches $(url)"; failed=1; }
       on_mac "curl -fsS $(convex_url)/version >/dev/null" && echo "ok    the Mac reaches Convex at $(convex_url)" || { echo "FAIL  the Mac reaches $(convex_url)"; failed=1; }
       return "$failed" ;;
@@ -646,7 +693,7 @@ cmd_ios() {
       case "${args[1]:-}" in
         --label) ios_tap_label "${args[2]:?}" ;;
         --id) on_mac "$axe tap --id $(printf %q "${args[2]:?}") --udid $(udid)" ;;
-        -x) on_mac "$axe tap -x ${args[2]:?} -y ${args[4]:?} --udid $(udid)" ;;
+        -x) ios_touch "${args[2]:?}" "${args[4]:?}" ;;
         *) die "ios tap --label L | --id ID | -x X -y Y" ;;
       esac ;;
     type) ios_type "${args[1]:?ios type <text>}" ;;
