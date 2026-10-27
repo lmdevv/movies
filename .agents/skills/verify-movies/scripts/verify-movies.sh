@@ -374,11 +374,13 @@ cmd_cli() {
   take_side "$@"
   set -- "${args[@]}"
   if [[ "${1:-}" == --as ]]; then
-    as="$(slug "${2:?--as needs a person}")"
+    # Before the slug: it works on bytes, so it would turn the í into two dashes.
+    as="${2:?--as needs a person}"
+    [[ "$as" == [Ll]ucía ]] && as=lucia
+    as="$(slug "$as")"
     shift 2
   fi
   [[ "${1:-}" == "--" ]] && shift
-  [[ "$as" == lucía ]] && as=lucia
   [[ -d "$state/cli/$as" ]] || {
     [[ "$as" == lucia ]] && die "no CLI session on the $side side; up ran with --no-setup"
     die "no CLI session for $as on the $side side; up ran with --no-seed, or $as is not a seeded person"

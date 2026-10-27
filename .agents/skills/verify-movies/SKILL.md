@@ -78,11 +78,12 @@ $S up --side before    # the before side: pull ghcr.io/lmdevv/movies:main
 The side is ready only after a line like this prints:
 
 ```text
-ready: http://localhost:33411 in 70s (run verify-movies, side after, project movies-verify-verify-movies-after, image movies:verify-verify-movies, library ghcr.io/lmdevv/movies-demo-library:v1, evidence …)
+ready: http://localhost:40773 in 95s (run verify-movies, side after, project movies-verify-verify-movies-after, image movies:verify-verify-movies, library ghcr.io/lmdevv/movies-demo-library:v1, evidence …)
 ```
 
-A warm `up` takes about 70 seconds: about 12 to start the stack, 48 for setup and the first
-scans with their scrub thumbnails, and 10 to seed.
+A warm `up` takes about 90 seconds: under 30 to rebuild the image after a small change, about 15
+to start the stack, 45 to 60 for setup and the first scans with their scrub thumbnails, and 10 to
+seed. Both sides at once take a little longer each, since they share the CPU.
 
 | Flag                            | Use                                                                    |
 | ------------------------------- | ---------------------------------------------------------------------- |
