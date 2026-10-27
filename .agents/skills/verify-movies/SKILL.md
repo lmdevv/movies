@@ -193,7 +193,7 @@ matches `Play from start`.
 | `wait <locator> [--hidden]`, `wait --url RE`     | Waits up to 30 s (`--timeout ms`)                            |
 | `text`, `count`, `attr --attr A`                 | Reads the element                                            |
 | `snapshot [locator] [--path F]`                  | Prints the ARIA tree, and saves it with `--path`             |
-| `screenshot --path F [--full]`                   | Waits for the posters and backdrops it covers, then saves a PNG of the page or element |
+| `screenshot --path F [--full]`                   | Centres an element in the window, waits for the posters and backdrops it covers, then saves a PNG of the page or element |
 | `video`                                          | Prints `{"playing","seconds","elements","source","size","requests"}` from the real media element |
 | `wait-video --past S` or `--advance S`           | Waits until the video plays past S, or S more seconds        |
 | `record-start --path F.mp4 [--show-actions]`     | Records the page to an H.264 MP4                             |

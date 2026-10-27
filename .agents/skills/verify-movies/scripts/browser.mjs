@@ -301,9 +301,14 @@ async function serve(state, base) {
     // the eval that the app's Content-Security-Policy blocks.
     const settled = await page.evaluate(
       async ([full, ms]) => {
+        // In view both ways: a row that scrolls sideways puts lazy cards past the right edge, and
+        // they never start loading, even in a full-page shot, which grows only downwards.
+        const across = (box) => box.right > 0 && box.left < innerWidth;
         const inView = (element) => {
           const box = element.getBoundingClientRect();
-          return box.width > 0 && box.height > 0 && (full || (box.bottom > 0 && box.top < innerHeight));
+          return (
+            box.width > 0 && box.height > 0 && across(box) && (full || (box.bottom > 0 && box.top < innerHeight))
+          );
         };
         const covered = () =>
           [...document.images].filter((image) => {
@@ -435,8 +440,11 @@ async function serve(state, base) {
     },
     async screenshot({ page }, options) {
       const path = output(options, options.path);
-      // An element below the fold scrolls into view first, so its images count as in view.
-      if (hasLocator(options)) await locate(page, options).scrollIntoViewIfNeeded();
+      // An element below the fold scrolls into view first, so its images count as in view. It
+      // scrolls to the middle of the window: at an edge, a phone's fixed tab bar covers it.
+      if (hasLocator(options)) {
+        await locate(page, options).evaluate((element) => element.scrollIntoView({ block: "center" }));
+      }
       await settleImages(page, options);
       if (hasLocator(options)) await locate(page, options).screenshot({ path });
       else await page.screenshot({ path, fullPage: options.full });
