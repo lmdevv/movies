@@ -354,10 +354,13 @@ async function serve(state, base) {
     await page.getByRole("heading", { name: "Who's watching?" }).waitFor({ timeout: timeout(options) });
     await page.getByRole("button", { name: options.profile, exact: true }).click();
     // A PIN profile asks for its PIN unless this session already unlocked it, as creating it does.
-    const pin = page.getByLabel(`${options.profile}'s PIN`);
+    // The label names both the digits' group and the first digit, so ask for the textbox. The
+    // page doesn't focus it, so click it first, as a person does.
+    const pin = page.getByRole("textbox", { name: `${options.profile}'s PIN`, exact: true });
     const left = page.waitForURL((url) => !url.pathname.startsWith("/profiles"), { timeout: timeout(options) });
     if (await Promise.race([left.then(() => false), pin.waitFor({ timeout: timeout(options) }).then(() => true, () => false)])) {
       if (!options.pin) throw new Error(`${options.profile} has a PIN; pass --pin`);
+      await pin.click();
       await page.keyboard.type(options.pin);
     }
     await left;
