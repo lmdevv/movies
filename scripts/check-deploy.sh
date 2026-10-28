@@ -8,7 +8,8 @@
 #   - a setting the entrypoint passes on is missing from compose.yaml, deploy/compose/.env.example,
 #     the root .env.example, or the README's configuration table;
 #   - the Jellyfin test image is referenced in code or CI without a digest, or with different ones;
-#   - a workspace package carries another version than the release (scripts/check-version.sh).
+#   - a workspace package carries another version than the release (scripts/check-version.sh);
+#   - compose.demo.yaml mounts another demo library than deploy/demo-library/image.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -91,6 +92,10 @@ done
 ((${#jellyfin_refs[@]} <= 1)) || fail "the Jellyfin test image is referenced as: ${jellyfin_refs[*]}"
 
 scripts/check-version.sh >/dev/null || fail "the workspace packages disagree on the release version"
+
+demo_library="$(<deploy/demo-library/image)"
+[[ "$(sed -n 's/^ *source: \(ghcr\.io\/lmdevv\/movies-demo-library:.*\)$/\1/p' deploy/compose/compose.demo.yaml)" == "$demo_library" ]] ||
+  fail "compose.demo.yaml does not mount deploy/demo-library/image ('$demo_library')"
 
 if ((failures > 0)); then
   exit 1

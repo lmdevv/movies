@@ -157,7 +157,16 @@ The example identities must be replaced with the model and tool that actually co
   case silently, but the web migration spec starts Jellyfin anyway, pulling the image or failing.
 - Repeat runs: `pnpm --filter web exec playwright test --repeat-each=20`, `pnpm test --repeats=20`.
 - Project skills in `.agents/skills/`, pinned in `skills-lock.json`: `react-doctor`,
-  `react-best-practices`, and `diagnosing-bugs`. They're all model-invoked.
+  `react-best-practices`, and `diagnosing-bugs`. They're all model-invoked. `verify-movies` is this
+  repo's own: it runs disposable stacks built from the checkout and from main, drives the web app,
+  the CLI, and the iOS app on a simulator, and publishes the evidence to a PR. Its stacks share
+  one set of demo data: the demo library image (`docs/demo-library.md`) and four seeded people with
+  their profiles, library access, and watching. Use that data, never your own media, in
+  screenshots and recordings.
+- Prove a user-facing change with `verify-movies` before you open its PR. A PR that changes what a
+  user sees carries before and after screenshots of each changed screen, at desktop and phone size
+  on the web, and a short video of the changed flow, published with `evidence publish`. When a PR
+  changes nothing a user sees, say so under its verification notes instead.
 - `scripts/stack-e2e.sh` builds the image and smoke-tests the packaged stack;
   `scripts/nixos-module-e2e.sh` does the same for the NixOS module on a NixOS host, and
   `nix build .#checks.x86_64-linux.vm -L` boots the module in a NixOS VM (needs KVM).
