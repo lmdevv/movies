@@ -5,9 +5,12 @@
  * restart the stream. A position is believed when the playhead could have played there from the
  * last believed one, or when it plays on from a jump for a few seconds (a seek from the lock
  * screen moves AVPlayer without the app).
+ *
+ * Times are on a clock that runs only while AVPlayer plays: time spent paused, stalled, or loading
+ * plays nothing, so a skip after it cannot pass for playing.
  */
 
-/** A position the player reported, and when, on a monotonic clock in milliseconds. */
+/** A position the player reported, and when, on the playing clock in milliseconds. */
 interface Sighting {
   readonly positionMs: number;
   readonly atMs: number;
@@ -36,11 +39,7 @@ const JUMP_BELIEVED_AFTER_MS = 3_000;
 /** The slowest speed a jump must play on at, so a player stuck at zero is never believed. */
 const SLOWEST_RATE = 0.25;
 
-/**
- * A playhead known to be at `positionMs` at `atMs`: a new stream's start, a seek, or where the
- * player started or stopped playing. Time spent paused or stalled plays nothing, so a skip after
- * it cannot pass for playing.
- */
+/** A playhead known to be at `positionMs` at `atMs`: a new stream's start, or a seek. */
 export const placed = (positionMs: number, atMs: number): Playhead => ({
   believed: { positionMs, atMs },
   jump: null,
@@ -89,26 +88,9 @@ export const explains = (
   believes(playhead, positionMs, atMs, rate) ||
   (playhead.jump !== null && playsOnFrom(playhead.jump.last, positionMs, atMs, rate));
 
-/**
- * The playhead once the player started or stopped playing at `atMs`, believed at `positionMs`.
- * Time it spent paused or stalled played nothing, so a skip after it cannot pass for playing; a
- * jump keeps the playing it showed so far.
- */
-export const restarted = (playhead: Playhead, positionMs: number, atMs: number): Playhead => {
-  const { jump } = playhead;
-
-  if (jump === null) return placed(positionMs, atMs);
-
-  const shift = atMs - jump.last.atMs;
-
-  return {
-    believed: { positionMs, atMs },
-    jump: {
-      first: { positionMs: jump.first.positionMs, atMs: jump.first.atMs + shift },
-      last: { positionMs: jump.last.positionMs, atMs },
-    },
-  };
-};
+/** Whether a jump moved at least the slowest speed over its playing, so it is not stuck. */
+const playsOn = (jump: { readonly first: Sighting; readonly last: Sighting }): boolean =>
+  jump.last.positionMs - jump.first.positionMs >= (jump.last.atMs - jump.first.atMs) * SLOWEST_RATE;
 
 /** The playhead after the player reported `positionMs` at `atMs`, playing at `rate`. */
 export const reported = (
@@ -129,11 +111,30 @@ export const reported = (
       : { first: sighting, last: sighting };
 
   const playedMs = jump.last.atMs - jump.first.atMs;
-  const advancedMs = jump.last.positionMs - jump.first.positionMs;
 
-  return playedMs >= JUMP_BELIEVED_AFTER_MS && advancedMs >= playedMs * SLOWEST_RATE
+  return playedMs >= JUMP_BELIEVED_AFTER_MS && playsOn(jump)
     ? { believed: sighting, jump: null }
     : { believed: playhead.believed, jump };
+};
+
+/**
+ * How long the player has played on from the jump it made on its own to `positionMs` at `atMs`; 0
+ * when it made none, or did not play on from it. A skip through a vanished stream lands without
+ * playing on.
+ */
+export const playedOnFromJumpMs = (
+  playhead: Playhead,
+  positionMs: number,
+  atMs: number,
+  rate: number,
+): number => {
+  const { jump } = playhead;
+
+  if (jump === null || !playsOnFrom(jump.last, positionMs, atMs, rate)) return 0;
+
+  const played = { first: jump.first, last: { positionMs, atMs } };
+
+  return playsOn(played) ? played.last.atMs - played.first.atMs : 0;
 };
 
 /**

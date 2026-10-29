@@ -244,6 +244,8 @@ export class PlayerController {
   }
 
   #checkStall(): void {
+    this.port.noticeOutsidePause();
+
     const [watch, verdict] = checked(this.#stallWatch, {
       atMs: monotonicNow(),
       positionMs: this.port.positionMs(),

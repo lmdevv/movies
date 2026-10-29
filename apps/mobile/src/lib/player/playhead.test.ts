@@ -1,7 +1,7 @@
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { believedPosition, placed, reported } from "./playhead";
+import { believedPosition, placed, playedOnFromJumpMs, reported } from "./playhead";
 
 const REPORT_MS = 250;
 
@@ -79,5 +79,53 @@ describe("reported", () => {
     }
 
     expect(playhead.believed.positionMs).toBe(1_503_000);
+  });
+});
+
+describe("playedOnFromJumpMs", () => {
+  it("counts how long the player played on from its jump", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 10_000_000 }),
+        fc.constantFrom(0.5, 1, 2),
+        fc.integer({ min: 1, max: 11 }),
+        (jumpMs, rate, reports) => {
+          // Far from the believed position, so each report is the jump's, not believed playing.
+          const fromMs = jumpMs + 60_000;
+          let playhead = reported(placed(0, 0), fromMs, REPORT_MS, rate);
+
+          for (let report = 1; report <= reports; report += 1) {
+            playhead = reported(
+              playhead,
+              fromMs + report * REPORT_MS * rate,
+              REPORT_MS + report * REPORT_MS,
+              rate,
+            );
+          }
+
+          const nowMs = REPORT_MS + reports * REPORT_MS;
+
+          return (
+            playedOnFromJumpMs(playhead, fromMs + reports * REPORT_MS * rate, nowMs, rate) ===
+            reports * REPORT_MS
+          );
+        },
+      ),
+    );
+  });
+
+  it("counts nothing for a skip that lands without playing on", () => {
+    let playhead = placed(2_160_000, 0);
+
+    for (let segment = 1; segment <= 100; segment += 1) {
+      playhead = reported(playhead, 2_160_000 + segment * 6_000, segment * 10, 1);
+    }
+
+    expect(playedOnFromJumpMs(playhead, 2_760_000, 1_000, 1)).toBe(0);
+    expect(playedOnFromJumpMs(playhead, 2_760_000, 3_000, 1)).toBe(0);
+  });
+
+  it("counts nothing without a jump", () => {
+    expect(playedOnFromJumpMs(placed(600_000, 0), 601_000, 1_000, 1)).toBe(0);
   });
 });

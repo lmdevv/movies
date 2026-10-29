@@ -1,6 +1,7 @@
 import type { PlayerEvent } from "@movies/sdk/effect";
 import { describe, expect, it } from "vitest";
 
+import { StallVerdict, checked, watching } from "./stall-watchdog";
 import { NATIVE_SEEKER, VideoPort, withinBuffer } from "./video-port";
 import type { NativeStatus, NativeVideo, NativeVideoEvents } from "./video-port";
 
@@ -19,17 +20,25 @@ class TestVideo implements NativeVideo {
     playToEnd: new Set(),
     timeUpdate: new Set(),
   };
+  /** AVPlayer was asked to play while it had no data, so it plays once it has. */
+  #waitingToPlay = false;
 
   play(): void {
     this.#use();
-    this.playing = true;
-    this.firePlaying(true);
+
+    if (this.status === "loading") {
+      this.#waitingToPlay = true;
+
+      return;
+    }
+
+    this.#setPlaying(true);
   }
 
   pause(): void {
     this.#use();
-    this.playing = false;
-    this.firePlaying(false);
+    this.#waitingToPlay = false;
+    this.#setPlaying(false);
   }
 
   addListener<Name extends keyof NativeVideoEvents>(
@@ -77,12 +86,30 @@ class TestVideo implements NativeVideo {
   stall(): void {
     this.status = "loading";
     this.fireStatus("loading");
-    this.playing = false;
-    this.firePlaying(false);
+    this.#waitingToPlay = true;
+    this.#setPlaying(false);
+  }
+
+  /** AVPlayer has data again: expo-video reports it ready, and AVPlayer plays if it was waiting to. */
+  ready(): void {
+    this.status = "readyToPlay";
+    this.fireStatus("readyToPlay");
+
+    if (this.#waitingToPlay) {
+      this.#waitingToPlay = false;
+      this.#setPlaying(true);
+    }
   }
 
   listenerCount(): number {
     return Object.values(this.#listeners).reduce((total, set) => total + set.size, 0);
+  }
+
+  /** expo-video reports a playing change only when `isPlaying` changes. */
+  #setPlaying(playing: boolean): void {
+    if (this.playing === playing) return;
+    this.playing = playing;
+    this.firePlaying(playing);
   }
 
   #use(): void {
@@ -402,11 +429,12 @@ describe("VideoPort when the stream vanishes", () => {
     const video = new TestVideo();
     const port = new VideoPort(clock.now);
 
+    video.status = "loading";
     port.attach(video, { positionMs: 600_000, durationMs: EPISODE_MS, seeker: NATIVE_SEEKER });
     void port.play();
     video.currentTime = 600;
     clock.ms += 30_000;
-    video.firePlaying(true);
+    video.ready();
     clock.ms += 250;
     video.fireTime(630);
 
@@ -443,6 +471,127 @@ describe("VideoPort when the stream vanishes", () => {
     }
 
     expect(port.positionMs()).toBe(reached);
+  });
+});
+
+/** Whether the stall watchdog recovers `port` after it stood still for the first limit. */
+const recoversAfterFirstLimit = (port: VideoPort, clock: TestClock): boolean => {
+  const watch = watching(port.positionMs(), clock.ms);
+
+  const [, verdict] = checked(watch, {
+    atMs: clock.ms + 15_000,
+    positionMs: port.positionMs(),
+    intended: port.wantsToPlay(),
+    loading: port.settling(),
+  });
+
+  return StallVerdict.$is("Recover")(verdict);
+};
+
+describe("VideoPort with the lock screen and stalls", () => {
+  it("ends after a seek from the lock screen to the last seconds", () => {
+    const { clock, video, port, events } = playingAt(600);
+
+    clock.ms += 250;
+    video.fireTime(EPISODE_MS / 1000 - 2);
+    playFor(video, clock, 2);
+    video.pause();
+    video.fireEnd();
+
+    expect(events.at(-1)).toBe("ended");
+    expect(port.getState().ended).toBe(true);
+    expect(port.isBuffering()).toBe(false);
+    expect(port.positionMs()).toBe(EPISODE_MS);
+  });
+
+  it("counts no stalled time toward where AVPlayer could have played", () => {
+    const { clock, video, port } = playingAt(600);
+    const reached = port.positionMs();
+
+    video.stall();
+    clock.ms += 10_000;
+    video.fireTime(620);
+
+    expect(port.positionMs()).toBe(reached);
+    expect(port.getState().positionSeconds * 1000).toBe(reached);
+  });
+
+  it("counts no paused time toward where AVPlayer could have played", () => {
+    const { clock, video, port } = playingAt(600);
+    const reached = port.positionMs();
+
+    video.pause();
+    clock.ms += 60_000;
+    video.fireTime(640);
+    expect(port.positionMs()).toBe(reached);
+
+    // Played on from there, the jump is the viewer's, as a seek from the lock screen is.
+    video.play();
+    playFor(video, clock, 3);
+    expect(port.positionMs()).toBeCloseTo(643_000, -3);
+  });
+
+  it("takes a pause from the lock screen during a stall as the viewer's", () => {
+    const { clock, video, port, events } = playingAt(600);
+
+    video.stall();
+    // AVPlayer was not playing, so expo-video reports no playing change, only that it has data.
+    video.pause();
+    video.ready();
+    clock.ms += 1_000;
+    port.noticeOutsidePause();
+    expect(port.wantsToPlay()).toBe(true);
+
+    clock.ms += 1_000;
+    port.noticeOutsidePause();
+    expect(events.at(-1)).toBe("paused");
+    expect(port.wantsToPlay()).toBe(false);
+    expect(port.isBuffering()).toBe(false);
+    expect(recoversAfterFirstLimit(port, clock)).toBe(false);
+  });
+
+  it("keeps playing intended when AVPlayer plays on after a stall", () => {
+    const { clock, video, port, events } = playingAt(600);
+
+    video.stall();
+    clock.ms += 5_000;
+    video.ready();
+    clock.ms += 5_000;
+    port.noticeOutsidePause();
+
+    expect(events).not.toContain("paused");
+    expect(port.wantsToPlay()).toBe(true);
+  });
+
+  it("still recovers a stalled player that reset, even once it stands ready", () => {
+    const { clock, video, port } = playingAt(MINUTES_36);
+
+    video.stall();
+    clock.ms += 250;
+    video.fireTime(0);
+    video.currentTime = 0.126;
+    video.pause();
+    video.ready();
+    clock.ms += 5_000;
+    port.noticeOutsidePause();
+
+    expect(port.wantsToPlay()).toBe(true);
+    expect(recoversAfterFirstLimit(port, clock)).toBe(true);
+  });
+
+  it("still recovers a lost stream, even once it stands ready", () => {
+    const { clock, video, port } = playingAt(MINUTES_36);
+
+    video.pause();
+    video.fireEnd();
+    video.stall();
+    video.pause();
+    video.ready();
+    clock.ms += 5_000;
+    port.noticeOutsidePause();
+
+    expect(port.wantsToPlay()).toBe(true);
+    expect(recoversAfterFirstLimit(port, clock)).toBe(true);
   });
 });
 
