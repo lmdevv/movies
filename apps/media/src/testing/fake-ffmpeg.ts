@@ -49,7 +49,7 @@ const QSV_ONLY = [
 
 const script = (realFfmpeg: string, behavior: FakeFfmpegBehavior): string => `#!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, renameSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -142,7 +142,8 @@ if (stalls || failsAfterFirst) {
     const names = ["init.mp4", ...Array.from({ length: kept }, (_, index) => \`f\${index}.m4s\`)];
 
     for (const name of status === 0 ? names : []) {
-      copyFileSync(join(aside, name), join(output, \`\${name}.tmp\`));
+      // Not copyFileSync, whose fchown the NixOS unit's system call filter denies.
+      writeFileSync(join(output, \`\${name}.tmp\`), readFileSync(join(aside, name)));
       renameSync(join(output, \`\${name}.tmp\`), join(output, name));
     }
   } finally {

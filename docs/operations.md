@@ -333,4 +333,9 @@ The media service uses Intel Quick Sync (QSV) through ffmpeg's libvpl when it ca
   every image change.
 - `scripts/nixos-module-e2e.sh` does the same against the NixOS module's own unit on a NixOS host
   (needs sudo and Docker), and checks the sandbox.
+- `scripts/check-sandbox.sh` runs the media tests (encoders started, released, and restarted
+  with real ffmpeg, library scans, backups, downloads) under the module's system call filter, on
+  the module's own Node and ffmpeg, with any denied call killing the process. The module returns
+  `EPERM` for a denied call instead, so one in a dependency fails that call rather than ending
+  every stream; the check keeps the service from relying on that. CI runs it on every change.
 - `nix flake check` evaluates the server, CLI, and Home Manager modules and builds the packages.

@@ -30,6 +30,7 @@ import {
   softwareToneMappingAvailable,
   vaapiUsable,
 } from "../testing/fixture-library.ts";
+import { copyBytes } from "../testing/byte-copies.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
 import * as MediaTestServer from "../testing/media-test-server.ts";
 import { signTestToken } from "../testing/test-config.ts";
@@ -600,7 +601,7 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
         const frame = 1 / 24;
 
         yield* fs.makeDirectory(path.dirname(copy), { recursive: true });
-        yield* fs.copyFile(
+        yield* copyBytes(
           path.join(workspace.library.moviesRoot, workspace.library.remuxMovie),
           copy,
         );

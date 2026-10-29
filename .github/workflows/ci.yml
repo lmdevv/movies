@@ -86,6 +86,28 @@ jobs:
       - if: always()
         run: scripts/dev-stack.sh destroy
 
+  sandbox:
+    name: media tests under the NixOS module's system call filter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The runner has no login session, so start a user manager for systemd-run --user.
+      - run: |
+          sudo loginctl enable-linger "$USER"
+          runtime="/run/user/$(id -u)"
+          timeout 60 bash -c "until [ -S '$runtime/systemd/private' ]; do sleep 1; done"
+          echo "XDG_RUNTIME_DIR=$runtime" >> "$GITHUB_ENV"
+      - run: scripts/check-sandbox.sh
+
   nix:
     name: Nix package and NixOS module
     runs-on: ubuntu-latest

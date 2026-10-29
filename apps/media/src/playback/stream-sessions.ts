@@ -1158,10 +1158,13 @@ const make = Effect.gen(function* () {
 
     const temporary = `${kept}.tmp`;
 
-    // ffmpeg's HLS muxer finishes `init.mp4` only when it writes the first fragment.
+    // ffmpeg's HLS muxer finishes `init.mp4` only when it writes the first fragment. The bytes are
+    // written here rather than with `copyFile`, whose libuv implementation calls `fchown`: the
+    // NixOS unit's system call filter denies it, which once killed the service and every stream.
     const copied =
       (yield* Ref.get(run.fragments)).length > 0 &&
-      (yield* fs.copyFile(path.join(run.directory, "init.mp4"), temporary).pipe(
+      (yield* fs.readFile(path.join(run.directory, "init.mp4")).pipe(
+        Effect.andThen((bytes) => fs.writeFile(temporary, bytes)),
         Effect.andThen(fs.rename(temporary, kept)),
         Effect.as(true),
         Effect.catch(() => fs.remove(temporary).pipe(Effect.ignore, Effect.as(false))),

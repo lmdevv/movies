@@ -10,6 +10,7 @@ import * as MetadataResolver from "../metadata/title-metadata.ts";
 import * as Omdb from "../metadata/omdb.ts";
 import * as Tmdb from "../metadata/tmdb.ts";
 import { ffmpegAvailable } from "../testing/fixture-library.ts";
+import { copyBytes } from "../testing/byte-copies.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
 import { testConfigLayer } from "../testing/test-config.ts";
 import * as LibraryScanner from "./library-scanner.ts";
@@ -261,7 +262,7 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
         assert.deepStrictEqual([subtitled.processed, subtitled.unchanged], [1, 3]);
 
         yield* fs.makeDirectory(path.join(folder, ".actors"));
-        yield* fs.copyFile(
+        yield* copyBytes(
           path.join(folder, "poster.jpg"),
           path.join(folder, ".actors/Big_Buck.jpg"),
         );
@@ -287,7 +288,7 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
         yield* fs.makeDirectory(folder);
 
         for (const film of ["Alpha (2001)", "Alpha (2001)-Beta (2002)", "Gamma (2003)"]) {
-          yield* fs.copyFile(source, path.join(folder, `${film}.mkv`));
+          yield* copyBytes(source, path.join(folder, `${film}.mkv`));
         }
 
         yield* scanner.scan(request);
@@ -319,13 +320,13 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
         yield* fs.makeDirectory(path.join(target.movies, folder));
 
         for (const edition of ["Theatrical", "Director's Cut"]) {
-          yield* fs.copyFile(
+          yield* copyBytes(
             source,
             path.join(target.movies, folder, `${folder} {edition-${edition}}.mp4`),
           );
         }
 
-        yield* fs.copyFile(
+        yield* copyBytes(
           path.join(path.dirname(source), "poster.jpg"),
           path.join(target.movies, folder, "poster.jpg"),
         );
@@ -370,7 +371,7 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
         yield* fs.makeDirectory(path.join(target.movies, anthology));
 
         for (const film of ["Film A (2018)", "Film B (2019)"]) {
-          yield* fs.copyFile(source, path.join(target.movies, anthology, `${film}.mp4`));
+          yield* copyBytes(source, path.join(target.movies, anthology, `${film}.mp4`));
         }
 
         yield* fs.writeFileString(
@@ -400,7 +401,7 @@ describe.skipIf(!hasFfmpeg)("LibraryScanner", () => {
           const target = yield* copy;
           const outside = path.join(target.root, "outside.mkv");
 
-          yield* fs.copyFile(path.join(target.movies, library.messyMovie), outside);
+          yield* copyBytes(path.join(target.movies, library.messyMovie), outside);
           yield* fs.symlink(outside, path.join(target.movies, "Escaped (2000).mkv"));
           yield* fs.symlink(
             path.join(target.movies, "Big Buck Fixture (2008)"),

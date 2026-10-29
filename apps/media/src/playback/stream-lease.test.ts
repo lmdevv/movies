@@ -83,6 +83,8 @@ const decodeNegotiation = Schema.decodeUnknownEffect(Schema.toCodecJson(Negotiat
 
 const decodeHealth = Schema.decodeUnknownEffect(Schema.toCodecJson(HealthResponse));
 
+const KEPT_INIT = /\/init-\d+\.mp4\.tmp$/u;
+
 const disk = {
   removals: new Array<{ readonly path: string; readonly runs: ReadonlyArray<string> }>(),
   copies: new Array<string>(),
@@ -105,25 +107,28 @@ const scriptedDisk = (real: FileSystem.FileSystem): FileSystem.FileSystem =>
         ),
         Effect.andThen(real.remove(path, options)),
       ),
-    copyFile: (from, to) =>
-      Effect.suspend(() => disk.beforeCopy(to)).pipe(
-        Effect.andThen(
-          Effect.suspend(() =>
-            disk.refuseCopies
-              ? Effect.fail(
-                  PlatformError.systemError({
-                    _tag: "WriteZero",
-                    module: "FileSystem",
-                    method: "copyFile",
-                    description: "the disk is full",
-                  }),
-                )
-              : Effect.sync(() => {
-                  disk.copies.push(to);
-                }).pipe(Effect.andThen(real.copyFile(from, to))),
+    // A release keeps a generation's init segment by writing its bytes to `init-<n>.mp4.tmp`.
+    writeFile: (to, bytes, options) =>
+      !KEPT_INIT.test(to)
+        ? real.writeFile(to, bytes, options)
+        : Effect.suspend(() => disk.beforeCopy(to)).pipe(
+            Effect.andThen(
+              Effect.suspend(() =>
+                disk.refuseCopies
+                  ? Effect.fail(
+                      PlatformError.systemError({
+                        _tag: "WriteZero",
+                        module: "FileSystem",
+                        method: "writeFile",
+                        description: "the disk is full",
+                      }),
+                    )
+                  : Effect.sync(() => {
+                      disk.copies.push(to);
+                    }).pipe(Effect.andThen(real.writeFile(to, bytes, options))),
+              ),
+            ),
           ),
-        ),
-      ),
     rename: (from, to) =>
       Effect.suspend(() =>
         disk.refuseRenamesIn !== "" && from.includes(disk.refuseRenamesIn)

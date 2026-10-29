@@ -11,6 +11,7 @@ import * as MetadataResolver from "../metadata/title-metadata.ts";
 import * as Omdb from "../metadata/omdb.ts";
 import * as Tmdb from "../metadata/tmdb.ts";
 import { ffmpegAvailable } from "../testing/fixture-library.ts";
+import { copyBytes, copyTree } from "../testing/byte-copies.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
 import { testConfigLayer } from "../testing/test-config.ts";
 import * as LibraryMonitor from "./library-monitor.ts";
@@ -136,7 +137,7 @@ describe.skipIf(!hasFfmpeg)("LibraryMonitor", () => {
 
           yield* eventually((files) => files.size === 4);
           yield* fs.makeDirectory(path.join(root, "New Movie (2024)"));
-          yield* fs.copyFile(
+          yield* copyBytes(
             path.join(root, library.messyMovie),
             path.join(root, "New Movie (2024)", "New Movie (2024).mkv"),
           );
@@ -170,11 +171,11 @@ describe.skipIf(!hasFfmpeg)("LibraryMonitor", () => {
 
           yield* eventually((files) => files.has("New Movie (2024)/New Movie (2024).mkv"));
 
-          yield* fs.copy(root, parked);
+          yield* copyTree(root, parked);
           yield* fs.remove(root, { recursive: true });
           yield* Effect.sleep(Duration.millis(500));
           yield* fs.makeDirectory(path.join(parked, "Returned (2025)"));
-          yield* fs.copyFile(
+          yield* copyBytes(
             path.join(parked, "New Movie (2024)", "New Movie (2024).mkv"),
             path.join(parked, "Returned (2025)", "Returned (2025).mkv"),
           );
@@ -201,7 +202,7 @@ describe.skipIf(!hasFfmpeg)("LibraryMonitor", () => {
 
           yield* eventually((files) => files.size === 4);
           yield* fs.makeDirectory(path.join(root, "Polled (2023)"));
-          yield* fs.copyFile(
+          yield* copyBytes(
             path.join(root, library.messyMovie),
             path.join(root, "Polled (2023)", "Polled (2023).mkv"),
           );
@@ -224,7 +225,7 @@ describe.skipIf(!hasFfmpeg)("LibraryMonitor", () => {
           yield* eventually((files) => files.has("Polled (2023)/Polled (2023).mkv"));
           yield* Ref.set(down, true);
           yield* fs.makeDirectory(path.join(root, "Retried (2024)"));
-          yield* fs.copyFile(
+          yield* copyBytes(
             path.join(root, library.messyMovie),
             path.join(root, "Retried (2024)", "Retried (2024).mkv"),
           );
