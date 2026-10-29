@@ -387,7 +387,7 @@ export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(fu
     let queue = Promise.resolve();
     let version = { querySet: 0, identity: 0, ts: 0 };
     let token: string | undefined;
-    const subscribed = new Map<number, string>();
+    const subscribed = new Map<number, { readonly path: string; readonly args: Schema.Json }>();
 
     const sendAuthError = (): void => {
       if (token === undefined || accepts(token)) return;
@@ -428,6 +428,22 @@ export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(fu
       writeFrame(socket, OPCODE_TEXT, Buffer.from(JSON.stringify(message)));
     };
 
+    const answerQuery = async (
+      queryId: number,
+      query: { readonly path: string; readonly args: Schema.Json },
+    ): Promise<Option.Option<Schema.Json>> => {
+      const request: RecordedRequest = {
+        kind: "query",
+        path: query.path,
+        args: query.args,
+        authorization: token === undefined ? undefined : `Bearer ${token}`,
+      };
+
+      received.push(request);
+
+      return queryModification(queryId, await Effect.runPromiseWith(context)(answer(request)));
+    };
+
     const handle = async (message: SyncMessage): Promise<void> => {
       if (message.type === "Authenticate") {
         if (message.value !== undefined && !accepts(message.value)) {
@@ -436,10 +452,28 @@ export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(fu
           return;
         }
 
+        const changed = token !== message.value;
+
         token = message.value;
 
         if (token !== undefined) accepted.push(token);
-        transition({ querySet: version.querySet, identity: version.identity + 1 }, []);
+
+        // Convex runs every subscribed query again as the new identity.
+        const rerun = Option.all(
+          changed
+            ? await Promise.all(
+                [...subscribed].map(([queryId, query]) => answerQuery(queryId, query)),
+              )
+            : [],
+        );
+
+        if (Option.isNone(rerun)) {
+          socket.destroy();
+
+          return;
+        }
+
+        transition({ querySet: version.querySet, identity: version.identity + 1 }, rerun.value);
 
         return;
       }
@@ -450,39 +484,23 @@ export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(fu
         return;
       }
 
-      const authorization = token === undefined ? undefined : `Bearer ${token}`;
-
       for (const change of message.modifications) {
         if (change.type === "Remove") subscribed.delete(change.queryId);
-        else subscribed.set(change.queryId, change.udfPath);
+        else subscribed.set(change.queryId, { path: change.udfPath, args: change.args[0] ?? null });
       }
 
       const counts = new Map<string, number>();
 
-      for (const path of subscribed.values()) counts.set(path, (counts.get(path) ?? 0) + 1);
+      for (const { path } of subscribed.values()) counts.set(path, (counts.get(path) ?? 0) + 1);
 
       for (const [path, count] of counts) peaks.set(path, Math.max(peaks.get(path) ?? 0, count));
 
       const modifications = await Promise.all(
-        message.modifications.map(async (change): Promise<Option.Option<Schema.Json>> => {
-          if (change.type === "Remove") {
-            return Option.some({ type: "QueryRemoved", queryId: change.queryId });
-          }
-
-          const request: RecordedRequest = {
-            kind: "query",
-            path: change.udfPath,
-            args: change.args[0] ?? null,
-            authorization,
-          };
-
-          received.push(request);
-
-          return queryModification(
-            change.queryId,
-            await Effect.runPromiseWith(context)(answer(request)),
-          );
-        }),
+        message.modifications.map((change): Promise<Option.Option<Schema.Json>> =>
+          change.type === "Remove"
+            ? Promise.resolve(Option.some({ type: "QueryRemoved", queryId: change.queryId }))
+            : answerQuery(change.queryId, { path: change.udfPath, args: change.args[0] ?? null }),
+        ),
       );
 
       const answered = Option.all(modifications);

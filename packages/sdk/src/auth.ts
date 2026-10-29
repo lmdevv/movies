@@ -19,11 +19,13 @@ import {
   Data,
   Duration,
   Effect,
+  FiberHandle,
   Layer,
   Option,
   Redacted,
   Ref,
   Result,
+  Schedule,
   Schema,
   Semaphore,
   SubscriptionRef,
@@ -87,6 +89,13 @@ export interface Interface {
   /** The status now, without waiting for a change. */
   readonly currentStatus: Effect.Effect<AuthStatus>;
   /**
+   * Whether the connection runs signed out for now, because the server has failed to renew the
+   * session for a while: now, then every change. The session stays signed in and stored, and is
+   * renewed in the background; once a renewal succeeds the connection signs in again and this
+   * turns false. False while signed out.
+   */
+  readonly reconnecting: Stream.Stream<boolean>;
+  /**
    * Signs in and stores the session. Rejected credentials fail with `Unauthenticated`; a sign-up
    * without a valid invite fails with `Forbidden` or `Conflict`.
    */
@@ -97,7 +106,8 @@ export interface Interface {
   readonly signOut: Effect.Effect<void, TokenStorage.TokenStorageError>;
   /**
    * The token for the next request, refreshed when it is about to expire or when `forceRefresh`
-   * says the server rejected it. None when signed out or when the refresh token was refused.
+   * says the server rejected it. None when signed out, when the refresh token was refused, or once
+   * the server has failed to renew the session for a while.
    */
   readonly accessToken: (
     forceRefresh: boolean,
@@ -192,7 +202,7 @@ export interface Options {
   readonly convexUrl: string;
   /**
    * How long the server may keep failing to renew a session, every refresh in between failing,
-   * before the session counts as refused and Auth signs out; one minute when absent.
+   * before the connection runs signed out while Auth keeps renewing; one minute when absent.
    */
   readonly refreshFailureLimit?: Duration.Duration;
 }
@@ -201,6 +211,8 @@ type RefreshOutcome = Data.TaggedEnum<{
   Renewed: { readonly session: StoredSession };
   Refused: {};
   Kept: {};
+  /** The server has failed every refresh for a while; its refresh token may still be good. */
+  Stalled: {};
 }>;
 
 const RefreshOutcome = Data.taggedEnum<RefreshOutcome>();
@@ -213,10 +225,26 @@ const REFRESH_TIMEOUT = Duration.seconds(30);
 
 /**
  * A connection waiting to reauthenticate stops, public queries included, until it gets a new
- * token or none, so a refresh that can never succeed must end in a sign-out. A minute outlasts a
- * deploy or a burst of server errors.
+ * token or none, so a refresh the server keeps failing must hand it none for a while. A minute
+ * outlasts a deploy or a burst of server errors.
  */
 const DEFAULT_REFRESH_FAILURE_LIMIT = Duration.minutes(1);
+
+/** Failed refreshes in a row before the connection runs signed out, however long they took. */
+const REFRESH_FAILURES_BEFORE_RECONNECTING = 3;
+
+/**
+ * Longer than the token fetcher waits between refreshes plus a refresh's own timeout. A longer
+ * gap between failures means nothing was retrying, as when the device slept, so it starts a new
+ * run of failures rather than counting as time spent failing.
+ */
+const RETRY_GAP_LIMIT = Duration.minutes(1);
+
+/** How often a session the server keeps failing to renew is retried, at most. */
+const renewalSchedule = Schedule.min([
+  Schedule.exponential(Duration.seconds(1)),
+  Schedule.spaced(Duration.seconds(30)),
+]);
 
 const SERVER_SIGN_OUT_TIMEOUT = Duration.seconds(10);
 
@@ -244,10 +272,21 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
 
   const refreshFailureLimit = options.refreshFailureLimit ?? DEFAULT_REFRESH_FAILURE_LIMIT;
 
-  /** The session the server has failed every refresh of since `since`, if any. */
-  const failingSince = yield* Ref.make(
-    Option.none<{ readonly session: StoredSession; readonly since: number }>(),
+  /**
+   * The session the server has failed the last `failures` refreshes of, the time spent retrying
+   * them on the monotonic clock, and when the last one failed.
+   */
+  const failing = yield* Ref.make(
+    Option.none<{
+      readonly session: StoredSession;
+      readonly failures: number;
+      readonly failingMillis: number;
+      readonly lastNanos: bigint;
+    }>(),
   );
+
+  const reconnecting = yield* SubscriptionRef.make(false);
+  const renewal = yield* FiberHandle.make<void>();
 
   const callGateway = Effect.fn("Auth.callGateway")(function* (
     path: FunctionPath,
@@ -314,46 +353,73 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
 
   const adopt = Effect.fn("Auth.adopt")(function* (next: Option.Option<StoredSession>) {
     yield* Ref.set(session, next);
+    yield* Ref.set(failing, Option.none());
     yield* transport.setAuth(Option.isSome(next) ? tokenSource : null);
     yield* SubscriptionRef.set(status, Option.isSome(next) ? "signedIn" : "signedOut");
+    yield* SubscriptionRef.set(reconnecting, false);
   });
 
   const forget = Effect.fn("Auth.forget")(function* () {
-    yield* Ref.set(failingSince, Option.none());
     yield* adopt(Option.none());
     yield* storage.clear;
   });
 
   /**
-   * Keeps `seen` after the server failed to renew it, until it has failed every refresh for
-   * `refreshFailureLimit`. A refresh that could not reach the server, or was told to wait, ends
-   * the run: the server may be back, and nothing else worked before then.
+   * Keeps `seen` after the server failed to renew it, until it has failed
+   * `REFRESH_FAILURES_BEFORE_RECONNECTING` refreshes in a row over `refreshFailureLimit` of
+   * retrying. A refresh that could not reach the server, or was told to wait, ends the run: the
+   * server may be back, and nothing else worked before then.
    */
   const failed =
     (seen: StoredSession) =>
     (error: CallError): Effect.Effect<RefreshOutcome> =>
       Effect.gen(function* () {
-        const now = yield* Clock.currentTimeMillis;
+        const now = yield* Clock.monotonicTimeNanos;
 
-        const since = yield* Ref.modify(failingSince, (previous) => {
-          const start = Option.match(
-            Option.filter(previous, (failing) => failing.session === seen),
-            { onNone: () => now, onSome: (failing) => failing.since },
+        const run = yield* Ref.modify(failing, (previous) => {
+          const next = Option.match(
+            Option.filter(
+              previous,
+              (last) =>
+                last.session === seen &&
+                Number(now - last.lastNanos) / 1e6 <= Duration.toMillis(RETRY_GAP_LIMIT),
+            ),
+            {
+              onNone: () => ({ session: seen, failures: 1, failingMillis: 0, lastNanos: now }),
+              onSome: (last) => ({
+                session: seen,
+                failures: last.failures + 1,
+                failingMillis: last.failingMillis + Number(now - last.lastNanos) / 1e6,
+                lastNanos: now,
+              }),
+            },
           );
 
-          return [start, Option.some({ session: seen, since: start })] as const;
+          return [next, Option.some(next)] as const;
         });
 
-        if (now - since < Duration.toMillis(refreshFailureLimit)) return yield* kept();
-        yield* Effect.logWarning("Auth.refreshAbandoned").pipe(
-          Effect.annotateLogs({ failingForMillis: now - since, reason: error.message }),
-        );
+        if (
+          run.failures < REFRESH_FAILURES_BEFORE_RECONNECTING ||
+          run.failingMillis < Duration.toMillis(refreshFailureLimit)
+        ) {
+          return yield* kept();
+        }
 
-        return yield* refused();
+        if (!(yield* SubscriptionRef.get(reconnecting))) {
+          yield* Effect.logWarning("Auth.refreshStalled").pipe(
+            Effect.annotateLogs({
+              failures: run.failures,
+              failingForMillis: Math.round(run.failingMillis),
+              reason: error.message,
+            }),
+          );
+        }
+
+        return RefreshOutcome.Stalled();
       });
 
   const unreached = (): Effect.Effect<RefreshOutcome> =>
-    Ref.set(failingSince, Option.none()).pipe(Effect.andThen(kept()));
+    Ref.set(failing, Option.none()).pipe(Effect.andThen(kept()));
 
   const requestRefresh = (seen: StoredSession): Effect.Effect<RefreshOutcome> =>
     requestTokens({ refreshToken: Redacted.value(seen.refreshToken) }).pipe(
@@ -363,7 +429,7 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
           onSome: (renewed) => RefreshOutcome.Renewed({ session: renewed }),
         }),
       ),
-      Effect.tap(() => Ref.set(failingSince, Option.none())),
+      Effect.tap(() => Ref.set(failing, Option.none())),
       Effect.timeoutOption(REFRESH_TIMEOUT),
       Effect.flatMap(Option.match({ onNone: unreached, onSome: Effect.succeed })),
       Effect.catchTags({
@@ -417,13 +483,63 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
     return yield* RefreshOutcome.$match(outcome, {
       Renewed: ({ session: renewed }) =>
         Ref.set(session, Option.some(renewed)).pipe(
+          Effect.andThen(reconnect),
           Effect.andThen(storage.save(renewed)),
           Effect.as(Option.some(renewed.token)),
         ),
       Refused: () => forget().pipe(Effect.as(Option.none<Redacted.Redacted>())),
       Kept: () => Effect.succeedSome(seen.token),
+      Stalled: () => runSignedOut(seen).pipe(Effect.as(Option.none<Redacted.Redacted>())),
     });
   }, committing.withPermits(1));
+
+  /**
+   * Hands the connection no token, so it stops waiting for one and runs signed out, public
+   * queries included, while the session stays stored and is renewed in the background.
+   */
+  const runSignedOut = Effect.fn("Auth.runSignedOut")(function* (seen: StoredSession) {
+    if (yield* SubscriptionRef.get(reconnecting)) return;
+    yield* SubscriptionRef.set(reconnecting, true);
+    yield* transport.setAuth(null);
+    yield* FiberHandle.run(renewal, renewInBackground(seen));
+  });
+
+  /** Signs the connection in again after a renewal while it ran signed out. */
+  const reconnect = Effect.gen(function* () {
+    if (!(yield* SubscriptionRef.get(reconnecting))) return;
+    yield* transport.setAuth(tokenSource);
+    yield* SubscriptionRef.set(reconnecting, false);
+    yield* Effect.logInfo("Auth.reconnected");
+  });
+
+  /**
+   * Retries the refresh of `seen` until the server renews or refuses it, or the session changes,
+   * waiting longer each time up to the schedule's limit.
+   */
+  const renewInBackground = (seen: StoredSession): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const current = yield* Ref.get(session);
+
+      if (!(yield* SubscriptionRef.get(reconnecting)) || !Option.contains(current, seen)) {
+        return false;
+      }
+
+      const { finished: generation } = yield* Ref.get(lastAttempt);
+
+      yield* refresh(seen, generation, true).pipe(
+        Effect.catchTag("TokenStorageError", (error) =>
+          Effect.logWarning("Auth.tokenStorageFailed").pipe(
+            Effect.annotateLogs({ operation: error.operation, message: error.message }),
+          ),
+        ),
+      );
+
+      return yield* SubscriptionRef.get(reconnecting);
+    }).pipe(
+      Effect.repeat({ schedule: renewalSchedule, while: (again) => again }),
+      Effect.delay(Duration.seconds(1)),
+      Effect.asVoid,
+    );
 
   const refresh = Effect.fn("Auth.refresh")(function* (
     seen: StoredSession,
@@ -510,6 +626,7 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
   return Auth.of({
     status: SubscriptionRef.changes(status),
     currentStatus: SubscriptionRef.get(status),
+    reconnecting: SubscriptionRef.changes(reconnecting),
     signIn,
     signOut: signOut(),
     accessToken,

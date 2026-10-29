@@ -6,16 +6,21 @@ import {
   Effect,
   Exit,
   Layer,
+  Option,
   Predicate,
+  Queue,
   Redacted,
   Schedule,
   Scope,
+  Stream,
+  Struct,
 } from "effect";
 import { describe, expect, it } from "vitest";
 
 import * as Auth from "./auth";
 import * as ConvexTransport from "./convex-transport";
 import { clientTokenFetchers, translateFailure } from "./convex-transport";
+import * as MoviesClient from "./movies-client";
 import * as FakeConvex from "./testing/fake-convex";
 import { jwtIssuedAt, Reply } from "./testing/fake-convex";
 import * as TokenStorage from "./token-storage";
@@ -222,36 +227,53 @@ describe.concurrent("layerWebSocket", () => {
     expect(peak).toBe(1);
   }, 20_000);
 
-  it("lets a public query through once the server keeps failing to renew a refused session", async () => {
-    const { answer, status } = await Effect.runPromise(
+  it("runs signed out while the server keeps failing to renew the session, then signs in again", async () => {
+    const outcome = await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
           const fake = yield* FakeConvex.make;
+          let refreshes = 0;
+          let failing = true;
 
-          let signIns = 0;
-
-          // Signing in and the client's first refresh work; every refresh after them fails, as
-          // with a damaged refresh token.
-          yield* fake.handle("auth:signIn", () =>
+          // Signing in and the client's first refresh work; later refreshes fail until the server
+          // recovers, and then renew the same session.
+          yield* fake.handle("auth:signIn", (request) =>
             Effect.sync(() => {
-              signIns += 1;
+              const refresh = Predicate.hasProperty(request.args, "refreshToken");
 
-              return signIns > 2
-                ? Reply.Crash({ message: "Invalid refresh token" })
+              if (refresh) refreshes += 1;
+
+              return refresh && refreshes > 1 && failing
+                ? Reply.Crash({ message: "Convex is busy" })
                 : Reply.Success({
                     value: {
                       tokens: {
-                        token: jwtIssuedAt(Date.now(), 3600, `service|session-${String(signIns)}`),
-                        refreshToken: "damaged",
+                        token: jwtIssuedAt(
+                          Date.now(),
+                          3600,
+                          `service|session-${String(refreshes)}`,
+                        ),
+                        refreshToken: "refresh",
                       },
                     },
                   });
             }),
           );
           yield* fake.reply("account:viewer", Reply.Success({ value: "public answer" }));
+          // Answers a signed-in connection only, as most queries do.
+          yield* fake.handle("setup:status", (request) =>
+            Effect.succeed(
+              request.authorization === undefined
+                ? Reply.Failure({ code: "unauthenticated", message: "Sign in first" })
+                : Reply.Success({ value: { hasOwner: true, hasLibraries: refreshes > 1 } }),
+            ),
+          );
 
           const context = yield* Layer.build(
-            Auth.layer({ convexUrl: fake.url, refreshFailureLimit: Duration.seconds(5) }).pipe(
+            MoviesClient.layer({ mediaUrl: Option.none() }).pipe(
+              Layer.provideMerge(
+                Auth.layer({ convexUrl: fake.url, refreshFailureLimit: Duration.seconds(5) }),
+              ),
               Layer.provideMerge(ConvexTransport.layerWebSocket(fake.url)),
               Layer.provide(TokenStorage.layerMemory),
             ),
@@ -259,9 +281,10 @@ describe.concurrent("layerWebSocket", () => {
 
           const auth = Context.get(context, Auth.Auth);
           const transport = Context.get(context, ConvexTransport.ConvexTransport);
+          const client = Context.get(context, MoviesClient.MoviesClient);
+          const seen = yield* Queue.unbounded<string>();
 
           yield* auth.signIn(Auth.Credentials.ApiKey({ key: Redacted.make("mk_service") }));
-          yield* transport.call("query", "account:viewer", { ask: 1 });
           yield* fake.acceptedTokens.pipe(
             Effect.repeat({
               until: (accepted) => new Set(accepted).size >= 2,
@@ -269,6 +292,14 @@ describe.concurrent("layerWebSocket", () => {
             }),
             Effect.timeout(Duration.seconds(5)),
           );
+          yield* client.subscribe("setup.status", {}).pipe(
+            Stream.runForEach((status) =>
+              Queue.offer(seen, `libraries: ${String(status.hasLibraries)}`),
+            ),
+            Effect.catch((error) => Queue.offer(seen, `failed: ${Struct.get(error, "_tag")}`)),
+            Effect.forkScoped,
+          );
+          const first = yield* Queue.take(seen);
 
           // Convex stops the socket until the client hands it another token, or none.
           yield* fake.rejectAcceptedTokens;
@@ -277,14 +308,30 @@ describe.concurrent("layerWebSocket", () => {
             .call("query", "account:viewer", { ask: 2 })
             .pipe(Effect.timeout(Duration.seconds(20)));
 
-          return { answer: answered, status: yield* auth.currentStatus };
+          const whileFailing = {
+            status: yield* auth.currentStatus,
+            reconnecting: yield* Stream.runHead(auth.reconnecting),
+          };
+
+          failing = false;
+          yield* Stream.runHead(Stream.filter(auth.reconnecting, (waiting) => !waiting)).pipe(
+            Effect.timeout(Duration.seconds(20)),
+          );
+          const later = yield* Queue.take(seen).pipe(Effect.timeout(Duration.seconds(5)));
+
+          return { first, answered, whileFailing, later, status: yield* auth.currentStatus };
         }),
       ),
     );
 
-    expect(answer).toBe("public answer");
-    expect(status).toBe("signedOut");
-  }, 40_000);
+    expect(outcome).toStrictEqual({
+      first: "libraries: false",
+      answered: "public answer",
+      whileFailing: { status: "signedIn", reconnecting: Option.some(true) },
+      later: "libraries: true",
+      status: "signedIn",
+    });
+  }, 60_000);
 
   it("stops asking for a token once closed", async () => {
     const { stopped, later } = await asksAround((_, scope) => Scope.close(scope, Exit.void));
