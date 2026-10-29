@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import * as Auth from "./auth";
 import * as ConvexTransport from "./convex-transport";
-import { translateFailure } from "./convex-transport";
+import { clientTokenFetchers, translateFailure } from "./convex-transport";
 import * as FakeConvex from "./testing/fake-convex";
 import { jwtIssuedAt, Reply } from "./testing/fake-convex";
 import * as TokenStorage from "./token-storage";
@@ -152,6 +152,49 @@ describe.concurrent("layerWebSocket", () => {
 
     expect(later).toBe(stopped);
   }, 15_000);
+});
+
+describe("clientTokenFetchers", () => {
+  it("compares a refreshed token with the newest fetch's answer, the only one the client keeps", async () => {
+    // The client keeps only the answer of the fetch it started last; an older one still out
+    // when a newer one starts is discarded when it lands.
+    const answers: Array<(token: string) => void> = [];
+    let asked = 0;
+
+    const fetcher = clientTokenFetchers().replace(() => {
+      asked += 1;
+
+      return new Promise((resolve) => {
+        answers.push(resolve);
+      });
+    });
+
+    if (fetcher === null) throw new Error("A source gives a fetcher");
+    const discarded = fetcher({ forceRefreshToken: true });
+    const kept = fetcher({ forceRefreshToken: true });
+
+    answers[1]?.("token-2");
+    expect(await kept).toBe("token-2");
+    answers[0]?.("token-3");
+    expect(await discarded).toBe("token-3");
+
+    // The client holds token-2, so token-3 is new to it and comes back without asking again.
+    const next = fetcher({ forceRefreshToken: true });
+
+    answers[2]?.("token-3");
+
+    const answer = await Promise.race([
+      next,
+      new Promise((resolve) => {
+        setTimeout(() => {
+          resolve("asked again");
+        }, 500);
+      }),
+    ]);
+
+    expect(answer).toBe("token-3");
+    expect(asked).toBe(3);
+  });
 });
 
 describe("translateFailure", () => {

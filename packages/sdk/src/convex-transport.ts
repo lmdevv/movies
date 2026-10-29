@@ -267,25 +267,38 @@ export const clientTokenFetchers = () => {
 
     if (source === null) return null;
     const { signal } = generation;
-    const retired = (): boolean => signal.aborted;
+    // The client keeps only the answer of the fetch it started last, so that answer is the token
+    // it holds, and an older fetch still asking can stop: its answer will be discarded.
     let held: string | null = null;
+    let latest = 0;
+    const stale = (fetch: number): boolean => signal.aborted || fetch !== latest;
 
-    const renewed = async (delay: number): Promise<string | null> => {
+    const renewed = async (fetch: number, delay: number): Promise<string | null> => {
       if (delay > 0) await sleep(delay, signal);
 
-      // The client ignores a retired fetcher's answer, so it need not be a new token.
-      if (retired()) return held;
+      if (stale(fetch)) return null;
       const token = await source(true);
 
-      if (token === null || token !== held || retired()) return token;
+      if (token === null || token !== held || stale(fetch)) return token;
 
-      return renewed(Math.min(Math.max(delay * 2, FIRST_REFETCH_DELAY_MS), MAX_REFETCH_DELAY_MS));
+      return renewed(
+        fetch,
+        Math.min(Math.max(delay * 2, FIRST_REFETCH_DELAY_MS), MAX_REFETCH_DELAY_MS),
+      );
     };
 
     return async ({ forceRefreshToken }) => {
-      held = forceRefreshToken ? await renewed(0) : await source(false);
+      latest += 1;
+      const fetch = latest;
+      const token = forceRefreshToken ? await renewed(fetch, 0) : await source(false);
 
-      return held;
+      // Clearing auth leaves the client's scheduled refresh in place, so a retired fetcher can
+      // still be asked after a sign-out, and must not hand the old session back.
+      if (signal.aborted) return null;
+
+      if (fetch === latest) held = token;
+
+      return token;
     };
   };
 
@@ -398,29 +411,37 @@ const httpAdapter = (client: ConvexHttpClient, options: HttpOptions): ClientAdap
   };
 };
 
-const layerFromAdapter = (
-  acquire: () => ClientAdapter,
-): Layer.Layer<ConvexTransport, TransportError> =>
+/**
+ * The transport over the adapter `acquire` opens, closed with the layer's scope. Closing stops
+ * the adapter's token refreshes, so a closed connection never asks its token source again.
+ */
+export const layerFromAdapter = <E>(
+  acquire: Effect.Effect<ClientAdapter, E>,
+): Layer.Layer<ConvexTransport, E> =>
   Layer.effect(
     ConvexTransport,
-    Effect.acquireRelease(
-      Effect.try({
-        try: acquire,
-        catch: (cause) =>
-          new TransportError({
-            operation: "ConvexTransport.open",
-            message: "Transport failed to open: the Convex URL is not valid",
-            cause,
-          }),
-      }),
-      (adapter) => Effect.promise(() => adapter.close()),
-    ).pipe(Effect.flatMap(make)),
+    Effect.acquireRelease(acquire, (adapter) => Effect.promise(() => adapter.close())).pipe(
+      Effect.flatMap(make),
+    ),
   );
+
+const openAdapter = (open: () => ClientAdapter): Effect.Effect<ClientAdapter, TransportError> =>
+  Effect.try({
+    try: open,
+    catch: (cause) =>
+      new TransportError({
+        operation: "ConvexTransport.open",
+        message: "Transport failed to open: the Convex URL is not valid",
+        cause,
+      }),
+  });
 
 /** A WebSocket connection to `url`: pushed subscriptions and automatic token refresh. */
 export const layerWebSocket = (url: string): Layer.Layer<ConvexTransport, TransportError> =>
-  layerFromAdapter(() =>
-    webSocketAdapter(new ConvexClient(url, { logger: false, unsavedChangesWarning: false })),
+  layerFromAdapter(
+    openAdapter(() =>
+      webSocketAdapter(new ConvexClient(url, { logger: false, unsavedChangesWarning: false })),
+    ),
   );
 
 /** One-shot HTTP calls to `url`; subscriptions poll. Suits short-lived processes such as the CLI. */
@@ -428,4 +449,6 @@ export const layerHttp = (
   url: string,
   options: HttpOptions = { pollInterval: Duration.seconds(1) },
 ): Layer.Layer<ConvexTransport, TransportError> =>
-  layerFromAdapter(() => httpAdapter(new ConvexHttpClient(url, { logger: false }), options));
+  layerFromAdapter(
+    openAdapter(() => httpAdapter(new ConvexHttpClient(url, { logger: false }), options)),
+  );

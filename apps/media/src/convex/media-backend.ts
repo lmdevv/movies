@@ -280,7 +280,7 @@ const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
         ),
       ),
     ),
-    Effect.ignore,
+    Effect.catch((error) => Effect.logWarning("MediaBackend.probe_failed", error)),
   );
 
   yield* Deferred.await(ready).pipe(

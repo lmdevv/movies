@@ -1,5 +1,15 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Context, Deferred, Duration, Effect, Layer, Predicate, Redacted, Schedule } from "effect";
+import {
+  Context,
+  Deferred,
+  Duration,
+  Effect,
+  Layer,
+  Logger,
+  Predicate,
+  Redacted,
+  Schedule,
+} from "effect";
 
 import { EpochMillis } from "@movies/contracts/units";
 import * as FakeConvex from "@movies/sdk/testing/fake-convex";
@@ -116,6 +126,37 @@ describe("media service Convex connection", () => {
         yield* awaitStatus(backend, "connected");
       }),
     40_000,
+  );
+
+  it.live(
+    "says why when Convex answers a probe with a failure",
+    () => {
+      const logged: Array<unknown> = [];
+
+      const capture = Logger.make((entry) => {
+        logged.push(entry.message);
+      });
+
+      return Effect.gen(function* () {
+        const loggers = yield* Layer.build(Logger.layer([capture]));
+
+        yield* Effect.gen(function* () {
+          const fake = yield* makeConvex;
+
+          yield* fake.reply(ENDED_SESSIONS, Reply.Crash({ message: "endedSessions broke" }));
+          yield* connect(fake);
+
+          yield* Effect.sync(() => JSON.stringify(logged)).pipe(
+            Effect.repeat({
+              until: (text) => text.includes("MediaBackend.probe_failed"),
+              schedule: Schedule.spaced("100 millis"),
+            }),
+            Effect.timeout(Duration.seconds(10)),
+          );
+        }).pipe(Effect.provideContext(loggers));
+      });
+    },
+    20_000,
   );
 
   it.live(

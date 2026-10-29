@@ -3,7 +3,8 @@
  * too, so screens and SDK workflows share one WebSocket and one session.
  */
 import type { ConvexReactClient } from "convex/react";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
+import type { Layer } from "effect";
 
 import * as ConvexTransport from "./convex-transport";
 import type { AuthTokenSource, ClientAdapter } from "./convex-transport";
@@ -51,10 +52,4 @@ const reactAdapter = (client: ConvexReactClient): ClientAdapter => {
  * `client` open: the app owns it.
  */
 export const layer = (client: ConvexReactClient): Layer.Layer<ConvexTransport.ConvexTransport> =>
-  Layer.effect(
-    ConvexTransport.ConvexTransport,
-    Effect.acquireRelease(
-      Effect.sync(() => reactAdapter(client)),
-      (adapter) => Effect.promise(() => adapter.close()),
-    ).pipe(Effect.flatMap(ConvexTransport.make)),
-  );
+  ConvexTransport.layerFromAdapter(Effect.sync(() => reactAdapter(client)));

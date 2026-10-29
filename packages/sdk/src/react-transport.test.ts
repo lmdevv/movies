@@ -44,11 +44,16 @@ const asksAround = (
         );
         yield* stop(connection, scope);
         const stopped = asked;
+        const presented = (yield* fake.acceptedTokens).length;
 
         // Long enough for two more asks at the first waits, one and two seconds.
         yield* Effect.sleep(Duration.seconds(3.5));
 
-        return { stopped, later: asked };
+        return {
+          stopped,
+          later: asked,
+          presentedAfter: (yield* fake.acceptedTokens).length - presented,
+        };
       }),
     ),
   );
@@ -58,6 +63,12 @@ describe.concurrent("ReactTransport.layer", () => {
     const { stopped, later } = await asksAround((connection) => connection.setAuth(null));
 
     expect(later).toBe(stopped);
+  }, 15_000);
+
+  it("does not present the old token again once signed out", async () => {
+    const { presentedAfter } = await asksAround((connection) => connection.setAuth(null));
+
+    expect(presentedAfter).toBe(0);
   }, 15_000);
 
   it("stops asking for a token once closed, as when its provider unmounts", async () => {
