@@ -287,6 +287,7 @@ const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
     yield* ask(after).pipe(
       Effect.catchTag("TransportError", (error) =>
         Effect.logWarning("MediaBackend.unanswered", error).pipe(
+          Effect.andThen(Ref.set(answeredAt, Option.none())),
           Effect.andThen(signIn(seen)),
           Effect.andThen(
             ask(after).pipe(

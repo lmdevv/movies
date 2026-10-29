@@ -225,6 +225,12 @@ const MAX_REFETCH_DELAY_MS = 30_000;
 /** Resolves after `millis`, or as soon as `signal` aborts. */
 const sleep = (millis: number, signal: AbortSignal): Promise<void> =>
   new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+
+      return;
+    }
+
     const wake = (): void => {
       clearTimeout(timer);
       signal.removeEventListener("abort", wake);
@@ -239,6 +245,12 @@ const sleep = (millis: number, signal: AbortSignal): Promise<void> =>
 /** What `promise` resolves to, or null as soon as `signal` aborts. */
 const unlessAborted = <A>(promise: Promise<A>, signal: AbortSignal): Promise<A | null> =>
   new Promise<A | null>((resolve, reject) => {
+    if (signal.aborted) {
+      resolve(null);
+
+      return;
+    }
+
     const abort = (): void => {
       resolve(null);
     };
@@ -302,7 +314,10 @@ export const clientTokenFetchers = () => {
       );
     };
 
+    const retired = (): boolean => signal.aborted;
+
     const fetchToken = async (forceRefreshToken: boolean): Promise<string | null> => {
+      if (retired()) return null;
       latest += 1;
       const fetch = latest;
 
@@ -312,7 +327,7 @@ export const clientTokenFetchers = () => {
 
       // Clearing auth leaves the client's scheduled refresh in place, so a retired fetcher can
       // still be asked after a sign-out, and must not hand the old session back.
-      if (signal.aborted) return null;
+      if (retired()) return null;
 
       if (fetch === latest) held = token;
 
@@ -345,7 +360,7 @@ export const clientTokenFetchers = () => {
     const owed = [...fetching];
     const previous = installing;
 
-    installing = (async () => {
+    const installed = (async () => {
       await previous;
       await Promise.allSettled(owed);
       await nextTask();
@@ -353,7 +368,10 @@ export const clientTokenFetchers = () => {
       if (!signal.aborted) apply(fetcher);
     })();
 
-    return installing;
+    // A failed install fails its caller only; later installs still run.
+    installing = installed.catch(() => undefined);
+
+    return installed;
   };
 
   return { install, retire };

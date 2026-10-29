@@ -197,6 +197,48 @@ describe.concurrent("layerWebSocket", () => {
 });
 
 describe("clientTokenFetchers", () => {
+  it("never asks a retired fetcher's source again", async () => {
+    const fetchers = clientTokenFetchers();
+    const installed: Array<AuthTokenFetcher> = [];
+    let asked = 0;
+
+    await fetchers.install(
+      () => {
+        asked += 1;
+
+        return Promise.resolve("token");
+      },
+      (given) => {
+        if (given !== null) installed.push(given);
+      },
+    );
+    await fetchers.install(null, () => undefined);
+
+    const [retired] = installed;
+
+    if (retired === undefined) throw new Error("A source gives a fetcher");
+
+    expect(await retired({ forceRefreshToken: false })).toBeNull();
+    expect(await retired({ forceRefreshToken: true })).toBeNull();
+    expect(asked).toBe(0);
+  });
+
+  it("keeps installing after one install fails, as on a client the app already closed", async () => {
+    const fetchers = clientTokenFetchers();
+    const applied: Array<AuthTokenFetcher | null> = [];
+
+    const failed = fetchers.install(null, () => {
+      throw new Error("ConvexReactClient has already been closed.");
+    });
+
+    await expect(failed).rejects.toThrow("already been closed");
+    await fetchers.install(null, (given) => {
+      applied.push(given);
+    });
+
+    expect(applied).toStrictEqual([null]);
+  });
+
   it("compares a refreshed token with the newest fetch's answer, the only one the client keeps", async () => {
     // The client keeps only the answer of the fetch it started last; an older one still out
     // when a newer one starts is discarded when it lands.
