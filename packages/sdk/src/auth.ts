@@ -190,6 +190,11 @@ const SIGN_OUT: FunctionPath = "auth:signOut";
 export interface Options {
   /** The Convex deployment URL, the same one the connection uses. */
   readonly convexUrl: string;
+  /**
+   * How long the server may keep failing to renew a session, every refresh in between failing,
+   * before the session counts as refused and Auth signs out; one minute when absent.
+   */
+  readonly refreshFailureLimit?: Duration.Duration;
 }
 
 type RefreshOutcome = Data.TaggedEnum<{
@@ -200,11 +205,18 @@ type RefreshOutcome = Data.TaggedEnum<{
 
 const RefreshOutcome = Data.taggedEnum<RefreshOutcome>();
 
-const refused = () => Effect.succeed(RefreshOutcome.Refused());
+const refused = (): Effect.Effect<RefreshOutcome> => Effect.succeed(RefreshOutcome.Refused());
 
-const kept = () => Effect.succeed(RefreshOutcome.Kept());
+const kept = (): Effect.Effect<RefreshOutcome> => Effect.succeed(RefreshOutcome.Kept());
 
 const REFRESH_TIMEOUT = Duration.seconds(30);
+
+/**
+ * A connection waiting to reauthenticate stops, public queries included, until it gets a new
+ * token or none, so a refresh that can never succeed must end in a sign-out. A minute outlasts a
+ * deploy or a burst of server errors.
+ */
+const DEFAULT_REFRESH_FAILURE_LIMIT = Duration.minutes(1);
 
 const SERVER_SIGN_OUT_TIMEOUT = Duration.seconds(10);
 
@@ -229,6 +241,13 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
   }>({ finished: 0, session: Option.none(), forced: false });
 
   const committing = yield* Semaphore.make(1);
+
+  const refreshFailureLimit = options.refreshFailureLimit ?? DEFAULT_REFRESH_FAILURE_LIMIT;
+
+  /** The session the server has failed every refresh of since `since`, if any. */
+  const failingSince = yield* Ref.make(
+    Option.none<{ readonly session: StoredSession; readonly since: number }>(),
+  );
 
   const callGateway = Effect.fn("Auth.callGateway")(function* (
     path: FunctionPath,
@@ -300,9 +319,41 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
   });
 
   const forget = Effect.fn("Auth.forget")(function* () {
+    yield* Ref.set(failingSince, Option.none());
     yield* adopt(Option.none());
     yield* storage.clear;
   });
+
+  /**
+   * Keeps `seen` after the server failed to renew it, until it has failed every refresh for
+   * `refreshFailureLimit`. A refresh that could not reach the server, or was told to wait, ends
+   * the run: the server may be back, and nothing else worked before then.
+   */
+  const failed =
+    (seen: StoredSession) =>
+    (error: CallError): Effect.Effect<RefreshOutcome> =>
+      Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis;
+
+        const since = yield* Ref.modify(failingSince, (previous) => {
+          const start = Option.match(
+            Option.filter(previous, (failing) => failing.session === seen),
+            { onNone: () => now, onSome: (failing) => failing.since },
+          );
+
+          return [start, Option.some({ session: seen, since: start })] as const;
+        });
+
+        if (now - since < Duration.toMillis(refreshFailureLimit)) return yield* kept();
+        yield* Effect.logWarning("Auth.refreshAbandoned").pipe(
+          Effect.annotateLogs({ failingForMillis: now - since, reason: error.message }),
+        );
+
+        return yield* refused();
+      });
+
+  const unreached = (): Effect.Effect<RefreshOutcome> =>
+    Ref.set(failingSince, Option.none()).pipe(Effect.andThen(kept()));
 
   const requestRefresh = (seen: StoredSession): Effect.Effect<RefreshOutcome> =>
     requestTokens({ refreshToken: Redacted.value(seen.refreshToken) }).pipe(
@@ -312,20 +363,21 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
           onSome: (renewed) => RefreshOutcome.Renewed({ session: renewed }),
         }),
       ),
+      Effect.tap(() => Ref.set(failingSince, Option.none())),
       Effect.timeoutOption(REFRESH_TIMEOUT),
-      Effect.map(Option.getOrElse(() => RefreshOutcome.Kept())),
+      Effect.flatMap(Option.match({ onNone: unreached, onSome: Effect.succeed })),
       Effect.catchTags({
         Unauthenticated: refused,
         Forbidden: refused,
         Expired: refused,
-        TransportError: kept,
-        NotFound: kept,
-        InvalidArgs: kept,
-        Conflict: kept,
-        StaleRevision: kept,
-        RateLimited: kept,
-        Internal: kept,
-        ProtocolError: kept,
+        TransportError: unreached,
+        RateLimited: unreached,
+        NotFound: failed(seen),
+        InvalidArgs: failed(seen),
+        Conflict: failed(seen),
+        StaleRevision: failed(seen),
+        Internal: failed(seen),
+        ProtocolError: failed(seen),
       }),
     );
 

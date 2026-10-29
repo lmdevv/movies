@@ -267,6 +267,72 @@ describe("Auth", () => {
       }),
     ));
 
+  it("keeps the current token through refreshes the server fails for less than a minute", () =>
+    withAuth(signedInWith(FRESH), ({ fake, auth }) =>
+      Effect.gen(function* () {
+        yield* fake.reply("auth:signIn", Reply.Crash({ message: "Convex is busy" }));
+
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          expect(reveal(yield* auth.accessToken(true))).toBe(FRESH);
+          yield* TestClock.adjust(5_000);
+        }
+
+        yield* fake.reply("auth:signIn", tokens(RENEWED, ROTATED));
+
+        expect(reveal(yield* auth.accessToken(true))).toBe(RENEWED);
+        expect(yield* auth.currentStatus).toBe("signedIn");
+      }),
+    ));
+
+  it("signs out once the server has failed every refresh for a minute", () =>
+    withAuth(signedInWith(FRESH), ({ fake, memory, auth }) =>
+      Effect.gen(function* () {
+        yield* fake.reply("auth:signIn", Reply.Crash({ message: "Invalid refresh token" }));
+
+        const answers = [];
+
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          answers.push(reveal(yield* auth.accessToken(true)));
+          yield* TestClock.adjust(30_000);
+        }
+
+        expect(answers).toStrictEqual([FRESH, FRESH, null]);
+        expect(yield* auth.currentStatus).toBe("signedOut");
+        expect(memory.saved()).toStrictEqual(Option.none());
+      }),
+    ));
+
+  it("starts the minute again after a refresh that cannot reach the server", () =>
+    withAuth(signedInWith(FRESH), ({ fake, auth }) =>
+      Effect.gen(function* () {
+        yield* fake.reply("auth:signIn", Reply.Crash({ message: "Convex is busy" }));
+        expect(reveal(yield* auth.accessToken(true))).toBe(FRESH);
+        yield* TestClock.adjust(50_000);
+
+        yield* fake.reply("auth:signIn", Reply.Drop());
+        expect(reveal(yield* auth.accessToken(true))).toBe(FRESH);
+        yield* TestClock.adjust(20_000);
+
+        yield* fake.reply("auth:signIn", Reply.Crash({ message: "Convex is busy" }));
+        expect(reveal(yield* auth.accessToken(true))).toBe(FRESH);
+        expect(yield* auth.currentStatus).toBe("signedIn");
+      }),
+    ));
+
+  it("keeps the session through any number of refreshes that cannot reach the server", () =>
+    withAuth(signedInWith(FRESH), ({ fake, auth }) =>
+      Effect.gen(function* () {
+        yield* fake.reply("auth:signIn", Reply.Drop());
+
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          expect(reveal(yield* auth.accessToken(true))).toBe(FRESH);
+          yield* TestClock.adjust(60_000);
+        }
+
+        expect(yield* auth.currentStatus).toBe("signedIn");
+      }),
+    ));
+
   it("keeps the current token when a refresh gets no answer in time", () =>
     withAuth(signedInWith(EXPIRING), ({ fake, auth }) =>
       Effect.gen(function* () {

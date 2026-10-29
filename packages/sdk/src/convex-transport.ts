@@ -281,8 +281,9 @@ const signedOut: AuthTokenFetcher = () => Promise.resolve(null);
  * The same token comes back when a refresh fails for a while, since the session keeps its token,
  * and when a refresh lands in the second the token was minted, since Convex Auth signs to the
  * second. So a forced fetch asks again, waiting longer each time, until it gets a new token or
- * none. `install` and `retire` end every earlier fetcher at once: its fetches answer null and its
- * source is never asked again.
+ * none; a source whose refresh can never succeed must answer none in the end, as `Auth` does once
+ * the server has failed every refresh for a while. `install` and `retire` end every earlier
+ * fetcher at once: its fetches answer null and its source is never asked again.
  */
 export const clientTokenFetchers = () => {
   let generation = new AbortController();

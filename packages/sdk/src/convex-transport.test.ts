@@ -189,6 +189,70 @@ describe.concurrent("layerWebSocket", () => {
     expect(answer).toBe("signed in");
   }, 20_000);
 
+  it("lets a public query through once the server keeps failing to renew a refused session", async () => {
+    const { answer, status } = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fake = yield* FakeConvex.make;
+
+          let signIns = 0;
+
+          // Signing in and the client's first refresh work; every refresh after them fails, as
+          // with a damaged refresh token.
+          yield* fake.handle("auth:signIn", () =>
+            Effect.sync(() => {
+              signIns += 1;
+
+              return signIns > 2
+                ? Reply.Crash({ message: "Invalid refresh token" })
+                : Reply.Success({
+                    value: {
+                      tokens: {
+                        token: jwtIssuedAt(Date.now(), 3600, `service|session-${String(signIns)}`),
+                        refreshToken: "damaged",
+                      },
+                    },
+                  });
+            }),
+          );
+          yield* fake.reply("account:viewer", Reply.Success({ value: "public answer" }));
+
+          const context = yield* Layer.build(
+            Auth.layer({ convexUrl: fake.url, refreshFailureLimit: Duration.seconds(5) }).pipe(
+              Layer.provideMerge(ConvexTransport.layerWebSocket(fake.url)),
+              Layer.provide(TokenStorage.layerMemory),
+            ),
+          );
+
+          const auth = Context.get(context, Auth.Auth);
+          const transport = Context.get(context, ConvexTransport.ConvexTransport);
+
+          yield* auth.signIn(Auth.Credentials.ApiKey({ key: Redacted.make("mk_service") }));
+          yield* transport.call("query", "account:viewer", { ask: 1 });
+          yield* fake.acceptedTokens.pipe(
+            Effect.repeat({
+              until: (accepted) => new Set(accepted).size >= 2,
+              schedule: Schedule.spaced("50 millis"),
+            }),
+            Effect.timeout(Duration.seconds(5)),
+          );
+
+          // Convex stops the socket until the client hands it another token, or none.
+          yield* fake.rejectAcceptedTokens;
+
+          const answered = yield* transport
+            .call("query", "account:viewer", { ask: 2 })
+            .pipe(Effect.timeout(Duration.seconds(20)));
+
+          return { answer: answered, status: yield* auth.currentStatus };
+        }),
+      ),
+    );
+
+    expect(answer).toBe("public answer");
+    expect(status).toBe("signedOut");
+  }, 40_000);
+
   it("stops asking for a token once closed", async () => {
     const { stopped, later } = await asksAround((_, scope) => Scope.close(scope, Exit.void));
 
