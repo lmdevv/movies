@@ -9,7 +9,7 @@ import { DeviceId, RoomId } from "@movies/contracts/ids";
 import type { TitleId } from "@movies/contracts/ids";
 import { Milliseconds } from "@movies/contracts/units";
 import { expect, test } from "@playwright/test";
-import type { Browser, BrowserContext, Page, Route } from "@playwright/test";
+import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { Schema } from "effect";
 
 import { NO_STACK, openClient, ownedStack, signInOwner, useSession } from "../admin/session";
@@ -25,6 +25,7 @@ import {
   driftMs,
   encodeClip,
   expectPlayingPast,
+  holdSegments,
   leaveDialog,
   leaveWithEscape,
   makeWorkspace,
@@ -61,8 +62,6 @@ const SETTLED_MS = 150;
 const REPORT_AFTER_MS = 2 * HEARTBEAT_INTERVAL_MS;
 
 const GUEST = { name: "Sam", email: `sam-rooms-${run}@movies.test`, password: "sam-password-1" };
-
-const SEGMENTS = /\/media\/hls\/[^/]+\/\d+\/\d+\.m4s/u;
 
 let workspace = "";
 
@@ -210,30 +209,6 @@ const expectSettled = async (when: string): Promise<void> => {
 
   drifts.push({ when, ms: settled, guestReportedMs });
   expect(Math.abs(settled)).toBeLessThanOrEqual(SETTLED_MS);
-};
-
-const holdSegments = async (page: Page): Promise<() => Promise<void>> => {
-  const held: Array<Route> = [];
-  let holding = true;
-
-  const handler = async (route: Route): Promise<void> => {
-    if (holding) {
-      held.push(route);
-
-      return;
-    }
-
-    await route.continue();
-  };
-
-  await page.route(SEGMENTS, handler);
-
-  return async () => {
-    holding = false;
-    await page.unroute(SEGMENTS, handler);
-    // A request the player gave up on while held fails to continue; it is no longer wanted.
-    await Promise.all(held.map((route) => route.continue().catch(() => undefined)));
-  };
 };
 
 const startRoom = async (page: Page): Promise<RoomId> => {

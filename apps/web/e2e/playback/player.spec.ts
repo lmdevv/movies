@@ -2,9 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { DeviceId } from "@movies/contracts/ids";
 import type { EpisodeId, TitleId } from "@movies/contracts/ids";
 import { MEDIA_ROUTES } from "@movies/contracts/media-playback";
 import type { PlaybackMode } from "@movies/contracts/models/playback";
+import { Milliseconds } from "@movies/contracts/units";
 import { devices, expect, test } from "@playwright/test";
 import type { BrowserContext, Page, Request } from "@playwright/test";
 
@@ -25,6 +27,7 @@ import {
   expectPositionNear,
   firstFrameMs,
   holdKey,
+  holdSegments,
   leaveDialog,
   leaveWithEscape,
   movieNfo,
@@ -288,6 +291,12 @@ const showingSubtitle = () =>
   });
 
 const CONGESTED_SEGMENT_DELAY_MS = 4_000;
+
+/** Segments from the sixth on: in the generated clips, the fifth one ends at 12 seconds. */
+const SEGMENTS_FROM_12_SECONDS = /\/media\/hls\/[^/]+\/\d+\/(?:[5-9]|[1-9]\d+)\.m4s/u;
+
+/** Just short of the fifth segment's end: a stream that starts here needs the next segment. */
+const RESUME_LATE_IN_SEGMENT_MS = Milliseconds.make(11_900);
 
 const SEEK_FRACTION = 0.8;
 
@@ -702,61 +711,85 @@ test("a picture subtitle burns into a transcode and back out; a lower quality tr
   await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe("remux");
 });
 
-test("pausing while another quality's stream moves to its start keeps the position", async () => {
+test("pausing while a stream moves to where it resumes keeps the position", async () => {
   await playFromStart(MOVIES.pictures, "remux");
-  await page.getByTestId("player").press("ArrowRight");
-  await expectPlayingPast(page, 10.5);
 
-  const video = page.getByTestId("player-video");
+  const { menu, playback } = commandMenu(page);
 
-  // Presses Pause a few milliseconds into the next stream's seek to its start, before its first
-  // frame, and notes where that seek was going.
-  await video.evaluate((element) => {
-    element.addEventListener(
-      "emptied",
-      () => {
-        element.addEventListener(
-          "seeking",
-          () => {
-            setTimeout(() => {
-              if (!(element instanceof HTMLVideoElement)) return;
-              element.dataset["pausedSeekingTo"] = element.seeking
-                ? String(element.currentTime)
-                : "";
-              document
-                .querySelector("[data-testid=player]")
-                ?.dispatchEvent(new KeyboardEvent("keydown", { key: "k", bubbles: true }));
-            }, 5);
-          },
-          { once: true },
-        );
-      },
-      { once: true },
-    );
-  });
+  const chooseQuality = async (name: RegExp) => {
+    await page.keyboard.press("ControlOrMeta+k");
+    await playback.getByRole("option", { name: /^Quality/u }).click();
+    await menu.getByRole("listbox", { name: "Quality" }).getByRole("option", { name }).click();
+  };
 
-  const before = streams.length;
-  const panel = page.getByRole("dialog", { name: TRACKS });
+  let before = streams.length;
 
-  await revealControls(page);
-  await page.getByRole("button", { name: TRACKS }).click();
-  await panel.getByRole("radio", { name: "480p" }).click();
+  await chooseQuality(/^480p/u);
   await expect
     .poll(() => streams.slice(before).at(-1))
     .toMatchObject({ mode: "transcode-software", height: 480 });
 
-  const pausedSeekingTo = () =>
-    video.evaluate((element) => element.dataset["pausedSeekingTo"] ?? null);
+  const profile = await adultProfile(owner.sdk);
 
-  await expect.poll(pausedSeekingTo).not.toBeNull();
+  const { sessionId } = await owner.sdk.mutate("playback.createSession", {
+    profileId: profile.id,
+    deviceId: DeviceId.make(`resume-seed-${run}`),
+    titleId: titleId(MOVIES.pictures),
+  });
 
-  const seekingTo = await pausedSeekingTo();
+  await owner.sdk.mutate("playback.endSession", {
+    sessionId,
+    positionMs: RESUME_LATE_IN_SEGMENT_MS,
+  });
 
-  expect(seekingTo, "Pause landed after the start seek finished").not.toBe("");
+  // A quality switch starts its stream the same way, but from wherever the old one had got to;
+  // resuming starts it at an exact position. With the segments after 12 s held, the 480p stream's
+  // seek to 11.9 s has too little after it to finish, so the pause is sure to land before the
+  // element has a frame.
+  const release = await holdSegments(page, SEGMENTS_FROM_12_SECONDS);
+  const video = page.getByTestId("player-video");
 
-  const start = Number(seekingTo);
+  before = streams.length;
+  await page.goto(`/watch/${titleId(MOVIES.pictures)}`);
+  await page.getByRole("button", { name: /^Resume from 0:11$/u }).click();
+  await expect
+    .poll(() => streams.slice(before).at(-1))
+    .toMatchObject({ mode: "transcode-software", height: 480 });
+  await expect
+    .poll(() => video.evaluate((element) => element instanceof HTMLVideoElement && element.seeking))
+    .toBe(true);
 
-  expect(start).toBeGreaterThan(10);
+  const start = RESUME_LATE_IN_SEGMENT_MS / 1000;
+
+  expect((await videoState(page)).currentTime).toBeCloseTo(start, 3);
+
+  // Notes what the element reports when its pause event arrives, after the player has heard it.
+  await video.evaluate((element) => {
+    element.addEventListener(
+      "pause",
+      () => {
+        if (!(element instanceof HTMLVideoElement)) return;
+        element.dataset["pausedSeeking"] = String(element.seeking);
+        element.dataset["pausedReadyState"] = String(element.readyState);
+      },
+      { once: true },
+    );
+  });
+  await page.getByTestId("player").press("k");
+
+  const pausedWith = () =>
+    video.evaluate((element) =>
+      element instanceof HTMLVideoElement
+        ? {
+            seeking: element.dataset["pausedSeeking"],
+            readyState: Number(element.dataset["pausedReadyState"]),
+          }
+        : null,
+    );
+
+  await expect.poll(async () => (await pausedWith())?.seeking).toBe("true");
+  expect((await pausedWith())?.readyState).toBeLessThan(HAVE_CURRENT_DATA);
+  await release();
   await expect
     .poll(async () => {
       const state = await videoState(page);
@@ -767,6 +800,10 @@ test("pausing while another quality's stream moves to its start keeps the positi
   await expectPositionNear(page, start, 0.1);
   await page.waitForTimeout(1_000);
   expect(Math.abs((await videoState(page)).currentTime - start)).toBeLessThan(0.1);
+
+  before = streams.length;
+  await chooseQuality(/^Auto/u);
+  await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe("remux");
 });
 
 test("a quality the media service cannot encode now gives way to the stream that plays", async () => {
