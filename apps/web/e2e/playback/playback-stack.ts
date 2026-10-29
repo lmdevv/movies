@@ -271,12 +271,12 @@ export const HAVE_CURRENT_DATA = 2;
 const SEGMENTS = /\/media\/hls\/[^/]+\/\d+\/\d+\.m4s/u;
 
 /**
- * Holds the page's requests for `segments` until the returned function lets them through, as a
- * network that stops answering does.
+ * Holds the page's requests for `segments`, a pattern or a test of each URL, until the returned
+ * function lets them through, as a network that stops answering does.
  */
 export const holdSegments = async (
   page: Page,
-  segments: RegExp = SEGMENTS,
+  segments: RegExp | ((url: URL) => boolean) = SEGMENTS,
 ): Promise<() => Promise<void>> => {
   const held: Array<Route> = [];
   let holding = true;
