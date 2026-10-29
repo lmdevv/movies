@@ -518,7 +518,9 @@ const make = Effect.gen(function* () {
   const sweep = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
 
-    const over = yield* Effect.filter([...(yield* Ref.get(held)).keys()], ended.isEnded);
+    const over = yield* Effect.filter([...(yield* Ref.get(held)).keys()], ended.isEnded, {
+      concurrency: "unbounded",
+    });
 
     const live = yield* Ref.updateAndGet(held, (current) => {
       const next = new Map(current);

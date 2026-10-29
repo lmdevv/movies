@@ -527,7 +527,7 @@ describe.skipIf(!hasFfmpeg)("stream liveness", () => {
     );
 
     it.effect(
-      "closes a stream when its own session reports the end the ended-sessions feed missed",
+      "closes a stream and refuses its token once its session ends",
       () =>
         Effect.gen(function* () {
           const convex = yield* TestConvex.Service;
@@ -535,18 +535,53 @@ describe.skipIf(!hasFfmpeg)("stream liveness", () => {
 
           assert.strictEqual(yield* status(stream.file("0.m4s")), 200);
 
-          yield* convex.endUnlisted(stream.sid);
+          yield* convex.end(stream.sid);
           const [event] = yield* awaitEnded(stream.streamId);
 
           assert.strictEqual(event?.reason, "session-ended");
           assertExplained(yield* logsOf("Stream.ended", stream.streamId));
-          assert.strictEqual(yield* status(stream.file("1.m4s")), 404, "the stream is gone");
+
+          const gone = yield* fetched(stream.file("1.m4s"));
+
+          assert.strictEqual(gone.status, 410);
+          assert.deepStrictEqual(tagOf(gone.body), { _tag: "PlaybackSessionEnded" });
+
+          const again = yield* posted("/api/playback/negotiate", {
+            token: stream.token,
+            capabilities: smallScreen,
+          });
+
+          assert.strictEqual(again.status, 410, "no new stream for the ended session");
+          assert.deepStrictEqual(tagOf(again.body), { _tag: "PlaybackSessionEnded" });
         }),
       60_000,
     );
 
     it.effect(
-      "closes the stream of a session Convex has no record of",
+      "refuses the first request of a session that ended before it",
+      () =>
+        Effect.gen(function* () {
+          const convex = yield* TestConvex.Service;
+          const server = yield* MediaTestServer.Service;
+          const { library } = yield* FixtureWorkspace.Service;
+          const sid = `ended-first-${crypto.randomUUID()}`;
+
+          yield* convex.report(sid, "paused", 0);
+          yield* convex.end(sid);
+
+          const refused = yield* posted("/api/playback/negotiate", {
+            token: signTestToken({ fid: server.fileId("movies", library.directMovie), sid }),
+            capabilities: smallScreen,
+          });
+
+          assert.strictEqual(refused.status, 410);
+          assert.deepStrictEqual(tagOf(refused.body), { _tag: "PlaybackSessionEnded" });
+        }),
+      30_000,
+    );
+
+    it.effect(
+      "refuses a token for a session Convex has no record of, and starts no stream",
       () =>
         Effect.gen(function* () {
           const server = yield* MediaTestServer.Service;
@@ -554,27 +589,20 @@ describe.skipIf(!hasFfmpeg)("stream liveness", () => {
           const { library } = yield* FixtureWorkspace.Service;
           const sid = `unknown-${crypto.randomUUID()}`;
 
-          const negotiated = yield* posted("/api/playback/negotiate", {
+          const refused = yield* posted("/api/playback/negotiate", {
             token: signTestToken({ fid: server.fileId("movies", library.directMovie), sid }),
             capabilities: smallScreen,
           });
 
-          assert.include([200, 404], negotiated.status, "the stream may close before it answers");
+          assert.strictEqual(refused.status, 410);
+          assert.deepStrictEqual(tagOf(refused.body), { _tag: "PlaybackSessionEnded" });
 
-          const ended = yield* recording.events.pipe(
-            Effect.map((events) =>
-              events.flatMap((event) =>
-                PlaybackReporter.PlaybackEvent.guards.StreamEnded(event) && event.sessionId === sid
-                  ? [event.reason]
-                  : [],
-              ),
-            ),
-            Effect.filterOrFail((reasons) => reasons.length > 0),
-            Effect.retry({ schedule: Schedule.spaced("100 millis"), times: 50 }),
-            Effect.orDie,
+          const events = yield* recording.events;
+
+          assert.deepStrictEqual(
+            events.filter((event) => event.sessionId === sid),
+            [],
           );
-
-          assert.deepStrictEqual(ended, ["session-ended"]);
         }),
       30_000,
     );

@@ -2,6 +2,7 @@ import { artworkUrl } from "@movies/contracts/artwork";
 import {
   ClientDiagnosticsRequest,
   DIAGNOSTICS_ROUTES,
+  LogRecord,
   PlaybackDiagnostics,
   PlayerObservation,
 } from "@movies/contracts/diagnostics";
@@ -167,6 +168,8 @@ const startSession = (titleId: TitleId, device: string) =>
 const encodeNegotiate = Schema.encodeSync(Schema.toCodecJson(NegotiateRequest));
 
 const encodeBatch = Schema.encodeSync(Schema.toCodecJson(ClientDiagnosticsRequest));
+
+const decodeRecord = Schema.decodeUnknownOption(Schema.fromJsonString(LogRecord));
 
 const decodeLogLine = Schema.decodeUnknownSync(
   Schema.fromJsonString(Schema.Struct({ message: Schema.String })),
@@ -562,7 +565,61 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
       );
 
       expect(refused).toMatchObject({ sessionId: started.sessionId });
-      expect(media.logs()).toContain("EndedSessionWatcher.streams_stopped");
+
+      const endReasons = () =>
+        media
+          .logs()
+          .split("\n")
+          .flatMap((line) => Option.toArray(decodeRecord(line)))
+          .filter(
+            (record) =>
+              record.message === "Stream.ended" &&
+              record.annotations["sessionId"] === started.sessionId,
+          )
+          .map((record) => record.annotations["reason"]);
+
+      const reasons = await Effect.runPromise(
+        Effect.sync(endReasons).pipe(
+          Effect.repeat({
+            until: (seen) => seen.length > 0,
+            schedule: Schedule.spaced("100 millis"),
+            times: 50,
+          }),
+        ),
+      );
+
+      expect(reasons).toStrictEqual(["session-ended"]);
+    });
+
+    it("refuses the first request of a session that ended before it", async () => {
+      const remux = await asOwner(titleIn(moviesLibrary, "Remux Fixture"));
+      const started = await asOwner(startSession(remux.id, "ended-first"));
+
+      await asOwner(
+        Effect.flatMap(client, (movies) =>
+          movies.mutate("playback.endSession", {
+            sessionId: started.sessionId,
+            positionMs: Milliseconds.make(0),
+          }),
+        ),
+      );
+
+      const response = await fetch(`${started.mediaBaseUrl}${MEDIA_ROUTES.negotiate}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          encodeNegotiate({
+            token: Redacted.make(started.token),
+            capabilities: browser,
+            startSeconds: 0,
+          }),
+        ),
+      });
+
+      expect(response.status).toBe(410);
+      expect(Option.getOrUndefined(decodeSessionEnded(await response.text()))).toMatchObject({
+        sessionId: started.sessionId,
+      });
     });
 
     it("serves metadata commands only to manage sessions and reports a missing provider", async () => {

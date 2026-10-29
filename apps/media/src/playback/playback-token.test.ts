@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 
 import { assert, layer } from "@effect/vitest";
-import { Effect, Match, Option, Redacted } from "effect";
+import { Effect, Layer, Match, Option, Redacted } from "effect";
 import { TestClock } from "effect/testing";
 
 import { PlaybackSessionId, UserId } from "@movies/contracts/ids";
@@ -12,6 +12,8 @@ import {
   PlaybackTokenSecretInvalid,
 } from "@movies/contracts/playback-token";
 
+import * as ConvexSessionReports from "../convex/convex-session-reports.ts";
+import * as TestConvex from "../testing/test-convex.ts";
 import * as EndedSessions from "./ended-sessions.ts";
 import * as PlaybackToken from "./playback-token.ts";
 
@@ -56,7 +58,7 @@ const reasonOf = Match.type<PlaybackTokenInvalid | PlaybackSessionEnded>().pipe(
 const rejection = (token: string, purposes = PlaybackToken.PLAY) =>
   verify(token, purposes).pipe(Effect.flip, Effect.map(reasonOf));
 
-layer(EndedSessions.layer)("PlaybackToken", (it) => {
+layer(EndedSessions.layerNone)("PlaybackToken", (it) => {
   it.effect("accepts a token signed with the shared secret before it expires", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(5_000);
@@ -226,20 +228,26 @@ layer(EndedSessions.layer)("PlaybackToken", (it) => {
       }
     }),
   );
+});
 
+layer(
+  EndedSessions.layer.pipe(
+    Layer.provide(ConvexSessionReports.layer),
+    Layer.provideMerge(TestConvex.layer),
+  ),
+)("PlaybackToken with Convex", (it) => {
   it.effect("refuses a valid token once its playback session ended", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(5_000);
-      const ended = yield* EndedSessions.Service;
+      const convex = yield* TestConvex.Service;
       const verifier = yield* PlaybackToken.make(secret).pipe(Effect.orDie);
-      const token = Redacted.make(sign(JSON.stringify(claims)));
-      const sessionId = PlaybackSessionId.make("session_1");
+      const sessionId = PlaybackSessionId.make(`session-${crypto.randomUUID()}`);
+      const token = Redacted.make(sign(JSON.stringify({ ...claims, sid: sessionId })));
 
-      assert.strictEqual(
-        (yield* verifier.verify(token, PlaybackToken.PLAY)).sessionId,
-        "session_1",
-      );
-      yield* ended.record([{ sessionId, endedAt: 4_000 }]);
+      yield* convex.report(sessionId, "playing", 0);
+
+      assert.strictEqual((yield* verifier.verify(token, PlaybackToken.PLAY)).sessionId, sessionId);
+      yield* convex.end(sessionId);
 
       const error = yield* verifier.verify(token, PlaybackToken.PLAY).pipe(Effect.flip);
 
@@ -251,7 +259,11 @@ layer(EndedSessions.layer)("PlaybackToken", (it) => {
     Effect.gen(function* () {
       yield* TestClock.setTime(5_000);
       const verifier = yield* PlaybackToken.make(secret).pipe(Effect.orDie);
-      const ended = yield* EndedSessions.Service;
+      const convex = yield* TestConvex.Service;
+
+      const sid = `session-${crypto.randomUUID()}`;
+
+      yield* convex.report(sid, "playing", 0);
 
       const refusal = (token: string) =>
         verifier.authorize(Redacted.make(token), PlaybackToken.PLAY).pipe(
@@ -263,12 +275,12 @@ layer(EndedSessions.layer)("PlaybackToken", (it) => {
         );
 
       const signed = {
-        sessionId: PlaybackSessionId.make("session_signed"),
+        sessionId: PlaybackSessionId.make(sid),
         userId: UserId.make("user_1"),
       };
 
-      const authentic = sign(JSON.stringify({ ...claims, sid: "session_signed" }));
-      const download = sign(JSON.stringify({ ...claims, sid: "session_signed", pur: "download" }));
+      const authentic = sign(JSON.stringify({ ...claims, sid }));
+      const download = sign(JSON.stringify({ ...claims, sid, pur: "download" }));
 
       assert.deepStrictEqual(yield* refusal(download), ["wrong_purpose", signed]);
 
@@ -281,9 +293,7 @@ layer(EndedSessions.layer)("PlaybackToken", (it) => {
         "Playback token has expired",
       );
 
-      yield* ended.record([
-        { sessionId: PlaybackSessionId.make("session_signed"), endedAt: 4_000 },
-      ]);
+      yield* convex.end(sid);
 
       assert.deepStrictEqual(yield* refusal(authentic), ["session-ended", signed]);
       assert.strictEqual(yield* rejection(authentic), "session-ended");

@@ -1755,6 +1755,14 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       expect(resolved.roots).toStrictEqual([`/stack-${id}/open`]);
     });
 
+    it("answers no session for an ID that names none, so the media service counts it ended", async () => {
+      expect(
+        await service(fixture.mediaService, "mediaService.sessionStatus", {
+          sessionId: "not-a-playback-session",
+        }),
+      ).toBeNull();
+    });
+
     it("ends a session's playback when it signs out", async () => {
       const laptop = await signIn(url, password(fixture.memberEmail, "signIn"));
 
@@ -1815,9 +1823,8 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
       );
     });
 
-    it("reports every session a sign-out ended, even past a page's limit", async () => {
+    it("ends every playback session of a sign-in it signs out, as the media service sees", async () => {
       const tablet = await signIn(url, password(fixture.memberEmail, "signIn"));
-      const before = Date.now() - 1;
 
       const started = await Promise.all(
         ["a", "b", "c"].map((name) =>
@@ -1831,15 +1838,50 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
 
       await tablet.client.action(makeFunctionReference<"action">("auth:signOut"), {});
 
-      const reported = await service(fixture.mediaService, "mediaService.endedSessions", {
-        after: EpochMillis.make(before),
-        limit: 2,
-      });
-
-      expect(reported.map((session) => session.sessionId)).toStrictEqual(
-        expect.arrayContaining(started.map((session) => session.sessionId)),
+      const statuses = await Promise.all(
+        started.map(({ sessionId }) =>
+          service(fixture.mediaService, "mediaService.sessionStatus", { sessionId }),
+        ),
       );
+
+      expect(statuses.map((status) => status?.status)).toStrictEqual(["ended", "ended", "ended"]);
     });
+
+    it("ends sessions of separate accounts at once without one end failing another", async () => {
+      const viewers = await Array.from(
+        { length: 24 },
+        (_, index) => `concurrent-end-${index}`,
+      ).reduce<
+        Promise<ReadonlyArray<{ readonly viewer: Session; readonly sessionId: PlaybackSessionId }>>
+      >(async (earlier, name) => {
+        const before = await earlier;
+        const viewer = await inviteMember(fixture.owner, `${name}-${id}@movies.test`);
+
+        const started = await run(viewer, "playback.createSession", {
+          profileId: await firstProfile(viewer),
+          deviceId: device(name),
+          titleId: fixture.titles.allAges,
+        });
+
+        return [...before, { viewer, sessionId: started.sessionId }];
+      }, Promise.resolve([]));
+
+      const ends = await Promise.allSettled(
+        viewers.map(({ viewer, sessionId }) =>
+          run(viewer, "playback.endSession", { sessionId, positionMs: ms(0) }),
+        ),
+      );
+
+      expect(ends.filter((end) => end.status === "rejected")).toStrictEqual([]);
+
+      const statuses = await Promise.all(
+        viewers.map(({ sessionId }) =>
+          service(fixture.mediaService, "mediaService.sessionStatus", { sessionId }),
+        ),
+      );
+
+      expect(statuses.map((status) => status?.status)).toStrictEqual(viewers.map(() => "ended"));
+    }, 120_000);
 
     it("stops renewing a token once the profile may no longer see the title", async () => {
       await run(fixture.owner, "users.setLibraryAccess", {
@@ -1944,11 +1986,11 @@ describe.skipIf(stack === undefined)("against a real stack", () => {
         positionMs: ms(DURATION_MS * 0.91),
       });
 
-      const ended = await service(fixture.mediaService, "mediaService.endedSessions", {
-        after: EpochMillis.make(Date.now() - 60_000),
+      const ended = await service(fixture.mediaService, "mediaService.sessionStatus", {
+        sessionId: newer.sessionId,
       });
 
-      expect(ended.map((session) => session.sessionId)).toContain(newer.sessionId);
+      expect(ended?.status).toBe("ended");
     });
 
     it("downloads beside the device's playback, four at a time, until the sign-in ends", async () => {

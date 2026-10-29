@@ -1,5 +1,5 @@
 import { MediaFileId, PlaybackSessionId } from "@movies/contracts/ids";
-import type { EndedSession, SessionStatus } from "@movies/contracts/models/scan";
+import type { SessionStatus } from "@movies/contracts/models/scan";
 import { EpochMillis, Milliseconds } from "@movies/contracts/units";
 import { Clock, Context, Effect, Layer, Stream, SubscriptionRef } from "effect";
 
@@ -14,13 +14,8 @@ export interface Interface {
     state: "playing" | "paused",
     positionMs: number,
   ) => Effect.Effect<void>;
-  /** Ends `sessionId`, as a sign-out or the idle sweep would. */
+  /** Ends `sessionId`, as a stop, a sign-out, or the idle sweep would. */
   readonly end: (sessionId: string) => Effect.Effect<void>;
-  /**
-   * Ends `sessionId` without the ended-sessions feed ever listing it, as when the session commits
-   * after the watcher's cursor already passed its `endedAt`.
-   */
-  readonly endUnlisted: (sessionId: string) => Effect.Effect<void>;
 }
 
 /** The scripted Convex. */
@@ -48,26 +43,18 @@ const statusOf = (sessionId: string, play: Play): SessionStatus => ({
 });
 
 /**
- * The scripted Convex and a connected backend whose `sessionStatus` and `endedSessions`
- * subscriptions follow it. A session exists once a test reports or ends it; before that
- * `sessionStatus` answers null, as Convex does for no such session.
+ * The scripted Convex and a connected backend whose `sessionStatus` subscriptions follow it. A
+ * session exists once a test reports or ends it; before that `sessionStatus` answers null, as
+ * Convex does for no such session.
  */
 export const layer: Layer.Layer<Service | MediaBackend.Service> = Layer.unwrap(
   Effect.gen(function* () {
     const plays = yield* SubscriptionRef.make<ReadonlyMap<string, Play>>(new Map());
-    const ended = yield* SubscriptionRef.make<ReadonlyArray<EndedSession>>([]);
 
     const change = (sessionId: string, edit: (play: Play) => Play) =>
       SubscriptionRef.update(plays, (current) =>
         new Map(current).set(sessionId, edit(current.get(sessionId) ?? CREATED)),
       );
-
-    const endAt = (sessionId: string, now: number) =>
-      change(sessionId, (play) => ({
-        state: play.state,
-        positionMs: play.positionMs,
-        endedAt: now,
-      }));
 
     const control = Service.of({
       report: Effect.fn("TestConvex.report")(function* (sessionId, state, positionMs) {
@@ -76,15 +63,11 @@ export const layer: Layer.Layer<Service | MediaBackend.Service> = Layer.unwrap(
       end: Effect.fn("TestConvex.end")(function* (sessionId) {
         const now = yield* Clock.currentTimeMillis;
 
-        yield* endAt(sessionId, now);
-
-        yield* SubscriptionRef.update(ended, (sessions) => [
-          ...sessions,
-          { sessionId: PlaybackSessionId.make(sessionId), endedAt: EpochMillis.make(now) },
-        ]);
-      }),
-      endUnlisted: Effect.fn("TestConvex.endUnlisted")(function* (sessionId) {
-        yield* endAt(sessionId, yield* Clock.currentTimeMillis);
+        yield* change(sessionId, (play) => ({
+          state: play.state,
+          positionMs: play.positionMs,
+          endedAt: now,
+        }));
       }),
     });
 
@@ -98,12 +81,6 @@ export const layer: Layer.Layer<Service | MediaBackend.Service> = Layer.unwrap(
 
               return play === undefined ? null : statusOf(sessionId, play);
             }),
-          ),
-        "mediaService.endedSessions": ({ after, limit }) =>
-          SubscriptionRef.changes(ended).pipe(
-            Stream.map((sessions) =>
-              sessions.filter((session) => session.endedAt > after).slice(0, limit),
-            ),
           ),
       },
     );

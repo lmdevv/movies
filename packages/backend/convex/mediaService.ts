@@ -22,7 +22,6 @@ import { currentManifest } from "./lib/trickplay";
 import {
   backupArchive,
   claimedJob,
-  endedSession,
   indexedFile,
   job,
   jobKind,
@@ -339,61 +338,27 @@ export const resolveFile = query({
 
 /**
  * Whether a playback session is still active, the file it plays, when it ended, and whether its
- * player plays; null for no such session.
+ * player plays; null for no such session, including an ID that names none, which the media service
+ * counts as ended.
  */
 export const sessionStatus = query({
-  args: { sessionId: v.id("playbackSessions") },
+  args: { sessionId: v.string() },
   returns: nullable(sessionStatusResult),
   handler: async (ctx, { sessionId }) => {
     await authorize(ctx, "media-service");
-    const session = await ctx.db.get(sessionId);
+    const id = ctx.db.normalizeId("playbackSessions", sessionId);
+    const session = id === null ? null : await ctx.db.get(id);
 
     if (session === null) return null;
 
     return {
-      sessionId,
+      sessionId: session._id,
       status: session.status,
       fileId: session.fileId,
       endedAt: session.endedAt,
       state: session.state,
       positionMs: session.positionMs,
     };
-  },
-});
-
-/**
- * Sessions that ended after `after`, oldest first; the media service stops their streams and asks
- * again after the latest `endedAt` it saw. A page never splits one `endedAt`: a sign-out or a
- * restore ends many sessions in the same millisecond, and the ones past the limit would otherwise
- * be skipped by the next page.
- */
-export const endedSessions = query({
-  args: { after: v.number(), limit: v.optional(v.number()) },
-  returns: v.array(endedSession),
-  handler: async (ctx, { after, limit }) => {
-    await authorize(ctx, "media-service");
-    const wanted = resultLimit(limit, 100, 200);
-
-    const ended = await ctx.db
-      .query("playbackSessions")
-      .withIndex("by_status_ended", (q) => q.eq("status", "ended").gt("endedAt", after))
-      .take(wanted);
-
-    const last = ended.at(-1)?.endedAt ?? null;
-
-    const ties =
-      ended.length < wanted || last === null
-        ? []
-        : await ctx.db
-            .query("playbackSessions")
-            .withIndex("by_status_ended", (q) => q.eq("status", "ended").eq("endedAt", last))
-            .collect();
-
-    const unique = new Map([...ended, ...ties].map((session) => [session._id, session]));
-
-    return [...unique.values()].flatMap((session) =>
-      session.endedAt === null ? [] : [{ sessionId: session._id, endedAt: session.endedAt }],
-    );
   },
 });
 

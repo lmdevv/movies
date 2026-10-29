@@ -20,9 +20,13 @@ choices made while implementing them. Update it in the same PR that changes a de
   playback tokens; `prepare` and the download MP4s only download tokens; the original file and its
   subtitles either. Any other is `PlaybackTokenInvalid` with reason `wrong_purpose` (401).
 - A token whose playback session has ended is refused with `PlaybackSessionEnded` (410) even
-  before it expires: the media service follows `mediaService:endedSessions`, stops the session's
-  HLS streams, and remembers ended sessions for a token's lifetime (catching up on the last six
-  hours at startup).
+  before it expires. The media service subscribes to `mediaService:sessionStatus` for each session
+  whose token it sees, for a token's lifetime, and waits up to five seconds for the first answer
+  before it serves that session. An HLS stream follows its own session and stops when it ends. A
+  session Convex has no record of counts as ended. Following each session, rather than a feed of
+  ends ordered by `endedAt`, sees an end that commits after a later-stamped one, or that a restore
+  or a clock step stamped in the past. It also writes nothing, so ends in different accounts never
+  contend.
 - Tokens never appear in logs. Media URLs carry the token in the `token` query parameter because
   `<video>` and HLS segment fetches cannot set headers.
 
@@ -132,7 +136,7 @@ choices made while implementing them. Update it in the same PR that changes a de
   first episode.
 - The media service's functions are listed with their schemas in
   `@movies/contracts/media-service` (`mediaService:*`). It subscribes to `pendingJobs`,
-  `libraries`, and `endedSessions`, resolves a token's file with `resolveFile`, and writes scans
+  `libraries`, and `sessionStatus`, resolves a token's file with `resolveFile`, and writes scans
   in batches of at most 100 with `upsertScanned` and `markMissing`. Missing files keep their
   records and history.
 - Library folders are normalized (trimmed, no repeated or trailing slashes) and may not equal,

@@ -12,7 +12,6 @@ import * as Omdb from "./metadata/omdb.ts";
 import * as Tmdb from "./metadata/tmdb.ts";
 import * as HardwareAcceleration from "./playback/hardware-acceleration.ts";
 import * as KeyframeIndex from "./playback/keyframe-index.ts";
-import * as EndedSessions from "./playback/ended-sessions.ts";
 import * as PlaybackNegotiator from "./playback/playback-negotiator.ts";
 import * as PlaybackToken from "./playback/playback-token.ts";
 import * as StreamOwners from "./playback/stream-owners.ts";
@@ -43,7 +42,6 @@ export const servicesLayer = Layer.mergeAll(
   Layer.provideMerge(Tmdb.layer),
   Layer.provideMerge(Omdb.layer),
   Layer.provideMerge(PlaybackToken.layer),
-  Layer.provideMerge(EndedSessions.layer),
   Layer.provideMerge(DiskCache.layer),
   Layer.provideMerge(TrickplayStore.layer),
   Layer.provideMerge(MediaTools.layer),

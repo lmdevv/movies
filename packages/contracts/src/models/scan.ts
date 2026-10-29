@@ -213,15 +213,6 @@ export const SessionStatus = Schema.Struct({
 /** Whether a playback session continues, and whether its player plays. */
 export interface SessionStatus extends Schema.Schema.Type<typeof SessionStatus> {}
 
-/** An ended playback session whose streams the media service should stop. */
-export const EndedSession = Schema.Struct({
-  sessionId: PlaybackSessionId,
-  endedAt: EpochMillis,
-});
-
-/** A playback session that ended. */
-export interface EndedSession extends Schema.Schema.Type<typeof EndedSession> {}
-
 /** A title for a metadata job: what to look up and which episodes exist. */
 export const MetadataTarget = Schema.Struct({
   titleId: TitleId,
