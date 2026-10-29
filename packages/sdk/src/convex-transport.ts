@@ -7,6 +7,7 @@ import {
   Unauthenticated,
 } from "@movies/contracts/errors";
 import { ConvexClient, ConvexHttpClient } from "convex/browser";
+import type { AuthTokenFetcher } from "convex/browser";
 import type { FunctionReference } from "convex/server";
 import { makeFunctionReference } from "convex/server";
 import { ConvexError } from "convex/values";
@@ -46,14 +47,21 @@ export type Unsubscribe = () => void;
  * whatever the client threw; `ConvexTransport` translates it.
  */
 export interface ClientAdapter {
-  readonly call: (kind: FunctionKind, path: FunctionPath, args: WireArgs) => Promise<Schema.Json>;
+  /** Runs a function once; a query stops once `signal` aborts. */
+  readonly call: (
+    kind: FunctionKind,
+    path: FunctionPath,
+    args: WireArgs,
+    signal: AbortSignal,
+  ) => Promise<Schema.Json>;
   readonly subscribe: (
     path: FunctionPath,
     args: WireArgs,
     onValue: (value: Schema.Json) => void,
     onError: (error: Error) => void,
   ) => Unsubscribe;
-  readonly setAuth: (source: AuthTokenSource | null) => void;
+  /** Resolves once the client uses `source`, or no source when null. */
+  readonly setAuth: (source: AuthTokenSource | null) => Promise<void>;
   readonly close: () => Promise<void>;
 }
 
@@ -154,7 +162,7 @@ export const make = (adapter: ClientAdapter): Effect.Effect<Interface> =>
     ConvexTransport.of({
       call: Effect.fn("ConvexTransport.call")(function* (kind, path, args) {
         return yield* Effect.tryPromise({
-          try: () => adapter.call(kind, path, args),
+          try: (signal) => adapter.call(kind, path, args, signal),
           catch: (cause) => translateFailure(path, cause),
         });
       }),
@@ -176,10 +184,7 @@ export const make = (adapter: ClientAdapter): Effect.Effect<Interface> =>
             (unsubscribe) => Effect.sync(unsubscribe),
           ),
         ),
-      setAuth: (source) =>
-        Effect.sync(() => {
-          adapter.setAuth(source);
-        }),
+      setAuth: (source) => Effect.promise(() => adapter.setAuth(source)),
     }),
   );
 
@@ -219,19 +224,241 @@ export const callByKind = (
   return client.action(reference("action", path), args);
 };
 
-const webSocketAdapter = (client: ConvexClient): ClientAdapter => ({
-  call: (kind, path, args) => callByKind(client, kind, path, args),
-  subscribe: (path, args, onValue, onError) =>
+/**
+ * The first result of the query at `path`, read through `subscribe`. A Convex WebSocket client
+ * keeps a query until it is answered or unsubscribed, and sends it again each time it reconnects,
+ * so the query is unsubscribed as soon as `signal` aborts, as when its caller stops waiting.
+ */
+export const queryOnce = (
+  subscribe: ClientAdapter["subscribe"],
+  path: FunctionPath,
+  args: WireArgs,
+  signal: AbortSignal,
+): Promise<Schema.Json> =>
+  new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(toError(signal.reason));
+
+      return;
+    }
+
+    const done = new AbortController();
+    let unsubscribe: Unsubscribe | undefined;
+
+    const settle = (finish: () => void): void => {
+      if (done.signal.aborted) return;
+      done.abort();
+      unsubscribe?.();
+      finish();
+    };
+
+    signal.addEventListener(
+      "abort",
+      () => {
+        settle(() => reject(toError(signal.reason)));
+      },
+      { signal: done.signal },
+    );
+    unsubscribe = subscribe(
+      path,
+      args,
+      (value) => {
+        settle(() => resolve(value));
+      },
+      (error) => {
+        settle(() => reject(error));
+      },
+    );
+
+    // A client holding the answer already may hand it over before `subscribe` returns.
+    if (done.signal.aborted) unsubscribe();
+  });
+
+const FIRST_REFETCH_DELAY_MS = 1000;
+
+const MAX_REFETCH_DELAY_MS = 30_000;
+
+/** Resolves after `millis`, or as soon as `signal` aborts. */
+const sleep = (millis: number, signal: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+
+      return;
+    }
+
+    const wake = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", wake);
+      resolve();
+    };
+
+    const timer = setTimeout(wake, millis);
+
+    signal.addEventListener("abort", wake);
+  });
+
+/** What `promise` resolves to, or null as soon as `signal` aborts. */
+const unlessAborted = <A>(promise: Promise<A>, signal: AbortSignal): Promise<A | null> =>
+  new Promise<A | null>((resolve, reject) => {
+    if (signal.aborted) {
+      resolve(null);
+
+      return;
+    }
+
+    const abort = (): void => {
+      resolve(null);
+    };
+
+    signal.addEventListener("abort", abort);
+    promise
+      .finally(() => {
+        signal.removeEventListener("abort", abort);
+      })
+      .then(resolve, reject);
+  });
+
+/** Resolves once every callback already queued, timers and promise reactions alike, has run. */
+const nextTask = (): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+
+const signedOut: AuthTokenFetcher = () => Promise.resolve(null);
+
+/**
+ * Token fetchers for one Convex WebSocket client, which keeps its session by one rule: a fetch
+ * with `forceRefreshToken` returns a token other than the one it holds, or null to sign out.
+ * Handed the same token back, the client decides refreshing failed and never schedules another
+ * refresh; once that token expires, Convex closes every connection that presents it without the
+ * auth error that would make the client ask again, so the connection stays down.
+ *
+ * The same token comes back when a refresh fails for a while, since the session keeps its token,
+ * and when a refresh lands in the second the token was minted, since Convex Auth signs to the
+ * second. So a forced fetch asks again, waiting longer each time, until it gets a new token or
+ * none; a source whose refresh can never succeed must answer none in the end, as `Auth` does once
+ * the server has failed every refresh for a while. `install` and `retire` end every earlier
+ * fetcher at once: its fetches answer null and its source is never asked again.
+ */
+export const clientTokenFetchers = () => {
+  let generation = new AbortController();
+  const fetching = new Set<Promise<string | null>>();
+  let installing = Promise.resolve();
+
+  const retire = (): void => {
+    generation.abort();
+    generation = new AbortController();
+  };
+
+  const fetcherFor = (source: AuthTokenSource, signal: AbortSignal): AuthTokenFetcher => {
+    // The client keeps only the answer of the fetch it started last, so that answer is the token
+    // it holds, and an older fetch still asking can stop: its answer will be discarded.
+    let held: string | null = null;
+    let latest = 0;
+
+    const renewed = async (fetch: number, delay: number): Promise<string | null> => {
+      if (delay > 0) await sleep(delay, signal);
+
+      if (signal.aborted || fetch !== latest) return null;
+      const token = await unlessAborted(source(true), signal);
+
+      if (token === null || token !== held || fetch !== latest) return token;
+
+      return renewed(
+        fetch,
+        Math.min(Math.max(delay * 2, FIRST_REFETCH_DELAY_MS), MAX_REFETCH_DELAY_MS),
+      );
+    };
+
+    const retired = (): boolean => signal.aborted;
+
+    const fetchToken = async (forceRefreshToken: boolean): Promise<string | null> => {
+      if (retired()) return null;
+      latest += 1;
+      const fetch = latest;
+
+      const token = forceRefreshToken
+        ? await renewed(fetch, 0)
+        : await unlessAborted(source(false), signal);
+
+      // Clearing auth leaves the client's scheduled refresh in place, so a retired fetcher can
+      // still be asked after a sign-out, and must not hand the old session back.
+      if (retired()) return null;
+
+      if (fetch === latest) held = token;
+
+      return token;
+    };
+
+    return ({ forceRefreshToken }) => {
+      const answer = fetchToken(forceRefreshToken);
+
+      fetching.add(answer);
+      void answer.finally(() => fetching.delete(answer)).catch(() => undefined);
+
+      return answer;
+    };
+  };
+
+  /**
+   * Retires every earlier fetcher, then hands `apply` the fetcher for `source`, or null to sign
+   * out, once the client has had the answers the retired fetchers owed it. An answer that lands
+   * after the client gets a new fetcher is ignored, and when the client stopped its connection to
+   * wait for that answer, it never restarts the connection.
+   */
+  const install = (
+    source: AuthTokenSource | null,
+    apply: (fetcher: AuthTokenFetcher | null) => void,
+  ): Promise<void> => {
+    retire();
+    const { signal } = generation;
+    const fetcher = source === null ? null : fetcherFor(source, signal);
+    const owed = [...fetching];
+    const previous = installing;
+
+    const installed = (async () => {
+      await previous;
+      await Promise.allSettled(owed);
+      await nextTask();
+
+      if (!signal.aborted) apply(fetcher);
+    })();
+
+    // A failed install fails its caller only; later installs still run.
+    installing = installed.catch(() => undefined);
+
+    return installed;
+  };
+
+  return { install, retire };
+};
+
+const webSocketAdapter = (client: ConvexClient): ClientAdapter => {
+  const fetchers = clientTokenFetchers();
+
+  const subscribe: ClientAdapter["subscribe"] = (path, args, onValue, onError) =>
     client.onUpdate(reference("query", path), args, onValue, (error) => {
       onError(toError(error));
-    }),
-  setAuth: (source) => {
-    client.setAuth(async ({ forceRefreshToken }) =>
-      source === null ? null : source(forceRefreshToken),
-    );
-  },
-  close: () => client.close(),
-});
+    });
+
+  return {
+    call: (kind, path, args, signal) =>
+      kind === "query"
+        ? queryOnce(subscribe, path, args, signal)
+        : callByKind(client, kind, path, args),
+    subscribe,
+    setAuth: (source) =>
+      fetchers.install(source, (fetcher) => {
+        client.setAuth(fetcher ?? signedOut);
+      }),
+    close: () => {
+      fetchers.retire();
+
+      return client.close();
+    },
+  };
+};
 
 /** Options for the fetch-based transport. */
 export interface HttpOptions {
@@ -314,34 +541,44 @@ const httpAdapter = (client: ConvexHttpClient, options: HttpOptions): ClientAdap
     subscribe,
     setAuth: (next) => {
       source = next;
+
+      return Promise.resolve();
     },
     close: () => Promise.resolve(),
   };
 };
 
-const layerFromAdapter = (
-  acquire: () => ClientAdapter,
-): Layer.Layer<ConvexTransport, TransportError> =>
+/**
+ * The transport over the adapter `acquire` opens, closed with the layer's scope. Closing stops
+ * the adapter's token refreshes, so a closed connection never asks its token source again.
+ */
+export const layerFromAdapter = <E>(
+  acquire: Effect.Effect<ClientAdapter, E>,
+): Layer.Layer<ConvexTransport, E> =>
   Layer.effect(
     ConvexTransport,
-    Effect.acquireRelease(
-      Effect.try({
-        try: acquire,
-        catch: (cause) =>
-          new TransportError({
-            operation: "ConvexTransport.open",
-            message: "Transport failed to open: the Convex URL is not valid",
-            cause,
-          }),
-      }),
-      (adapter) => Effect.promise(() => adapter.close()),
-    ).pipe(Effect.flatMap(make)),
+    Effect.acquireRelease(acquire, (adapter) => Effect.promise(() => adapter.close())).pipe(
+      Effect.flatMap(make),
+    ),
   );
+
+const openAdapter = (open: () => ClientAdapter): Effect.Effect<ClientAdapter, TransportError> =>
+  Effect.try({
+    try: open,
+    catch: (cause) =>
+      new TransportError({
+        operation: "ConvexTransport.open",
+        message: "Transport failed to open: the Convex URL is not valid",
+        cause,
+      }),
+  });
 
 /** A WebSocket connection to `url`: pushed subscriptions and automatic token refresh. */
 export const layerWebSocket = (url: string): Layer.Layer<ConvexTransport, TransportError> =>
-  layerFromAdapter(() =>
-    webSocketAdapter(new ConvexClient(url, { logger: false, unsavedChangesWarning: false })),
+  layerFromAdapter(
+    openAdapter(() =>
+      webSocketAdapter(new ConvexClient(url, { logger: false, unsavedChangesWarning: false })),
+    ),
   );
 
 /** One-shot HTTP calls to `url`; subscriptions poll. Suits short-lived processes such as the CLI. */
@@ -349,4 +586,6 @@ export const layerHttp = (
   url: string,
   options: HttpOptions = { pollInterval: Duration.seconds(1) },
 ): Layer.Layer<ConvexTransport, TransportError> =>
-  layerFromAdapter(() => httpAdapter(new ConvexHttpClient(url, { logger: false }), options));
+  layerFromAdapter(
+    openAdapter(() => httpAdapter(new ConvexHttpClient(url, { logger: false }), options)),
+  );

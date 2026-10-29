@@ -163,6 +163,46 @@ export const make = Effect.fn("MoviesClient.make")(function* (options: Options) 
   const transport = yield* ConvexTransport.ConvexTransport;
   const auth = yield* Auth.Auth;
 
+  /**
+   * Whether to subscribe again after Convex answered `Unauthenticated` to a subscription made as
+   * `identity`: once the connection signs in again, when it ran signed out because the server
+   * keeps failing to renew the session, or at once when it did so as the subscription was made,
+   * since the answer may be from then. Only while that session is still the one signed in, so
+   * nothing one account asked is asked again as another.
+   */
+  const subscribeAgain = (askedWhileReconnecting: boolean, identity: Option.Option<string>) =>
+    Effect.gen(function* () {
+      const reconnecting = yield* auth.isReconnecting;
+
+      if (!reconnecting && !askedWhileReconnecting) return false;
+      yield* Stream.runHead(Stream.filter(auth.reconnecting, (waiting) => !waiting));
+      const current = yield* auth.currentIdentity;
+
+      return Option.isSome(identity) && Option.contains(current, identity.value);
+    });
+
+  /**
+   * `results`, subscribed again as `subscribeAgain` says, however long the connection runs signed
+   * out, so a screen keeps what it shows.
+   */
+  const subscribedAcrossReconnects = <A>(
+    results: Stream.Stream<A, CallError>,
+  ): Stream.Stream<A, CallError> =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        const askedWhileReconnecting = yield* auth.isReconnecting;
+        const identity = yield* auth.currentIdentity;
+
+        return Stream.catchTag(results, "Unauthenticated", (error) =>
+          Stream.unwrap(
+            Effect.map(subscribeAgain(askedWhileReconnecting, identity), (again) =>
+              again ? subscribedAcrossReconnects(results) : Stream.fail(error),
+            ),
+          ),
+        );
+      }),
+    );
+
   const callConvex = <Command extends ConvexCommand<FunctionKind, ArgsSchema, WireSchema>>(
     name: string,
     command: Command,
@@ -262,9 +302,11 @@ export const make = Effect.fn("MoviesClient.make")(function* (options: Options) 
   ): Stream.Stream<Command["result"]["Type"], CallError> =>
     Stream.unwrap(
       Effect.map(encodeArgs(name, command, args), (wire) =>
-        transport
-          .subscribe(command.function, wire)
-          .pipe(Stream.mapEffect((raw) => decodeResult(name, command.result, raw))),
+        subscribedAcrossReconnects(
+          transport
+            .subscribe(command.function, wire)
+            .pipe(Stream.mapEffect((raw) => decodeResult(name, command.result, raw))),
+        ),
       ),
     );
 

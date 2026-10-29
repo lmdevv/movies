@@ -6,9 +6,17 @@
  * code, message }`. Tests script replies per function path and read back every request with its
  * arguments and `Authorization` header. Unscripted functions answer the way Convex answers an
  * unknown function: a server error.
+ *
+ * It also speaks enough of the WebSocket sync protocol for `ConvexClient` queries: it accepts a
+ * `User` token while its `exp` lies ahead, answers `ModifyQuerySet` additions through the same
+ * handlers, and treats a token Convex would no longer accept the way Convex does, by closing the
+ * connection without a close frame or an `AuthError`; `rejectAcceptedTokens` sends the `AuthError`
+ * instead. Mutations and actions are HTTP-only here.
  */
+import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
+import type { Duplex } from "node:stream";
 
 import type { ErrorCode } from "@movies/contracts/errors";
 import { Data, Effect, Option, Predicate, Schema } from "effect";
@@ -16,7 +24,8 @@ import type { Scope } from "effect";
 
 type CallKind = "query" | "mutation" | "action";
 
-interface RecordedRequest {
+/** One call the fake received, with its bearer token header when it carried one. */
+export interface RecordedRequest {
   readonly kind: CallKind;
   readonly path: string;
   readonly args: Schema.Json;
@@ -54,6 +63,20 @@ export interface FakeConvex {
   readonly requests: Effect.Effect<ReadonlyArray<RecordedRequest>>;
   /** The calls received so far to `path`. */
   readonly requestsTo: (path: string) => Effect.Effect<ReadonlyArray<RecordedRequest>>;
+  /** Every token a sync connection accepted, in order, repeats included. */
+  readonly acceptedTokens: Effect.Effect<ReadonlyArray<string>>;
+  /**
+   * Refuses every token accepted so far and closes every sync connection, as Convex does once a
+   * token expires: the client reconnects presenting the same token and is cut off again.
+   */
+  readonly refuseAcceptedTokens: Effect.Effect<void>;
+  /**
+   * Refuses every token accepted so far and sends an `AuthError` on each sync connection that
+   * presents one, as Convex does when a token stops verifying while its connection stays open.
+   */
+  readonly rejectAcceptedTokens: Effect.Effect<void>;
+  /** The most queries to `path` that one sync connection has subscribed to at once. */
+  readonly peakSubscriptions: (path: string) => Effect.Effect<number>;
 }
 
 const RequestBody = Schema.fromJsonString(
@@ -117,15 +140,202 @@ const write = (response: ServerResponse, reply: Reply): void =>
 const jwtPart = (value: Schema.Json): string =>
   Buffer.from(JSON.stringify(value)).toString("base64url");
 
+/**
+ * A JWT with the claims Convex Auth signs, to the second as Convex Auth does: the same `sub` and
+ * `issuedAt` second always give the same token. `ConvexClient` reads `iat` and `exp` to schedule
+ * its refresh.
+ */
+export const jwtIssuedAt = (issuedAt: number, lifetimeSeconds: number, subject: string): string => {
+  const iat = Math.floor(issuedAt / 1000);
+
+  return `${jwtPart({ alg: "none" })}.${jwtPart({ sub: subject, iat, exp: iat + lifetimeSeconds })}.fake`;
+};
+
 /** A JWT that only carries `exp`, enough for the SDK to read when it expires. */
 export const jwtExpiringAt = (epochMillis: number, subject = "user"): string =>
   `${jwtPart({ alg: "none" })}.${jwtPart({ exp: Math.floor(epochMillis / 1000), sub: subject })}.fake`;
+
+const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+const OPCODE_TEXT = 0x1;
+
+const OPCODE_CLOSE = 0x8;
+
+const OPCODE_PING = 0x9;
+
+const OPCODE_PONG = 0xa;
+
+interface Frame {
+  readonly opcode: number;
+  readonly payload: Buffer;
+}
+
+interface ReadFrames {
+  readonly frames: ReadonlyArray<Frame>;
+  /** The start of a frame that has not fully arrived. */
+  readonly rest: Buffer;
+}
+
+/** How many bytes after the first two give the payload length, by the 7-bit length. */
+const extendedLengthBytes = (short: number): number => {
+  if (short === 126) return 2;
+
+  return short === 127 ? 8 : 0;
+};
+
+const payloadLength = (buffer: Buffer, offset: number, short: number): number => {
+  if (short === 126) return buffer.readUInt16BE(offset + 2);
+
+  return short === 127 ? Number(buffer.readBigUInt64BE(offset + 2)) : short;
+};
+
+/**
+ * Splits the complete frames off the front of `buffer`, unmasked. The Convex client sends each
+ * message as one frame, so continuation frames never arrive.
+ */
+const readFrames = (buffer: Buffer): ReadFrames => {
+  const frames: Array<Frame> = [];
+  let offset = 0;
+
+  while (buffer.length - offset >= 2) {
+    const opcode = buffer.readUInt8(offset) & 0x0f;
+    const second = buffer.readUInt8(offset + 1);
+    const short = second & 0x7f;
+    const maskStart = offset + 2 + extendedLengthBytes(short);
+    const payloadStart = maskStart + ((second & 0x80) === 0 ? 0 : 4);
+
+    if (buffer.length < payloadStart) break;
+
+    const length = payloadLength(buffer, offset, short);
+
+    if (buffer.length < payloadStart + length) break;
+    const payload = Buffer.from(buffer.subarray(payloadStart, payloadStart + length));
+
+    if (payloadStart > maskStart) {
+      for (let index = 0; index < payload.length; index += 1) {
+        payload.writeUInt8(
+          payload.readUInt8(index) ^ buffer.readUInt8(maskStart + (index % 4)),
+          index,
+        );
+      }
+    }
+
+    frames.push({ opcode, payload });
+    offset = payloadStart + length;
+  }
+
+  return { frames, rest: buffer.subarray(offset) };
+};
+
+const writeFrame = (socket: Duplex, opcode: number, payload: Buffer): void => {
+  const first = 0x80 | opcode;
+  let header: Buffer;
+
+  if (payload.length < 126) {
+    header = Buffer.from([first, payload.length]);
+  } else if (payload.length < 65_536) {
+    header = Buffer.alloc(4);
+    header.writeUInt8(first, 0);
+    header.writeUInt8(126, 1);
+    header.writeUInt16BE(payload.length, 2);
+  } else {
+    header = Buffer.alloc(10);
+    header.writeUInt8(first, 0);
+    header.writeUInt8(127, 1);
+    header.writeBigUInt64BE(BigInt(payload.length), 2);
+  }
+
+  socket.write(Buffer.concat([header, payload]));
+};
+
+const AddQuery = Schema.Struct({
+  type: Schema.Literal("Add"),
+  queryId: Schema.Int,
+  udfPath: Schema.String,
+  args: Schema.Array(Schema.Json),
+});
+
+const RemoveQuery = Schema.Struct({ type: Schema.Literal("Remove"), queryId: Schema.Int });
+
+/** The client messages the fake acts on; `Connect` and the rest decode to nothing. */
+const SyncMessage = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("Authenticate"),
+    tokenType: Schema.String,
+    value: Schema.optionalKey(Schema.String),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("ModifyQuerySet"),
+    newVersion: Schema.Int,
+    modifications: Schema.Array(Schema.Union([AddQuery, RemoveQuery])),
+  }),
+]);
+
+type SyncMessage = typeof SyncMessage.Type;
+
+const decodeSyncMessage = Schema.decodeUnknownOption(Schema.fromJsonString(SyncMessage));
+
+const TokenClaims = Schema.Struct({ exp: Schema.Finite });
+
+const decodeTokenClaims = Schema.decodeUnknownOption(Schema.fromJsonString(TokenClaims));
+
+const isUnexpired = (token: string, now: number): boolean => {
+  const [, payload] = token.split(".");
+
+  return (
+    payload !== undefined &&
+    Option.exists(
+      decodeTokenClaims(Buffer.from(payload, "base64url").toString("utf8")),
+      (claims) => claims.exp * 1000 > now,
+    )
+  );
+};
+
+/** A sync timestamp as the protocol carries it: eight little-endian bytes in base64. */
+const encodeTs = (ts: number): string => {
+  const bytes = Buffer.alloc(8);
+
+  bytes.writeBigUInt64LE(BigInt(ts));
+
+  return bytes.toString("base64");
+};
+
+/** The query result a reply becomes, or none when Convex would close the connection instead. */
+const queryModification = (queryId: number, reply: Reply): Option.Option<Schema.Json> =>
+  Reply.$match(reply, {
+    Success: ({ value }) =>
+      Option.some({ type: "QueryUpdated", queryId, value, logLines: [], journal: null }),
+    Failure: ({ code, message }) =>
+      Option.some({
+        type: "QueryFailed",
+        queryId,
+        errorMessage: message,
+        errorData: { code, message },
+        logLines: [],
+        journal: null,
+      }),
+    Crash: ({ message }) =>
+      Option.some({
+        type: "QueryFailed",
+        queryId,
+        errorMessage: `[Request ID: fake] Server Error\nUncaught Error: ${message}`,
+        logLines: [],
+        journal: null,
+      }),
+    TokenRejected: () => Option.none(),
+    Drop: () => Option.none(),
+  });
 
 /** Starts the fake on a free local port; it stops when the scope closes. */
 export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(function* () {
   const context = yield* Effect.context();
   const handlers = new Map<string, Handler>();
   const received: Array<RecordedRequest> = [];
+  const accepted: Array<string> = [];
+  const refused = new Set<string>();
+  const syncSockets = new Set<Duplex>();
+  const authErrorSenders = new Set<() => void>();
+  const peaks = new Map<string, number>();
 
   const answer = (request: RecordedRequest): Effect.Effect<Reply> =>
     Option.match(Option.fromNullishOr(handlers.get(request.path)), {
@@ -169,6 +379,198 @@ export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(fu
     });
   });
 
+  const accepts = (token: string): boolean => !refused.has(token) && isUnexpired(token, Date.now());
+
+  /** Serves one sync connection; `head` holds any bytes that arrived with the upgrade request. */
+  const openSync = (socket: Duplex, head: Buffer): void => {
+    let pending: Buffer = Buffer.alloc(0);
+    let queue = Promise.resolve();
+    let version = { querySet: 0, identity: 0, ts: 0 };
+    let token: string | undefined;
+    const subscribed = new Map<number, { readonly path: string; readonly args: Schema.Json }>();
+
+    const sendAuthError = (): void => {
+      if (token === undefined || accepts(token)) return;
+
+      const error = {
+        type: "AuthError",
+        error: "Convex token identity expired",
+        baseVersion: version.identity,
+        authUpdateAttempted: false,
+      };
+
+      writeFrame(socket, OPCODE_TEXT, Buffer.from(JSON.stringify(error)));
+    };
+
+    syncSockets.add(socket);
+    authErrorSenders.add(sendAuthError);
+    socket.on("close", () => {
+      syncSockets.delete(socket);
+      authErrorSenders.delete(sendAuthError);
+    });
+    socket.on("error", () => socket.destroy());
+
+    const transition = (
+      next: { readonly querySet: number; readonly identity: number },
+      modifications: ReadonlyArray<Schema.Json>,
+    ): void => {
+      const start = version;
+
+      version = { ...next, ts: start.ts + 1 };
+
+      const message = {
+        type: "Transition",
+        startVersion: { ...start, ts: encodeTs(start.ts) },
+        endVersion: { ...version, ts: encodeTs(version.ts) },
+        modifications,
+      };
+
+      writeFrame(socket, OPCODE_TEXT, Buffer.from(JSON.stringify(message)));
+    };
+
+    const answerQuery = async (
+      queryId: number,
+      query: { readonly path: string; readonly args: Schema.Json },
+    ): Promise<Option.Option<Schema.Json>> => {
+      const request: RecordedRequest = {
+        kind: "query",
+        path: query.path,
+        args: query.args,
+        authorization: token === undefined ? undefined : `Bearer ${token}`,
+      };
+
+      received.push(request);
+
+      return queryModification(queryId, await Effect.runPromiseWith(context)(answer(request)));
+    };
+
+    const handle = async (message: SyncMessage): Promise<void> => {
+      if (message.type === "Authenticate") {
+        if (message.value !== undefined && !accepts(message.value)) {
+          socket.destroy();
+
+          return;
+        }
+
+        token = message.value;
+
+        if (token !== undefined) accepted.push(token);
+
+        // Convex runs every subscribed query again as the new identity.
+        const rerun = Option.all(
+          await Promise.all([...subscribed].map(([queryId, query]) => answerQuery(queryId, query))),
+        );
+
+        if (Option.isNone(rerun)) {
+          socket.destroy();
+
+          return;
+        }
+
+        transition({ querySet: version.querySet, identity: version.identity + 1 }, rerun.value);
+
+        return;
+      }
+
+      if (token !== undefined && !accepts(token)) {
+        socket.destroy();
+
+        return;
+      }
+
+      for (const change of message.modifications) {
+        if (change.type === "Remove") subscribed.delete(change.queryId);
+        else subscribed.set(change.queryId, { path: change.udfPath, args: change.args[0] ?? null });
+      }
+
+      const counts = new Map<string, number>();
+
+      for (const { path } of subscribed.values()) counts.set(path, (counts.get(path) ?? 0) + 1);
+
+      for (const [path, count] of counts) peaks.set(path, Math.max(peaks.get(path) ?? 0, count));
+
+      const modifications = await Promise.all(
+        message.modifications.map((change): Promise<Option.Option<Schema.Json>> =>
+          change.type === "Remove"
+            ? Promise.resolve(Option.some({ type: "QueryRemoved", queryId: change.queryId }))
+            : answerQuery(change.queryId, { path: change.udfPath, args: change.args[0] ?? null }),
+        ),
+      );
+
+      const answered = Option.all(modifications);
+
+      if (Option.isNone(answered)) {
+        socket.destroy();
+
+        return;
+      }
+
+      transition({ querySet: message.newVersion, identity: version.identity }, answered.value);
+    };
+
+    const receive = (chunk: Buffer): void => {
+      const { frames, rest } = readFrames(Buffer.concat([pending, chunk]));
+
+      pending = rest;
+
+      for (const frame of frames) {
+        if (frame.opcode === OPCODE_PING) writeFrame(socket, OPCODE_PONG, frame.payload);
+
+        if (frame.opcode === OPCODE_CLOSE) {
+          writeFrame(socket, OPCODE_CLOSE, frame.payload);
+          socket.end();
+          socket.off("data", receive);
+
+          return;
+        }
+
+        if (frame.opcode !== OPCODE_TEXT) continue;
+        const message = decodeSyncMessage(frame.payload.toString("utf8"));
+
+        if (Option.isSome(message)) {
+          queue = queue
+            .then(() => handle(message.value))
+            .catch(() => {
+              socket.destroy();
+            });
+        }
+      }
+    };
+
+    socket.on("data", receive);
+    receive(head);
+  };
+
+  server.on("upgrade", (incoming: IncomingMessage, socket: Duplex, head: Buffer) => {
+    const key = incoming.headers["sec-websocket-key"];
+
+    if (incoming.url?.endsWith("/sync") !== true || !Predicate.isString(key)) {
+      socket.destroy();
+
+      return;
+    }
+
+    const acceptKey = createHash("sha1")
+      .update(key + WEBSOCKET_GUID)
+      .digest("base64");
+
+    socket.write(
+      [
+        "HTTP/1.1 101 Switching Protocols",
+        "Upgrade: websocket",
+        "Connection: Upgrade",
+        `Sec-WebSocket-Accept: ${acceptKey}`,
+        "",
+        "",
+      ].join("\r\n"),
+    );
+    openSync(socket, head);
+  });
+
+  const closeSyncConnections = (): void => {
+    for (const socket of syncSockets) socket.destroy();
+  };
+
   const port = yield* Effect.acquireRelease(
     Effect.callback<number>((resume) => {
       server.listen(0, "127.0.0.1", () => {
@@ -183,6 +585,7 @@ export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(fu
     }),
     () =>
       Effect.callback<void>((resume) => {
+        closeSyncConnections();
         server.closeAllConnections();
         server.close(() => resume(Effect.void));
       }),
@@ -200,5 +603,16 @@ export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(fu
       }),
     requests: Effect.sync(() => [...received]),
     requestsTo: (path) => Effect.sync(() => received.filter((request) => request.path === path)),
+    acceptedTokens: Effect.sync(() => [...accepted]),
+    refuseAcceptedTokens: Effect.sync(() => {
+      for (const token of accepted) refused.add(token);
+      closeSyncConnections();
+    }),
+    rejectAcceptedTokens: Effect.sync(() => {
+      for (const token of accepted) refused.add(token);
+
+      for (const sendAuthError of authErrorSenders) sendAuthError();
+    }),
+    peakSubscriptions: (path) => Effect.sync(() => peaks.get(path) ?? 0),
   };
 });

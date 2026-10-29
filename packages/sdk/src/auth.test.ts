@@ -11,6 +11,8 @@ import {
   Predicate,
   Redacted,
   Ref,
+  Schedule,
+  Stream,
 } from "effect";
 import type { Scope } from "effect";
 import { TestClock } from "effect/testing";
@@ -37,6 +39,18 @@ const EXPIRED = jwtExpiringAt(START - 600_000, "alex");
 const RENEWED = jwtExpiringAt(START + 3_600_000, "alex-renewed");
 
 const ROTATED = "refresh-2";
+
+/** A JWT whose `sub` is a number, which Convex Auth never signs but another issuer might. */
+const numericSubject = (expiresAt: number): string =>
+  [{ alg: "none" }, { exp: Math.floor(expiresAt / 1000), sub: 7 }]
+    .map((part) => Buffer.from(JSON.stringify(part)).toString("base64url"))
+    .concat("fake")
+    .join(".");
+
+/** Convex Auth's `sub` claim names the user and the session: `userId|sessionId`. */
+const KEY_SUBJECT = "service|key-session";
+
+const KEY_SESSION = jwtExpiringAt(START + 3_600_000, KEY_SUBJECT);
 
 interface MemoryStore {
   readonly store: KeyValueStore;
@@ -144,12 +158,60 @@ const tokens = (token: string, refreshToken: string): Reply =>
 const reveal = (token: Option.Option<Redacted.Redacted>): string | null =>
   Option.match(token, { onNone: () => null, onSome: Redacted.value });
 
+const isReconnecting = (auth: Auth.Interface) =>
+  Effect.map(
+    Stream.runHead(auth.reconnecting),
+    Option.getOrElse(() => false),
+  );
+
+/** Waits until the connection no longer runs signed out, while the clock stands still. */
+const reconnected = (auth: Auth.Interface) =>
+  Stream.runHead(Stream.filter(auth.reconnecting, (waiting) => !waiting));
+
+/** Fails three refreshes 30 seconds apart, the last a minute after the first. */
+const failForAMinute = (auth: Auth.Interface) =>
+  Effect.gen(function* () {
+    const answers: Array<string | null> = [];
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (attempt > 0) yield* TestClock.adjust(30_000);
+      answers.push(reveal(yield* auth.accessToken(true)));
+    }
+
+    return answers;
+  });
+
+const SERVER_FAILURES = [
+  { name: "Internal", reply: Reply.Crash({ message: "Convex is busy" }) },
+  {
+    name: "ProtocolError",
+    reply: Reply.Success({ value: { tokens: { token: 12, refreshToken: 34 } } }),
+  },
+  // Only `{ tokens: null }` refuses a refresh; an answer without tokens is a broken server.
+  { name: "no tokens", reply: Reply.Success({ value: {} }) },
+  { name: "a redirect", reply: Reply.Success({ value: { redirect: "https://example.invalid" } }) },
+  ...(["not_found", "invalid_args", "conflict", "stale_revision", "internal"] as const).map(
+    (code) => ({ name: code, reply: Reply.Failure({ code, message: "Convex is busy" }) }),
+  ),
+];
+
 const refreshRequests = (fake: FakeConvex.FakeConvex) =>
   Effect.map(fake.requestsTo("auth:signIn"), (requests) =>
     requests.flatMap((request) =>
       Predicate.hasProperty(request.args, "refreshToken") ? [request.args.refreshToken] : [],
     ),
   );
+
+/** The tokens server sign-outs carried, once `expected` arrived or after a second of waiting. */
+const serverSignOuts = (fake: FakeConvex.FakeConvex, expected: number) =>
+  Effect.gen(function* () {
+    for (let tries = 0; tries < 50; tries += 1) {
+      if ((yield* fake.requestsTo("auth:signOut")).length >= expected) break;
+      yield* TestClock.withLive(Effect.sleep(20));
+    }
+
+    return (yield* fake.requestsTo("auth:signOut")).map((request) => request.authorization);
+  });
 
 const gateRefresh = (fake: FakeConvex.FakeConvex, reply: Reply) =>
   Effect.gen(function* () {
@@ -177,6 +239,15 @@ describe("Auth", () => {
         expect(yield* auth.currentStatus).toBe("signedIn");
         expect(reveal(yield* auth.accessToken(false))).toBe(FRESH);
         expect(yield* fake.requests).toStrictEqual([]);
+      }),
+    ));
+
+  it("refreshes a token about to expire whatever its subject claim holds", () =>
+    withAuth(signedInWith(numericSubject(START + 30_000)), ({ fake, auth }) =>
+      Effect.gen(function* () {
+        yield* fake.reply("auth:signIn", tokens(RENEWED, ROTATED));
+
+        expect(reveal(yield* auth.accessToken(false))).toBe(RENEWED);
       }),
     ));
 
@@ -235,6 +306,161 @@ describe("Auth", () => {
       }),
     ));
 
+  it("keeps the current token through refreshes the server fails for less than a minute", () =>
+    withAuth(signedInWith(FRESH), ({ fake, auth }) =>
+      Effect.gen(function* () {
+        yield* fake.reply("auth:signIn", Reply.Crash({ message: "Convex is busy" }));
+
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          expect(reveal(yield* auth.accessToken(true))).toBe(FRESH);
+          yield* TestClock.adjust(5_000);
+        }
+
+        yield* fake.reply("auth:signIn", tokens(RENEWED, ROTATED));
+
+        expect(reveal(yield* auth.accessToken(true))).toBe(RENEWED);
+        expect(yield* auth.currentStatus).toBe("signedIn");
+      }),
+    ));
+
+  it.each(SERVER_FAILURES)(
+    "keeps the stored session once the server has failed every refresh for a minute with $name",
+    ({ reply }) =>
+      withAuth(signedInWith(FRESH), ({ fake, memory, auth }) =>
+        Effect.gen(function* () {
+          yield* fake.reply("auth:signIn", reply);
+
+          // The connection gets no token, so it stops waiting for one and runs signed out.
+          expect(yield* failForAMinute(auth)).toStrictEqual([FRESH, FRESH, null]);
+          expect(memory.saved()).toStrictEqual(signedInWith(FRESH));
+          expect(yield* auth.currentStatus).toBe("signedIn");
+          expect(yield* isReconnecting(auth)).toBe(true);
+        }),
+      ),
+  );
+
+  it("renews the kept session in the background once the server recovers", () =>
+    withAuth(signedInWith(FRESH), ({ fake, memory, auth }) =>
+      Effect.gen(function* () {
+        yield* fake.reply("auth:signIn", Reply.Crash({ message: "Convex is busy" }));
+        yield* failForAMinute(auth);
+
+        for (let wait = 0; wait < 5; wait += 1) yield* TestClock.adjust(30_000);
+        expect(yield* isReconnecting(auth)).toBe(true);
+
+        yield* fake.reply("auth:signIn", tokens(RENEWED, ROTATED));
+        yield* TestClock.adjust(30_000);
+        yield* reconnected(auth);
+
+        expect(reveal(yield* auth.accessToken(false))).toBe(RENEWED);
+        expect(yield* auth.currentStatus).toBe("signedIn");
+        expect(memory.saved()).toStrictEqual(
+          Option.some({ token: RENEWED, refreshToken: ROTATED }),
+        );
+        expect(new Set(yield* refreshRequests(fake))).toStrictEqual(new Set(["refresh-1"]));
+      }),
+    ));
+
+  it("signs out once the server refuses a session it had failed to renew", () =>
+    withAuth(signedInWith(FRESH), ({ fake, memory, auth }) =>
+      Effect.gen(function* () {
+        yield* fake.reply("auth:signIn", Reply.Crash({ message: "Convex is busy" }));
+        yield* failForAMinute(auth);
+
+        yield* fake.reply("auth:signIn", Reply.Success({ value: { tokens: null } }));
+        yield* TestClock.adjust(30_000);
+        yield* reconnected(auth);
+
+        expect(yield* auth.currentStatus).toBe("signedOut");
+        yield* Effect.sync(memory.saved).pipe(
+          Effect.repeat({ until: Option.isNone, schedule: Schedule.spaced(10) }),
+          Effect.timeout(1000),
+          TestClock.withLive,
+        );
+      }),
+    ));
+
+  it("stops renewing a kept session once someone signs in", () =>
+    withAuth(signedInWith(FRESH), ({ fake, auth }) =>
+      Effect.gen(function* () {
+        yield* fake.handle("auth:signIn", (request) =>
+          Effect.succeed(
+            Predicate.hasProperty(request.args, "refreshToken")
+              ? Reply.Crash({ message: "Convex is busy" })
+              : tokens(jwtExpiringAt(START + 3_600_000, "sam"), "sam-refresh"),
+          ),
+        );
+        yield* failForAMinute(auth);
+        yield* auth.signIn(Auth.Credentials.ApiKey({ key: Redacted.make("sam-key") }));
+        const asked = (yield* refreshRequests(fake)).length;
+
+        for (let wait = 0; wait < 5; wait += 1) yield* TestClock.adjust(30_000);
+
+        expect(yield* isReconnecting(auth)).toBe(false);
+        expect((yield* refreshRequests(fake)).length).toBe(asked);
+      }),
+    ));
+
+  it("does not count time asleep toward the minute", () =>
+    withAuth(signedInWith(FRESH), ({ fake, memory, auth }) =>
+      Effect.gen(function* () {
+        yield* fake.reply("auth:signIn", Reply.Crash({ message: "Convex is busy" }));
+
+        // Nothing asks for a token while the device sleeps, so failures an hour apart are not a
+        // minute of the server failing.
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          if (attempt > 0) yield* TestClock.adjust(3_600_000);
+          expect(reveal(yield* auth.accessToken(true))).toBe(FRESH);
+        }
+
+        expect(yield* isReconnecting(auth)).toBe(false);
+        expect(memory.saved()).toStrictEqual(signedInWith(FRESH));
+      }),
+    ));
+
+  it("keeps the connection waiting after two failed refreshes, however far apart", () =>
+    withAuth(signedInWith(FRESH), ({ fake, auth }) =>
+      Effect.gen(function* () {
+        yield* fake.reply("auth:signIn", Reply.Crash({ message: "Convex is busy" }));
+        expect(reveal(yield* auth.accessToken(true))).toBe(FRESH);
+        yield* TestClock.adjust(60_000);
+        expect(reveal(yield* auth.accessToken(true))).toBe(FRESH);
+
+        expect(yield* isReconnecting(auth)).toBe(false);
+      }),
+    ));
+
+  it("starts the minute again after a refresh that cannot reach the server", () =>
+    withAuth(signedInWith(FRESH), ({ fake, auth }) =>
+      Effect.gen(function* () {
+        yield* fake.reply("auth:signIn", Reply.Crash({ message: "Convex is busy" }));
+        expect(reveal(yield* auth.accessToken(true))).toBe(FRESH);
+        yield* TestClock.adjust(50_000);
+
+        yield* fake.reply("auth:signIn", Reply.Drop());
+        expect(reveal(yield* auth.accessToken(true))).toBe(FRESH);
+        yield* TestClock.adjust(20_000);
+
+        yield* fake.reply("auth:signIn", Reply.Crash({ message: "Convex is busy" }));
+        expect(reveal(yield* auth.accessToken(true))).toBe(FRESH);
+        expect(yield* auth.currentStatus).toBe("signedIn");
+      }),
+    ));
+
+  it("keeps the session through any number of refreshes that cannot reach the server", () =>
+    withAuth(signedInWith(FRESH), ({ fake, auth }) =>
+      Effect.gen(function* () {
+        yield* fake.reply("auth:signIn", Reply.Drop());
+
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          expect(reveal(yield* auth.accessToken(true))).toBe(FRESH);
+          yield* TestClock.adjust(60_000);
+        }
+
+        expect(yield* auth.currentStatus).toBe("signedIn");
+      }),
+    ));
+
   it("keeps the current token when a refresh gets no answer in time", () =>
     withAuth(signedInWith(EXPIRING), ({ fake, auth }) =>
       Effect.gen(function* () {
@@ -281,6 +507,57 @@ describe("Auth", () => {
         expect(reveal(yield* auth.accessToken(false))).toBe(sam);
         expect(memory.saved()).toStrictEqual(
           Option.some({ token: sam, refreshToken: "sam-refresh" }),
+        );
+      }),
+    ));
+
+  it("ends another account's session when its refresh lands after sign-in", () =>
+    withAuth(signedInWith(FRESH), ({ fake, auth }) =>
+      Effect.gen(function* () {
+        const gate = yield* gateRefresh(fake, tokens(RENEWED, ROTATED));
+
+        yield* fake.reply("auth:signOut", Reply.Success({ value: null }));
+        const refreshing = yield* Effect.forkChild(auth.accessToken(true));
+
+        yield* Deferred.await(gate.arrived);
+        yield* auth.signIn(Auth.Credentials.ApiKey({ key: Redacted.make("sam-key") }));
+        yield* Deferred.succeed(gate.release, undefined);
+        yield* Fiber.join(refreshing);
+
+        expect(yield* serverSignOuts(fake, 1)).toStrictEqual([`Bearer ${RENEWED}`]);
+      }),
+    ));
+
+  it("keeps an API key's shared session when a refresh of it lands after signing in again", () =>
+    withAuth(signedInWith(KEY_SESSION), ({ fake, memory, auth }) =>
+      Effect.gen(function* () {
+        // Every sign-in with one API key shares one session, so a refresh that lands late renews
+        // the session the new sign-in holds; ending it would sign the new sign-in out.
+        const signedInAgain = jwtExpiringAt(START + 3_660_000, KEY_SUBJECT);
+        const arrived = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+
+        yield* fake.handle("auth:signIn", (request) =>
+          Predicate.hasProperty(request.args, "refreshToken")
+            ? Effect.gen(function* () {
+                yield* Deferred.succeed(arrived, undefined);
+                yield* Deferred.await(release);
+
+                return tokens(jwtExpiringAt(START + 3_630_000, KEY_SUBJECT), "key-refresh-2");
+              })
+            : Effect.succeed(tokens(signedInAgain, "key-refresh-3")),
+        );
+        yield* fake.reply("auth:signOut", Reply.Success({ value: null }));
+        const refreshing = yield* Effect.forkChild(auth.accessToken(true));
+
+        yield* Deferred.await(arrived);
+        yield* auth.signIn(Auth.Credentials.ApiKey({ key: Redacted.make("service-key") }));
+        yield* Deferred.succeed(release, undefined);
+
+        expect(reveal(yield* Fiber.join(refreshing))).toBe(signedInAgain);
+        expect(yield* serverSignOuts(fake, 1)).toStrictEqual([]);
+        expect(memory.saved()).toStrictEqual(
+          Option.some({ token: signedInAgain, refreshToken: "key-refresh-3" }),
         );
       }),
     ));

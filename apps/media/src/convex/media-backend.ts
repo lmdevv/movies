@@ -10,11 +10,13 @@ import {
 } from "@movies/sdk/effect";
 import type { CallError } from "@movies/sdk/effect";
 import {
+  Clock,
   Context,
   Deferred,
   Duration,
   Effect,
   Layer,
+  Option,
   Predicate,
   type Redacted,
   Ref,
@@ -58,7 +60,10 @@ export interface Interface {
     name: Name,
     args: FunctionArgs<Name>,
   ) => Stream.Stream<FunctionResult<Name>>;
-  /** Whether the service account is signed in. */
+  /**
+   * `connected` while the service account is signed in and Convex answered its latest probe;
+   * `connecting` while it signs in, or once a probe goes unanswered until one is answered again.
+   */
   readonly status: Effect.Effect<"connected" | "connecting">;
 }
 
@@ -71,6 +76,11 @@ export interface Options {
   readonly apiKey: Redacted.Redacted;
   /** Longest one call may wait for its answer; 30 seconds when absent. */
   readonly callTimeout?: Duration.Duration;
+  /**
+   * How often the service asks Convex something to learn whether it still answers; 30 seconds
+   * when absent. A question that gets no answer signs the service in again.
+   */
+  readonly probeEvery?: Duration.Duration;
 }
 
 const READY_WAIT = Duration.seconds(15);
@@ -82,6 +92,8 @@ const READY_WAIT = Duration.seconds(15);
  * idempotent work.
  */
 const DEFAULT_CALL_TIMEOUT = Duration.seconds(30);
+
+const DEFAULT_PROBE_EVERY = Duration.seconds(30);
 
 const backoff = Schedule.min([
   Schedule.exponential("500 millis"),
@@ -129,6 +141,11 @@ const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
   const signingIn = yield* Semaphore.make(1);
   const attempts = yield* Ref.make(0);
   const callTimeout = options.callTimeout ?? DEFAULT_CALL_TIMEOUT;
+  const probeEvery = options.probeEvery ?? DEFAULT_PROBE_EVERY;
+  const answeredAt = yield* Ref.make(Option.none<number>());
+
+  /** The wait between probes, then as long as a probe may wait for its answer. */
+  const staleAfter = Duration.sum(probeEvery, callTimeout);
 
   const signInOnce = auth
     .signIn(Auth.Credentials.ApiKey({ key: options.apiKey }))
@@ -236,13 +253,69 @@ const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
       Stream.orDie,
     );
 
-  return Service.of({
-    call,
-    subscribe,
-    status: Ref.get(signedIn).pipe(
-      Effect.map((connected) => (connected ? ("connected" as const) : ("connecting" as const))),
-    ),
+  const markAnswered = Clock.currentTimeMillis.pipe(
+    Effect.flatMap((at) => Ref.set(answeredAt, Option.some(at))),
+  );
+
+  /** Asks Convex about the playback session `probeId` names, which is none, noting the answer. */
+  const ask = (probeId: string) =>
+    call("mediaService.sessionStatus", { sessionId: probeId }).pipe(
+      // Any other failure is Convex answering: the connection works, the function does not.
+      Effect.tapError((error) =>
+        Predicate.isTagged(error, "TransportError") || Predicate.isTagged(error, "Unauthenticated")
+          ? Effect.void
+          : markAnswered,
+      ),
+      Effect.andThen(markAnswered),
+    );
+
+  /**
+   * Asks Convex something it must answer itself: the session it asks about is new for each probe,
+   * so the client cannot answer from a subscription's cache. A connection can stop answering while it looks
+   * connected, as when the Convex client holds a token Convex no longer accepts and never asks
+   * for another, so an unanswered probe signs in again, which hands the client a fresh token and
+   * resets its auth state. During a Convex outage that sign-in waits, retrying, until Convex is
+   * back. The connection may still be waiting out its own reconnect backoff then, so the probe
+   * keeps asking, each ask waiting up to `callTimeout` and the next starting a second later, until
+   * Convex answers or the next probe is due. An ask that times out drops its query from the
+   * client, so a long outage leaves no backlog of probes to send once Convex is back.
+   */
+  const probe = Effect.gen(function* () {
+    const seen = yield* Ref.get(generation);
+    const probeId = `probe-${String(yield* Clock.currentTimeMillis)}`;
+
+    yield* ask(probeId).pipe(
+      Effect.catchTag("TransportError", (error) =>
+        Effect.logWarning("MediaBackend.unanswered", error).pipe(
+          Effect.andThen(Ref.set(answeredAt, Option.none())),
+          Effect.andThen(signIn(seen)),
+          Effect.andThen(
+            ask(probeId).pipe(
+              Effect.retry({
+                while: (failure) => Predicate.isTagged(failure, "TransportError"),
+                schedule: Schedule.spaced("1 second").pipe(Schedule.upTo({ duration: probeEvery })),
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+  }).pipe(Effect.catch((error) => Effect.logWarning("MediaBackend.probe_failed", error)));
+
+  yield* Deferred.await(ready).pipe(
+    Effect.andThen(probe.pipe(Effect.repeat(Schedule.spaced(probeEvery)))),
+    Effect.forkScoped,
+  );
+
+  const status = Effect.gen(function* () {
+    const now = yield* Clock.currentTimeMillis;
+    const last = yield* Ref.get(answeredAt);
+    const fresh = Option.exists(last, (at) => now - at < Duration.toMillis(staleAfter));
+
+    return (yield* Ref.get(signedIn)) && fresh ? ("connected" as const) : ("connecting" as const);
   });
+
+  return Service.of({ call, subscribe, status });
 });
 
 /**

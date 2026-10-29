@@ -4,7 +4,23 @@ import { DeviceId } from "@movies/contracts/ids";
 import type { ProfileId, TitleId } from "@movies/contracts/ids";
 import { mediaServiceFunctions } from "@movies/contracts/media-service";
 import { Milliseconds } from "@movies/contracts/units";
-import { Context, Effect, Fiber, Layer, Option, Redacted, Schema, Stream, Struct } from "effect";
+import { ConvexHttpClient } from "convex/browser";
+import { makeFunctionReference } from "convex/server";
+import {
+  Context,
+  Deferred,
+  Duration,
+  Effect,
+  Fiber,
+  Layer,
+  Option,
+  Predicate,
+  Queue,
+  Redacted,
+  Schema,
+  Stream,
+  Struct,
+} from "effect";
 import type { Scope } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -12,10 +28,12 @@ import * as Auth from "../auth";
 import * as ConvexTransport from "../convex-transport";
 import * as DeviceLogin from "../device-login";
 import * as Movies from "../movies";
-import { MoviesClient } from "../movies-client";
+import { MoviesClient, layer as moviesClientLayer } from "../movies-client";
 import { hostControlsEnabled, run } from "../room-sync/room-sync";
 import { DEFAULT_TUNABLES } from "../room-sync/sync-policy";
 import type { CallError } from "../sdk-errors";
+import * as FakeConvex from "../testing/fake-convex";
+import { Reply } from "../testing/fake-convex";
 import { makeFakePlayer } from "../testing/fake-player";
 import { findStack } from "../testing/stack-env";
 import * as TokenStorage from "../token-storage";
@@ -190,6 +208,26 @@ const firstProfile = (session: Session) =>
     return profile.id;
   });
 
+/**
+ * Runs `auth:signIn` or `auth:signOut` on the stack with the arguments and token a fake
+ * deployment received, so a test can hold the answer back after the stack acted on it.
+ */
+const forwardAuth = (path: "auth:signIn" | "auth:signOut", request: FakeConvex.RecordedRequest) =>
+  Effect.gen(function* () {
+    const args = yield* Schema.decodeUnknownEffect(Schema.JsonObject)(request.args);
+    const gateway = new ConvexHttpClient(url, { logger: false });
+
+    if (request.authorization !== undefined) {
+      gateway.setAuth(request.authorization.replace(/^Bearer /u, ""));
+    }
+
+    const value = yield* Effect.promise(() =>
+      gateway.action(makeFunctionReference<"action", Schema.JsonObject, Schema.Json>(path), args),
+    );
+
+    return Reply.Success({ value });
+  }).pipe(Effect.orDie);
+
 const runScoped = <A, E>(effect: Effect.Effect<A, E, Scope.Scope>): Promise<A> =>
   Effect.runPromise(Effect.scoped(effect));
 
@@ -237,6 +275,314 @@ describe.skipIf(stack === undefined)("the SDK against a real stack", () => {
           expect(yield* outcome(clientOf(owner).query("account.viewer", {}))).toBe(
             "Unauthenticated",
           );
+        }),
+      ),
+    60_000,
+  );
+
+  it(
+    "keeps an API key's session when a refresh of it lands after signing in again",
+    () =>
+      runScoped(
+        Effect.gen(function* () {
+          const relay = yield* FakeConvex.make;
+          const refreshed = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          const ended = yield* Deferred.make<void>();
+
+          yield* relay.handle("auth:signIn", (request) =>
+            forwardAuth("auth:signIn", request).pipe(
+              Effect.tap(() =>
+                Predicate.hasProperty(request.args, "refreshToken")
+                  ? Deferred.succeed(refreshed, undefined).pipe(
+                      Effect.andThen(Deferred.await(release)),
+                    )
+                  : Effect.void,
+              ),
+            ),
+          );
+          yield* relay.handle("auth:signOut", (request) =>
+            forwardAuth("auth:signOut", request).pipe(
+              Effect.tap(() => Deferred.succeed(ended, undefined)),
+            ),
+          );
+
+          const service = yield* Layer.build(
+            Auth.layer({ convexUrl: relay.url }).pipe(
+              Layer.provideMerge(ConvexTransport.layerHttp(url)),
+              Layer.provide(TokenStorage.layerMemory),
+            ),
+          );
+
+          const auth = Context.get(service, Auth.Auth);
+          const key = Auth.Credentials.ApiKey({ key: Redacted.make(stack?.mediaServiceKey ?? "") });
+
+          yield* auth.signIn(key);
+          const refreshing = yield* Effect.forkChild(auth.accessToken(true));
+
+          // The stack renewed the session; its answer is late, as when the media service's probe
+          // signs in again while a refresh is still on its way back.
+          yield* Deferred.await(refreshed);
+          yield* auth.signIn(key);
+          yield* Deferred.succeed(release, undefined);
+          yield* Fiber.join(refreshing);
+          yield* Deferred.await(ended).pipe(Effect.timeoutOption("2 seconds"));
+
+          const transport = Context.get(service, ConvexTransport.ConvexTransport);
+
+          expect(
+            yield* outcome(
+              transport.call("query", "mediaService:sessionStatus", { sessionId: "none" }),
+            ),
+          ).toBe("succeeded");
+        }),
+      ),
+    60_000,
+  );
+
+  it(
+    "keeps a session the server fails to renew for a while, and renews it once the server recovers",
+    () =>
+      runScoped(
+        Effect.gen(function* () {
+          const relay = yield* FakeConvex.make;
+          let failing = true;
+
+          // Refreshes fail as when the server's auth function is broken for a while; everything
+          // else, and every refresh once it recovers, reaches the stack.
+          yield* relay.handle("auth:signIn", (request) =>
+            failing && Predicate.hasProperty(request.args, "refreshToken")
+              ? Effect.succeed(Reply.Crash({ message: "Temporary auth failure" }))
+              : forwardAuth("auth:signIn", request),
+          );
+
+          const items = new Map<string, string>();
+
+          const service = yield* Layer.build(
+            Auth.layer({ convexUrl: relay.url, refreshFailureLimit: Duration.seconds(1) }).pipe(
+              Layer.provideMerge(ConvexTransport.layerWebSocket(url)),
+              Layer.provide(
+                TokenStorage.layerKeyValue(
+                  {
+                    getItem: (key) => items.get(key) ?? null,
+                    setItem: (key, value) => {
+                      items.set(key, value);
+                    },
+                    removeItem: (key) => {
+                      items.delete(key);
+                    },
+                  },
+                  "session",
+                ),
+              ),
+            ),
+          );
+
+          const auth = Context.get(service, Auth.Auth);
+          const transport = Context.get(service, ConvexTransport.ConvexTransport);
+
+          const sessionStatus = outcome(
+            transport.call("query", "mediaService:sessionStatus", { sessionId: "none" }),
+          );
+
+          yield* auth.signIn(
+            Auth.Credentials.ApiKey({ key: Redacted.make(stack?.mediaServiceKey ?? "") }),
+          );
+          const stored = items.get("session");
+
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            if (attempt > 0) yield* Effect.sleep("600 millis");
+            yield* auth.accessToken(true);
+          }
+
+          expect({
+            status: yield* auth.currentStatus,
+            kept: items.get("session") === stored,
+          }).toStrictEqual({
+            status: "signedIn",
+            kept: true,
+          });
+
+          const whileFailing = {
+            reconnecting: yield* Stream.runHead(auth.reconnecting),
+            sessionStatus: yield* sessionStatus,
+            setup: yield* outcome(transport.call("query", "setup:status", {})),
+          };
+
+          failing = false;
+          yield* Stream.runHead(Stream.filter(auth.reconnecting, (waiting) => !waiting)).pipe(
+            Effect.timeout("10 seconds"),
+          );
+
+          const refreshedWith = (yield* relay.requestsTo("auth:signIn")).flatMap((request) =>
+            Predicate.hasProperty(request.args, "refreshToken") ? [request.args.refreshToken] : [],
+          );
+
+          expect(whileFailing).toStrictEqual({
+            reconnecting: Option.some(true),
+            sessionStatus: "Unauthenticated",
+            setup: "succeeded",
+          });
+          // Every refresh, the one that worked included, sent the refresh token from sign-in.
+          expect(new Set(refreshedWith).size).toBe(1);
+          expect(yield* sessionStatus).toBe("succeeded");
+          expect(yield* auth.currentStatus).toBe("signedIn");
+        }),
+      ),
+    60_000,
+  );
+
+  it(
+    "runs nothing one account asked while reconnecting as the account that signs in next",
+    () =>
+      runScoped(
+        Effect.gen(function* () {
+          const owner = yield* ownerSession;
+          const email = `switch-${id}@movies.test`;
+          const invite = yield* clientOf(owner).action("invites.create", { email, role: "member" });
+          const relay = yield* FakeConvex.make;
+
+          yield* relay.handle("auth:signIn", (request) =>
+            Predicate.hasProperty(request.args, "refreshToken")
+              ? Effect.succeed(Reply.Crash({ message: "Temporary auth failure" }))
+              : forwardAuth("auth:signIn", request),
+          );
+
+          const service = yield* Layer.build(
+            moviesClientLayer({ mediaUrl: Option.none() }).pipe(
+              Layer.provideMerge(
+                Auth.layer({ convexUrl: relay.url, refreshFailureLimit: Duration.seconds(1) }),
+              ),
+              Layer.provideMerge(ConvexTransport.layerWebSocket(url)),
+              Layer.provide(TokenStorage.layerMemory),
+            ),
+          );
+
+          const auth = Context.get(service, Auth.Auth);
+          const client = Context.get(service, MoviesClient);
+          const seen = yield* Queue.unbounded<string>();
+
+          yield* auth.signIn(password(email, "signUp", invite.code));
+          yield* client.subscribe("profiles.list", {}).pipe(
+            Stream.runForEach((profiles) =>
+              Queue.offer(seen, `${String(profiles.length)} profiles`),
+            ),
+            Effect.catch((error) => Queue.offer(seen, `failed: ${Struct.get(error, "_tag")}`)),
+            Effect.forkScoped,
+          );
+          yield* Queue.take(seen);
+
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            if (attempt > 0) yield* Effect.sleep("600 millis");
+            yield* auth.accessToken(true);
+          }
+
+          const pending = yield* outcome(
+            client.mutate("profiles.create", { name: `pending ${id}`, avatar: "red", kids: false }),
+          ).pipe(Effect.forkScoped);
+
+          yield* Effect.sleep("500 millis");
+          yield* Effect.firstSuccessOf(
+            OWNER_EMAILS.map((owned) => auth.signIn(password(owned, "signIn"))),
+          );
+
+          const mutation = yield* Fiber.join(pending).pipe(Effect.timeout("40 seconds"));
+          const subscription = yield* Queue.take(seen).pipe(Effect.timeout("10 seconds"));
+          const ownerProfiles = yield* clientOf(owner).query("profiles.list", {});
+
+          expect({
+            mutation,
+            subscription,
+            crossed: ownerProfiles.some((profile) => profile.name === `pending ${id}`),
+          }).toStrictEqual({
+            mutation: "Unauthenticated",
+            subscription: "failed: Unauthenticated",
+            crossed: false,
+          });
+        }),
+      ),
+    90_000,
+  );
+
+  it(
+    "signs out once the server no longer knows the session's refresh token",
+    () =>
+      runScoped(
+        Effect.gen(function* () {
+          yield* ownerSession;
+          const gateway = new ConvexHttpClient(url, { logger: false });
+
+          const action = (path: "auth:signIn" | "auth:signOut", args: Schema.JsonObject) =>
+            Effect.tryPromise(() =>
+              gateway.action(
+                makeFunctionReference<"action", Schema.JsonObject, Schema.Json>(path),
+                args,
+              ),
+            );
+
+          const decodeTokens = Schema.decodeUnknownEffect(
+            Schema.Struct({
+              tokens: Schema.Struct({ token: Schema.String, refreshToken: Schema.String }),
+            }),
+          );
+
+          const { tokens } = yield* Effect.firstSuccessOf(
+            OWNER_EMAILS.map((email) =>
+              action("auth:signIn", {
+                provider: "password",
+                params: { flow: "signIn", email, password: PASSWORD },
+              }).pipe(Effect.flatMap(decodeTokens)),
+            ),
+          );
+
+          // End the session behind the client's back, as signing out on another device does.
+          gateway.setAuth(tokens.token);
+          yield* action("auth:signOut", {});
+          gateway.clearAuth();
+
+          // Convex Auth's one definitive refusal of a refresh: a successful answer with no tokens.
+          expect(yield* action("auth:signIn", { refreshToken: tokens.refreshToken })).toStrictEqual(
+            {
+              tokens: null,
+            },
+          );
+
+          const items = new Map([
+            [
+              "session",
+              TokenStorage.serializeSession({
+                token: Redacted.make(tokens.token),
+                refreshToken: Redacted.make(tokens.refreshToken),
+              }),
+            ],
+          ]);
+
+          const service = yield* Layer.build(
+            Auth.layer({ convexUrl: url }).pipe(
+              Layer.provide(ConvexTransport.layerHttp(url)),
+              Layer.provide(
+                TokenStorage.layerKeyValue(
+                  {
+                    getItem: (key) => items.get(key) ?? null,
+                    setItem: (key, value) => {
+                      items.set(key, value);
+                    },
+                    removeItem: (key) => {
+                      items.delete(key);
+                    },
+                  },
+                  "session",
+                ),
+              ),
+            ),
+          );
+
+          const auth = Context.get(service, Auth.Auth);
+
+          expect(yield* auth.currentStatus).toBe("signedIn");
+          expect(yield* auth.accessToken(true)).toStrictEqual(Option.none());
+          expect(yield* auth.currentStatus).toBe("signedOut");
+          expect(items.has("session")).toBe(false);
         }),
       ),
     60_000,
