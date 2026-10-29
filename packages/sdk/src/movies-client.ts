@@ -21,7 +21,7 @@ import {
 } from "@movies/contracts/diagnostics";
 import { InvalidArgs } from "@movies/contracts/errors";
 import { EpochMillis } from "@movies/contracts/units";
-import { Context, Effect, Layer, Option, Schema, SchemaIssue, Stream } from "effect";
+import { Context, Duration, Effect, Layer, Option, Schema, SchemaIssue, Stream } from "effect";
 
 import * as Auth from "./auth";
 import * as ConvexTransport from "./convex-transport";
@@ -158,12 +158,13 @@ const decodeResult = <A>(
     ),
   );
 
+/** How long a call waits for the connection to sign in again before failing `Unauthenticated`. */
+const RECONNECT_WAIT = Duration.seconds(30);
+
 /** Builds the client over the Convex connection and the session's auth. */
 export const make = Effect.fn("MoviesClient.make")(function* (options: Options) {
   const transport = yield* ConvexTransport.ConvexTransport;
   const auth = yield* Auth.Auth;
-
-  const isReconnecting = Effect.map(Stream.runHead(auth.reconnecting), Option.contains(true));
 
   /**
    * Whether to ask again after Convex answered `Unauthenticated`: once the connection signs in
@@ -173,7 +174,7 @@ export const make = Effect.fn("MoviesClient.make")(function* (options: Options) 
    */
   const askAgain = (askedWhileReconnecting: boolean) =>
     Effect.gen(function* () {
-      const reconnecting = yield* isReconnecting;
+      const reconnecting = yield* auth.isReconnecting;
 
       if (!reconnecting && !askedWhileReconnecting) return false;
       yield* Stream.runHead(Stream.filter(auth.reconnecting, (waiting) => !waiting));
@@ -182,25 +183,32 @@ export const make = Effect.fn("MoviesClient.make")(function* (options: Options) 
     });
 
   /**
-   * `ask`, asked again across the time the connection runs signed out, so a screen keeps what it
-   * shows and a call waits rather than failing with `Unauthenticated` meanwhile. Only for queries
-   * and mutations: Convex runs a mutation as one transaction, so one refused has changed nothing.
+   * `ask`, asked again once the connection signs in again after running signed out, so a call
+   * waits up to `RECONNECT_WAIT` rather than failing with `Unauthenticated` meanwhile. Only for
+   * queries and mutations: Convex runs a mutation as one transaction, so one refused changed
+   * nothing.
    */
   const acrossReconnects = <A>(ask: Effect.Effect<A, CallError>): Effect.Effect<A, CallError> =>
-    Effect.flatMap(isReconnecting, (askedWhileReconnecting) =>
+    Effect.flatMap(auth.isReconnecting, (askedWhileReconnecting) =>
       Effect.catchTag(ask, "Unauthenticated", (error) =>
-        Effect.flatMap(askAgain(askedWhileReconnecting), (again) =>
-          again ? acrossReconnects(ask) : Effect.fail(error),
+        askAgain(askedWhileReconnecting).pipe(
+          Effect.timeoutOption(RECONNECT_WAIT),
+          Effect.flatMap((again) =>
+            Option.contains(again, true) ? acrossReconnects(ask) : Effect.fail(error),
+          ),
         ),
       ),
     );
 
-  /** `results`, subscribed again as `acrossReconnects` asks again. */
+  /**
+   * `results`, subscribed again as `acrossReconnects` asks again, however long the connection
+   * runs signed out, so a screen keeps what it shows.
+   */
   const subscribedAcrossReconnects = <A>(
     results: Stream.Stream<A, CallError>,
   ): Stream.Stream<A, CallError> =>
     Stream.unwrap(
-      Effect.map(isReconnecting, (askedWhileReconnecting) =>
+      Effect.map(auth.isReconnecting, (askedWhileReconnecting) =>
         Stream.catchTag(results, "Unauthenticated", (error) =>
           Stream.unwrap(
             Effect.map(askAgain(askedWhileReconnecting), (again) =>

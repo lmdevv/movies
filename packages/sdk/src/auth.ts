@@ -95,6 +95,8 @@ export interface Interface {
    * turns false. False while signed out.
    */
   readonly reconnecting: Stream.Stream<boolean>;
+  /** Whether the connection runs signed out for now, without waiting for a change. */
+  readonly isReconnecting: Effect.Effect<boolean>;
   /**
    * Signs in and stores the session. Rejected credentials fail with `Unauthenticated`; a sign-up
    * without a valid invite fails with `Forbidden` or `Conflict`.
@@ -106,8 +108,8 @@ export interface Interface {
   readonly signOut: Effect.Effect<void, TokenStorage.TokenStorageError>;
   /**
    * The token for the next request, refreshed when it is about to expire or when `forceRefresh`
-   * says the server rejected it. None when signed out, when the refresh token was refused, or once
-   * the server has failed to renew the session for a while.
+   * says the server rejected it. None when signed out, when the refresh token was refused, or
+   * when this refresh finds the server has failed to renew the session for a while.
    */
   readonly accessToken: (
     forceRefresh: boolean,
@@ -625,6 +627,7 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
     status: SubscriptionRef.changes(status),
     currentStatus: SubscriptionRef.get(status),
     reconnecting: SubscriptionRef.changes(reconnecting),
+    isReconnecting: SubscriptionRef.get(reconnecting),
     signIn,
     signOut: signOut(),
     accessToken,
