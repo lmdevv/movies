@@ -20,6 +20,8 @@ interface Sighting {
 interface Jump {
   readonly first: Sighting;
   readonly last: Sighting;
+  /** How much media the player could have played from `first` to `last`, at the rates it played at. */
+  readonly playableMs: number;
 }
 
 /** What the tracker believes about the playhead. */
@@ -51,15 +53,9 @@ export const placed = (positionMs: number, atMs: number): Playhead => ({
   jump: null,
 });
 
-/** Whether playing at `rate` from `from` could have reached `positionMs` by `atMs`. */
-const playsOnFrom = (from: Sighting, positionMs: number, atMs: number, rate: number): boolean => {
-  const elapsed = Math.max(0, atMs - from.atMs);
-
-  return (
-    positionMs >= from.positionMs - BEHIND_MS &&
-    positionMs <= from.positionMs + elapsed * Math.max(rate, 1) + AHEAD_MS
-  );
-};
+/** Whether a player that could play `reachMs` of media from `from` could have reached `positionMs`. */
+const playsOnFrom = (from: Sighting, positionMs: number, reachMs: number): boolean =>
+  positionMs >= from.positionMs - BEHIND_MS && positionMs <= from.positionMs + reachMs + AHEAD_MS;
 
 /**
  * Whether the player could have played to `positionMs` by `atMs` from the believed position. Time
@@ -70,16 +66,11 @@ export const believes = (
   positionMs: number,
   atMs: number,
   rate: number,
-): boolean =>
-  playsOnFrom(
-    {
-      positionMs: playhead.believed.positionMs,
-      atMs: playhead.jump?.last.atMs ?? playhead.believed.atMs,
-    },
-    positionMs,
-    atMs,
-    rate,
-  );
+): boolean => {
+  const fromMs = playhead.jump?.last.atMs ?? playhead.believed.atMs;
+
+  return playsOnFrom(playhead.believed, positionMs, Math.max(0, atMs - fromMs) * Math.max(rate, 1));
+};
 
 /**
  * Whether `positionMs` is where the player is known to be heading: a believed position, or a jump
@@ -95,14 +86,22 @@ export const explains = (
   extendedJump(playhead, { positionMs, atMs }, rate) !== null;
 
 /**
- * The jump the player made on its own, played on to `sighting`; null when it made none or did not.
- * It must have played there from where it landed, so a skip in short steps is not one jump.
+ * The jump the player made on its own, played on to `sighting` at `rate`; null when it made none or
+ * did not. It must have played there from where it landed, so a skip in short steps is not one
+ * jump. Each stretch counts at the rate of the report ending it, so a rate change must be sighted.
  */
-const extendedJump = (playhead: Playhead, sighting: Sighting, rate: number): Jump | null =>
-  playhead.jump !== null &&
-  playsOnFrom(playhead.jump.first, sighting.positionMs, sighting.atMs, rate)
-    ? { first: playhead.jump.first, last: sighting }
+const extendedJump = (playhead: Playhead, sighting: Sighting, rate: number): Jump | null => {
+  const jump = playhead.jump;
+
+  if (jump === null) return null;
+
+  const playableMs = jump.playableMs + Math.max(0, sighting.atMs - jump.last.atMs) * rate;
+  const reachMs = Math.max(playableMs, sighting.atMs - jump.first.atMs);
+
+  return playsOnFrom(jump.first, sighting.positionMs, reachMs)
+    ? { first: jump.first, last: sighting, playableMs }
     : null;
+};
 
 /** Whether a jump moved at least the slowest speed over its playing, so it is not stuck. */
 const playsOn = (jump: Jump): boolean =>
@@ -121,7 +120,11 @@ export const reported = (
     return { believed: sighting, jump: null };
   }
 
-  const jump = extendedJump(playhead, sighting, rate) ?? { first: sighting, last: sighting };
+  const jump = extendedJump(playhead, sighting, rate) ?? {
+    first: sighting,
+    last: sighting,
+    playableMs: 0,
+  };
 
   const playedMs = jump.last.atMs - jump.first.atMs;
 
@@ -133,7 +136,8 @@ export const reported = (
 /**
  * How much media the player has played on from the jump it made on its own to `positionMs` at
  * `atMs`; 0 when it made none, or did not play on from it. It counts no more than the time played
- * since the jump at `rate`: a skip through a vanished stream moves the position without playing.
+ * since the jump at the rates it played at: a skip through a vanished stream moves the position
+ * without playing.
  */
 export const playedOnFromJumpMs = (
   playhead: Playhead,
@@ -144,10 +148,7 @@ export const playedOnFromJumpMs = (
   const jump = extendedJump(playhead, { positionMs, atMs }, rate);
 
   return jump !== null && playsOn(jump)
-    ? Math.min(
-        jump.last.positionMs - jump.first.positionMs,
-        (jump.last.atMs - jump.first.atMs) * rate,
-      )
+    ? Math.min(jump.last.positionMs - jump.first.positionMs, jump.playableMs)
     : 0;
 };
 

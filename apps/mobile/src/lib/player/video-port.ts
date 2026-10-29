@@ -278,9 +278,11 @@ export class VideoPort implements PlayerPort {
 
     const nativeMs = video.currentTime * 1000;
 
+    // In whole milliseconds, so the clocks' rounding cannot cut a played half second short.
     return this.#believable() ||
-      playedOnFromJumpMs(this.#playhead, nativeMs, this.#played(), this.playbackRate()) >=
-        JUMP_ENDS_AFTER_PLAYING_MS
+      Math.round(
+        playedOnFromJumpMs(this.#playhead, nativeMs, this.#played(), this.playbackRate()),
+      ) >= JUMP_ENDS_AFTER_PLAYING_MS
       ? nativeMs
       : null;
   }
@@ -363,7 +365,12 @@ export class VideoPort implements PlayerPort {
   readonly playbackRate = (): number => this.#video?.playbackRate ?? 1;
 
   readonly setPlaybackRate = (rate: number): void => {
-    if (this.#final === null && this.#video !== null) this.#video.playbackRate = rate;
+    if (this.#final !== null || this.#video === null || this.#video.playbackRate === rate) return;
+
+    // A sighting at the old rate, so what AVPlayer played until now counts at the rate it played at.
+    this.#sight(this.#video.currentTime);
+    this.#video.playbackRate = rate;
+    this.#changed();
   };
 
   readonly seek = (positionMs: number): void => {

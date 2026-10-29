@@ -610,6 +610,55 @@ describe("VideoPort with the lock screen and stalls", () => {
     },
   );
 
+  it("ends after a seek from the lock screen to the last half second at 1.5 times speed", () => {
+    const { clock, video, port } = playingAt(600);
+
+    video.playbackRate = 1.5;
+    video.fireTime(EPISODE_MS / 1000 - 0.5);
+    clock.ms += 250 / 1.5;
+    video.fireTime(EPISODE_MS / 1000 - 0.25);
+    // The last quarter second plays without a time report; AVPlayer's stop is the next sighting.
+    clock.ms += 250 / 1.5;
+    video.currentTime = EPISODE_MS / 1000;
+    video.pause();
+    video.fireEnd();
+
+    expect(port.getState().ended).toBe(true);
+  });
+
+  it("ends after a seek from the lock screen to the last second when the viewer slows down", () => {
+    const { clock, video, port } = playingAt(600);
+
+    port.setPlaybackRate(2);
+    video.fireTime(EPISODE_MS / 1000 - 1);
+    clock.ms += 400;
+    video.fireTime(EPISODE_MS / 1000 - 0.2);
+    port.setPlaybackRate(0.5);
+    clock.ms += 400;
+    video.fireTime(EPISODE_MS / 1000);
+    video.pause();
+    video.fireEnd();
+
+    expect(port.getState().ended).toBe(true);
+    expect(port.positionMs()).toBe(EPISODE_MS);
+  });
+
+  it("ends when the viewer slows down between AVPlayer's time reports in the last second", () => {
+    const { clock, video, port } = playingAt(600);
+
+    port.setPlaybackRate(2);
+    video.fireTime(EPISODE_MS / 1000 - 0.6);
+    clock.ms += 200;
+    video.currentTime = EPISODE_MS / 1000 - 0.2;
+    port.setPlaybackRate(0.5);
+    clock.ms += 400;
+    video.currentTime = EPISODE_MS / 1000;
+    video.pause();
+    video.fireEnd();
+
+    expect(port.getState().ended).toBe(true);
+  });
+
   it("keeps the viewer's pause in the app when a vanished stream ends just after it", () => {
     const { clock, video, port } = playingAt(600);
 

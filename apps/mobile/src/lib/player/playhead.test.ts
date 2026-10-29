@@ -114,6 +114,36 @@ describe("playedOnFromJumpMs", () => {
     );
   });
 
+  it("counts the media played at each rate at the rate it played at", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(0.5, 0.75, 1, 1.25, 1.5, 2),
+        fc.constantFrom(0.5, 0.75, 1, 1.25, 1.5, 2),
+        fc.integer({ min: 1, max: 10 }),
+        (before, after, reportsBefore) => {
+          const fromMs = 2_000_000;
+          let playhead = reported(placed(600_000, 0), fromMs, REPORT_MS, before);
+          let positionMs = fromMs;
+          let atMs = REPORT_MS;
+
+          for (let report = 1; report <= 11; report += 1) {
+            const rate = report <= reportsBefore ? before : after;
+
+            positionMs += REPORT_MS * rate;
+            atMs += REPORT_MS;
+            playhead = reported(playhead, positionMs, atMs, rate);
+          }
+
+          return (
+            Math.abs(
+              playedOnFromJumpMs(playhead, positionMs, atMs, after) - (positionMs - fromMs),
+            ) < 1e-6
+          );
+        },
+      ),
+    );
+  });
+
   it("counts nothing for a skip that lands without playing on", () => {
     let playhead = placed(2_160_000, 0);
 
