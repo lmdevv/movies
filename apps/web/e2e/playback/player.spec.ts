@@ -80,6 +80,9 @@ const VOBSUB = join(
 
 const TRACKS = "Audio, subtitles, and quality";
 
+/** `HTMLMediaElement.HAVE_CURRENT_DATA`: the element has the frame at its position. */
+const HAVE_CURRENT_DATA = 2;
+
 const SHOW = "Tide Tables";
 
 const EPISODES = ["Low Water", "Slack Tide", "Spring Tide"] as const;
@@ -699,6 +702,69 @@ test("a picture subtitle burns into a transcode and back out; a lower quality tr
   before = streams.length;
   await choose("Auto");
   await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe("remux");
+});
+
+test("pausing while another quality's stream moves to its start keeps the position", async () => {
+  await playFromStart(MOVIES.pictures, "remux");
+  await page.getByTestId("player").press("ArrowRight");
+  await expectPlayingPast(page, 10.5);
+
+  const video = page.getByTestId("player-video");
+
+  // Presses Pause a few milliseconds into the next stream's seek to its start, before its first
+  // frame, and notes where that seek was going.
+  await video.evaluate((element) => {
+    element.addEventListener(
+      "emptied",
+      () => {
+        element.addEventListener(
+          "seeking",
+          () => {
+            setTimeout(() => {
+              if (!(element instanceof HTMLVideoElement)) return;
+              element.dataset["pausedSeekingTo"] = element.seeking
+                ? String(element.currentTime)
+                : "";
+              document
+                .querySelector("[data-testid=player]")
+                ?.dispatchEvent(new KeyboardEvent("keydown", { key: "k", bubbles: true }));
+            }, 5);
+          },
+          { once: true },
+        );
+      },
+      { once: true },
+    );
+  });
+
+  const before = streams.length;
+  const panel = page.getByRole("dialog", { name: TRACKS });
+
+  await revealControls(page);
+  await page.getByRole("button", { name: TRACKS }).click();
+  await panel.getByRole("radio", { name: "480p" }).click();
+  await expect
+    .poll(() => streams.slice(before).at(-1))
+    .toMatchObject({ mode: "transcode-software", height: 480 });
+
+  const pausedSeekingTo = () =>
+    video.evaluate((element) => element.dataset["pausedSeekingTo"] ?? null);
+
+  await expect.poll(pausedSeekingTo).not.toBeNull();
+
+  const start = Number(await pausedSeekingTo());
+
+  expect(start).toBeGreaterThan(10);
+  await expect
+    .poll(async () => {
+      const state = await videoState(page);
+
+      return state.paused && state.readyState >= HAVE_CURRENT_DATA;
+    })
+    .toBe(true);
+  await expectPositionNear(page, start, 0.1);
+  await page.waitForTimeout(1_000);
+  expect(Math.abs((await videoState(page)).currentTime - start)).toBeLessThan(0.1);
 });
 
 test("a quality the media service cannot encode now gives way to the stream that plays", async () => {

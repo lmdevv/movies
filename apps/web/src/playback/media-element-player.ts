@@ -186,9 +186,19 @@ export class MediaElementPlayer implements PlayerPort {
     }
   };
 
+  /**
+   * Pauses here. A seek still under way is started again while paused: when a pause interrupts
+   * a seek before the element has shown a frame, such as a new stream's move to its start
+   * position, Chrome lands it at 0.
+   */
   readonly pause = (): void => {
+    const element = this.#element;
+    const seekingTo = element.seeking ? element.currentTime : null;
+
     this.#wantsPlay = false;
-    this.#element.pause();
+    element.pause();
+
+    if (seekingTo !== null) element.currentTime = seekingTo;
   };
 
   readonly subscribe = (listener: (event: PlayerEvent) => void): (() => void) => {
