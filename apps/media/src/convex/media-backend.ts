@@ -1,7 +1,6 @@
 import { mediaServiceFunctions } from "@movies/contracts/media-service";
 import type { MediaServiceFunctions } from "@movies/contracts/media-service";
 import { InvalidArgs } from "@movies/contracts/errors";
-import { EpochMillis } from "@movies/contracts/units";
 import {
   Auth,
   ConvexTransport,
@@ -258,9 +257,9 @@ const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
     Effect.flatMap((at) => Ref.set(answeredAt, Option.some(at))),
   );
 
-  /** Asks Convex for ended sessions since `after`, noting when Convex answers. */
-  const ask = (after: EpochMillis) =>
-    call("mediaService.endedSessions", { after, limit: 1 }).pipe(
+  /** Asks Convex about the playback session `probeId` names, which is none, noting the answer. */
+  const ask = (probeId: string) =>
+    call("mediaService.sessionStatus", { sessionId: probeId }).pipe(
       // Any other failure is Convex answering: the connection works, the function does not.
       Effect.tapError((error) =>
         Predicate.isTagged(error, "TransportError") || Predicate.isTagged(error, "Unauthenticated")
@@ -271,8 +270,8 @@ const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
     );
 
   /**
-   * Asks Convex something it must answer itself: `after` is new for each probe, so the client
-   * cannot answer from a subscription's cache. A connection can stop answering while it looks
+   * Asks Convex something it must answer itself: the session it asks about is new for each probe,
+   * so the client cannot answer from a subscription's cache. A connection can stop answering while it looks
    * connected, as when the Convex client holds a token Convex no longer accepts and never asks
    * for another, so an unanswered probe signs in again, which hands the client a fresh token and
    * resets its auth state. During a Convex outage that sign-in waits, retrying, until Convex is
@@ -283,15 +282,15 @@ const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
    */
   const probe = Effect.gen(function* () {
     const seen = yield* Ref.get(generation);
-    const after = EpochMillis.make(yield* Clock.currentTimeMillis);
+    const probeId = `probe-${String(yield* Clock.currentTimeMillis)}`;
 
-    yield* ask(after).pipe(
+    yield* ask(probeId).pipe(
       Effect.catchTag("TransportError", (error) =>
         Effect.logWarning("MediaBackend.unanswered", error).pipe(
           Effect.andThen(Ref.set(answeredAt, Option.none())),
           Effect.andThen(signIn(seen)),
           Effect.andThen(
-            ask(after).pipe(
+            ask(probeId).pipe(
               Effect.retry({
                 while: (failure) => Predicate.isTagged(failure, "TransportError"),
                 schedule: Schedule.spaced("1 second").pipe(Schedule.upTo({ duration: probeEvery })),

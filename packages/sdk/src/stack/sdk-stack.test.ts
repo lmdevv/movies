@@ -331,10 +331,7 @@ describe.skipIf(stack === undefined)("the SDK against a real stack", () => {
 
           expect(
             yield* outcome(
-              transport.call("query", "mediaService:endedSessions", {
-                after: Date.now(),
-                limit: 1,
-              }),
+              transport.call("query", "mediaService:sessionStatus", { sessionId: "none" }),
             ),
           ).toBe("succeeded");
         }),
@@ -383,8 +380,8 @@ describe.skipIf(stack === undefined)("the SDK against a real stack", () => {
           const auth = Context.get(service, Auth.Auth);
           const transport = Context.get(service, ConvexTransport.ConvexTransport);
 
-          const endedSessions = outcome(
-            transport.call("query", "mediaService:endedSessions", { after: Date.now(), limit: 1 }),
+          const sessionStatus = outcome(
+            transport.call("query", "mediaService:sessionStatus", { sessionId: "none" }),
           );
 
           yield* auth.signIn(
@@ -407,7 +404,7 @@ describe.skipIf(stack === undefined)("the SDK against a real stack", () => {
 
           const whileFailing = {
             reconnecting: yield* Stream.runHead(auth.reconnecting),
-            endedSessions: yield* endedSessions,
+            sessionStatus: yield* sessionStatus,
             setup: yield* outcome(transport.call("query", "setup:status", {})),
           };
 
@@ -422,12 +419,12 @@ describe.skipIf(stack === undefined)("the SDK against a real stack", () => {
 
           expect(whileFailing).toStrictEqual({
             reconnecting: Option.some(true),
-            endedSessions: "Unauthenticated",
+            sessionStatus: "Unauthenticated",
             setup: "succeeded",
           });
           // Every refresh, the one that worked included, sent the refresh token from sign-in.
           expect(new Set(refreshedWith).size).toBe(1);
-          expect(yield* endedSessions).toBe("succeeded");
+          expect(yield* sessionStatus).toBe("succeeded");
           expect(yield* auth.currentStatus).toBe("signedIn");
         }),
       ),

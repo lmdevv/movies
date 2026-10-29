@@ -11,13 +11,12 @@ import {
   Schedule,
 } from "effect";
 
-import { EpochMillis } from "@movies/contracts/units";
 import * as FakeConvex from "@movies/sdk/testing/fake-convex";
 import { jwtIssuedAt, Reply } from "@movies/sdk/testing/fake-convex";
 
 import * as MediaBackend from "./media-backend.ts";
 
-const ENDED_SESSIONS = "mediaService:endedSessions";
+const SESSION_STATUS = "mediaService:sessionStatus";
 
 /** The session Convex Auth names in every token for the service's key: `userId|sessionId`. */
 const KEY_SESSION = "service|key-session";
@@ -33,7 +32,7 @@ const isRefresh = (request: FakeConvex.RecordedRequest) =>
 
 /**
  * A Convex deployment that, as the real one does, signs every sign-in with one API key into that
- * key's one session, and lists no ended sessions.
+ * key's one session, and knows no playback session.
  */
 const makeConvex = Effect.gen(function* () {
   const fake = yield* FakeConvex.make;
@@ -47,7 +46,7 @@ const makeConvex = Effect.gen(function* () {
     }),
   );
   yield* fake.reply("auth:signOut", Reply.Success({ value: null }));
-  yield* fake.reply(ENDED_SESSIONS, Reply.Success({ value: [] }));
+  yield* fake.reply(SESSION_STATUS, Reply.Success({ value: null }));
 
   return fake;
 });
@@ -71,8 +70,8 @@ const awaitStatus = (backend: MediaBackend.Interface, status: "connected" | "con
     Effect.timeout(Duration.seconds(10)),
   );
 
-const endedSessions = (backend: MediaBackend.Interface) =>
-  backend.call("mediaService.endedSessions", { after: EpochMillis.make(Date.now()) });
+const sessionStatus = (backend: MediaBackend.Interface) =>
+  backend.call("mediaService.sessionStatus", { sessionId: "no-such-session" });
 
 describe("media service Convex connection", () => {
   it.live(
@@ -88,11 +87,11 @@ describe("media service Convex connection", () => {
         // The Convex client reconnects presenting the refused token, and is never told why.
         yield* fake.refuseAcceptedTokens;
 
-        const recovered = yield* endedSessions(backend).pipe(
+        const recovered = yield* sessionStatus(backend).pipe(
           Effect.retry({ schedule: Schedule.spaced("500 millis"), times: 20 }),
         );
 
-        assert.deepStrictEqual(recovered, []);
+        assert.strictEqual(recovered, null);
         assert.isTrue((yield* fake.acceptedTokens).some((token) => !refused.has(token)));
         yield* awaitStatus(backend, "connected");
       }),
@@ -114,13 +113,13 @@ describe("media service Convex connection", () => {
 
         const answering = yield* Deferred.make<void>();
 
-        yield* fake.handle(ENDED_SESSIONS, () =>
+        yield* fake.handle(SESSION_STATUS, () =>
           Deferred.await(answering).pipe(Effect.as(Reply.Success({ value: [] }))),
         );
 
         yield* awaitStatus(backend, "connecting");
 
-        yield* fake.reply(ENDED_SESSIONS, Reply.Success({ value: [] }));
+        yield* fake.reply(SESSION_STATUS, Reply.Success({ value: null }));
         yield* Deferred.succeed(answering, undefined);
 
         yield* awaitStatus(backend, "connected");
@@ -137,7 +136,7 @@ describe("media service Convex connection", () => {
 
         // Convex takes the sign-in but answers no query yet, as while the connection is still
         // waiting out its reconnect backoff after an outage.
-        yield* fake.handle(ENDED_SESSIONS, () =>
+        yield* fake.handle(SESSION_STATUS, () =>
           Deferred.await(answering).pipe(Effect.as(Reply.Success({ value: [] }))),
         );
 
@@ -181,7 +180,7 @@ describe("media service Convex connection", () => {
         yield* Effect.gen(function* () {
           const fake = yield* makeConvex;
 
-          yield* fake.reply(ENDED_SESSIONS, Reply.Crash({ message: "endedSessions broke" }));
+          yield* fake.reply(SESSION_STATUS, Reply.Crash({ message: "sessionStatus broke" }));
           const backend = yield* connect(fake);
 
           yield* Effect.sync(() => JSON.stringify(logged)).pipe(
@@ -240,11 +239,11 @@ describe("media service Convex connection", () => {
         );
         yield* Deferred.succeed(release, undefined);
 
-        const recovered = yield* endedSessions(backend).pipe(
+        const recovered = yield* sessionStatus(backend).pipe(
           Effect.retry({ schedule: Schedule.spaced("500 millis"), times: 20 }),
         );
 
-        assert.deepStrictEqual(recovered, []);
+        assert.strictEqual(recovered, null);
         assert.deepStrictEqual(yield* fake.requestsTo("auth:signOut"), []);
       }),
     40_000,
@@ -267,20 +266,20 @@ describe("media service Convex connection", () => {
 
         yield* awaitStatus(backend, "connected");
 
-        // Each probe cycle asks with a new `after`; the client sends every query it still holds
+        // Each probe cycle asks about a new session ID; the client sends every query it still holds
         // each time it reconnects.
-        yield* fake.reply(ENDED_SESSIONS, Reply.Drop());
+        yield* fake.reply(SESSION_STATUS, Reply.Drop());
         yield* Effect.sleep(Duration.seconds(5));
 
         const asked = new Set(
-          (yield* fake.requestsTo(ENDED_SESSIONS)).map((request) => JSON.stringify(request.args)),
+          (yield* fake.requestsTo(SESSION_STATUS)).map((request) => JSON.stringify(request.args)),
         );
 
         assert.isAbove(asked.size, 2);
 
-        yield* fake.reply(ENDED_SESSIONS, Reply.Success({ value: [] }));
+        yield* fake.reply(SESSION_STATUS, Reply.Success({ value: null }));
         yield* awaitStatus(backend, "connected");
-        assert.strictEqual(yield* fake.peakSubscriptions(ENDED_SESSIONS), 1);
+        assert.strictEqual(yield* fake.peakSubscriptions(SESSION_STATUS), 1);
       }),
     40_000,
   );
