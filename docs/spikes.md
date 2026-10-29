@@ -136,7 +136,9 @@ Findings that shaped the stream design:
   the same in fMP4 HLS.
 - `-hls_time` cuts on a running grid from the run's first packet, so a restarted copy run cuts
   differently from the first run. The service instead asks ffmpeg for one fragment per keyframe
-  (`-hls_time 0.1`) and groups fragments into planned segments by the `sidx` presentation time.
+  (`-hls_time 0.1`) and groups fragments into planned segments by their first video sample's
+  presentation time (`tfdt`, `trun`, and the init segment's edit list). Not by `sidx`: ffmpeg 8.0
+  writes its earliest presentation time one frame late for runs from the start of the file.
 - `-force_key_frames expr:gte(t,n_forced*4)` skipped a keyframe under `-copyts`; an explicit list
   of segment start times is exact.
 - Copy-mode segment plans need source keyframe times. An ffprobe packet scan reads the whole

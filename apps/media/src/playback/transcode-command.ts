@@ -1,7 +1,8 @@
 /**
  * ffmpeg arguments for one HLS generation. Output keeps the source timeline (`-copyts` with
- * `frag_discont`, never shifted to avoid negative timestamps), so every fragment's `sidx` time
- * matches the session's segment plan wherever a run starts, and the HLS muxer starts a new
+ * `frag_discont`, never shifted to avoid negative timestamps), so every fragment's video times
+ * (its `tfdt` and `trun`, read past the init segment's edit list) match the session's segment
+ * plan wherever a run starts, and the HLS muxer starts a new
  * fragment file at every keyframe; the session groups fragments into the planned segments.
  * Transcodes place keyframes on the planned segment starts. Encodes run in software (libx264), on
  * Intel Quick Sync, or through VA-API (Intel and AMD); a GPU decodes the source itself when it
