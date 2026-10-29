@@ -222,16 +222,6 @@ export class VideoPort implements PlayerPort {
     }
   }
 
-  /** Whether AVPlayer's own position is one it could have played to. */
-  #believable(): boolean {
-    const video = this.#video;
-
-    return (
-      video !== null &&
-      believes(this.#playhead, video.currentTime * 1000, this.#played(), this.playbackRate())
-    );
-  }
-
   /** AVPlayer stopped where it could not have played to: its stream is gone, not the viewer. */
   #loseStream(): void {
     this.#lost = true;
@@ -240,15 +230,16 @@ export class VideoPort implements PlayerPort {
   }
 
   #onPlayingChange(isPlaying: boolean): void {
-    const video = this.#video;
+    // Read once: AVPlayer's time can turn invalid between two reads.
+    const currentTime = this.#video?.currentTime ?? null;
 
     // A jump AVPlayer made on its own, such as a seek from the lock screen, explains where it is.
     const explained =
-      video !== null &&
-      explains(this.#playhead, video.currentTime * 1000, this.#played(), this.playbackRate());
+      currentTime !== null &&
+      explains(this.#playhead, currentTime * 1000, this.#played(), this.playbackRate());
 
     // Where it started or stopped is a sighting too, so the controls show it until the next report.
-    if (video !== null) this.#sight(video.currentTime);
+    if (currentTime !== null) this.#sight(currentTime);
     this.#nativePlaying(isPlaying);
 
     if (isPlaying) {
@@ -285,7 +276,7 @@ export class VideoPort implements PlayerPort {
     const nativeMs = video.currentTime * 1000;
 
     // In whole milliseconds, so the clocks' rounding cannot cut a played half second short.
-    return this.#believable() ||
+    return believes(this.#playhead, nativeMs, this.#played(), this.playbackRate()) ||
       Math.round(
         playedOnFromJumpMs(this.#playhead, nativeMs, this.#played(), this.playbackRate()),
       ) >= JUMP_ENDS_AFTER_PLAYING_MS
@@ -374,13 +365,15 @@ export class VideoPort implements PlayerPort {
     if (this.#final !== null || this.#video === null || this.#video.playbackRate === rate) return;
 
     const video = this.#video;
-    const positionMs = reportedMs(video.currentTime);
+    // Read once: AVPlayer's time can turn invalid between two reads.
+    const currentTime = video.currentTime;
+    const positionMs = reportedMs(currentTime);
     const atMs = this.#played();
 
     // What AVPlayer played until now counts at the rate it played at. Its position is sighted only
     // where playing explains it: reading it now is no report of where it is.
     if (positionMs !== null && explains(this.#playhead, positionMs, atMs, video.playbackRate)) {
-      this.#sight(video.currentTime);
+      this.#sight(currentTime);
     } else {
       this.#playhead = accrued(this.#playhead, atMs, video.playbackRate);
     }

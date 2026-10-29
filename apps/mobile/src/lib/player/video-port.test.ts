@@ -8,7 +8,6 @@ import type { NativeStatus, NativeVideo, NativeVideoEvents } from "./video-port"
 type Listeners = { [Name in keyof NativeVideoEvents]: Set<NativeVideoEvents[Name]> };
 
 class TestVideo implements NativeVideo {
-  currentTime = 0;
   playbackRate = 1;
   playing = false;
   status: NativeStatus = "idle";
@@ -24,6 +23,31 @@ class TestVideo implements NativeVideo {
   };
   /** AVPlayer was asked to play while it had no data, so it plays once it has. */
   #waitingToPlay = false;
+  #currentTime = 0;
+  /** The time AVPlayer reads after its next read. */
+  #turnsTo: number | null = null;
+
+  /** expo-video reads AVPlayer's time afresh on every access. */
+  get currentTime(): number {
+    const seconds = this.#currentTime;
+
+    if (this.#turnsTo !== null) {
+      this.#currentTime = this.#turnsTo;
+      this.#turnsTo = null;
+    }
+
+    return seconds;
+  }
+
+  set currentTime(seconds: number) {
+    this.#currentTime = seconds;
+    this.#turnsTo = null;
+  }
+
+  /** AVPlayer's time turns to `seconds` right after its next read, as it can turn invalid. */
+  turnsAfterNextRead(seconds: number): void {
+    this.#turnsTo = seconds;
+  }
 
   play(): void {
     this.#use();
@@ -677,6 +701,36 @@ describe("VideoPort with the lock screen and stalls", () => {
     expect(port.getState().ended).toBe(true);
   });
 
+  it("keeps the media a lock-screen seek played when AVPlayer's time turns zero as the speed changes", () => {
+    const { clock, video, port } = playingAt(600);
+
+    port.setPlaybackRate(2);
+    video.fireTime(EPISODE_MS / 1000 - 1);
+    clock.ms += 400;
+    video.currentTime = EPISODE_MS / 1000 - 0.2;
+    // expo-video reads AVPlayer's NaN time as zero.
+    video.turnsAfterNextRead(0);
+    port.setPlaybackRate(0.5);
+    clock.ms += 400;
+    video.currentTime = EPISODE_MS / 1000;
+    video.pause();
+    video.fireEnd();
+
+    expect(port.getState().ended).toBe(true);
+    expect(port.positionMs()).toBe(EPISODE_MS);
+  });
+
+  it("ends at the real end when AVPlayer's time turns zero as it ends", () => {
+    const { video, port } = playingAt(EPISODE_MS / 1000 - 10);
+
+    video.pause();
+    video.turnsAfterNextRead(0);
+    video.fireEnd();
+
+    expect(port.getState().ended).toBe(true);
+    expect(port.positionMs()).toBe(EPISODE_MS);
+  });
+
   it("keeps the media a lock-screen seek played when AVPlayer reports no valid time", () => {
     const { clock, video, port } = playingAt(600);
 
@@ -731,6 +785,17 @@ describe("VideoPort with the lock screen and stalls", () => {
 
     clock.ms += 200;
     video.currentTime = 610.2;
+    video.pause();
+
+    expect(port.getState().positionSeconds).toBeCloseTo(610.2, 3);
+  });
+
+  it("shows where AVPlayer paused when its time turns zero as it pauses", () => {
+    const { clock, video, port } = playingAt(600);
+
+    clock.ms += 200;
+    video.currentTime = 610.2;
+    video.turnsAfterNextRead(0);
     video.pause();
 
     expect(port.getState().positionSeconds).toBeCloseTo(610.2, 3);
