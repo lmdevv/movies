@@ -38,7 +38,7 @@ export interface StallCheck {
   readonly positionMs: number;
   /** The viewer wants playback to move: playing was asked for, and it has not ended or stopped. */
   readonly intended: boolean;
-  /** A new stream is loading toward its first frame, which a heavy transcode takes longer to reach. */
+  /** A new stream or a seek is heading for a position a heavy transcode takes longer to reach. */
   readonly loading: boolean;
 }
 

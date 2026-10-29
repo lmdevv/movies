@@ -199,11 +199,14 @@ describe("VideoPort", () => {
     expect(port.positionMs()).toBe(3_600_000);
     expect(port.isBuffering()).toBe(true);
     expect(port.isPaused()).toBe(false);
+    // A seek the media service must transcode toward may take as long as a new stream.
+    expect(port.settling()).toBe(true);
     landings[0]?.();
     await Promise.resolve();
     await Promise.resolve();
     expect(events).toStrictEqual(["playing", "waiting", "seeked"]);
     expect(port.positionMs()).toBe(3_600_000);
+    expect(port.settling()).toBe(false);
   });
 
   it("drops a move a newer seek replaced", async () => {

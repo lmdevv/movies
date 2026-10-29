@@ -252,7 +252,7 @@ export class PlayerController {
         this.port.wantsToPlay() &&
         !this.port.getState().ended &&
         !PlayerPhase.$is("Stopped")(this.#snapshot.phase),
-      loading: this.port.loadingStream(),
+      loading: this.port.settling(),
     });
 
     this.#stallWatch = watch;
@@ -730,12 +730,14 @@ export class PlayerController {
   /** Tries again from where playback stopped (F09 Retry, F13 Try Again). */
   retry(): void {
     this.#recoveries = 0;
-    this.#update({ phase: this.#frameShown ? PlayerPhase.Playing() : PlayerPhase.Preparing() });
+    this.#update({
+      phase: this.#frameShown ? PlayerPhase.Playing() : PlayerPhase.Preparing(),
+      recovering: false,
+    });
 
     const positionMs = this.port.positionMs();
 
     this.#stallWatch = watching(positionMs, monotonicNow());
-    this.#update({ recovering: false });
 
     if (this.#playback === null) {
       this.#options.onNewSession(positionMs, Date.now());

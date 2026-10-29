@@ -149,7 +149,7 @@ export class VideoPort implements PlayerPort {
         this.#onPlayToEnd();
       }),
       video.addListener("timeUpdate", ({ currentTime }) => {
-        if (!this.#settling()) {
+        if (!this.settling()) {
           this.#playhead = reported(
             this.#playhead,
             currentTime * 1000,
@@ -169,12 +169,11 @@ export class VideoPort implements PlayerPort {
   /** Whether playing was asked for more recently than pausing. */
   readonly wantsToPlay = (): boolean => this.#wantsPlay;
 
-  /** Whether a new stream's player is loading toward the position it starts at. */
-  readonly loadingStream = (): boolean => this.#loadingAt !== null;
-
-  #settling(): boolean {
-    return this.#pending !== null || this.#loadingAt !== null;
-  }
+  /**
+   * Whether the player is heading for a position it has not reached: a new stream's start, or a
+   * seek moving the stream.
+   */
+  readonly settling = (): boolean => this.#pending !== null || this.#loadingAt !== null;
 
   /** Whether AVPlayer's own position is one it could have played to. */
   #believable(): boolean {
@@ -213,7 +212,7 @@ export class VideoPort implements PlayerPort {
       this.#pausedOutsideAt = null;
       this.#wantsPlay = true;
       this.#emit("playing");
-    } else if (this.#settling() || this.#ended || this.#lost) {
+    } else if (this.settling() || this.#ended || this.#lost) {
       // Loading, seeking, ending, and a lost stream pause AVPlayer; the viewer did not.
     } else if (!explained) {
       this.#loseStream();
@@ -253,7 +252,7 @@ export class VideoPort implements PlayerPort {
   #onStatusChange(status: NativeStatus): void {
     this.#status = status;
 
-    if (status === "loading" && this.#wantsPlay && !this.#settling()) this.#emit("waiting");
+    if (status === "loading" && this.#wantsPlay && !this.settling()) this.#emit("waiting");
     this.#changed();
   }
 
@@ -289,7 +288,7 @@ export class VideoPort implements PlayerPort {
   readonly isPaused = (): boolean => {
     if (this.#final !== null) return true;
 
-    return this.#settling() || this.#video === null || this.#stalled()
+    return this.settling() || this.#video === null || this.#stalled()
       ? !this.#wantsPlay
       : !this.#video.playing;
   };
@@ -297,7 +296,7 @@ export class VideoPort implements PlayerPort {
   readonly isBuffering = (): boolean => {
     if (this.#final !== null || this.#ended) return false;
 
-    if (this.#settling()) return this.#wantsPlay;
+    if (this.settling()) return this.#wantsPlay;
 
     return this.#wantsPlay && this.#stalled();
   };
