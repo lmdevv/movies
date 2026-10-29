@@ -136,7 +136,24 @@ describe("MediaElementPlayer", () => {
     expect(player.playbackRate()).toBe(1.05);
   });
 
-  it("starts a seek under way again once paused, so it lands while paused", async () => {
+  it("starts a seek again when a pause interrupts it before the first frame", async () => {
+    const element = new FakeMediaElement();
+    const player = new MediaElementPlayer(element);
+
+    await player.play();
+    element.readyState = 1;
+    element.currentTime = 11.9;
+    element.seeking = true;
+    element.pause();
+
+    expect(element.seeks).toStrictEqual([
+      { seconds: 11.9, paused: false },
+      { seconds: 11.9, paused: true },
+    ]);
+    expect(player.isPaused()).toBe(true);
+  });
+
+  it("leaves a seek alone when the pause comes once a frame shows, or after the seek", async () => {
     const element = new FakeMediaElement();
     const player = new MediaElementPlayer(element);
 
@@ -145,17 +162,12 @@ describe("MediaElementPlayer", () => {
     element.seeking = true;
     player.pause();
 
-    expect(element.seeks).toStrictEqual([
-      { seconds: 11.9, paused: false },
-      { seconds: 11.9, paused: true },
-    ]);
-    expect(player.isPaused()).toBe(true);
-
-    element.seeking = false;
     await player.play();
+    element.readyState = 1;
+    element.seeking = false;
     player.pause();
 
-    expect(element.seeks).toHaveLength(2);
+    expect(element.seeks).toStrictEqual([{ seconds: 11.9, paused: false }]);
   });
 
   it("rejects play only when the browser refuses it", async () => {

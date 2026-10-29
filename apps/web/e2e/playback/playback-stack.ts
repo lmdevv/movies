@@ -264,6 +264,9 @@ export const titlesByName = async (
   return new Map(page.items.map((title) => [title.name, title.id]));
 };
 
+/** `HTMLMediaElement.HAVE_CURRENT_DATA`: the element has the frame at its position. */
+export const HAVE_CURRENT_DATA = 2;
+
 /** What the player's `<video>` element reports at one instant. */
 export interface VideoState {
   readonly currentTime: number;

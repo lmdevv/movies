@@ -32,6 +32,9 @@ export interface StreamSeeker {
   readonly move: (positionMs: number, signal: AbortSignal) => Promise<void>;
 }
 
+/** `HAVE_CURRENT_DATA`: the element has the frame at its position. */
+const HAVE_CURRENT_DATA = 2;
+
 /** `HAVE_FUTURE_DATA`: enough data to play forward from the current position. */
 const HAVE_FUTURE_DATA = 3;
 
@@ -112,10 +115,27 @@ export class MediaElementPlayer implements PlayerPort {
 
     if (event.type === "stalled" && this.#element.readyState >= HAVE_FUTURE_DATA) return;
 
+    if (event.type === "pause") this.#keepSeekTarget();
+
     if (mapped === "seeked" && this.#pending !== null) return;
 
     this.#emit(mapped);
   };
+
+  /**
+   * Starts a seek still under way again once the element pauses, from any source. Chrome lands
+   * a seek that a pause interrupts before the element has shown a frame at 0, as with a new
+   * stream's move to its start position.
+   */
+  #keepSeekTarget(): void {
+    const element = this.#element;
+
+    if (!element.seeking || element.readyState >= HAVE_CURRENT_DATA) return;
+
+    const target = element.currentTime;
+
+    element.currentTime = target;
+  }
 
   #emit(event: PlayerEvent): void {
     for (const listener of this.#listeners) listener(event);
@@ -186,19 +206,9 @@ export class MediaElementPlayer implements PlayerPort {
     }
   };
 
-  /**
-   * Pauses here. A seek still under way is started again while paused: when a pause interrupts
-   * a seek before the element has shown a frame, such as a new stream's move to its start
-   * position, Chrome lands it at 0.
-   */
   readonly pause = (): void => {
-    const element = this.#element;
-    const seekingTo = element.seeking ? element.currentTime : null;
-
     this.#wantsPlay = false;
-    element.pause();
-
-    if (seekingTo !== null) element.currentTime = seekingTo;
+    this.#element.pause();
   };
 
   readonly subscribe = (listener: (event: PlayerEvent) => void): (() => void) => {

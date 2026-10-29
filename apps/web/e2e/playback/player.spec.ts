@@ -14,6 +14,7 @@ import { drawStill } from "../stack/fixture-library";
 import { buildMediaService, startMediaService } from "../stack/media-service";
 import type { MediaService } from "../stack/media-service";
 import {
+  HAVE_CURRENT_DATA,
   adultProfile,
   capture,
   clickScrubber,
@@ -79,9 +80,6 @@ const VOBSUB = join(
 );
 
 const TRACKS = "Audio, subtitles, and quality";
-
-/** `HTMLMediaElement.HAVE_CURRENT_DATA`: the element has the frame at its position. */
-const HAVE_CURRENT_DATA = 2;
 
 const SHOW = "Tide Tables";
 
@@ -752,7 +750,11 @@ test("pausing while another quality's stream moves to its start keeps the positi
 
   await expect.poll(pausedSeekingTo).not.toBeNull();
 
-  const start = Number(await pausedSeekingTo());
+  const seekingTo = await pausedSeekingTo();
+
+  expect(seekingTo, "Pause landed after the start seek finished").not.toBe("");
+
+  const start = Number(seekingTo);
 
   expect(start).toBeGreaterThan(10);
   await expect
