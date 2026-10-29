@@ -122,10 +122,8 @@ const decodeSessionEnded = Schema.decodeUnknownOption(
   Schema.fromJsonString(Schema.TaggedStruct("PlaybackSessionEnded", { sessionId: Schema.String })),
 );
 
-const startService = async (): Promise<void> => {
-  media = startMedia(mediaEnv());
-
-  await waitForBody(
+const connected = () =>
+  waitForBody(
     `${mediaUrl}${MEDIA_ROUTES.health}`,
     (text) =>
       decodeHealth(text).pipe(
@@ -134,6 +132,11 @@ const startService = async (): Promise<void> => {
       ),
     30_000,
   );
+
+const startService = async (): Promise<void> => {
+  media = startMedia(mediaEnv());
+
+  await connected();
 };
 
 const open = () => openSession(convexUrl, mediaUrl, scope);
@@ -181,10 +184,8 @@ const decodeDiagnostics = Schema.decodeUnknownSync(
 
 const decodeNegotiated = Schema.decodeUnknownSync(Schema.toCodecJson(NegotiateResponse));
 
-const negotiate = async (started: StartedPlayback, capabilities: ClientCapabilities) => {
-  const begin = performance.now();
-
-  const response = await fetch(`${started.mediaBaseUrl}${MEDIA_ROUTES.negotiate}`, {
+const offer = (started: StartedPlayback, capabilities: ClientCapabilities) =>
+  fetch(`${started.mediaBaseUrl}${MEDIA_ROUTES.negotiate}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(
@@ -192,6 +193,9 @@ const negotiate = async (started: StartedPlayback, capabilities: ClientCapabilit
     ),
   });
 
+const negotiate = async (started: StartedPlayback, capabilities: ClientCapabilities) => {
+  const begin = performance.now();
+  const response = await offer(started, capabilities);
   const body: unknown = await response.json();
   const elapsed = performance.now() - begin;
 
@@ -604,17 +608,7 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
         ),
       );
 
-      const response = await fetch(`${started.mediaBaseUrl}${MEDIA_ROUTES.negotiate}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(
-          encodeNegotiate({
-            token: Redacted.make(started.token),
-            capabilities: browser,
-            startSeconds: 0,
-          }),
-        ),
-      });
+      const response = await offer(started, browser);
 
       expect(response.status).toBe(410);
       expect(Option.getOrUndefined(decodeSessionEnded(await response.text()))).toMatchObject({
@@ -979,6 +973,55 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
       timings["leaseRecoveryMs"] = Math.round(performance.now() - begin);
       expect(job.status).toBe("succeeded");
       expect(job.attempts).toBe(2);
+    }, 180_000);
+
+    // Last: a restore replaces every table and signs everyone out.
+    it("refuses the tokens of sessions a restore ends or erases", async () => {
+      const listBackups = () =>
+        asOwner(Effect.flatMap(client, (movies) => movies.query("backups.list", {})));
+
+      const remux = await asOwner(titleIn(moviesLibrary, "Remux Fixture"));
+      const kept = await asOwner(startSession(remux.id, "restore-kept"));
+
+      await negotiate(kept, browser);
+
+      const earlier = new Set((await listBackups()).map((backup) => backup.id));
+
+      const backup = await asOwner(
+        Effect.gen(function* () {
+          const movies = yield* client;
+          const { jobId } = yield* movies.mutate("backups.run", {});
+
+          return yield* finished(jobId, "90 seconds");
+        }),
+      );
+
+      expect(backup.status, backup.error ?? "").toBe("succeeded");
+
+      const erased = await asOwner(startSession(remux.id, "restore-erased"));
+
+      await negotiate(erased, browser);
+
+      const taken =
+        (await listBackups()).find((listed) => !earlier.has(listed.id)) ?? expect.unreachable();
+
+      await asOwner(
+        Effect.flatMap(client, (movies) => movies.media("backups.restore", { backupId: taken.id })),
+      );
+
+      owner = await Effect.runPromise(open());
+      await asOwner(signInOwner);
+      await connected();
+
+      await expect
+        .poll(
+          () =>
+            Promise.all(
+              [kept, erased].map(async (started) => (await offer(started, browser)).status),
+            ),
+          { timeout: 45_000, interval: 1_000 },
+        )
+        .toStrictEqual([410, 410]);
     }, 180_000);
   },
 );
