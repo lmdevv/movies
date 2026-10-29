@@ -96,6 +96,7 @@ const make = Effect.gen(function* () {
     request: NegotiateRequest,
   ) {
     const grant = yield* verifier.verify(request.token, PlaybackToken.PLAY);
+    const negotiation = yield* sessions.negotiate(grant);
 
     const file = yield* resolveInsideRoots(grant.fileId, { sidecars: true }).pipe(
       Effect.provideService(FileResolver.Service, resolver),
@@ -192,15 +193,17 @@ const make = Effect.gen(function* () {
     };
 
     if (PlaybackPlan.$is("Direct")(plan)) {
-      yield* sessions.closeStreams(grant.sessionId, "replaced");
-      yield* reporter.report(
-        PlaybackReporter.PlaybackEvent.cases.ModeChosen.make({
-          sessionId: grant.sessionId,
-          userId: grant.userId,
-          fileId: grant.fileId,
-          mode: "direct",
-        }),
-      );
+      // A newer negotiation began meanwhile and reports its own mode.
+      if (yield* negotiation.direct) {
+        yield* reporter.report(
+          PlaybackReporter.PlaybackEvent.cases.ModeChosen.make({
+            sessionId: grant.sessionId,
+            userId: grant.userId,
+            fileId: grant.fileId,
+            mode: "direct",
+          }),
+        );
+      }
 
       return {
         ...common,
@@ -210,9 +213,8 @@ const make = Effect.gen(function* () {
     }
 
     const startWith = (chosen: typeof plan, keyframeTimes: ReadonlyArray<number> | undefined) =>
-      sessions
+      negotiation
         .start({
-          grant,
           file,
           plan: chosen,
           client: request.capabilities,
@@ -258,7 +260,7 @@ const make = Effect.gen(function* () {
         request.token,
       ),
     } satisfies NegotiateResponse;
-  });
+  }, Effect.scoped);
 
   return Service.of({ negotiate });
 });

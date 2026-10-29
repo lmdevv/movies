@@ -68,8 +68,13 @@ import * as StreamOwners from "./stream-owners.ts";
 import * as TranscodeSpace from "./transcode-space.ts";
 import { hlsCommandArgs } from "./transcode-command.ts";
 
+/** Who holds a transcode or remux slot: a negotiation, by its session and ticket. */
+interface Claim {
+  readonly sessionId: PlaybackSessionId;
+  readonly ticket: number;
+}
+
 interface StartRequest {
-  readonly grant: PlaybackGrant;
   readonly file: ResolvedMediaFile;
   readonly plan: Extract<PlaybackPlan, { readonly _tag: "Hls" }>;
   readonly client: ClientCapabilities;
@@ -116,9 +121,28 @@ export type StartError =
   | TranscodeFailed
   | KeyframeIndexFailed;
 
+/** One negotiation of a playback session's streams; see `negotiate`. */
+interface Negotiation {
+  /**
+   * Starts the HLS stream the negotiation chose, replacing the session's streams.
+   * `StreamNotFound` when a newer negotiation of the session began meanwhile.
+   */
+  readonly start: (request: StartRequest) => Effect.Effect<StartedStream, StartError>;
+  /**
+   * Closes the session's streams for direct play. False, changing nothing, when a newer
+   * negotiation of the session began meanwhile.
+   */
+  readonly direct: Effect.Effect<boolean>;
+}
+
 /** HLS stream sessions. */
 export interface Interface {
-  readonly start: (request: StartRequest) => Effect.Effect<StartedStream, StartError>;
+  /**
+   * Begins negotiating the streams of `grant`'s session, for the scope. Only the negotiation begun
+   * last can change them, so overlapping negotiations, a retry after a timeout for example, leave
+   * the newest one's choice whichever mode each picks, and no stream an older one started.
+   */
+  readonly negotiate: (grant: PlaybackGrant) => Effect.Effect<Negotiation, never, Scope.Scope>;
   readonly playlist: (
     streamId: StreamId,
     generation: number,
@@ -146,13 +170,12 @@ export interface Interface {
     grant: PlaybackGrant,
   ) => Effect.Effect<void, StreamNotFound | StreamAccessDenied>;
   /**
-   * Closes every stream of a playback session: `session-ended` when the session ended elsewhere,
-   * such as a sign-out or a newer session on the same device, and `replaced` when the session
-   * negotiated direct play. Returns how many streams it closed.
+   * Closes every stream of a playback session that ended elsewhere, such as by a sign-out or a
+   * newer session on the same device. Returns how many streams it closed.
    */
   readonly closeStreams: (
     sessionId: PlaybackSessionId,
-    reason: Extract<PlaybackReporter.StreamEndReason, "session-ended" | "replaced">,
+    reason: Extract<PlaybackReporter.StreamEndReason, "session-ended">,
   ) => Effect.Effect<number>;
   /** Number of streams whose encoder runs; a released stream waiting for its player is not one. */
   readonly activeCount: Effect.Effect<number>;
@@ -239,6 +262,8 @@ type Condition = Effect.Effect<(use: StreamLiveness.Use) => boolean>;
 interface Session {
   readonly streamId: StreamId;
   readonly sessionId: PlaybackSessionId;
+  /** The ticket of the negotiation that started it. */
+  readonly ticket: number;
   readonly userId: UserId;
   readonly fileId: MediaFileId;
   readonly file: ResolvedMediaFile;
@@ -290,9 +315,19 @@ const make = Effect.gen(function* () {
   const owners = yield* StreamOwners.Service;
   const reports = yield* SessionReports.Service;
   const sessions = yield* Ref.make<ReadonlyMap<StreamId, Session>>(new Map());
-  const transcodes = yield* Ref.make<ReadonlySet<StreamId>>(new Set());
-  const copies = yield* Ref.make<ReadonlySet<StreamId>>(new Set());
+  const transcodes = yield* Ref.make<ReadonlyMap<StreamId, Claim>>(new Map());
+  const copies = yield* Ref.make<ReadonlyMap<StreamId, Claim>>(new Map());
   const registry = yield* Semaphore.make(1);
+
+  /**
+   * Negotiations get increasing tickets. Per session: the ticket of the one begun last, until it
+   * ends; an older one still open then finds none, which is not its own.
+   */
+  const negotiations = yield* Ref.make<{
+    readonly issued: number;
+    readonly latest: ReadonlyMap<PlaybackSessionId, number>;
+  }>({ issued: 0, latest: new Map() });
+
   const services = yield* Effect.context();
   const pollInterval = yield* PollInterval;
 
@@ -949,22 +984,26 @@ const make = Effect.gen(function* () {
   });
 
   /**
-   * Claims a slot for `streamId` until `scope` closes. Streams in `replacing` close once the new
-   * stream registers, so the ones still holding a slot do not count; deciding that in the same
-   * update as the claim keeps a slot released meanwhile from being credited as well.
+   * Claims a slot for `streamId` until `scope` closes. Slots held for an older negotiation of the
+   * same session do not count: its streams close once this one registers, and one still starting
+   * never registers. Deciding that in the same update as the claim keeps a slot released
+   * meanwhile from being credited as well.
    */
   const acquireSlot = (
     scope: Scope.Scope,
     transcoding: boolean,
     streamId: StreamId,
-    replacing: ReadonlyArray<StreamId>,
+    claim: Claim,
   ) => {
     const slots = transcoding ? transcodes : copies;
     const limit = transcoding ? config.maxConcurrentTranscodes : config.maxConcurrentRemuxes;
 
+    const counted = (holder: Claim) =>
+      holder.sessionId !== claim.sessionId || holder.ticket > claim.ticket;
+
     return Ref.modify(slots, (holders) =>
-      holders.size - replacing.filter((id) => holders.has(id)).length < limit
-        ? ([true, new Set(holders).add(streamId)] as const)
+      [...holders.values()].filter(counted).length < limit
+        ? ([true, new Map(holders).set(streamId, claim)] as const)
         : ([false, holders] as const),
     ).pipe(
       Effect.tap((acquired) =>
@@ -972,7 +1011,7 @@ const make = Effect.gen(function* () {
           ? Scope.addFinalizer(
               scope,
               Ref.update(slots, (holders) => {
-                const next = new Set(holders);
+                const next = new Map(holders);
                 next.delete(streamId);
 
                 return next;
@@ -1018,7 +1057,12 @@ const make = Effect.gen(function* () {
       );
 
     yield* space.check(0).pipe(
-      Effect.andThen(acquireSlot(lease, transcoding, session.streamId, [])),
+      Effect.andThen(
+        acquireSlot(lease, transcoding, session.streamId, {
+          sessionId: session.sessionId,
+          ticket: session.ticket,
+        }),
+      ),
       Effect.catchTags({
         TranscodeCapacityReached: () => refused("TranscodeCapacityReached"),
         InsufficientTranscodeSpace: () => refused("InsufficientTranscodeSpace"),
@@ -1140,11 +1184,66 @@ const make = Effect.gen(function* () {
     );
   }, Effect.uninterruptible);
 
-  const start = Effect.fn("StreamSessions.start")(function* (request: StartRequest) {
+  /**
+   * Unless a newer negotiation of the session began, takes the session's streams out of the
+   * registry and registers `next` in their place; none when one did.
+   */
+  const replaceStreams = (
+    sessionId: PlaybackSessionId,
+    ticket: number,
+    next: Option.Option<Session>,
+  ) =>
+    registry.withPermits(1)(
+      Effect.gen(function* () {
+        if ((yield* Ref.get(negotiations)).latest.get(sessionId) !== ticket) {
+          return Option.none<ReadonlyArray<Session>>();
+        }
+
+        const previous = yield* Ref.modify(sessions, (current) => {
+          const replaced = [...current.values()].filter(
+            (existing) => existing.sessionId === sessionId,
+          );
+
+          const updated = new Map(current);
+
+          for (const existing of replaced) updated.delete(existing.streamId);
+
+          if (Option.isSome(next)) updated.set(next.value.streamId, next.value);
+
+          return [replaced, updated] as const;
+        });
+
+        yield* Effect.forEach(previous, (existing) => owners.closed(existing.streamId), {
+          discard: true,
+        });
+
+        if (Option.isSome(next)) yield* owners.opened(next.value.streamId, sessionId);
+
+        return Option.some(previous);
+      }),
+    );
+
+  const endReplaced = (previous: ReadonlyArray<Session>) =>
+    Effect.forEach(
+      previous,
+      (existing) =>
+        Effect.gen(function* () {
+          yield* stopAdmitting(existing, () => true);
+          yield* Scope.close(existing.scope, Exit.void);
+          yield* reportEnded(existing, "replaced");
+        }),
+      { discard: true },
+    );
+
+  const start = Effect.fn("StreamSessions.start")(function* (
+    grant: PlaybackGrant,
+    ticket: number,
+    request: StartRequest,
+  ) {
     const scope = yield* Scope.make("sequential");
     const registered = yield* Ref.make(Option.none<Session>());
 
-    return yield* startIn(scope, registered, request).pipe(
+    return yield* startIn(scope, registered, grant, ticket, request).pipe(
       Effect.onExit((exit) =>
         Ref.get(registered).pipe(
           Effect.flatMap(
@@ -1164,9 +1263,11 @@ const make = Effect.gen(function* () {
   const startIn = Effect.fnUntraced(function* (
     scope: Scope.Closeable,
     registered: Ref.Ref<Option.Option<Session>>,
+    grant: PlaybackGrant,
+    ticket: number,
     request: StartRequest,
   ) {
-    const { grant, file, plan } = request;
+    const { file, plan } = request;
 
     const transcoding = isEncode(plan.video);
 
@@ -1179,12 +1280,8 @@ const make = Effect.gen(function* () {
       fs.remove(path.join(config.transcodeDir, streamId), { recursive: true }).pipe(Effect.ignore),
     );
 
-    const replacing = [...(yield* Ref.get(sessions)).values()].flatMap((existing) =>
-      existing.sessionId === grant.sessionId ? [existing.streamId] : [],
-    );
-
     const lease = yield* Scope.fork(scope, "sequential");
-    yield* acquireSlot(lease, transcoding, streamId, replacing);
+    yield* acquireSlot(lease, transcoding, streamId, { sessionId: grant.sessionId, ticket });
 
     yield* space.check(0);
 
@@ -1222,6 +1319,7 @@ const make = Effect.gen(function* () {
     const session: Session = {
       streamId,
       sessionId: grant.sessionId,
+      ticket,
       userId: grant.userId,
       fileId: grant.fileId,
       file,
@@ -1253,38 +1351,20 @@ const make = Effect.gen(function* () {
       Effect.forkIn(scope),
     );
 
-    yield* Effect.uninterruptible(
+    const replaced = yield* Effect.uninterruptible(
       Effect.gen(function* () {
-        const replaced = yield* registry.withPermits(1)(
-          Ref.modify(sessions, (current) => {
-            const previous = [...current.values()].filter(
-              (existing) => existing.sessionId === grant.sessionId,
-            );
+        const previous = yield* replaceStreams(grant.sessionId, ticket, Option.some(session));
 
-            const next = new Map(current);
-
-            for (const existing of previous) next.delete(existing.streamId);
-            next.set(streamId, session);
-
-            return [previous, next] as const;
-          }).pipe(
-            Effect.tap(() => Ref.set(registered, Option.some(session))),
-            Effect.tap((previous) =>
-              Effect.forEach(previous, (existing) => owners.closed(existing.streamId), {
-                discard: true,
-              }),
-            ),
-            Effect.tap(() => owners.opened(streamId, grant.sessionId)),
-          ),
-        );
-
-        for (const previous of replaced) {
-          yield* stopAdmitting(previous, () => true);
-          yield* Scope.close(previous.scope, Exit.void);
-          yield* reportEnded(previous, "replaced");
+        if (Option.isSome(previous)) {
+          yield* Ref.set(registered, Option.some(session));
+          yield* endReplaced(previous.value);
         }
+
+        return previous;
       }),
     );
+
+    if (Option.isNone(replaced)) return yield* new StreamNotFound({ streamId });
 
     // Effect's `forkIn` does not interrupt a fiber that closes its own scope; it ends after the
     // close.
@@ -1444,9 +1524,43 @@ const make = Effect.gen(function* () {
     yield* closeSession(yield* lookup(streamId, grant), "stopped");
   });
 
+  const negotiate = (grant: PlaybackGrant) =>
+    Effect.acquireRelease(
+      Ref.modify(negotiations, ({ issued, latest }) => {
+        const ticket = issued + 1;
+
+        return [
+          ticket,
+          { issued: ticket, latest: new Map(latest).set(grant.sessionId, ticket) },
+        ] as const;
+      }),
+      (ticket) =>
+        Ref.update(negotiations, ({ issued, latest }) => {
+          if (latest.get(grant.sessionId) !== ticket) return { issued, latest };
+
+          const next = new Map(latest);
+          next.delete(grant.sessionId);
+
+          return { issued, latest: next };
+        }),
+    ).pipe(
+      Effect.map((ticket): Negotiation => ({
+        start: (request) => start(grant, ticket, request),
+        direct: replaceStreams(grant.sessionId, ticket, Option.none()).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () => Effect.succeed(false),
+              onSome: (previous) => endReplaced(previous).pipe(Effect.as(true)),
+            }),
+          ),
+          Effect.uninterruptible,
+        ),
+      })),
+    );
+
   const closeStreams = Effect.fn("StreamSessions.closeStreams")(function* (
     sessionId: PlaybackSessionId,
-    reason: Extract<PlaybackReporter.StreamEndReason, "session-ended" | "replaced">,
+    reason: Extract<PlaybackReporter.StreamEndReason, "session-ended">,
   ) {
     const closing = [...(yield* Ref.get(sessions)).values()].filter(
       (session) => session.sessionId === sessionId,
@@ -1501,7 +1615,7 @@ const make = Effect.gen(function* () {
   );
 
   return Service.of({
-    start,
+    negotiate,
     playlist,
     init,
     segment,
