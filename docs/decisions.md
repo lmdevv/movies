@@ -21,12 +21,13 @@ choices made while implementing them. Update it in the same PR that changes a de
   subtitles either. Any other is `PlaybackTokenInvalid` with reason `wrong_purpose` (401).
 - A token whose playback session has ended is refused with `PlaybackSessionEnded` (410) even
   before it expires. The media service subscribes to `mediaService:sessionStatus` for each session
-  whose token it sees, for a token's lifetime, and waits up to five seconds for the first answer
-  before it serves that session. An HLS stream follows its own session and stops when it ends. A
-  session Convex has no record of counts as ended. Following each session, rather than a feed of
-  ends ordered by `endedAt`, sees an end that commits after a later-stamped one, or that a restore
-  or a clock step stamped in the past. It also writes nothing, so ends in different accounts never
-  contend.
+  whose token it sees, until the session ends, and remembers the answer for the 4096 sessions asked
+  about most recently. It waits up to five seconds for the first answer before it serves that
+  session. An HLS stream follows its own session and stops when it ends. A session Convex has no
+  record of, such as one a restore erased, counts as ended. Following each session, rather than a
+  feed of ends ordered by `endedAt`, sees an end that commits after a later-stamped one, or that a
+  restore or a clock step stamped in the past. It also writes nothing, so ends in different
+  accounts never contend.
 - Tokens never appear in logs. Media URLs carry the token in the `token` query parameter because
   `<video>` and HLS segment fetches cannot set headers.
 
