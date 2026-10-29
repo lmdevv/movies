@@ -98,6 +98,11 @@ export interface Interface {
   /** Whether the connection runs signed out for now, without waiting for a change. */
   readonly isReconnecting: Effect.Effect<boolean>;
   /**
+   * Who is signed in now, as the account and session: renewing the session keeps it, signing in
+   * as another account or session changes it. None while signed out.
+   */
+  readonly currentIdentity: Effect.Effect<Option.Option<string>>;
+  /**
    * Signs in and stores the session. Rejected credentials fail with `Unauthenticated`; a sign-up
    * without a valid invite fails with `Forbidden` or `Conflict`.
    */
@@ -636,6 +641,7 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
     currentStatus: SubscriptionRef.get(status),
     reconnecting: SubscriptionRef.changes(reconnecting),
     isReconnecting: SubscriptionRef.get(reconnecting),
+    currentIdentity: Effect.map(Ref.get(session), Option.flatMap(sessionOf)),
     signIn,
     signOut: signOut(),
     accessToken,

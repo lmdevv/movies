@@ -15,6 +15,7 @@ import {
   Layer,
   Option,
   Predicate,
+  Queue,
   Redacted,
   Schema,
   Stream,
@@ -27,7 +28,7 @@ import * as Auth from "../auth";
 import * as ConvexTransport from "../convex-transport";
 import * as DeviceLogin from "../device-login";
 import * as Movies from "../movies";
-import { MoviesClient } from "../movies-client";
+import { MoviesClient, layer as moviesClientLayer } from "../movies-client";
 import { hostControlsEnabled, run } from "../room-sync/room-sync";
 import { DEFAULT_TUNABLES } from "../room-sync/sync-policy";
 import type { CallError } from "../sdk-errors";
@@ -429,6 +430,78 @@ describe.skipIf(stack === undefined)("the SDK against a real stack", () => {
         }),
       ),
     60_000,
+  );
+
+  it(
+    "runs nothing one account asked while reconnecting as the account that signs in next",
+    () =>
+      runScoped(
+        Effect.gen(function* () {
+          const owner = yield* ownerSession;
+          const email = `switch-${id}@movies.test`;
+          const invite = yield* clientOf(owner).action("invites.create", { email, role: "member" });
+          const relay = yield* FakeConvex.make;
+
+          yield* relay.handle("auth:signIn", (request) =>
+            Predicate.hasProperty(request.args, "refreshToken")
+              ? Effect.succeed(Reply.Crash({ message: "Temporary auth failure" }))
+              : forwardAuth("auth:signIn", request),
+          );
+
+          const service = yield* Layer.build(
+            moviesClientLayer({ mediaUrl: Option.none() }).pipe(
+              Layer.provideMerge(
+                Auth.layer({ convexUrl: relay.url, refreshFailureLimit: Duration.seconds(1) }),
+              ),
+              Layer.provideMerge(ConvexTransport.layerWebSocket(url)),
+              Layer.provide(TokenStorage.layerMemory),
+            ),
+          );
+
+          const auth = Context.get(service, Auth.Auth);
+          const client = Context.get(service, MoviesClient);
+          const seen = yield* Queue.unbounded<string>();
+
+          yield* auth.signIn(password(email, "signUp", invite.code));
+          yield* client.subscribe("profiles.list", {}).pipe(
+            Stream.runForEach((profiles) =>
+              Queue.offer(seen, `${String(profiles.length)} profiles`),
+            ),
+            Effect.catch((error) => Queue.offer(seen, `failed: ${Struct.get(error, "_tag")}`)),
+            Effect.forkScoped,
+          );
+          yield* Queue.take(seen);
+
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            if (attempt > 0) yield* Effect.sleep("600 millis");
+            yield* auth.accessToken(true);
+          }
+
+          const pending = yield* outcome(
+            client.mutate("profiles.create", { name: `pending ${id}`, avatar: "red", kids: false }),
+          ).pipe(Effect.forkScoped);
+
+          yield* Effect.sleep("500 millis");
+          yield* Effect.firstSuccessOf(
+            OWNER_EMAILS.map((owned) => auth.signIn(password(owned, "signIn"))),
+          );
+
+          const mutation = yield* Fiber.join(pending).pipe(Effect.timeout("40 seconds"));
+          const subscription = yield* Queue.take(seen).pipe(Effect.timeout("10 seconds"));
+          const ownerProfiles = yield* clientOf(owner).query("profiles.list", {});
+
+          expect({
+            mutation,
+            subscription,
+            crossed: ownerProfiles.some((profile) => profile.name === `pending ${id}`),
+          }).toStrictEqual({
+            mutation: "Unauthenticated",
+            subscription: "failed: Unauthenticated",
+            crossed: false,
+          });
+        }),
+      ),
+    90_000,
   );
 
   it(

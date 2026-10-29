@@ -5,7 +5,6 @@ import {
   Duration,
   Effect,
   Exit,
-  Fiber,
   Layer,
   Option,
   Predicate,
@@ -249,11 +248,8 @@ describe.concurrent("layerWebSocket", () => {
                 : Reply.Success({
                     value: {
                       tokens: {
-                        token: jwtIssuedAt(
-                          Date.now(),
-                          3600,
-                          `service|session-${String(refreshes)}`,
-                        ),
+                        // One session throughout, as a renewal keeps it; the lifetime tells tokens apart.
+                        token: jwtIssuedAt(Date.now(), 3600 + refreshes, "service|session"),
                         refreshToken: "refresh",
                       },
                     },
@@ -317,7 +313,7 @@ describe.concurrent("layerWebSocket", () => {
           const asked = yield* client.query("setup.status", {}).pipe(
             Effect.map((status) => `libraries: ${String(status.hasLibraries)}`),
             Effect.catch((error) => Effect.succeed(`failed: ${Struct.get(error, "_tag")}`)),
-            Effect.forkScoped,
+            Effect.timeout(Duration.seconds(5)),
           );
 
           failing = false;
@@ -325,14 +321,13 @@ describe.concurrent("layerWebSocket", () => {
             Effect.timeout(Duration.seconds(20)),
           );
           const later = yield* Queue.take(seen).pipe(Effect.timeout(Duration.seconds(5)));
-          const askedThen = yield* Fiber.join(asked).pipe(Effect.timeout(Duration.seconds(5)));
 
           return {
             first,
             answered,
             whileFailing,
+            asked,
             later,
-            askedThen,
             status: yield* auth.currentStatus,
           };
         }),
@@ -343,8 +338,9 @@ describe.concurrent("layerWebSocket", () => {
       first: "libraries: false",
       answered: "public answer",
       whileFailing: { status: "signedIn", reconnecting: Option.some(true) },
+      // A one-shot query is not asked again: it fails as it would signed out.
+      asked: "failed: Unauthenticated",
       later: "libraries: true",
-      askedThen: "libraries: true",
       status: "signedIn",
     });
   }, 60_000);

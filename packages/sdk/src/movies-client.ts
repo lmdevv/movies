@@ -21,7 +21,7 @@ import {
 } from "@movies/contracts/diagnostics";
 import { InvalidArgs } from "@movies/contracts/errors";
 import { EpochMillis } from "@movies/contracts/units";
-import { Context, Duration, Effect, Layer, Option, Schema, SchemaIssue, Stream } from "effect";
+import { Context, Effect, Layer, Option, Schema, SchemaIssue, Stream } from "effect";
 
 import * as Auth from "./auth";
 import * as ConvexTransport from "./convex-transport";
@@ -158,65 +158,49 @@ const decodeResult = <A>(
     ),
   );
 
-/** How long a call waits for the connection to sign in again before failing `Unauthenticated`. */
-const RECONNECT_WAIT = Duration.seconds(30);
-
 /** Builds the client over the Convex connection and the session's auth. */
 export const make = Effect.fn("MoviesClient.make")(function* (options: Options) {
   const transport = yield* ConvexTransport.ConvexTransport;
   const auth = yield* Auth.Auth;
 
   /**
-   * Whether to ask again after Convex answered `Unauthenticated`: once the connection signs in
-   * again, when it ran signed out because the server keeps failing to renew the session, or at
-   * once when it did so as the question was asked, since the answer may be from then. Not when
-   * the session ended meanwhile.
+   * Whether to subscribe again after Convex answered `Unauthenticated` to a subscription made as
+   * `identity`: once the connection signs in again, when it ran signed out because the server
+   * keeps failing to renew the session, or at once when it did so as the subscription was made,
+   * since the answer may be from then. Only while that session is still the one signed in, so
+   * nothing one account asked is asked again as another.
    */
-  const askAgain = (askedWhileReconnecting: boolean) =>
+  const subscribeAgain = (askedWhileReconnecting: boolean, identity: Option.Option<string>) =>
     Effect.gen(function* () {
       const reconnecting = yield* auth.isReconnecting;
 
       if (!reconnecting && !askedWhileReconnecting) return false;
       yield* Stream.runHead(Stream.filter(auth.reconnecting, (waiting) => !waiting));
+      const current = yield* auth.currentIdentity;
 
-      return (yield* auth.currentStatus) === "signedIn";
+      return Option.isSome(identity) && Option.contains(current, identity.value);
     });
 
   /**
-   * `ask`, asked again once the connection signs in again after running signed out, so a call
-   * waits up to `RECONNECT_WAIT` rather than failing with `Unauthenticated` meanwhile. Only for
-   * queries and mutations: Convex runs a mutation as one transaction, so one refused changed
-   * nothing.
-   */
-  const acrossReconnects = <A>(ask: Effect.Effect<A, CallError>): Effect.Effect<A, CallError> =>
-    Effect.flatMap(auth.isReconnecting, (askedWhileReconnecting) =>
-      Effect.catchTag(ask, "Unauthenticated", (error) =>
-        askAgain(askedWhileReconnecting).pipe(
-          Effect.timeoutOption(RECONNECT_WAIT),
-          Effect.flatMap((again) =>
-            Option.contains(again, true) ? acrossReconnects(ask) : Effect.fail(error),
-          ),
-        ),
-      ),
-    );
-
-  /**
-   * `results`, subscribed again as `acrossReconnects` asks again, however long the connection
-   * runs signed out, so a screen keeps what it shows.
+   * `results`, subscribed again as `subscribeAgain` says, however long the connection runs signed
+   * out, so a screen keeps what it shows.
    */
   const subscribedAcrossReconnects = <A>(
     results: Stream.Stream<A, CallError>,
   ): Stream.Stream<A, CallError> =>
     Stream.unwrap(
-      Effect.map(auth.isReconnecting, (askedWhileReconnecting) =>
-        Stream.catchTag(results, "Unauthenticated", (error) =>
+      Effect.gen(function* () {
+        const askedWhileReconnecting = yield* auth.isReconnecting;
+        const identity = yield* auth.currentIdentity;
+
+        return Stream.catchTag(results, "Unauthenticated", (error) =>
           Stream.unwrap(
-            Effect.map(askAgain(askedWhileReconnecting), (again) =>
+            Effect.map(subscribeAgain(askedWhileReconnecting, identity), (again) =>
               again ? subscribedAcrossReconnects(results) : Stream.fail(error),
             ),
           ),
-        ),
-      ),
+        );
+      }),
     );
 
   const callConvex = <Command extends ConvexCommand<FunctionKind, ArgsSchema, WireSchema>>(
@@ -226,8 +210,7 @@ export const make = Effect.fn("MoviesClient.make")(function* (options: Options) 
   ): Effect.Effect<Command["result"]["Type"], CallError> =>
     Effect.gen(function* () {
       const wire = yield* encodeArgs(name, command, args);
-      const once = transport.call(command.kind, command.function, wire);
-      const raw = yield* command.kind === "action" ? once : acrossReconnects(once);
+      const raw = yield* transport.call(command.kind, command.function, wire);
 
       return yield* decodeResult(name, command.result, raw);
     }).pipe(Effect.withSpan("MoviesClient.call", { attributes: { command: name } }));
