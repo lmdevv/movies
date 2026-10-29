@@ -111,7 +111,8 @@ environment, so a crafted file that exploits them finds no credentials.
 - `EndedSessions` follows `sessionStatus` for each session whose token arrives, and an HLS stream
   follows its own session: an ended session's streams stop and its tokens are refused
   (`PlaybackSessionEnded`, 410). The first request of a session waits up to 5 s for Convex's answer,
-  then is served while the answer is still awaited.
+  then is served while the answer is still awaited. Ends are kept for a token's six-hour life,
+  apart from the 4096 sessions followed at once; an expired token follows nothing.
 - `JobWorker` (`src/jobs/`) claims `pendingJobs` it has a handler for with a 60 s lease renewed
   every 15 s (with progress), interrupts the handler when the job is cancelled or the lease is
   lost, and completes or fails the job (`retry` returns it to the queue). Handlers: `scan`

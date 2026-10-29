@@ -127,7 +127,11 @@ export const make = Effect.fn("PlaybackTokenVerifier.make")(function* (
         sessionForLog: Option.some({ sessionId: payload.sid, userId: payload.sub }),
       });
 
-    if (yield* ended.isEnded(payload.sid)) {
+    // An expired token is refused either way; asking about its session would only let replayed
+    // old tokens crowd out the sessions being followed.
+    const expired = yield* Effect.isFailure(checkPlaybackTokenExpiry(payload));
+
+    if (yield* (expired ? ended.isKnownEnded : ended.isEnded)(payload.sid)) {
       return yield* refuse(new PlaybackSessionEnded({ sessionId: payload.sid }));
     }
 

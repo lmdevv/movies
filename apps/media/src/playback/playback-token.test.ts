@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 
 import { assert, layer } from "@effect/vitest";
-import { Effect, Layer, Match, Option, Redacted } from "effect";
+import { Effect, Layer, Match, Option, Redacted, Stream } from "effect";
 import { TestClock } from "effect/testing";
 
 import { PlaybackSessionId, UserId } from "@movies/contracts/ids";
@@ -16,6 +16,7 @@ import * as ConvexSessionReports from "../convex/convex-session-reports.ts";
 import * as TestConvex from "../testing/test-convex.ts";
 import * as EndedSessions from "./ended-sessions.ts";
 import * as PlaybackToken from "./playback-token.ts";
+import * as SessionReports from "./session-reports.ts";
 
 const secretBytes = Buffer.from(
   "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
@@ -113,6 +114,36 @@ layer(EndedSessions.layerNone)("PlaybackToken", (it) => {
       yield* TestClock.setTime(claims.exp);
 
       assert.strictEqual(yield* rejection(sign(JSON.stringify(claims))), "expired");
+    }),
+  );
+
+  it.effect("refuses an expired token without asking about its session", () =>
+    Effect.gen(function* () {
+      const asked: Array<string> = [];
+
+      const reports = Layer.succeed(
+        SessionReports.Service,
+        SessionReports.Service.of({
+          follow: (followed) => {
+            asked.push(followed);
+
+            return Stream.never;
+          },
+        }),
+      );
+
+      const context = yield* Layer.build(EndedSessions.layer.pipe(Layer.provide(reports)));
+
+      yield* TestClock.setTime(claims.exp);
+
+      const refusal = yield* verify(sign(JSON.stringify(claims))).pipe(
+        Effect.provide(context),
+        Effect.flip,
+        Effect.map(reasonOf),
+      );
+
+      assert.strictEqual(refusal, "expired");
+      assert.deepStrictEqual(asked, []);
     }),
   );
 

@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Context, Duration, Effect, Fiber, Layer, Queue, Stream } from "effect";
+import { Context, Duration, Effect, Fiber, Layer, Queue, Ref, Stream } from "effect";
 import { TestClock } from "effect/testing";
 
 import { PlaybackSessionId } from "@movies/contracts/ids";
@@ -11,6 +11,8 @@ import * as SessionReports from "./session-reports.ts";
 import { SessionReport } from "./stream-liveness.ts";
 
 const sessionId = (id: string) => PlaybackSessionId.make(id);
+
+const ANSWER_WAIT = Duration.seconds(5);
 
 const overConvex = EndedSessions.layer.pipe(
   Layer.provide(ConvexSessionReports.layer),
@@ -97,6 +99,81 @@ describe("ended sessions", () => {
         ),
       );
       assert.deepStrictEqual(asked, [quiet], "one follow for every question about a session");
+    }),
+  );
+
+  it.effect("remembers an end after forgetting the session, while the owner is unreachable", () =>
+    Effect.gen(function* () {
+      const reachable = yield* Ref.make(true);
+      const asked: Array<string> = [];
+
+      const reports = Layer.succeed(
+        SessionReports.Service,
+        SessionReports.Service.of({
+          follow: (followed) =>
+            Stream.unwrap(
+              Effect.gen(function* () {
+                asked.push(followed);
+
+                if (!(yield* Ref.get(reachable))) return Stream.never;
+
+                return Stream.make(
+                  followed === "revoked"
+                    ? SessionReport.Ended()
+                    : SessionReport.Active({ state: "playing", positionMs: 0 }),
+                ).pipe(Stream.concat(Stream.never));
+              }),
+            ),
+        }),
+      );
+
+      const context = yield* Layer.build(EndedSessions.layer.pipe(Layer.provide(reports)));
+      const ended = Context.get(context, EndedSessions.Service);
+      const revoked = sessionId("revoked");
+
+      assert.isTrue(yield* ended.isEnded(revoked));
+
+      yield* Effect.forEach(
+        Array.from({ length: 4096 }, (_, index) => sessionId(`live-${index}`)),
+        ended.isEnded,
+        { discard: true },
+      );
+      yield* Ref.set(reachable, false);
+
+      const answer = yield* Effect.forkChild(ended.isEnded(revoked));
+
+      yield* TestClock.adjust(ANSWER_WAIT);
+
+      assert.isTrue(yield* Fiber.join(answer));
+      assert.strictEqual(asked.filter((followed) => followed === revoked).length, 1);
+    }),
+  );
+
+  it.effect("waits five seconds once, however far the clock steps back", () =>
+    Effect.gen(function* () {
+      const context = yield* Layer.build(
+        EndedSessions.layer.pipe(Layer.provide(SessionReports.layerNone)),
+      );
+
+      const ended = Context.get(context, EndedSessions.Service);
+      const quiet = sessionId("quiet");
+
+      yield* TestClock.setTime(Duration.toMillis(Duration.hours(1)));
+
+      const first = yield* Effect.forkChild(ended.isEnded(quiet));
+
+      yield* TestClock.adjust(ANSWER_WAIT);
+
+      assert.isFalse(yield* Fiber.join(first));
+
+      yield* TestClock.setTime(0);
+
+      const second = yield* Effect.forkChild(ended.isEnded(quiet));
+
+      yield* Effect.yieldNow;
+
+      assert.isDefined(second.pollUnsafe(), "answered without a second wait");
+      assert.isFalse(yield* Fiber.join(second));
     }),
   );
 });

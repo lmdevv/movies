@@ -1,6 +1,7 @@
 import type { PlaybackSessionId } from "@movies/contracts/ids";
+import { PLAYBACK_TOKEN_LIFETIME_MS } from "@movies/contracts/playback-token";
 import {
-  Clock,
+  Cache,
   Context,
   Deferred,
   Duration,
@@ -23,6 +24,8 @@ export interface Interface {
    * one they answer no, and a later question hears the answer once it comes.
    */
   readonly isEnded: (sessionId: PlaybackSessionId) => Effect.Effect<boolean>;
+  /** Whether `sessionId` is already known to have ended, without asking the owner. */
+  readonly isKnownEnded: (sessionId: PlaybackSessionId) => Effect.Effect<boolean>;
 }
 
 /** The ended-session registry. */
@@ -31,10 +34,17 @@ export class Service extends Context.Service<Service, Interface>()("@movies/medi
 const ANSWER_WAIT = Duration.seconds(5);
 
 /**
- * Sessions remembered at once; past it, the one asked about least recently is forgotten and
+ * Sessions followed at once; past it, the one asked about least recently is forgotten and
  * followed again when next asked about.
  */
 const CAPACITY = 4096;
+
+/**
+ * Ends remembered at once. An end costs no subscription, so far more are kept than sessions are
+ * followed, and a session forgotten to make room for others stays refused while the owner is
+ * unreachable.
+ */
+const ENDS_CAPACITY = 65_536;
 
 /**
  * Follows each session it is asked about through the owner's report on that session alone, until
@@ -47,28 +57,41 @@ export const layer: Layer.Layer<Service, never, SessionReports.Service> = Layer.
   Effect.gen(function* () {
     const reports = yield* SessionReports.Service;
 
+    // Filled as ends are heard, never looked up. An end is kept for as long as a token minted
+    // before it could still be valid.
+    const ends = yield* Cache.make<PlaybackSessionId, void>({
+      lookup: () => Effect.void,
+      capacity: ENDS_CAPACITY,
+      timeToLive: Duration.millis(PLAYBACK_TOKEN_LIFETIME_MS),
+    });
+
     const follow = Effect.fnUntraced(function* (sessionId: PlaybackSessionId) {
       const ended = yield* Ref.make(false);
-      const answered = yield* Deferred.make<void>();
-      const answerBy = (yield* Clock.currentTimeMillis) + Duration.toMillis(ANSWER_WAIT);
+      // Settles on the first answer or when the first wait runs out. A flag, not a deadline on
+      // the wall clock, so a clock stepped back cannot start the wait again.
+      const settled = yield* Deferred.make<void>();
 
       yield* reports.follow(sessionId).pipe(
         Stream.takeUntil(SessionReport.$is("Ended")),
         Stream.runForEach((report) =>
-          Ref.set(ended, SessionReport.$is("Ended")(report)).pipe(
-            Effect.andThen(Deferred.succeed(answered, undefined)),
-          ),
+          SessionReport.$is("Ended")(report)
+            ? Ref.set(ended, true).pipe(
+                Effect.andThen(Cache.set(ends, sessionId, undefined)),
+                Effect.andThen(Deferred.succeed(settled, undefined)),
+              )
+            : Deferred.succeed(settled, undefined),
         ),
         Effect.forkScoped,
       );
 
-      yield* Deferred.await(answered).pipe(
+      yield* Deferred.await(settled).pipe(
         Effect.timeoutOption(ANSWER_WAIT),
         Effect.flatMap(
           Option.match({
             onNone: () =>
               Effect.logWarning("EndedSessions.unanswered").pipe(
                 Effect.annotateLogs({ sessionId }),
+                Effect.andThen(Deferred.succeed(settled, undefined)),
               ),
             onSome: () => Effect.void,
           }),
@@ -76,22 +99,24 @@ export const layer: Layer.Layer<Service, never, SessionReports.Service> = Layer.
         Effect.forkScoped,
       );
 
-      return { ended, answered, answerBy };
+      return { ended, settled };
     });
 
     const followed = yield* ScopedCache.make({ lookup: follow, capacity: CAPACITY });
+    const isKnownEnded = (sessionId: PlaybackSessionId) => Cache.has(ends, sessionId);
 
     return Service.of({
       isEnded: Effect.fn("EndedSessions.isEnded")(function* (sessionId) {
-        const session = yield* ScopedCache.get(followed, sessionId);
-        const wait = session.answerBy - (yield* Clock.currentTimeMillis);
+        if (yield* isKnownEnded(sessionId)) return true;
 
-        if (wait > 0) {
-          yield* Deferred.await(session.answered).pipe(Effect.timeoutOption(Duration.millis(wait)));
-        }
+        const session = yield* ScopedCache.get(followed, sessionId);
+
+        // Bounded here too: a session forgotten while asked about stops its own first wait.
+        yield* Deferred.await(session.settled).pipe(Effect.timeoutOption(ANSWER_WAIT));
 
         return yield* Ref.get(session.ended);
       }),
+      isKnownEnded,
     });
   }),
 );
@@ -99,5 +124,5 @@ export const layer: Layer.Layer<Service, never, SessionReports.Service> = Layer.
 /** Standalone mode: no one owns playback sessions, so none ends. */
 export const layerNone: Layer.Layer<Service> = Layer.succeed(
   Service,
-  Service.of({ isEnded: () => Effect.succeed(false) }),
+  Service.of({ isEnded: () => Effect.succeed(false), isKnownEnded: () => Effect.succeed(false) }),
 );
