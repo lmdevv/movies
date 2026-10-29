@@ -610,6 +610,19 @@ describe("VideoPort with the lock screen and stalls", () => {
     },
   );
 
+  it("keeps the viewer's pause in the app when a vanished stream ends just after it", () => {
+    const { clock, video, port } = playingAt(600);
+
+    port.pause();
+    clock.ms += 250;
+    video.fireTime(EPISODE_MS / 1000);
+    video.fireEnd();
+
+    expect(port.wantsToPlay()).toBe(false);
+    expect(port.isBuffering()).toBe(false);
+    expect(recoversAfterFirstLimit(port, clock)).toBe(false);
+  });
+
   it("shows where AVPlayer paused, between its time reports", () => {
     const { clock, video, port } = playingAt(600);
 

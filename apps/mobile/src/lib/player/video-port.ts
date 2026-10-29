@@ -259,8 +259,8 @@ export class VideoPort implements PlayerPort {
     } else if (this.#status !== "loading") {
       // Paused outside the app's controls too: Picture in Picture, the lock screen, AirPlay. A stall
       // stops AVPlayer as well, but expo-video reports it loading first.
+      if (this.#wantsPlay) this.#pausedOutsideAt = this.#now();
       this.#wantsPlay = false;
-      this.#pausedOutsideAt = this.#now();
       this.#emit("paused");
     }
 
