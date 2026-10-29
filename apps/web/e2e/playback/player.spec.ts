@@ -1043,6 +1043,47 @@ test("hovering the volume button opens a slider that sets the level live and sta
   expect(streams.length).toBe(before);
 });
 
+const SWAP_ROUNDS = 16;
+
+// Muting swaps the icon under the pointer. If the icon took the pointer, a pointer leaving before
+// the browser hovers the new icon would send its `pointerout` to the detached one and React would
+// miss the leave. The hit check catches that at once; the rounds catch the race it causes.
+test("the volume slider closes when the pointer leaves right after mute swaps its icon", async () => {
+  await playFromStart(MOVIES.direct, "direct");
+  await revealControls(page);
+
+  const mute = page.getByRole("button", { name: "Mute", exact: true });
+  const unmute = page.getByRole("button", { name: "Unmute", exact: true });
+  const slider = page.getByRole("slider", { name: "Volume" });
+  const frame = await page.getByTestId("player").boundingBox();
+
+  if (frame === null) throw new Error("The player is not on screen");
+
+  const hitsItself = await mute.evaluate((button) => {
+    const { x, y, width, height } = button.getBoundingClientRect();
+
+    return document.elementFromPoint(x + width / 2, y + height / 2) === button;
+  });
+
+  expect(hitsItself).toBe(true);
+
+  const swapAndLeave = async (round: number): Promise<void> => {
+    if (round === SWAP_ROUNDS) return;
+
+    const button = round % 2 === 0 ? mute : unmute;
+
+    await button.hover();
+    await expect(slider).toBeVisible();
+    await button.click();
+    await page.mouse.move(frame.x + frame.width / 2, frame.y + frame.height / 3, { steps: 4 });
+    await expect(slider).toHaveCount(0);
+    await swapAndLeave(round + 1);
+  };
+
+  await swapAndLeave(0);
+  expect((await videoState(page)).muted).toBe(false);
+});
+
 test("the episode picker browses seasons and plays earlier and later episodes in the player", async () => {
   const [first, second] = episodes;
   const [later] = seasonTwo;
