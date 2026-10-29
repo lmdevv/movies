@@ -37,8 +37,6 @@ import * as Auth from "./auth";
 import type { AuthStatus, PasswordSignIn } from "./auth";
 import { ClientErrors } from "./client-errors";
 import type { ErrorContext } from "./client-errors";
-import * as ConvexTransport from "./convex-transport";
-import type { AuthTokenSource, ClientAdapter } from "./convex-transport";
 import * as DeviceLogin from "./device-login";
 import type { PendingDeviceLogin } from "./device-login";
 import type { PlaybackCallError } from "./media-http";
@@ -48,6 +46,7 @@ import { MoviesClient } from "./movies-client";
 import * as Playback from "./playback";
 import * as QueryWatch from "./query-watch";
 import type { QueryState } from "./query-watch";
+import * as ReactTransport from "./react-transport";
 import type { PlayerPort } from "./room-sync/player-port";
 import * as RoomPresence from "./room-sync/room-presence";
 import * as RoomSync from "./room-sync/room-sync";
@@ -61,46 +60,6 @@ import type { KeyValueStore } from "./token-storage";
 type Runtime = ManagedRuntime.ManagedRuntime<Movies.Services, Movies.OpenError>;
 
 const RuntimeContext = createContext<Runtime | null>(null);
-
-const reactAdapter = (client: ConvexReactClient): ClientAdapter => {
-  const fetchers = ConvexTransport.clientTokenFetchers();
-
-  return {
-    call: (kind, path, args) => ConvexTransport.callByKind(client, kind, path, args),
-    subscribe: (path, args, onValue, onError) => {
-      const watch = client.watchQuery(ConvexTransport.reference("query", path), args);
-
-      const read = (): void => {
-        try {
-          const value = watch.localQueryResult();
-
-          if (value !== undefined) onValue(value);
-        } catch (cause) {
-          onError(cause instanceof Error ? cause : new Error("Query failed", { cause }));
-        }
-      };
-
-      const unsubscribe = watch.onUpdate(read);
-
-      read();
-
-      return unsubscribe;
-    },
-    setAuth: (source: AuthTokenSource | null) => {
-      if (source === null) {
-        fetchers.retire();
-        client.clearAuth();
-      } else {
-        client.setAuth(fetchers.fetcher(source));
-      }
-    },
-    close: () => {
-      fetchers.retire();
-
-      return Promise.resolve();
-    },
-  };
-};
 
 /** Props for `MoviesProvider`. */
 export interface MoviesProviderProps {
@@ -135,9 +94,7 @@ export const MoviesProvider = (props: MoviesProviderProps): ReactNode => {
         convexUrl: client.url,
         mediaUrl: Option.fromNullishOr(mediaUrl),
       }).pipe(
-        Layer.provide(
-          Layer.effect(ConvexTransport.ConvexTransport, ConvexTransport.make(reactAdapter(client))),
-        ),
+        Layer.provide(ReactTransport.layer(client)),
         Layer.provide(TokenStorage.layerKeyValue(storage, storageKey ?? "movies.session")),
         Layer.merge(Layer.succeed(References.MinimumLogLevel, logLevel)),
       ),

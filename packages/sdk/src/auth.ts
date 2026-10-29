@@ -114,21 +114,34 @@ const SignInResult = Schema.Struct({ tokens: Schema.optionalKey(Schema.NullOr(To
 
 const decodeSignInResult = Schema.decodeUnknownEffect(SignInResult);
 
-const JwtClaims = Schema.Struct({ exp: Schema.Finite });
+/** Convex Auth signs `sub` as `userId|sessionId`, so equal subjects name one session. */
+const JwtClaims = Schema.Struct({ exp: Schema.Finite, sub: Schema.optionalKey(Schema.String) });
 
 const decodeClaims = Schema.decodeUnknownOption(Schema.fromJsonString(JwtClaims));
 
 const EXPIRY_MARGIN_MS = 60_000;
 
-const tokenExpiry = (token: string): Option.Option<number> => {
+const tokenClaims = (token: string): Option.Option<typeof JwtClaims.Type> => {
   const [, payload] = token.split(".");
 
   if (payload === undefined) return Option.none();
   const text = Base64Url.decodeString(payload);
 
-  return Result.isSuccess(text)
-    ? Option.map(decodeClaims(text.success), (claims) => claims.exp * 1000)
-    : Option.none();
+  return Result.isSuccess(text) ? decodeClaims(text.success) : Option.none();
+};
+
+const tokenExpiry = (token: string): Option.Option<number> =>
+  Option.map(tokenClaims(token), (claims) => claims.exp * 1000);
+
+const sessionOf = (session: StoredSession): Option.Option<string> =>
+  Option.flatMap(tokenClaims(Redacted.value(session.token)), (claims) =>
+    Option.fromNullishOr(claims.sub),
+  );
+
+const isSameSession = (a: StoredSession, b: StoredSession): boolean => {
+  const held = sessionOf(a);
+
+  return Option.isSome(held) && Option.contains(sessionOf(b), held.value);
 };
 
 const isExpiring = (token: string, now: number): boolean =>
@@ -332,7 +345,12 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
     const current = yield* Ref.get(session);
 
     if (Option.isNone(current) || current.value !== seen) {
-      if (RefreshOutcome.$is("Renewed")(outcome)) {
+      // The refresh renewed a session this client has let go of, so end it on the server, unless
+      // it is the session held now: signing in again with an API key reuses the key's session.
+      if (
+        RefreshOutcome.$is("Renewed")(outcome) &&
+        !Option.exists(current, (held) => isSameSession(held, outcome.session))
+      ) {
         yield* Effect.forkIn(endOnServer(outcome.session), scope);
       }
 

@@ -4,7 +4,21 @@ import { DeviceId } from "@movies/contracts/ids";
 import type { ProfileId, TitleId } from "@movies/contracts/ids";
 import { mediaServiceFunctions } from "@movies/contracts/media-service";
 import { Milliseconds } from "@movies/contracts/units";
-import { Context, Effect, Fiber, Layer, Option, Redacted, Schema, Stream, Struct } from "effect";
+import { ConvexHttpClient } from "convex/browser";
+import { makeFunctionReference } from "convex/server";
+import {
+  Context,
+  Deferred,
+  Effect,
+  Fiber,
+  Layer,
+  Option,
+  Predicate,
+  Redacted,
+  Schema,
+  Stream,
+  Struct,
+} from "effect";
 import type { Scope } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -16,6 +30,8 @@ import { MoviesClient } from "../movies-client";
 import { hostControlsEnabled, run } from "../room-sync/room-sync";
 import { DEFAULT_TUNABLES } from "../room-sync/sync-policy";
 import type { CallError } from "../sdk-errors";
+import * as FakeConvex from "../testing/fake-convex";
+import { Reply } from "../testing/fake-convex";
 import { makeFakePlayer } from "../testing/fake-player";
 import { findStack } from "../testing/stack-env";
 import * as TokenStorage from "../token-storage";
@@ -190,6 +206,26 @@ const firstProfile = (session: Session) =>
     return profile.id;
   });
 
+/**
+ * Runs `auth:signIn` or `auth:signOut` on the stack with the arguments and token a fake
+ * deployment received, so a test can hold the answer back after the stack acted on it.
+ */
+const forwardAuth = (path: "auth:signIn" | "auth:signOut", request: FakeConvex.RecordedRequest) =>
+  Effect.gen(function* () {
+    const args = yield* Schema.decodeUnknownEffect(Schema.JsonObject)(request.args);
+    const gateway = new ConvexHttpClient(url, { logger: false });
+
+    if (request.authorization !== undefined) {
+      gateway.setAuth(request.authorization.replace(/^Bearer /u, ""));
+    }
+
+    const value = yield* Effect.promise(() =>
+      gateway.action(makeFunctionReference<"action", Schema.JsonObject, Schema.Json>(path), args),
+    );
+
+    return Reply.Success({ value });
+  }).pipe(Effect.orDie);
+
 const runScoped = <A, E>(effect: Effect.Effect<A, E, Scope.Scope>): Promise<A> =>
   Effect.runPromise(Effect.scoped(effect));
 
@@ -237,6 +273,69 @@ describe.skipIf(stack === undefined)("the SDK against a real stack", () => {
           expect(yield* outcome(clientOf(owner).query("account.viewer", {}))).toBe(
             "Unauthenticated",
           );
+        }),
+      ),
+    60_000,
+  );
+
+  it(
+    "keeps an API key's session when a refresh of it lands after signing in again",
+    () =>
+      runScoped(
+        Effect.gen(function* () {
+          const relay = yield* FakeConvex.make;
+          const refreshed = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          const ended = yield* Deferred.make<void>();
+
+          yield* relay.handle("auth:signIn", (request) =>
+            forwardAuth("auth:signIn", request).pipe(
+              Effect.tap(() =>
+                Predicate.hasProperty(request.args, "refreshToken")
+                  ? Deferred.succeed(refreshed, undefined).pipe(
+                      Effect.andThen(Deferred.await(release)),
+                    )
+                  : Effect.void,
+              ),
+            ),
+          );
+          yield* relay.handle("auth:signOut", (request) =>
+            forwardAuth("auth:signOut", request).pipe(
+              Effect.tap(() => Deferred.succeed(ended, undefined)),
+            ),
+          );
+
+          const service = yield* Layer.build(
+            Auth.layer({ convexUrl: relay.url }).pipe(
+              Layer.provideMerge(ConvexTransport.layerHttp(url)),
+              Layer.provide(TokenStorage.layerMemory),
+            ),
+          );
+
+          const auth = Context.get(service, Auth.Auth);
+          const key = Auth.Credentials.ApiKey({ key: Redacted.make(stack?.mediaServiceKey ?? "") });
+
+          yield* auth.signIn(key);
+          const refreshing = yield* Effect.forkChild(auth.accessToken(true));
+
+          // The stack renewed the session; its answer is late, as when the media service's probe
+          // signs in again while a refresh is still on its way back.
+          yield* Deferred.await(refreshed);
+          yield* auth.signIn(key);
+          yield* Deferred.succeed(release, undefined);
+          yield* Fiber.join(refreshing);
+          yield* Deferred.await(ended).pipe(Effect.timeoutOption("2 seconds"));
+
+          const transport = Context.get(service, ConvexTransport.ConvexTransport);
+
+          expect(
+            yield* outcome(
+              transport.call("query", "mediaService:endedSessions", {
+                after: Date.now(),
+                limit: 1,
+              }),
+            ),
+          ).toBe("succeeded");
         }),
       ),
     60_000,

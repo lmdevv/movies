@@ -38,6 +38,11 @@ const RENEWED = jwtExpiringAt(START + 3_600_000, "alex-renewed");
 
 const ROTATED = "refresh-2";
 
+/** Convex Auth's `sub` claim names the user and the session: `userId|sessionId`. */
+const KEY_SUBJECT = "service|key-session";
+
+const KEY_SESSION = jwtExpiringAt(START + 3_600_000, KEY_SUBJECT);
+
 interface MemoryStore {
   readonly store: KeyValueStore;
   readonly saved: () => Option.Option<{ readonly token: string; readonly refreshToken: string }>;
@@ -150,6 +155,17 @@ const refreshRequests = (fake: FakeConvex.FakeConvex) =>
       Predicate.hasProperty(request.args, "refreshToken") ? [request.args.refreshToken] : [],
     ),
   );
+
+/** The tokens server sign-outs carried, once `expected` arrived or after a second of waiting. */
+const serverSignOuts = (fake: FakeConvex.FakeConvex, expected: number) =>
+  Effect.gen(function* () {
+    for (let tries = 0; tries < 50; tries += 1) {
+      if ((yield* fake.requestsTo("auth:signOut")).length >= expected) break;
+      yield* TestClock.withLive(Effect.sleep(20));
+    }
+
+    return (yield* fake.requestsTo("auth:signOut")).map((request) => request.authorization);
+  });
 
 const gateRefresh = (fake: FakeConvex.FakeConvex, reply: Reply) =>
   Effect.gen(function* () {
@@ -281,6 +297,57 @@ describe("Auth", () => {
         expect(reveal(yield* auth.accessToken(false))).toBe(sam);
         expect(memory.saved()).toStrictEqual(
           Option.some({ token: sam, refreshToken: "sam-refresh" }),
+        );
+      }),
+    ));
+
+  it("ends another account's session when its refresh lands after sign-in", () =>
+    withAuth(signedInWith(FRESH), ({ fake, auth }) =>
+      Effect.gen(function* () {
+        const gate = yield* gateRefresh(fake, tokens(RENEWED, ROTATED));
+
+        yield* fake.reply("auth:signOut", Reply.Success({ value: null }));
+        const refreshing = yield* Effect.forkChild(auth.accessToken(true));
+
+        yield* Deferred.await(gate.arrived);
+        yield* auth.signIn(Auth.Credentials.ApiKey({ key: Redacted.make("sam-key") }));
+        yield* Deferred.succeed(gate.release, undefined);
+        yield* Fiber.join(refreshing);
+
+        expect(yield* serverSignOuts(fake, 1)).toStrictEqual([`Bearer ${RENEWED}`]);
+      }),
+    ));
+
+  it("keeps an API key's shared session when a refresh of it lands after signing in again", () =>
+    withAuth(signedInWith(KEY_SESSION), ({ fake, memory, auth }) =>
+      Effect.gen(function* () {
+        // Every sign-in with one API key shares one session, so a refresh that lands late renews
+        // the session the new sign-in holds; ending it would sign the new sign-in out.
+        const signedInAgain = jwtExpiringAt(START + 3_660_000, KEY_SUBJECT);
+        const arrived = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+
+        yield* fake.handle("auth:signIn", (request) =>
+          Predicate.hasProperty(request.args, "refreshToken")
+            ? Effect.gen(function* () {
+                yield* Deferred.succeed(arrived, undefined);
+                yield* Deferred.await(release);
+
+                return tokens(jwtExpiringAt(START + 3_630_000, KEY_SUBJECT), "key-refresh-2");
+              })
+            : Effect.succeed(tokens(signedInAgain, "key-refresh-3")),
+        );
+        yield* fake.reply("auth:signOut", Reply.Success({ value: null }));
+        const refreshing = yield* Effect.forkChild(auth.accessToken(true));
+
+        yield* Deferred.await(arrived);
+        yield* auth.signIn(Auth.Credentials.ApiKey({ key: Redacted.make("service-key") }));
+        yield* Deferred.succeed(release, undefined);
+
+        expect(reveal(yield* Fiber.join(refreshing))).toBe(signedInAgain);
+        expect(yield* serverSignOuts(fake, 1)).toStrictEqual([]);
+        expect(memory.saved()).toStrictEqual(
+          Option.some({ token: signedInAgain, refreshToken: "key-refresh-3" }),
         );
       }),
     ));

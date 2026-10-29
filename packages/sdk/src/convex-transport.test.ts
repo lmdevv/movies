@@ -1,5 +1,15 @@
 import { ConvexError } from "convex/values";
-import { Context, Duration, Effect, Layer, Predicate, Redacted } from "effect";
+import {
+  Context,
+  Duration,
+  Effect,
+  Exit,
+  Layer,
+  Predicate,
+  Redacted,
+  Schedule,
+  Scope,
+} from "effect";
 import { describe, expect, it } from "vitest";
 
 import * as Auth from "./auth";
@@ -66,6 +76,49 @@ const askAfterFirstTokenExpires = (signIn: (request: { readonly args: unknown })
     ),
   );
 
+/**
+ * How often a source that keeps handing back its token was asked before and after `stop` ends
+ * the connection's use of it. That token makes the connection ask again, waiting longer each
+ * time; stopped, it must not ask any more.
+ */
+const asksAround = (
+  stop: (connection: ConvexTransport.Interface, scope: Scope.Closeable) => Effect.Effect<void>,
+) =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fake = yield* FakeConvex.make;
+        const scope = yield* Scope.make();
+
+        const context = yield* Layer.buildWithScope(
+          ConvexTransport.layerWebSocket(fake.url),
+          scope,
+        );
+
+        const connection = Context.get(context, ConvexTransport.ConvexTransport);
+        const token = jwtIssuedAt(Date.now(), 3600, "user|session");
+        let asked = 0;
+
+        yield* connection.setAuth(() => {
+          asked += 1;
+
+          return Promise.resolve(token);
+        });
+        yield* Effect.sync(() => asked).pipe(
+          Effect.repeat({ until: (count) => count >= 2, schedule: Schedule.spaced("50 millis") }),
+          Effect.timeout(Duration.seconds(5)),
+        );
+        yield* stop(connection, scope);
+        const stopped = asked;
+
+        // Long enough for two more asks at the first waits, one and two seconds.
+        yield* Effect.sleep(Duration.seconds(3.5));
+
+        return { stopped, later: asked };
+      }),
+    ),
+  );
+
 describe.concurrent("layerWebSocket", () => {
   it("keeps a session working when a refresh in its sign-in second mints the same token", async () => {
     // Convex Auth signs to the second, so that refresh returns the sign-in's very token.
@@ -87,6 +140,18 @@ describe.concurrent("layerWebSocket", () => {
 
     expect(answer).toBe("signed in");
   }, 30_000);
+
+  it("stops asking for a token once signed out", async () => {
+    const { stopped, later } = await asksAround((connection) => connection.setAuth(null));
+
+    expect(later).toBe(stopped);
+  }, 15_000);
+
+  it("stops asking for a token once closed", async () => {
+    const { stopped, later } = await asksAround((_, scope) => Scope.close(scope, Exit.void));
+
+    expect(later).toBe(stopped);
+  }, 15_000);
 });
 
 describe("translateFailure", () => {

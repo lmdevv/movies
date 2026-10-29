@@ -23,7 +23,8 @@ import type { Scope } from "effect";
 
 type CallKind = "query" | "mutation" | "action";
 
-interface RecordedRequest {
+/** One call the fake received, with its bearer token header when it carried one. */
+export interface RecordedRequest {
   readonly kind: CallKind;
   readonly path: string;
   readonly args: Schema.Json;

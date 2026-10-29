@@ -224,10 +224,21 @@ const FIRST_REFETCH_DELAY_MS = 1000;
 
 const MAX_REFETCH_DELAY_MS = 30_000;
 
-const sleep = (millis: number): Promise<void> =>
+/** Resolves after `millis`, or as soon as `signal` aborts. */
+const sleep = (millis: number, signal: AbortSignal): Promise<void> =>
   new Promise((resolve) => {
-    setTimeout(resolve, millis);
+    const wake = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", wake);
+      resolve();
+    };
+
+    const timer = setTimeout(wake, millis);
+
+    signal.addEventListener("abort", wake);
   });
+
+const signedOut: AuthTokenFetcher = () => Promise.resolve(null);
 
 /**
  * Token fetchers for one Convex WebSocket client, which keeps its session by one rule: a fetch
@@ -239,21 +250,34 @@ const sleep = (millis: number): Promise<void> =>
  * The same token comes back when a refresh fails for a while, since the session keeps its token,
  * and when a refresh lands in the second the token was minted, since Convex Auth signs to the
  * second. So a forced fetch asks again, waiting longer each time, until it gets a new token or
- * none, or until a later fetcher or `retire` replaces it.
+ * none. `replace` and `retire` end every earlier fetcher's asking at once, so a source is never
+ * asked again once the connection signs out, moves to another source, or closes.
  */
 export const clientTokenFetchers = () => {
-  let current = 0;
+  let generation = new AbortController();
 
-  const fetcher = (source: AuthTokenSource): AuthTokenFetcher => {
-    current += 1;
-    const mine = current;
+  const retire = (): void => {
+    generation.abort();
+    generation = new AbortController();
+  };
+
+  /** The fetcher for `source`, or none to sign out; either way, every earlier one retires. */
+  const replace = (source: AuthTokenSource | null): AuthTokenFetcher | null => {
+    retire();
+
+    if (source === null) return null;
+    const { signal } = generation;
+    const retired = (): boolean => signal.aborted;
     let held: string | null = null;
 
     const renewed = async (delay: number): Promise<string | null> => {
-      if (delay > 0) await sleep(delay);
+      if (delay > 0) await sleep(delay, signal);
+
+      // The client ignores a retired fetcher's answer, so it need not be a new token.
+      if (retired()) return held;
       const token = await source(true);
 
-      if (token === null || token !== held || current !== mine) return token;
+      if (token === null || token !== held || retired()) return token;
 
       return renewed(Math.min(Math.max(delay * 2, FIRST_REFETCH_DELAY_MS), MAX_REFETCH_DELAY_MS));
     };
@@ -265,12 +289,7 @@ export const clientTokenFetchers = () => {
     };
   };
 
-  return {
-    fetcher,
-    retire: () => {
-      current += 1;
-    },
-  };
+  return { replace, retire };
 };
 
 const webSocketAdapter = (client: ConvexClient): ClientAdapter => {
@@ -283,7 +302,7 @@ const webSocketAdapter = (client: ConvexClient): ClientAdapter => {
         onError(toError(error));
       }),
     setAuth: (source) => {
-      client.setAuth(source === null ? async () => null : fetchers.fetcher(source));
+      client.setAuth(fetchers.replace(source) ?? signedOut);
     },
     close: () => {
       fetchers.retire();
