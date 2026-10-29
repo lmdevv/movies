@@ -259,6 +259,10 @@ const IDLE_MS = 3_000;
 
 type Reason = "hover" | "focus" | "drag" | "touch";
 
+const vlog = (line: string): void => {
+  console.debug(`volume-probe ${String(Math.round(performance.now()))} ${line}`);
+};
+
 const percent = (level: number): number => Math.round(Math.min(1, Math.max(0, level)) * 100);
 
 function VolumeControl({
@@ -315,6 +319,8 @@ function VolumeControl({
 
     const next = reasons.current.size > 0;
 
+    vlog(`hold ${reason}=${String(on)} -> [${[...reasons.current].join(",")}]`);
+
     if (next === openNow.current) return;
     openNow.current = next;
     setOpen(next);
@@ -341,6 +347,7 @@ function VolumeControl({
 
   useEffect(() => {
     const dropped = (): void => {
+      vlog("window pointerup");
       pressing.current = false;
       release("drag");
     };
@@ -371,6 +378,10 @@ function VolumeControl({
   }, []);
 
   const enter = (event: PointerEvent): void => {
+    vlog(
+      `enter ${event.pointerType} t=${event.target instanceof Element ? event.target.tagName : "?"}`,
+    );
+
     if (event.pointerType === "touch") return;
     dismissed.current = false;
     clearTimeout(hoverTimer.current);
@@ -378,6 +389,8 @@ function VolumeControl({
   };
 
   const leave = (event: PointerEvent): void => {
+    vlog(`leave ${event.pointerType} buttons=${String(event.buttons)}`);
+
     if (event.pointerType === "touch") return;
 
     const pressed = event.buttons !== 0;
@@ -391,6 +404,10 @@ function VolumeControl({
         group.current?.contains(active) === true &&
         active.matches(":focus-visible");
 
+      vlog(
+        `leave-timer keyboardFocus=${String(keyboardFocus)} pressed=${String(pressed)} active=${active?.getAttribute("aria-label") ?? active?.tagName ?? "null"}`,
+      );
+
       if (!pressed) hold("drag", false);
 
       if (!keyboardFocus) hold("focus", false);
@@ -399,6 +416,10 @@ function VolumeControl({
   };
 
   const focus = (event: FocusEvent): void => {
+    vlog(
+      `focus t=${event.target.getAttribute("aria-label") ?? event.target.tagName} pressing=${String(pressing.current)} fv=${String(event.target.matches(":focus-visible"))} dismissed=${String(dismissed.current)}`,
+    );
+
     if (dismissed.current) return;
     hold(
       "focus",
@@ -410,6 +431,10 @@ function VolumeControl({
   };
 
   const blur = (event: FocusEvent): void => {
+    vlog(
+      `blur t=${event.target.getAttribute("aria-label") ?? event.target.tagName} related=${event.relatedTarget instanceof Element ? (event.relatedTarget.getAttribute("aria-label") ?? event.relatedTarget.tagName) : "null"}`,
+    );
+
     if (
       event.relatedTarget instanceof Node &&
       group.current?.contains(event.relatedTarget) === true
@@ -475,6 +500,7 @@ function VolumeControl({
       onPointerEnter={enter}
       onPointerLeave={leave}
       onPointerDownCapture={(event) => {
+        vlog(`pointerdown ${event.pointerType}`);
         pressing.current = true;
 
         if (event.pointerType === "touch" && openNow.current) hold("touch", true);

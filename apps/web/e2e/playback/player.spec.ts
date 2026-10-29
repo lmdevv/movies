@@ -949,6 +949,39 @@ test("hovering the volume button opens a slider that sets the level live and sta
   const unmute = page.getByRole("button", { name: "Unmute", exact: true });
   const slider = page.getByRole("slider", { name: "Volume" });
   const control = page.locator('[data-slot="volume-slider"]');
+  const probe: Array<string> = [];
+
+  page.on("console", (message) => {
+    if (message.text().startsWith("volume-probe ")) probe.push(message.text());
+  });
+  await mute.evaluate((button) => {
+    const g = button.parentElement;
+
+    if (g === null) return;
+
+    const log = (event: Event): void => {
+      if (!g.isConnected) return;
+
+      const a = document.activeElement;
+      const target = event.target instanceof Element ? event.target : null;
+
+      console.debug(
+        `volume-probe ${String(Math.round(performance.now()))} native ${event.type} t=${target?.getAttribute("aria-label") ?? target?.tagName ?? "-"} b=${event instanceof PointerEvent ? String(event.buttons) : "-"} active=${a?.getAttribute("aria-label") ?? a?.tagName ?? "-"} fv=${String(a?.matches(":focus-visible"))}`,
+      );
+    };
+
+    for (const type of [
+      "pointerenter",
+      "pointerleave",
+      "pointerover",
+      "pointerout",
+      "pointerdown",
+    ]) {
+      g.addEventListener(type, log);
+    }
+
+    for (const type of ["focusin", "focusout"]) g.addEventListener(type, log, true);
+  });
 
   await expect(slider).toHaveCount(0);
   await mute.hover();
@@ -1006,6 +1039,11 @@ test("hovering the volume button opens a slider that sets the level live and sta
   if (frame === null) throw new Error("The player is not on screen");
 
   await page.mouse.move(frame.x + frame.width / 2, frame.y + frame.height / 3, { steps: 4 });
+  await page.waitForTimeout(1500);
+
+  const stuck = await slider.count();
+
+  console.log(`PROBE stuck=${String(stuck)}\n${probe.slice(-80).join("\n")}`);
   await expect(slider).toHaveCount(0);
   await expect.poll(() => controlsShown(page), { timeout: IDLE_MS + 2_000 }).toBe(false);
 
