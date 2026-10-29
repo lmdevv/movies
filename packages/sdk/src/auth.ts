@@ -124,7 +124,11 @@ const Tokens = Schema.Struct({ token: Schema.String, refreshToken: Schema.String
 /** `auth:signIn` answers with tokens, null tokens when it signed nobody in, or a redirect. */
 const SignInResult = Schema.Struct({ tokens: Schema.optionalKey(Schema.NullOr(Tokens)) });
 
-const decodeSignInResult = Schema.decodeUnknownEffect(SignInResult);
+/**
+ * A refresh answers with tokens, or null tokens when the server no longer knows the session.
+ * Anything else, a redirect included, is a server fault rather than a refusal.
+ */
+const RefreshResult = Schema.Struct({ tokens: Schema.NullOr(Tokens) });
 
 const ExpiryClaims = Schema.Struct({ exp: Schema.Finite });
 
@@ -316,10 +320,11 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
 
   const requestTokens = Effect.fn("Auth.requestTokens")(function* (
     args: Readonly<Record<string, Value>>,
+    answer: typeof SignInResult | typeof RefreshResult,
   ) {
     const raw = yield* callGateway(SIGN_IN, args, Option.none());
 
-    const result = yield* decodeSignInResult(raw).pipe(
+    const result = yield* Schema.decodeUnknownEffect(answer)(raw).pipe(
       Effect.mapError(
         (cause) =>
           new ProtocolError({
@@ -426,7 +431,7 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
     Ref.set(failing, Option.none()).pipe(Effect.andThen(kept()));
 
   const requestRefresh = (seen: StoredSession): Effect.Effect<RefreshOutcome> =>
-    requestTokens({ refreshToken: Redacted.value(seen.refreshToken) }).pipe(
+    requestTokens({ refreshToken: Redacted.value(seen.refreshToken) }, RefreshResult).pipe(
       Effect.map(
         Option.match({
           onNone: () => RefreshOutcome.Refused(),
@@ -457,7 +462,10 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
 
       const token = isExpiring(Redacted.value(ended.token), now)
         ? Option.map(
-            yield* requestTokens({ refreshToken: Redacted.value(ended.refreshToken) }),
+            yield* requestTokens(
+              { refreshToken: Redacted.value(ended.refreshToken) },
+              RefreshResult,
+            ),
             (renewed) => renewed.token,
           )
         : Option.some(ended.token);
@@ -591,7 +599,7 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
   }
 
   const signIn = Effect.fn("Auth.signIn")(function* (credentials: Credentials) {
-    const opened = yield* requestTokens(providerParams(credentials));
+    const opened = yield* requestTokens(providerParams(credentials), SignInResult);
 
     if (Option.isNone(opened)) {
       return yield* new Unauthenticated({

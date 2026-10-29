@@ -187,6 +187,9 @@ const SERVER_FAILURES = [
     name: "ProtocolError",
     reply: Reply.Success({ value: { tokens: { token: 12, refreshToken: 34 } } }),
   },
+  // Only `{ tokens: null }` refuses a refresh; an answer without tokens is a broken server.
+  { name: "no tokens", reply: Reply.Success({ value: {} }) },
+  { name: "a redirect", reply: Reply.Success({ value: { redirect: "https://example.invalid" } }) },
   ...(["not_found", "invalid_args", "conflict", "stale_revision", "internal"] as const).map(
     (code) => ({ name: code, reply: Reply.Failure({ code, message: "Convex is busy" }) }),
   ),
