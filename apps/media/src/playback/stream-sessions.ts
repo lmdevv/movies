@@ -42,7 +42,13 @@ import * as MediaConfig from "../media-config.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import { watchRenames } from "../platform/node-directories.ts";
 import type { ResolvedMediaFile } from "./file-resolver.ts";
-import { FRAGMENT_HEAD_BYTES, fragmentSpan } from "./fmp4-fragments.ts";
+import {
+  FRAGMENT_HEAD_BYTES,
+  fragmentHeadLength,
+  fragmentSpan,
+  type VideoTiming,
+  videoTiming,
+} from "./fmp4-fragments.ts";
 import * as HardwareAcceleration from "./hardware-acceleration.ts";
 import {
   groupFragments,
@@ -202,6 +208,8 @@ interface Generation {
   readonly refreshLock: Semaphore.Semaphore;
   readonly wake: MutableRef.MutableRef<Deferred.Deferred<void>>;
   readonly endUnknownLogged: MutableRef.MutableRef<boolean>;
+  /** The video timing read from the run's `init.mp4`, once its first fragment is written. */
+  readonly videoTiming: MutableRef.MutableRef<Option.Option<VideoTiming>>;
   readonly suspend: (paused: boolean) => Effect.Effect<void>;
   readonly paused: Ref.Ref<boolean>;
 }
@@ -371,6 +379,21 @@ const make = Effect.gen(function* () {
     }
   }, Effect.uninterruptible);
 
+  const videoTimingOf = Effect.fnUntraced(function* (generation: Generation) {
+    const known = MutableRef.get(generation.videoTiming);
+
+    if (Option.isSome(known)) return known;
+
+    const read = yield* fs.readFile(path.join(generation.directory, "init.mp4")).pipe(
+      Effect.map((init) => Option.fromNullishOr(videoTiming(init))),
+      Effect.orElseSucceed(() => Option.none<VideoTiming>()),
+    );
+
+    MutableRef.set(generation.videoTiming, read);
+
+    return read;
+  });
+
   const refreshFragments = Effect.fnUntraced(
     function* (generation: Generation) {
       const known = new Set(
@@ -381,44 +404,57 @@ const make = Effect.gen(function* () {
         .readDirectory(generation.directory)
         .pipe(Effect.orElseSucceed(() => []));
 
-      const fresh = yield* Effect.forEach(
-        names
-          .filter((name) => FRAGMENT_FILE.test(name))
-          .map((name) => path.join(generation.directory, name))
-          .filter((file) => !known.has(file)),
-        (file) =>
-          Effect.scoped(
-            Effect.gen(function* () {
-              const handle = yield* fs.open(file);
-              const head = yield* handle.readAlloc(FRAGMENT_HEAD_BYTES, { position: 0n });
-              const info = yield* handle.stat;
+      const files = names
+        .filter((name) => FRAGMENT_FILE.test(name))
+        .map((name) => path.join(generation.directory, name))
+        .filter((file) => !known.has(file));
 
-              const span = Option.flatMap(head, (bytes) =>
-                Option.fromNullishOr(fragmentSpan(bytes)),
+      const timing = files.length === 0 ? Option.none() : yield* videoTimingOf(generation);
+
+      const fresh = yield* Effect.forEach(files, (file) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const handle = yield* fs.open(file);
+            const info = yield* handle.stat;
+
+            const head = Option.getOrElse(
+              yield* handle.readAlloc(FRAGMENT_HEAD_BYTES, { position: 0n }),
+              () => new Uint8Array(0),
+            );
+
+            const length = Math.min(fragmentHeadLength(head) ?? 0, Number(info.size));
+
+            const bytes =
+              length <= head.byteLength
+                ? head
+                : Option.getOrElse(yield* handle.readAlloc(length, { position: 0n }), () => head);
+
+            const span = Option.flatMap(timing, (video) =>
+              Option.fromNullishOr(fragmentSpan(video, bytes)),
+            );
+
+            if (
+              Option.isSome(span) &&
+              span.value.end === undefined &&
+              !MutableRef.getAndSet(generation.endUnknownLogged, true)
+            ) {
+              yield* Effect.logWarning("StreamSessions.fragment_end_unknown").pipe(
+                Effect.annotateLogs({
+                  streamId: generation.streamId,
+                  generation: generation.number,
+                  fragment: file,
+                }),
               );
+            }
 
-              if (
-                Option.isSome(span) &&
-                span.value.end === undefined &&
-                !MutableRef.getAndSet(generation.endUnknownLogged, true)
-              ) {
-                yield* Effect.logWarning("StreamSessions.fragment_end_unknown").pipe(
-                  Effect.annotateLogs({
-                    streamId: generation.streamId,
-                    generation: generation.number,
-                    fragment: file,
-                  }),
-                );
-              }
-
-              return Option.map(span, ({ start, end }): Fragment => ({
-                path: file,
-                start,
-                end,
-                sizeBytes: Number(info.size),
-              }));
-            }),
-          ).pipe(Effect.orElseSucceed(() => Option.none<Fragment>())),
+            return Option.map(span, ({ start, end }): Fragment => ({
+              path: file,
+              start,
+              end,
+              sizeBytes: Number(info.size),
+            }));
+          }),
+        ).pipe(Effect.orElseSucceed(() => Option.none<Fragment>())),
       );
 
       const added = fresh.flatMap((fragment) => (Option.isSome(fragment) ? [fragment.value] : []));
@@ -563,6 +599,7 @@ const make = Effect.gen(function* () {
       refreshLock: yield* Semaphore.make(1),
       wake,
       endUnknownLogged: MutableRef.make(false),
+      videoTiming: MutableRef.make(Option.none<VideoTiming>()),
       suspend: running === undefined ? () => Effect.void : running.suspend,
       paused: yield* Ref.make(false),
     };
@@ -1159,6 +1196,7 @@ const make = Effect.gen(function* () {
       refreshLock: yield* Semaphore.make(1),
       wake: MutableRef.make(Deferred.makeUnsafe<void>()),
       endUnknownLogged: MutableRef.make(false),
+      videoTiming: MutableRef.make(Option.none<VideoTiming>()),
       suspend: () => Effect.void,
       paused: yield* Ref.make(false),
     };

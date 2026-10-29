@@ -9,7 +9,7 @@ import { type MediaProbe, probeFile } from "../media/media-probe.ts";
 import * as MediaTools from "../media/media-tools.ts";
 import { ffmpegAvailable, qsvUsable, vaapiUsable } from "../testing/fixture-library.ts";
 import { testConfigLayer } from "../testing/test-config.ts";
-import { FRAGMENT_HEAD_BYTES, fragmentSpan } from "./fmp4-fragments.ts";
+import { fragmentSpan, videoTiming } from "./fmp4-fragments.ts";
 import {
   groupFragments,
   planGridSegments,
@@ -535,16 +535,19 @@ const runFrom = Effect.fn("HlsTiming.runFrom")(function* (
     .filter((name) => /^f\d+\.m4s$/u.test(name))
     .toSorted((left, right) => Number(left.slice(1, -4)) - Number(right.slice(1, -4)));
 
+  const init = yield* fs.readFile(path.join(outputDirectory, "init.mp4"));
+  const video = videoTiming(init);
+
   const fragments = yield* Effect.forEach(names, (name) =>
     Effect.gen(function* () {
       const fragment = path.join(outputDirectory, name);
-      const head = (yield* fs.readFile(fragment)).subarray(0, FRAGMENT_HEAD_BYTES);
 
-      return { path: fragment, start: fragmentSpan(head)?.start ?? Number.NaN };
+      const written =
+        video === undefined ? undefined : fragmentSpan(video, yield* fs.readFile(fragment));
+
+      return { path: fragment, start: written?.start ?? Number.NaN };
     }),
   );
-
-  const init = yield* fs.readFile(path.join(outputDirectory, "init.mp4"));
 
   const initStreams = yield* tools
     .ffprobe([

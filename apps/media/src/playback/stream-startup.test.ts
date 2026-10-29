@@ -1,15 +1,5 @@
 import { assert, describe, layer } from "@effect/vitest";
-import {
-  Duration,
-  Effect,
-  FileSystem,
-  Layer,
-  Option,
-  Path,
-  PlatformError,
-  Schedule,
-  Schema,
-} from "effect";
+import { Duration, Effect, FileSystem, Layer, Path, PlatformError, Schedule, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import { type ClientCapabilities, NegotiateResponse } from "@movies/contracts/media-playback";
@@ -24,7 +14,7 @@ import { ffmpegAvailable } from "../testing/fixture-library.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
 import * as MediaTestServer from "../testing/media-test-server.ts";
 import { signTestToken } from "../testing/test-config.ts";
-import { FRAGMENT_HEAD_BYTES, fragmentSpan } from "./fmp4-fragments.ts";
+import { fragmentSpan, videoTiming } from "./fmp4-fragments.ts";
 import { AudioPlan, VideoPlan } from "./playback-decision.ts";
 import * as PlaybackReporter from "./playback-reporter.ts";
 import * as StreamSessions from "./stream-sessions.ts";
@@ -298,13 +288,15 @@ describe.skipIf(!hasFfmpeg)("stream startup", () => {
             .map(Number)
             .toSorted((left, right) => left - right);
 
+          const timing = videoTiming(yield* fs.readFile(path.join(output, "init.mp4")));
+
+          assert.isDefined(timing, "the run's init segment has no video");
+
           const spans = yield* Effect.forEach(names, (number) =>
             fs
               .readFile(path.join(output, `f${String(number)}.m4s`))
-              .pipe(Effect.map((bytes) => fragmentSpan(bytes.subarray(0, FRAGMENT_HEAD_BYTES)))),
+              .pipe(Effect.map((bytes) => fragmentSpan(timing, bytes))),
           );
-
-          const ends = spans.map((span) => Option.fromNullishOr(span?.end));
 
           assert.isTrue(
             spans.some(
@@ -314,11 +306,18 @@ describe.skipIf(!hasFfmpeg)("stream startup", () => {
             "the fragment before the late keyframe claims to run past it",
           );
 
+          // A fragment whose first frame is presented a tick before it is decoded starts that tick
+          // before the previous one's samples end.
           for (const [index, span] of spans.entries()) {
             if (index === 0) continue;
-            assert.deepStrictEqual(
-              Option.some(span?.start),
-              ends[index - 1],
+
+            const ticks =
+              ((span?.start ?? Number.NaN) - (spans[index - 1]?.end ?? Number.NaN)) *
+              timing.timescale;
+
+            assert.isAtMost(
+              Math.abs(Math.round(ticks)),
+              1,
               `f${String(index)} starts where f${String(index - 1)} ends`,
             );
           }

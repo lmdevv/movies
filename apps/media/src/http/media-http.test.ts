@@ -21,7 +21,7 @@ import * as MediaTools from "../media/media-tools.ts";
 import * as EndedSessions from "../playback/ended-sessions.ts";
 import { parseFfprobeJson } from "../media/media-probe.ts";
 import * as FileResolver from "../playback/file-resolver.ts";
-import { FRAGMENT_HEAD_BYTES, fragmentSpan } from "../playback/fmp4-fragments.ts";
+import { fragmentSpan, videoTiming } from "../playback/fmp4-fragments.ts";
 import * as KeyframeIndex from "../playback/keyframe-index.ts";
 import * as PlaybackReporter from "../playback/playback-reporter.ts";
 import {
@@ -1061,10 +1061,14 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
               name.endsWith(".m4s"),
             );
 
+            const timing = videoTiming(yield* fs.readFile(path.join(run, "init.mp4")));
+
+            if (timing === undefined) return assert.fail("the run's init segment has no video");
+
             const starts = yield* Effect.forEach(fragments, (name) =>
               Effect.map(
                 fs.readFile(path.join(run, name)),
-                (data) => fragmentSpan(data.subarray(0, FRAGMENT_HEAD_BYTES))?.start ?? Number.NaN,
+                (data) => fragmentSpan(timing, data)?.start ?? Number.NaN,
               ),
             );
 
