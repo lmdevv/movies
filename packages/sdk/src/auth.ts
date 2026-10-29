@@ -234,11 +234,11 @@ const DEFAULT_REFRESH_FAILURE_LIMIT = Duration.minutes(1);
 const REFRESH_FAILURES_BEFORE_RECONNECTING = 3;
 
 /**
- * Longer than the token fetcher waits between refreshes plus a refresh's own timeout. A longer
- * gap between failures means nothing was retrying, as when the device slept, so it starts a new
- * run of failures rather than counting as time spent failing.
+ * Well past the longest the token fetcher waits between refreshes (30 seconds) plus a refresh's
+ * own timeout. A longer gap between failures means nothing was retrying, as when the device
+ * slept, so it starts a new run of failures rather than counting as time spent failing.
  */
-const RETRY_GAP_LIMIT = Duration.minutes(1);
+const RETRY_GAP_LIMIT = Duration.minutes(2);
 
 /** How often a session the server keeps failing to renew is retried, at most. */
 const renewalSchedule = Schedule.min([
@@ -247,6 +247,11 @@ const renewalSchedule = Schedule.min([
 ]);
 
 const SERVER_SIGN_OUT_TIMEOUT = Duration.seconds(10);
+
+const logStorageFailure = (error: TokenStorage.TokenStorageError): Effect.Effect<void> =>
+  Effect.logWarning("Auth.tokenStorageFailed").pipe(
+    Effect.annotateLogs({ operation: error.operation, message: error.message }),
+  );
 
 /**
  * Builds the auth service: reads the stored session, then gives the Convex connection a token
@@ -336,10 +341,7 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
   ): Effect.Effect<Option.Option<Redacted.Redacted>> =>
     token.pipe(
       Effect.catchTag("TokenStorageError", (error) =>
-        Effect.logWarning("Auth.tokenStorageFailed").pipe(
-          Effect.annotateLogs({ operation: error.operation, message: error.message }),
-          Effect.andThen(currentToken),
-        ),
+        logStorageFailure(error).pipe(Effect.andThen(currentToken)),
       ),
     );
 
@@ -527,11 +529,7 @@ export const make = Effect.fn("Auth.make")(function* (options: Options) {
       const { finished: generation } = yield* Ref.get(lastAttempt);
 
       yield* refresh(seen, generation, true).pipe(
-        Effect.catchTag("TokenStorageError", (error) =>
-          Effect.logWarning("Auth.tokenStorageFailed").pipe(
-            Effect.annotateLogs({ operation: error.operation, message: error.message }),
-          ),
-        ),
+        Effect.catchTag("TokenStorageError", logStorageFailure),
       );
 
       return yield* SubscriptionRef.get(reconnecting);

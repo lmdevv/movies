@@ -452,19 +452,13 @@ export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(fu
           return;
         }
 
-        const changed = token !== message.value;
-
         token = message.value;
 
         if (token !== undefined) accepted.push(token);
 
         // Convex runs every subscribed query again as the new identity.
         const rerun = Option.all(
-          changed
-            ? await Promise.all(
-                [...subscribed].map(([queryId, query]) => answerQuery(queryId, query)),
-              )
-            : [],
+          await Promise.all([...subscribed].map(([queryId, query]) => answerQuery(queryId, query))),
         );
 
         if (Option.isNone(rerun)) {

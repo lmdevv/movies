@@ -5,6 +5,7 @@ import {
   Duration,
   Effect,
   Exit,
+  Fiber,
   Layer,
   Option,
   Predicate,
@@ -313,13 +314,27 @@ describe.concurrent("layerWebSocket", () => {
             reconnecting: yield* Stream.runHead(auth.reconnecting),
           };
 
+          const asked = yield* client.query("setup.status", {}).pipe(
+            Effect.map((status) => `libraries: ${String(status.hasLibraries)}`),
+            Effect.catch((error) => Effect.succeed(`failed: ${Struct.get(error, "_tag")}`)),
+            Effect.forkScoped,
+          );
+
           failing = false;
           yield* Stream.runHead(Stream.filter(auth.reconnecting, (waiting) => !waiting)).pipe(
             Effect.timeout(Duration.seconds(20)),
           );
           const later = yield* Queue.take(seen).pipe(Effect.timeout(Duration.seconds(5)));
+          const askedThen = yield* Fiber.join(asked).pipe(Effect.timeout(Duration.seconds(5)));
 
-          return { first, answered, whileFailing, later, status: yield* auth.currentStatus };
+          return {
+            first,
+            answered,
+            whileFailing,
+            later,
+            askedThen,
+            status: yield* auth.currentStatus,
+          };
         }),
       ),
     );
@@ -329,6 +344,7 @@ describe.concurrent("layerWebSocket", () => {
       answered: "public answer",
       whileFailing: { status: "signedIn", reconnecting: Option.some(true) },
       later: "libraries: true",
+      askedThen: "libraries: true",
       status: "signedIn",
     });
   }, 60_000);
