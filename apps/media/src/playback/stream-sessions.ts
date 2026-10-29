@@ -72,6 +72,10 @@ import { hlsCommandArgs } from "./transcode-command.ts";
 interface Claim {
   readonly sessionId: PlaybackSessionId;
   readonly ticket: number;
+  /** Whether its stream registered; only then can it run an encoder. */
+  readonly registered: boolean;
+  /** Completes once the slot is free, so the encoder it covered stopped. */
+  readonly freed: Deferred.Deferred<void>;
 }
 
 interface StartRequest {
@@ -985,39 +989,43 @@ const make = Effect.gen(function* () {
 
   /**
    * Claims a slot for `streamId` until `scope` closes. Slots held for an older negotiation of the
-   * same session do not count: its streams close once this one registers, and one still starting
-   * never registers. Deciding that in the same update as the claim keeps a slot released
-   * meanwhile from being credited as well.
+   * same session do not count: one still starting never registers, and a new stream starts its
+   * encoder only after the registered ones are free (see `awaitCredited`). Deciding that in the
+   * same update as the claim keeps a slot released meanwhile from being credited as well.
    */
   const acquireSlot = (
     scope: Scope.Scope,
     transcoding: boolean,
     streamId: StreamId,
-    claim: Claim,
+    holder: Omit<Claim, "freed">,
   ) => {
     const slots = transcoding ? transcodes : copies;
     const limit = transcoding ? config.maxConcurrentTranscodes : config.maxConcurrentRemuxes;
 
-    const counted = (holder: Claim) =>
-      holder.sessionId !== claim.sessionId || holder.ticket > claim.ticket;
+    const counted = (other: Claim) =>
+      other.sessionId !== holder.sessionId || other.ticket > holder.ticket;
 
-    return Ref.modify(slots, (holders) =>
-      [...holders.values()].filter(counted).length < limit
-        ? ([true, new Map(holders).set(streamId, claim)] as const)
-        : ([false, holders] as const),
-    ).pipe(
-      Effect.tap((acquired) =>
-        acquired
-          ? Scope.addFinalizer(
-              scope,
-              Ref.update(slots, (holders) => {
-                const next = new Map(holders);
-                next.delete(streamId);
+    return Deferred.make<void>().pipe(
+      Effect.flatMap((freed) =>
+        Ref.modify(slots, (holders) =>
+          [...holders.values()].filter(counted).length < limit
+            ? ([true, new Map(holders).set(streamId, { ...holder, freed })] as const)
+            : ([false, holders] as const),
+        ).pipe(
+          Effect.tap((acquired) =>
+            acquired
+              ? Scope.addFinalizer(
+                  scope,
+                  Ref.update(slots, (holders) => {
+                    const next = new Map(holders);
+                    next.delete(streamId);
 
-                return next;
-              }),
-            )
-          : Effect.void,
+                    return next;
+                  }).pipe(Effect.andThen(Deferred.succeed(freed, undefined))),
+                )
+              : Effect.void,
+          ),
+        ),
       ),
       Effect.uninterruptible,
       Effect.flatMap((acquired) =>
@@ -1025,6 +1033,28 @@ const make = Effect.gen(function* () {
       ),
     );
   };
+
+  /**
+   * Waits until the slots `holder` was credited for its session's older registered streams are
+   * free. A new stream's encoder may start only then: a negotiation in between may have begun
+   * closing one of them, and nothing else keeps this encoder from overlapping that one. Once a
+   * stream registered no older one can, so a later resume needs no wait.
+   */
+  const awaitCredited = (transcoding: boolean, holder: Pick<Claim, "sessionId" | "ticket">) =>
+    Ref.get(transcoding ? transcodes : copies).pipe(
+      Effect.flatMap((holders) =>
+        Effect.forEach(
+          [...holders.values()].filter(
+            (other) =>
+              other.registered &&
+              other.sessionId === holder.sessionId &&
+              other.ticket < holder.ticket,
+          ),
+          (other) => Deferred.await(other.freed),
+          { discard: true },
+        ),
+      ),
+    );
 
   const revive = Effect.fn("StreamSessions.revive")(function* (
     session: Session,
@@ -1061,6 +1091,7 @@ const make = Effect.gen(function* () {
         acquireSlot(lease, transcoding, session.streamId, {
           sessionId: session.sessionId,
           ticket: session.ticket,
+          registered: true,
         }),
       ),
       Effect.catchTags({
@@ -1184,6 +1215,20 @@ const make = Effect.gen(function* () {
     );
   }, Effect.uninterruptible);
 
+  const markRegistered = (streamId: StreamId) =>
+    Effect.forEach(
+      [transcodes, copies],
+      (slots) =>
+        Ref.update(slots, (holders) => {
+          const claim = holders.get(streamId);
+
+          return claim === undefined
+            ? holders
+            : new Map(holders).set(streamId, { ...claim, registered: true });
+        }),
+      { discard: true },
+    );
+
   /**
    * Unless a newer negotiation of the session began, takes the session's streams out of the
    * registry and registers `next` in their place; none when one did.
@@ -1217,7 +1262,10 @@ const make = Effect.gen(function* () {
           discard: true,
         });
 
-        if (Option.isSome(next)) yield* owners.opened(next.value.streamId, sessionId);
+        if (Option.isSome(next)) {
+          yield* owners.opened(next.value.streamId, sessionId);
+          yield* markRegistered(next.value.streamId);
+        }
 
         return Option.some(previous);
       }),
@@ -1281,7 +1329,11 @@ const make = Effect.gen(function* () {
     );
 
     const lease = yield* Scope.fork(scope, "sequential");
-    yield* acquireSlot(lease, transcoding, streamId, { sessionId: grant.sessionId, ticket });
+    yield* acquireSlot(lease, transcoding, streamId, {
+      sessionId: grant.sessionId,
+      ticket,
+      registered: false,
+    });
 
     yield* space.check(0);
 
@@ -1380,6 +1432,8 @@ const make = Effect.gen(function* () {
       Effect.andThen(closeSession(session, "session-ended")),
       Effect.forkIn(scope),
     );
+
+    yield* awaitCredited(transcoding, { sessionId: grant.sessionId, ticket });
 
     const segmentIndex = segmentAt(segmentPlan, quickStart);
 
