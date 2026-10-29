@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { LibraryId } from "@movies/contracts/ids";
-import { Context, Effect, Layer, Option, Schema } from "effect";
+import { Cause, Context, Effect, Exit, Layer, Option, Runtime, Schema } from "effect";
 
 import * as ArtworkKeys from "./artwork/artwork-keys.ts";
 import * as BackupJob from "./backups/backup-job.ts";
@@ -150,6 +150,15 @@ const application = Layer.unwrap(
   Layer.provide(Layer.mergeAll(NodeServices.layer, Outbound.layer)),
 );
 
+// The main fiber never completes, so it ends only on failure or when SIGTERM or SIGINT interrupts
+// it. A clean interrupt is a requested stop: exit 0, not the default 130 that systemd and Docker
+// record as a failure.
+const teardown: Runtime.Teardown = (exit, onExit) => {
+  if (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)) return onExit(0);
+
+  return Runtime.defaultTeardown(exit, onExit);
+};
+
 Effect.gen(function* () {
   const services = yield* Layer.build(application);
   const retained = Context.get(services, RetainedLogs.Service);
@@ -159,4 +168,4 @@ Effect.gen(function* () {
   yield* Effect.addFinalizer(() => retained.close);
 
   return yield* Effect.never;
-}).pipe(Effect.scoped, NodeRuntime.runMain);
+}).pipe(Effect.scoped, NodeRuntime.runMain({ teardown }));
