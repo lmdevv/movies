@@ -91,6 +91,7 @@ const IDLE_SNAPSHOT: PlayerSnapshot = {
   subtitleDelayMs: 0,
   quality: "auto",
   rate: 1,
+  recovering: false,
 };
 
 const IDLE_STATE: VideoState = {
@@ -620,8 +621,13 @@ function PlayerSession({
         />
 
         {playing && (media.buffering || room.waiting) && !room.pane ? (
-          <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
+          <View className="absolute inset-0 items-center justify-center gap-4" pointerEvents="none">
             <Spinner />
+            {snapshot.recovering ? (
+              <Text variant="status" tone="onMedia">
+                Reconnecting…
+              </Text>
+            ) : null}
           </View>
         ) : null}
 
@@ -729,7 +735,7 @@ function PlayerSession({
         <View className="absolute inset-0 items-center justify-center gap-4 bg-scrim">
           <Spinner />
           <Text variant="status" tone="onMedia">
-            Preparing stream…
+            {snapshot.recovering ? "Reconnecting…" : "Preparing stream…"}
           </Text>
           <View className="absolute top-0 left-0 h-17 justify-center" style={bar}>
             <RoundButton icon={ChevronLeft} label="Close" onPress={close} />

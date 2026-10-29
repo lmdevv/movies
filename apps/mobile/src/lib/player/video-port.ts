@@ -1,6 +1,9 @@
 import type { PlayerEvent, PlayerPort } from "@movies/sdk/effect";
 import type { VideoPlayerEvents, VideoPlayerStatus } from "expo-video";
 
+import { believedPosition, believes, explains, placed, reported, restarted } from "./playhead";
+import type { Playhead } from "./playhead";
+
 /** AVPlayer's loading state, as expo-video reports it. */
 export type NativeStatus = VideoPlayerStatus;
 
@@ -43,6 +46,23 @@ export const NATIVE_SEEKER: StreamSeeker = {
   move: () => Promise.resolve(),
 };
 
+/** Where a new stream's player starts, how long its media runs, and how it seeks. */
+export interface StreamStart {
+  readonly positionMs: number;
+  /** The media's duration as probed; null when unknown. */
+  readonly durationMs: number | null;
+  readonly seeker: StreamSeeker;
+}
+
+/**
+ * How far into the media AVPlayer must have played for its end to be the media's end. AVPlayer
+ * also reports an end when every remaining segment of a vanished stream fails.
+ */
+const ENDS_AFTER_FRACTION = 0.9;
+
+/** How soon before an end AVPlayer's stop counts as that end rather than the viewer's pause. */
+const STOPPED_FOR_END_MS = 1_000;
+
 /** How far behind the playhead AVPlayer still holds an HLS stream's segments. */
 const KEPT_BEHIND_SECONDS = 30;
 
@@ -75,33 +95,47 @@ export interface VideoState {
 export class VideoPort implements PlayerPort {
   #video: NativeVideo | null = null;
   #subscriptions: ReadonlyArray<{ remove(): void }> = [];
+  readonly #now: () => number;
   #seeker: StreamSeeker = NATIVE_SEEKER;
+  #durationMs: number | null = null;
   #pending: number | null = null;
   #move: AbortController | null = null;
   #loadingAt: number | null = null;
   #wantsPlay = false;
   #ended = false;
   #status: NativeStatus = "idle";
-  #lastMs = 0;
+  /** AVPlayer stopped somewhere it could not have played to, as when its stream vanished. */
+  #lost = false;
+  #playhead: Playhead;
+  /** When AVPlayer last paused outside the app's controls. */
+  #pausedOutsideAt: number | null = null;
   #final: number | null = null;
   #state: VideoState = { positionSeconds: 0, playing: false, buffering: false, ended: false };
   readonly #listeners = new Set<(event: PlayerEvent) => void>();
   readonly #stateListeners = new Set<() => void>();
 
+  /** @param now - A monotonic clock in milliseconds, which tells playing from skipping. */
+  constructor(now: () => number = () => performance.now()) {
+    this.#now = now;
+    this.#playhead = placed(0, now());
+  }
+
   /**
-   * Follows `video` from now on, a new stream's player whose source starts at `positionMs`: the
-   * port reports that position, and no pause or stall, until it plays or seeks; seeks go through
-   * `seeker`. A stream move that attaches the player of its new generation keeps going until it
-   * lands.
+   * Follows `video` from now on, a new stream's player whose source starts at `start.positionMs`:
+   * the port reports that position, and no pause or stall, until it plays or seeks; seeks go
+   * through `start.seeker`. A stream move that attaches the player of its new generation keeps
+   * going until it lands.
    */
-  attach(video: NativeVideo, positionMs: number, seeker: StreamSeeker): void {
+  attach(video: NativeVideo, start: StreamStart): void {
     if (this.#final !== null) return;
 
     for (const subscription of this.#subscriptions) subscription.remove();
-    this.#seeker = seeker;
-    this.#loadingAt = positionMs;
-    this.#lastMs = positionMs;
+    this.#seeker = start.seeker;
+    this.#durationMs = start.durationMs;
+    this.#loadingAt = start.positionMs;
+    this.#playhead = placed(start.positionMs, this.#now());
     this.#ended = false;
+    this.#lost = false;
     this.#video = video;
     this.#status = video.status;
     this.#subscriptions = [
@@ -112,13 +146,18 @@ export class VideoPort implements PlayerPort {
         this.#onStatusChange(status);
       }),
       video.addListener("playToEnd", () => {
-        this.#ended = true;
-        this.#wantsPlay = false;
-        this.#emit("ended");
-        this.#changed();
+        this.#onPlayToEnd();
       }),
       video.addListener("timeUpdate", ({ currentTime }) => {
-        if (this.#pending === null && this.#loadingAt === null) this.#lastMs = currentTime * 1000;
+        if (!this.#settling()) {
+          this.#playhead = reported(
+            this.#playhead,
+            currentTime * 1000,
+            this.#now(),
+            this.playbackRate(),
+          );
+        }
+
         this.#changed();
       }),
     ];
@@ -130,20 +169,82 @@ export class VideoPort implements PlayerPort {
   /** Whether playing was asked for more recently than pausing. */
   readonly wantsToPlay = (): boolean => this.#wantsPlay;
 
+  /** Whether a new stream's player is loading toward the position it starts at. */
+  readonly loadingStream = (): boolean => this.#loadingAt !== null;
+
   #settling(): boolean {
     return this.#pending !== null || this.#loadingAt !== null;
   }
 
+  /** Whether AVPlayer's own position is one it could have played to. */
+  #believable(): boolean {
+    const video = this.#video;
+
+    return (
+      video !== null &&
+      believes(this.#playhead, video.currentTime * 1000, this.#now(), this.playbackRate())
+    );
+  }
+
+  /** AVPlayer stopped where it could not have played to: its stream is gone, not the viewer. */
+  #loseStream(): void {
+    this.#lost = true;
+
+    if (this.#wantsPlay) this.#emit("waiting");
+  }
+
   #onPlayingChange(isPlaying: boolean): void {
+    const video = this.#video;
+
+    // A jump AVPlayer made on its own, such as a seek from the lock screen, explains where it is.
+    const explained =
+      video !== null &&
+      explains(this.#playhead, video.currentTime * 1000, this.#now(), this.playbackRate());
+
+    // Paused or loading time plays nothing: a skip after it must not pass for playing.
+    if (this.#pending === null) {
+      this.#playhead = restarted(this.#playhead, this.positionMs(), this.#now());
+    }
+
     if (isPlaying) {
       this.#loadingAt = null;
       this.#ended = false;
+      this.#lost = false;
+      this.#pausedOutsideAt = null;
       this.#wantsPlay = true;
       this.#emit("playing");
-    } else if (!this.#settling() && !this.#ended) {
-      // Paused outside the app's controls too: Picture in Picture, the lock screen, AirPlay.
+    } else if (this.#settling() || this.#ended || this.#lost) {
+      // Loading, seeking, ending, and a lost stream pause AVPlayer; the viewer did not.
+    } else if (!explained) {
+      this.#loseStream();
+    } else if (this.#status !== "loading") {
+      // Paused outside the app's controls too: Picture in Picture, the lock screen, AirPlay. A stall
+      // stops AVPlayer as well, but expo-video reports it loading first.
       this.#wantsPlay = false;
+      this.#pausedOutsideAt = this.#now();
       this.#emit("paused");
+    }
+
+    this.#changed();
+  }
+
+  #onPlayToEnd(): void {
+    const reachedMs = this.positionMs();
+
+    if (
+      this.#believable() &&
+      (this.#durationMs === null || reachedMs >= this.#durationMs * ENDS_AFTER_FRACTION)
+    ) {
+      this.#ended = true;
+      this.#lost = false;
+      this.#wantsPlay = false;
+      this.#emit("ended");
+    } else if (!this.#lost) {
+      const stoppedForEnd =
+        this.#pausedOutsideAt !== null && this.#now() - this.#pausedOutsideAt <= STOPPED_FOR_END_MS;
+
+      if (stoppedForEnd) this.#wantsPlay = true;
+      this.#loseStream();
     }
 
     this.#changed();
@@ -160,16 +261,37 @@ export class VideoPort implements PlayerPort {
     for (const listener of this.#listeners) listener(event);
   }
 
+  /**
+   * Where playback is: a seek's target or a loading stream's start until it lands, else AVPlayer's
+   * position when it could have played there, else the last position it played to.
+   */
   readonly positionMs = (): number => {
     if (this.#final !== null) return this.#final;
 
-    return this.#pending ?? this.#loadingAt ?? (this.#video?.currentTime ?? 0) * 1000;
+    const settled = this.#pending ?? this.#loadingAt;
+
+    if (settled !== null) return settled;
+
+    if (this.#video === null) return this.#playhead.believed.positionMs;
+
+    return believedPosition(
+      this.#playhead,
+      this.#video.currentTime * 1000,
+      this.#now(),
+      this.playbackRate(),
+    );
   };
+
+  #stalled(): boolean {
+    return this.#lost || this.#status === "loading";
+  }
 
   readonly isPaused = (): boolean => {
     if (this.#final !== null) return true;
 
-    return this.#settling() || this.#video === null ? !this.#wantsPlay : !this.#video.playing;
+    return this.#settling() || this.#video === null || this.#stalled()
+      ? !this.#wantsPlay
+      : !this.#video.playing;
   };
 
   readonly isBuffering = (): boolean => {
@@ -177,7 +299,7 @@ export class VideoPort implements PlayerPort {
 
     if (this.#settling()) return this.#wantsPlay;
 
-    return this.#wantsPlay && this.#status === "loading";
+    return this.#wantsPlay && this.#stalled();
   };
 
   readonly playbackRate = (): number => this.#video?.playbackRate ?? 1;
@@ -194,12 +316,13 @@ export class VideoPort implements PlayerPort {
     this.#move?.abort();
     this.#move = null;
     this.#ended = false;
+    this.#lost = false;
 
     if (this.#video !== null && this.#seeker.reaches(target)) {
       this.#pending = null;
       this.#loadingAt = null;
       this.#video.currentTime = target / 1000;
-      this.#lastMs = target;
+      this.#playhead = placed(target, this.#now());
       this.#emit("seeked");
       this.#changed();
 
@@ -217,7 +340,7 @@ export class VideoPort implements PlayerPort {
       if (move.signal.aborted) return;
       this.#move = null;
       this.#pending = null;
-      this.#lastMs = target;
+      this.#playhead = placed(target, this.#now());
       this.#emit("seeked");
       this.#changed();
     });
@@ -263,7 +386,8 @@ export class VideoPort implements PlayerPort {
   };
 
   #read(): VideoState {
-    const positionMs = this.#final ?? this.#pending ?? this.#loadingAt ?? this.#lastMs;
+    const positionMs =
+      this.#final ?? this.#pending ?? this.#loadingAt ?? this.#playhead.believed.positionMs;
 
     return {
       positionSeconds: positionMs / 1000,
