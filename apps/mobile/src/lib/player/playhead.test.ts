@@ -83,7 +83,7 @@ describe("reported", () => {
 });
 
 describe("playedOnFromJumpMs", () => {
-  it("counts how long the player played on from its jump", () => {
+  it("counts how much media the player played on from its jump", () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 0, max: 10_000_000 }),
@@ -107,7 +107,7 @@ describe("playedOnFromJumpMs", () => {
 
           return (
             playedOnFromJumpMs(playhead, fromMs + reports * REPORT_MS * rate, nowMs, rate) ===
-            reports * REPORT_MS
+            reports * REPORT_MS * rate
           );
         },
       ),

@@ -128,9 +128,9 @@ export const reported = (
 };
 
 /**
- * How long the player has played on from the jump it made on its own to `positionMs` at `atMs`; 0
- * when it made none, or did not play on from it. A skip through a vanished stream lands without
- * playing on.
+ * How much media the player has played on from the jump it made on its own to `positionMs` at
+ * `atMs`; 0 when it made none, or did not play on from it. A skip through a vanished stream lands
+ * without playing on.
  */
 export const playedOnFromJumpMs = (
   playhead: Playhead,
@@ -140,7 +140,7 @@ export const playedOnFromJumpMs = (
 ): number => {
   const jump = extendedJump(playhead, { positionMs, atMs }, rate);
 
-  return jump !== null && playsOn(jump) ? jump.last.atMs - jump.first.atMs : 0;
+  return jump !== null && playsOn(jump) ? jump.last.positionMs - jump.first.positionMs : 0;
 };
 
 /**

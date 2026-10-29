@@ -92,8 +92,7 @@ class TestVideo implements NativeVideo {
     this.#setPlaying(false);
   }
 
-  /** AVPlayer has data again: expo-video reports it ready, and AVPlayer plays if it was waiting to. */
-  /** AVPlayer starts playing as `play` asked, when `startsLater` held it back. */
+  /** AVPlayer starts playing as `play` asked, when `startsLater` or loading held it back. */
   start(): void {
     if (this.#waitingToPlay) {
       this.#waitingToPlay = false;
@@ -101,14 +100,11 @@ class TestVideo implements NativeVideo {
     }
   }
 
+  /** AVPlayer has data again: expo-video reports it ready, and AVPlayer plays if it was waiting to. */
   ready(): void {
     this.status = "readyToPlay";
     this.fireStatus("readyToPlay");
-
-    if (this.#waitingToPlay) {
-      this.#waitingToPlay = false;
-      this.#setPlaying(true);
-    }
+    this.start();
   }
 
   listenerCount(): number {
@@ -525,6 +521,32 @@ describe("VideoPort with the lock screen and stalls", () => {
 
     expect(events.at(-1)).toBe("ended");
     expect(port.positionMs()).toBe(EPISODE_MS);
+  });
+
+  it("ends after a seek from the lock screen to the last half second at double speed", () => {
+    const { clock, video, events } = playingAt(600);
+
+    video.playbackRate = 2;
+    clock.ms += 250;
+    video.fireTime(EPISODE_MS / 1000 - 0.5);
+    clock.ms += 125;
+    video.fireTime(EPISODE_MS / 1000 - 0.25);
+    clock.ms += 125;
+    video.fireTime(EPISODE_MS / 1000);
+    video.pause();
+    video.fireEnd();
+
+    expect(events.at(-1)).toBe("ended");
+  });
+
+  it("shows where AVPlayer paused, between its time reports", () => {
+    const { clock, video, port } = playingAt(600);
+
+    clock.ms += 200;
+    video.currentTime = 610.2;
+    video.pause();
+
+    expect(port.getState().positionSeconds).toBeCloseTo(610.2, 3);
   });
 
   it("counts no stalled time toward where AVPlayer could have played", () => {

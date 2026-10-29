@@ -71,9 +71,9 @@ const ENDS_AFTER_FRACTION = 0.9;
 const STOPPED_FOR_END_MS = 1_000;
 
 /**
- * How long a jump AVPlayer made on its own must play on for its end to be the media's end, as
- * after a seek from the lock screen to the closing seconds: two of its time reports. A skip through
- * a vanished stream lands at the end without playing on.
+ * How much media AVPlayer must play on from a jump it made on its own for its end to be the
+ * media's end, as after a seek from the lock screen to the closing seconds. A skip through a
+ * vanished stream lands at the end without playing on.
  */
 const JUMP_ENDS_AFTER_PLAYING_MS = 500;
 
@@ -177,15 +177,7 @@ export class VideoPort implements PlayerPort {
         this.#onPlayToEnd();
       }),
       video.addListener("timeUpdate", ({ currentTime }) => {
-        if (!this.settling()) {
-          this.#playhead = reported(
-            this.#playhead,
-            currentTime * 1000,
-            this.#played(),
-            this.playbackRate(),
-          );
-        }
-
+        this.#sight(currentTime);
         this.#changed();
       }),
     ];
@@ -209,6 +201,18 @@ export class VideoPort implements PlayerPort {
    */
   #played(): number {
     return this.#playedMs + (this.#playingSince === null ? 0 : this.#now() - this.#playingSince);
+  }
+
+  /** Follows AVPlayer reporting `currentTime` in seconds, unless it is heading somewhere else. */
+  #sight(currentTime: number): void {
+    if (this.settling()) return;
+
+    this.#playhead = reported(
+      this.#playhead,
+      currentTime * 1000,
+      this.#played(),
+      this.playbackRate(),
+    );
   }
 
   /** Runs or stops the playhead's clock as AVPlayer plays or stops. */
@@ -246,6 +250,8 @@ export class VideoPort implements PlayerPort {
       video !== null &&
       explains(this.#playhead, video.currentTime * 1000, this.#played(), this.playbackRate());
 
+    // Where it started or stopped is a sighting too, so the controls show it until the next report.
+    if (video !== null) this.#sight(video.currentTime);
     this.#nativePlaying(isPlaying);
     this.#readyStoppedAt = null;
 
