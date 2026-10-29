@@ -277,8 +277,9 @@ const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
    * for another, so an unanswered probe signs in again, which hands the client a fresh token and
    * resets its auth state. During a Convex outage that sign-in waits, retrying, until Convex is
    * back. The connection may still be waiting out its own reconnect backoff then, so the probe
-   * asks again each second until the next probe is due; asking with the same `after` shares one
-   * pending query rather than queueing another.
+   * keeps asking, each ask waiting up to `callTimeout` and the next starting a second later, until
+   * Convex answers or the next probe is due; asking with the same `after` shares one pending query
+   * rather than queueing another, so Convex answering ends the wait at once.
    */
   const probe = Effect.gen(function* () {
     const seen = yield* Ref.get(generation);
