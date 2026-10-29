@@ -388,7 +388,6 @@ export default defineSchema({
      */
     purpose: v.optional(v.literal("download")),
   })
-    .index("by_status_ended", ["status", "endedAt"])
     .index("by_status_report", ["status", "lastReportAt"])
     .index("by_user_status", ["userId", "status"])
     .index("by_auth_session", ["authSessionId"])

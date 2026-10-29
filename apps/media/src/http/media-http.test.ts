@@ -3,7 +3,7 @@ import { Duration, Effect, FileSystem, Path, Predicate, Schedule, Schema } from 
 import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/http";
 
 import { artworkUrl } from "@movies/contracts/artwork";
-import { LibraryId, PlaybackSessionId } from "@movies/contracts/ids";
+import { LibraryId } from "@movies/contracts/ids";
 import { RequestId } from "@movies/contracts/request-id";
 import {
   type ClientCapabilities,
@@ -18,7 +18,6 @@ import * as DiskCache from "../disk-cache.ts";
 import * as LibraryScanner from "../library/library-scanner.ts";
 import * as MemoryLibrary from "../library/memory-library.ts";
 import * as MediaTools from "../media/media-tools.ts";
-import * as EndedSessions from "../playback/ended-sessions.ts";
 import { parseFfprobeJson } from "../media/media-probe.ts";
 import * as FileResolver from "../playback/file-resolver.ts";
 import { fragmentSpan, videoTiming } from "../playback/fmp4-fragments.ts";
@@ -34,6 +33,7 @@ import { copyBytes } from "../testing/byte-copies.ts";
 import * as FixtureWorkspace from "../testing/fixture-workspace.ts";
 import * as MediaTestServer from "../testing/media-test-server.ts";
 import { signTestToken } from "../testing/test-config.ts";
+import * as TestConvex from "../testing/test-convex.ts";
 import { sidecarTrackId } from "../subtitles/subtitle-tracks.ts";
 
 const hasFfmpeg = await ffmpegAvailable();
@@ -1244,63 +1244,6 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
       }),
     );
 
-    it.effect("files every request after its session ended under it, outside the budget", () =>
-      Effect.gen(function* () {
-        const server = yield* MediaTestServer.Service;
-        const ended = yield* EndedSessions.Service;
-
-        yield* ended.record([
-          { sessionId: PlaybackSessionId.make("hammered"), endedAt: Date.now() },
-        ]);
-
-        for (let index = 0; index < 100; index += 1) {
-          const exp = index % 2 === 0 ? Date.now() + 60_000 : Date.now() - 1;
-
-          const refused = yield* get(
-            `${server.baseUrl}/media/hls/${UNKNOWN_STREAM}/1/${index}.m4s?token=${signTestToken({ fid: "file_1", sid: "hammered", exp })}`,
-          );
-
-          assert.strictEqual(refused.status, 410);
-        }
-
-        const logged = server
-          .logged()
-          .filter((entry) => entry.annotations["sessionId"] === "hammered");
-
-        assert.strictEqual(logged.length, 100);
-
-        assert.deepStrictEqual(
-          [
-            ...new Set(
-              logged.map((entry) =>
-                JSON.stringify([
-                  entry.message,
-                  entry.level,
-                  entry.annotations["userId"],
-                  entry.annotations["status"],
-                ]),
-              ),
-            ),
-          ],
-          [JSON.stringify(["MediaRoutes.request_after_session_ended", "DEBUG", "user_test", 410])],
-        );
-
-        const live = yield* get(
-          `${server.baseUrl}/media/hls/${UNKNOWN_STREAM}/1/0.m4s?token=${signTestToken({ fid: "file_1", sid: "after-hammered" })}`,
-        );
-
-        assert.strictEqual(live.status, 404);
-
-        assert.deepStrictEqual(
-          server
-            .logged()
-            .filter((entry) => entry.annotations["sessionId"] === "after-hammered")
-            .map((entry) => [entry.message, entry.level]),
-          [["MediaRoutes.request_failed", "WARN"]],
-        );
-      }),
-    );
-
     it.effect("logs a member's failing requests within a budget, with path parameters cut", () =>
       Effect.gen(function* () {
         const server = yield* MediaTestServer.Service;
@@ -1577,15 +1520,77 @@ describe.skipIf(!hasFfmpeg)("media service over HTTP", () => {
           }
         }),
     );
+  });
 
+  layer(MediaTestServer.layer({ LOG_LEVEL: "debug" }, { convex: true }), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })("with Convex and debug logs", (it) => {
+    it.effect("files every request after its session ended under it, outside the budget", () =>
+      Effect.gen(function* () {
+        const server = yield* MediaTestServer.Service;
+        const convex = yield* TestConvex.Service;
+
+        yield* convex.end("hammered");
+        yield* convex.report("after-hammered", "paused", 0);
+
+        for (let index = 0; index < 100; index += 1) {
+          const exp = index % 2 === 0 ? Date.now() + 60_000 : Date.now() - 1;
+
+          const refused = yield* get(
+            `${server.baseUrl}/media/hls/${UNKNOWN_STREAM}/1/${index}.m4s?token=${signTestToken({ fid: "file_1", sid: "hammered", exp })}`,
+          );
+
+          assert.strictEqual(refused.status, 410);
+        }
+
+        const logged = server
+          .logged()
+          .filter((entry) => entry.annotations["sessionId"] === "hammered");
+
+        assert.strictEqual(logged.length, 100);
+
+        assert.deepStrictEqual(
+          [
+            ...new Set(
+              logged.map((entry) =>
+                JSON.stringify([
+                  entry.message,
+                  entry.level,
+                  entry.annotations["userId"],
+                  entry.annotations["status"],
+                ]),
+              ),
+            ),
+          ],
+          [JSON.stringify(["MediaRoutes.request_after_session_ended", "DEBUG", "user_test", 410])],
+        );
+
+        const live = yield* get(
+          `${server.baseUrl}/media/hls/${UNKNOWN_STREAM}/1/0.m4s?token=${signTestToken({ fid: "file_1", sid: "after-hammered" })}`,
+        );
+
+        assert.strictEqual(live.status, 404);
+
+        assert.deepStrictEqual(
+          server
+            .logged()
+            .filter((entry) => entry.annotations["sessionId"] === "after-hammered")
+            .map((entry) => [entry.message, entry.level]),
+          [["MediaRoutes.request_failed", "WARN"]],
+        );
+      }),
+    );
+  });
+
+  layer(MediaTestServer.layer({}, { convex: true }), {
+    excludeTestServices: true,
+    timeout: "120 seconds",
+  })("with Convex and default logs", (it) => {
     it.effect("files no failure for a request after its session ended, its token expired too", () =>
       Effect.gen(function* () {
         const server = yield* MediaTestServer.Service;
-        const ended = yield* EndedSessions.Service;
-
-        yield* ended.record([
-          { sessionId: PlaybackSessionId.make("finished"), endedAt: Date.now() },
-        ]);
+        yield* (yield* TestConvex.Service).end("finished");
 
         for (const exp of [Date.now() + 60_000, Date.now() - 1]) {
           const refused = yield* get(

@@ -6,7 +6,6 @@ import { FetchHttpClient, HttpServer } from "effect/http";
 
 import * as BackendHealth from "../backend-health.ts";
 import * as ConvexSessionReports from "../convex/convex-session-reports.ts";
-import * as EndedSessionWatcher from "../convex/ended-session-watcher.ts";
 import { routesLayer, serve } from "../http/http-server.ts";
 import type { LogRecord } from "@movies/contracts/diagnostics";
 import { type MediaFileId, LibraryId } from "@movies/contracts/ids";
@@ -16,6 +15,7 @@ import * as MemoryLibrary from "../library/memory-library.ts";
 import * as MediaConfig from "../media-config.ts";
 import { servicesLayer } from "../media-service.ts";
 import { redactedLine } from "../observability.ts";
+import * as EndedSessions from "../playback/ended-sessions.ts";
 import * as PlaybackReporter from "../playback/playback-reporter.ts";
 import * as SessionReports from "../playback/session-reports.ts";
 import * as FixtureWorkspace from "./fixture-workspace.ts";
@@ -45,8 +45,8 @@ interface Options {
   readonly fileSystem?: (real: FileSystem.FileSystem) => FileSystem.FileSystem;
   /**
    * Runs as in Convex mode against `TestConvex`, with the real session reports and ended-session
-   * watcher over its subscriptions. Standalone, with no session reports, when absent; the
-   * scripted Convex is then present but nothing follows it.
+   * registry over its subscriptions. Standalone, with no session reports and no session ever
+   * ended, when absent; the scripted Convex is then present but nothing follows it.
    */
   readonly convex?: true;
 }
@@ -89,7 +89,9 @@ export const layer = (overrides: Readonly<Record<string, string>> = {}, options:
       );
 
       const reports =
-        options.convex === true ? ConvexSessionReports.layer : SessionReports.layerNone;
+        options.convex === true
+          ? EndedSessions.layer.pipe(Layer.provideMerge(ConvexSessionReports.layer))
+          : Layer.merge(SessionReports.layerNone, EndedSessions.layerNone);
 
       const services = servicesLayer.pipe(
         Layer.provideMerge(
@@ -140,11 +142,8 @@ export const layer = (overrides: Readonly<Record<string, string>> = {}, options:
         }),
       );
 
-      const watcher = options.convex === true ? EndedSessionWatcher.layer : Layer.empty;
-
       return ready.pipe(
         Layer.provideMerge(server),
-        Layer.provideMerge(watcher),
         Layer.provideMerge(services),
         Layer.provide(logging),
       );

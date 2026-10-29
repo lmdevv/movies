@@ -2,6 +2,7 @@ import { artworkUrl } from "@movies/contracts/artwork";
 import {
   ClientDiagnosticsRequest,
   DIAGNOSTICS_ROUTES,
+  LogRecord,
   PlaybackDiagnostics,
   PlayerObservation,
 } from "@movies/contracts/diagnostics";
@@ -121,10 +122,8 @@ const decodeSessionEnded = Schema.decodeUnknownOption(
   Schema.fromJsonString(Schema.TaggedStruct("PlaybackSessionEnded", { sessionId: Schema.String })),
 );
 
-const startService = async (): Promise<void> => {
-  media = startMedia(mediaEnv());
-
-  await waitForBody(
+const connected = () =>
+  waitForBody(
     `${mediaUrl}${MEDIA_ROUTES.health}`,
     (text) =>
       decodeHealth(text).pipe(
@@ -133,6 +132,11 @@ const startService = async (): Promise<void> => {
       ),
     30_000,
   );
+
+const startService = async (): Promise<void> => {
+  media = startMedia(mediaEnv());
+
+  await connected();
 };
 
 const open = () => openSession(convexUrl, mediaUrl, scope);
@@ -168,6 +172,8 @@ const encodeNegotiate = Schema.encodeSync(Schema.toCodecJson(NegotiateRequest));
 
 const encodeBatch = Schema.encodeSync(Schema.toCodecJson(ClientDiagnosticsRequest));
 
+const decodeRecord = Schema.decodeUnknownOption(Schema.fromJsonString(LogRecord));
+
 const decodeLogLine = Schema.decodeUnknownSync(
   Schema.fromJsonString(Schema.Struct({ message: Schema.String })),
 );
@@ -178,10 +184,8 @@ const decodeDiagnostics = Schema.decodeUnknownSync(
 
 const decodeNegotiated = Schema.decodeUnknownSync(Schema.toCodecJson(NegotiateResponse));
 
-const negotiate = async (started: StartedPlayback, capabilities: ClientCapabilities) => {
-  const begin = performance.now();
-
-  const response = await fetch(`${started.mediaBaseUrl}${MEDIA_ROUTES.negotiate}`, {
+const offer = (started: StartedPlayback, capabilities: ClientCapabilities) =>
+  fetch(`${started.mediaBaseUrl}${MEDIA_ROUTES.negotiate}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(
@@ -189,6 +193,9 @@ const negotiate = async (started: StartedPlayback, capabilities: ClientCapabilit
     ),
   });
 
+const negotiate = async (started: StartedPlayback, capabilities: ClientCapabilities) => {
+  const begin = performance.now();
+  const response = await offer(started, capabilities);
   const body: unknown = await response.json();
   const elapsed = performance.now() - begin;
 
@@ -562,7 +569,51 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
       );
 
       expect(refused).toMatchObject({ sessionId: started.sessionId });
-      expect(media.logs()).toContain("EndedSessionWatcher.streams_stopped");
+
+      const endReasons = () =>
+        media
+          .logs()
+          .split("\n")
+          .flatMap((line) => Option.toArray(decodeRecord(line)))
+          .filter(
+            (record) =>
+              record.message === "Stream.ended" &&
+              record.annotations["sessionId"] === started.sessionId,
+          )
+          .map((record) => record.annotations["reason"]);
+
+      const reasons = await Effect.runPromise(
+        Effect.sync(endReasons).pipe(
+          Effect.repeat({
+            until: (seen) => seen.length > 0,
+            schedule: Schedule.spaced("100 millis"),
+            times: 50,
+          }),
+        ),
+      );
+
+      expect(reasons).toStrictEqual(["session-ended"]);
+    });
+
+    it("refuses the first request of a session that ended before it", async () => {
+      const remux = await asOwner(titleIn(moviesLibrary, "Remux Fixture"));
+      const started = await asOwner(startSession(remux.id, "ended-first"));
+
+      await asOwner(
+        Effect.flatMap(client, (movies) =>
+          movies.mutate("playback.endSession", {
+            sessionId: started.sessionId,
+            positionMs: Milliseconds.make(0),
+          }),
+        ),
+      );
+
+      const response = await offer(started, browser);
+
+      expect(response.status).toBe(410);
+      expect(Option.getOrUndefined(decodeSessionEnded(await response.text()))).toMatchObject({
+        sessionId: started.sessionId,
+      });
     });
 
     it("serves metadata commands only to manage sessions and reports a missing provider", async () => {
@@ -922,6 +973,55 @@ describe.skipIf(stack === undefined || !hasFfmpeg)(
       timings["leaseRecoveryMs"] = Math.round(performance.now() - begin);
       expect(job.status).toBe("succeeded");
       expect(job.attempts).toBe(2);
+    }, 180_000);
+
+    // Last: a restore replaces every table and signs everyone out.
+    it("refuses the tokens of sessions a restore ends or erases", async () => {
+      const listBackups = () =>
+        asOwner(Effect.flatMap(client, (movies) => movies.query("backups.list", {})));
+
+      const remux = await asOwner(titleIn(moviesLibrary, "Remux Fixture"));
+      const kept = await asOwner(startSession(remux.id, "restore-kept"));
+
+      await negotiate(kept, browser);
+
+      const earlier = new Set((await listBackups()).map((backup) => backup.id));
+
+      const backup = await asOwner(
+        Effect.gen(function* () {
+          const movies = yield* client;
+          const { jobId } = yield* movies.mutate("backups.run", {});
+
+          return yield* finished(jobId, "90 seconds");
+        }),
+      );
+
+      expect(backup.status, backup.error ?? "").toBe("succeeded");
+
+      const erased = await asOwner(startSession(remux.id, "restore-erased"));
+
+      await negotiate(erased, browser);
+
+      const taken =
+        (await listBackups()).find((listed) => !earlier.has(listed.id)) ?? expect.unreachable();
+
+      await asOwner(
+        Effect.flatMap(client, (movies) => movies.media("backups.restore", { backupId: taken.id })),
+      );
+
+      owner = await Effect.runPromise(open());
+      await asOwner(signInOwner);
+      await connected();
+
+      await expect
+        .poll(
+          () =>
+            Promise.all(
+              [kept, erased].map(async (started) => (await offer(started, browser)).status),
+            ),
+          { timeout: 45_000, interval: 1_000 },
+        )
+        .toStrictEqual([410, 410]);
     }, 180_000);
   },
 );

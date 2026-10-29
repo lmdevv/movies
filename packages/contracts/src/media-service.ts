@@ -18,7 +18,6 @@ import { TrickplayManifest, TrickplayVersion } from "./trickplay";
 import {
   ClaimedJob,
   CREDIT_BATCH_LIMIT,
-  EndedSession,
   IndexedFile,
   LeaseArgs,
   LeaseMs,
@@ -126,24 +125,13 @@ export const mediaServiceFunctions = {
     function: "mediaService:resolveFile",
   }),
   "mediaService.sessionStatus": query({
-    summary: "Whether a playback session is still active and playing; null for no such session",
+    summary:
+      "Whether a playback session is still active and playing; null for no such session, including an ID that names none",
     group: "media-service",
     scope: "media-service",
-    args: Schema.Struct({ sessionId: PlaybackSessionId }),
+    args: Schema.Struct({ sessionId: Schema.String }),
     result: Schema.NullOr(SessionStatus),
     function: "mediaService:sessionStatus",
-  }),
-  "mediaService.endedSessions": query({
-    summary:
-      "Playback sessions that ended after `after`, oldest first, never splitting one endedAt",
-    group: "media-service",
-    scope: "media-service",
-    args: Schema.Struct({
-      after: EpochMillis,
-      limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 200 }))),
-    }),
-    result: Schema.Array(EndedSession),
-    function: "mediaService:endedSessions",
   }),
   "mediaService.recordPlaybackMode": mutation({
     summary: "Record how a session's file reaches its device",

@@ -173,14 +173,6 @@ export interface Interface {
     streamId: StreamId,
     grant: PlaybackGrant,
   ) => Effect.Effect<void, StreamNotFound | StreamAccessDenied>;
-  /**
-   * Closes every stream of a playback session that ended elsewhere, such as by a sign-out or a
-   * newer session on the same device. Returns how many streams it closed.
-   */
-  readonly closeStreams: (
-    sessionId: PlaybackSessionId,
-    reason: Extract<PlaybackReporter.StreamEndReason, "session-ended">,
-  ) => Effect.Effect<number>;
   /** Number of streams whose encoder runs; a released stream waiting for its player is not one. */
   readonly activeCount: Effect.Effect<number>;
 }
@@ -1611,19 +1603,6 @@ const make = Effect.gen(function* () {
       })),
     );
 
-  const closeStreams = Effect.fn("StreamSessions.closeStreams")(function* (
-    sessionId: PlaybackSessionId,
-    reason: Extract<PlaybackReporter.StreamEndReason, "session-ended">,
-  ) {
-    const closing = [...(yield* Ref.get(sessions)).values()].filter(
-      (session) => session.sessionId === sessionId,
-    );
-
-    yield* Effect.forEach(closing, (session) => closeSession(session, reason), { discard: true });
-
-    return closing.length;
-  });
-
   const expired: Condition = Clock.currentTimeMillis.pipe(
     Effect.map((now) => (use: StreamLiveness.Use) => StreamLiveness.isExpired(use, now)),
   );
@@ -1674,7 +1653,6 @@ const make = Effect.gen(function* () {
     segment,
     seek,
     stop,
-    closeStreams,
     activeCount: Ref.get(sessions).pipe(
       Effect.flatMap((current) =>
         Effect.filter(current.values(), (session) =>

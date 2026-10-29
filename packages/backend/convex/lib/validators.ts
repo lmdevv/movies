@@ -996,9 +996,6 @@ export const sessionStatus = v.object({
   positionMs: v.number(),
 });
 
-/** Mirrors `EndedSession` in `@movies/contracts`. */
-export const endedSession = v.object({ sessionId: v.id("playbackSessions"), endedAt: v.number() });
-
 /** Mirrors `MetadataTarget` in `@movies/contracts`. */
 export const metadataTarget = v.object({
   titleId: v.id("titles"),

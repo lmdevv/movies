@@ -53,8 +53,9 @@ export class TokenRefused extends Data.TaggedError("TokenRefused")<{
 export interface Interface {
   /**
    * The grant of a valid token for one of `purposes`. Fails with `PlaybackSessionEnded` once its
-   * session ended, whatever else is wrong with an authentic token, and `PlaybackTokenInvalid` for
-   * a malformed, forged, expired, or misaddressed token or one for another purpose.
+   * session ended, whatever else is wrong with an authentic token, though an expired one only
+   * when the end is already known, and `PlaybackTokenInvalid` for a malformed, forged, expired, or
+   * misaddressed token or one for another purpose.
    */
   readonly verify: (
     token: Redacted.Redacted,
@@ -127,7 +128,11 @@ export const make = Effect.fn("PlaybackTokenVerifier.make")(function* (
         sessionForLog: Option.some({ sessionId: payload.sid, userId: payload.sub }),
       });
 
-    if (yield* ended.isEnded(payload.sid)) {
+    // An expired token is refused either way; asking about its session would only let replayed
+    // old tokens crowd out the sessions being followed.
+    const expired = yield* Effect.isFailure(checkPlaybackTokenExpiry(payload));
+
+    if (yield* (expired ? ended.isKnownEnded : ended.isEnded)(payload.sid)) {
       return yield* refuse(new PlaybackSessionEnded({ sessionId: payload.sid }));
     }
 

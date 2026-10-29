@@ -108,8 +108,11 @@ environment, so a crafted file that exploits them finds no credentials.
   the library's folders, and `resolveInsideRoots` re-checks the real path against `LIBRARY_ROOTS`.
 - `PlaybackReporter` over `recordPlaybackMode`, written from a queue so negotiation never waits.
 - `LibrarySync` follows `libraries`: the monitor watches and reconciles exactly those libraries.
-- `EndedSessionWatcher` follows `endedSessions`: those sessions' HLS streams stop and their tokens
-  are refused (`PlaybackSessionEnded`, 410).
+- `EndedSessions` follows `sessionStatus` for each session whose token arrives, and an HLS stream
+  follows its own session: an ended session's streams stop and its tokens are refused
+  (`PlaybackSessionEnded`, 410). The first request of a session waits up to 5 s for Convex's answer,
+  then is served while the answer is still awaited. Up to 16,384 ends are kept for a token's
+  six-hour life, apart from the 4096 sessions followed at once; an expired token follows nothing.
 - `JobWorker` (`src/jobs/`) claims `pendingJobs` it has a handler for with a 60 s lease renewed
   every 15 s (with progress), interrupts the handler when the job is cancelled or the lease is
   lost, and completes or fails the job (`retry` returns it to the queue). Handlers: `scan`

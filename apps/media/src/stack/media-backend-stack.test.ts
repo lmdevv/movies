@@ -1,8 +1,6 @@
 import { assert, describe, layer } from "@effect/vitest";
 import { Duration, Effect, Fiber, Layer, Redacted, Schedule, Stream } from "effect";
 
-import { EpochMillis } from "@movies/contracts/units";
-
 import { TransportError } from "@movies/sdk/effect";
 
 import * as MediaBackend from "../convex/media-backend.ts";
@@ -102,9 +100,8 @@ describe.skipIf(stack === undefined)("media service Convex connection", () => {
 
           // A query with arguments no one asked before must reach the server: none is cached.
           const fresh = () =>
-            backend.call("mediaService.endedSessions", {
-              after: EpochMillis.make(Date.now() + Math.floor(Math.random() * 1_000_000)),
-              limit: 1,
+            backend.call("mediaService.trickplayVersions", {
+              fileIds: [`unknown-${crypto.randomUUID()}`],
             });
 
           proxy?.setMode("blackhole");
@@ -125,7 +122,10 @@ describe.skipIf(stack === undefined)("media service Convex connection", () => {
             Effect.retry({ times: 20, schedule: Schedule.spaced("2 seconds") }),
           );
 
-          assert.deepStrictEqual(recovered, []);
+          assert.deepStrictEqual(
+            recovered.map((file) => file.version),
+            [null],
+          );
         }),
       90_000,
     );
