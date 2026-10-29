@@ -1,7 +1,93 @@
 import { ConvexError } from "convex/values";
+import { Context, Duration, Effect, Layer, Predicate, Redacted } from "effect";
 import { describe, expect, it } from "vitest";
 
+import * as Auth from "./auth";
+import * as ConvexTransport from "./convex-transport";
 import { translateFailure } from "./convex-transport";
+import * as FakeConvex from "./testing/fake-convex";
+import { jwtIssuedAt, Reply } from "./testing/fake-convex";
+import * as TokenStorage from "./token-storage";
+
+/** Long enough for the client's ten-second refresh leeway, short enough to outlive in a test. */
+const TOKEN_LIFETIME_SECONDS = 12;
+
+const mintToken = (): Reply =>
+  Reply.Success({
+    value: {
+      tokens: {
+        token: jwtIssuedAt(Date.now(), TOKEN_LIFETIME_SECONDS, "service|session"),
+        refreshToken: "refresh",
+      },
+    },
+  });
+
+/**
+ * Signs in over a WebSocket connection to a fake Convex whose `auth:signIn` answers with
+ * `signIn`, then asks a query once the first token has expired.
+ */
+const askAfterFirstTokenExpires = (signIn: (request: { readonly args: unknown }) => Reply) =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fake = yield* FakeConvex.make;
+
+        yield* fake.handle("auth:signIn", (request) => Effect.sync(() => signIn(request)));
+        yield* fake.reply("account:viewer", Reply.Success({ value: "signed in" }));
+
+        const context = yield* Layer.build(
+          Auth.layer({ convexUrl: fake.url }).pipe(
+            Layer.provideMerge(ConvexTransport.layerWebSocket(fake.url)),
+            Layer.provide(TokenStorage.layerMemory),
+          ),
+        );
+
+        const auth = Context.get(context, Auth.Auth);
+        const transport = Context.get(context, ConvexTransport.ConvexTransport);
+        const viewer = transport.call("query", "account:viewer", {});
+
+        // Start at the top of a second, so the sign-in and the client's first refresh share it.
+        yield* Effect.sleep(Duration.millis(1000 - (Date.now() % 1000)));
+        yield* auth.signIn(Auth.Credentials.ApiKey({ key: Redacted.make("mk_service") }));
+        const signedInAt = Date.now();
+
+        expect(yield* viewer).toBe("signed in");
+
+        yield* Effect.sleep(
+          Duration.millis(signedInAt + (TOKEN_LIFETIME_SECONDS + 1) * 1000 - Date.now()),
+        );
+
+        const later = yield* viewer.pipe(Effect.timeout(Duration.seconds(5)));
+
+        expect(new Set(yield* fake.acceptedTokens).size).toBeGreaterThan(1);
+
+        return later;
+      }),
+    ),
+  );
+
+describe.concurrent("layerWebSocket", () => {
+  it("keeps a session working when a refresh in its sign-in second mints the same token", async () => {
+    // Convex Auth signs to the second, so that refresh returns the sign-in's very token.
+    expect(await askAfterFirstTokenExpires(mintToken)).toBe("signed in");
+  }, 30_000);
+
+  it("keeps a session working when refreshing fails for a while", async () => {
+    let failingUntil = Number.POSITIVE_INFINITY;
+
+    const answer = await askAfterFirstTokenExpires(({ args }) => {
+      if (!Predicate.hasProperty(args, "refreshToken")) {
+        failingUntil = Date.now() + 4000;
+
+        return mintToken();
+      }
+
+      return Date.now() < failingUntil ? Reply.Crash({ message: "Convex is busy" }) : mintToken();
+    });
+
+    expect(answer).toBe("signed in");
+  }, 30_000);
+});
 
 describe("translateFailure", () => {
   it("turns ConvexError data into the command error for its code", () => {

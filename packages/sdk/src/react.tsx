@@ -62,33 +62,45 @@ type Runtime = ManagedRuntime.ManagedRuntime<Movies.Services, Movies.OpenError>;
 
 const RuntimeContext = createContext<Runtime | null>(null);
 
-const reactAdapter = (client: ConvexReactClient): ClientAdapter => ({
-  call: (kind, path, args) => ConvexTransport.callByKind(client, kind, path, args),
-  subscribe: (path, args, onValue, onError) => {
-    const watch = client.watchQuery(ConvexTransport.reference("query", path), args);
+const reactAdapter = (client: ConvexReactClient): ClientAdapter => {
+  const fetchers = ConvexTransport.clientTokenFetchers();
 
-    const read = (): void => {
-      try {
-        const value = watch.localQueryResult();
+  return {
+    call: (kind, path, args) => ConvexTransport.callByKind(client, kind, path, args),
+    subscribe: (path, args, onValue, onError) => {
+      const watch = client.watchQuery(ConvexTransport.reference("query", path), args);
 
-        if (value !== undefined) onValue(value);
-      } catch (cause) {
-        onError(cause instanceof Error ? cause : new Error("Query failed", { cause }));
+      const read = (): void => {
+        try {
+          const value = watch.localQueryResult();
+
+          if (value !== undefined) onValue(value);
+        } catch (cause) {
+          onError(cause instanceof Error ? cause : new Error("Query failed", { cause }));
+        }
+      };
+
+      const unsubscribe = watch.onUpdate(read);
+
+      read();
+
+      return unsubscribe;
+    },
+    setAuth: (source: AuthTokenSource | null) => {
+      if (source === null) {
+        fetchers.retire();
+        client.clearAuth();
+      } else {
+        client.setAuth(fetchers.fetcher(source));
       }
-    };
+    },
+    close: () => {
+      fetchers.retire();
 
-    const unsubscribe = watch.onUpdate(read);
-
-    read();
-
-    return unsubscribe;
-  },
-  setAuth: (source: AuthTokenSource | null) => {
-    if (source === null) client.clearAuth();
-    else client.setAuth(({ forceRefreshToken }) => source(forceRefreshToken));
-  },
-  close: () => Promise.resolve(),
-});
+      return Promise.resolve();
+    },
+  };
+};
 
 /** Props for `MoviesProvider`. */
 export interface MoviesProviderProps {

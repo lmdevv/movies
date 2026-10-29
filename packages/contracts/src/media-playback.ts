@@ -286,7 +286,11 @@ export const HealthResponse = Schema.Struct({
   /** Streams whose encoder runs; a paused stream whose encoder stopped is not counted. */
   activeStreams: Schema.Int,
   hardwareAcceleration: Schema.Literals(["qsv", "vaapi", "none"]),
-  /** Whether the service is signed in to Convex; `standalone` when it runs without Convex. */
+  /**
+   * `connected` while the service is signed in to Convex and Convex answered it within about a
+   * minute; `connecting` while it signs in, or while Convex is not answering; `standalone` when it
+   * runs without Convex.
+   */
   backend: Schema.Literals(["connected", "connecting", "standalone"]),
 });
 

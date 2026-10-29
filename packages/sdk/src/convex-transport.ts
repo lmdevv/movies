@@ -7,6 +7,7 @@ import {
   Unauthenticated,
 } from "@movies/contracts/errors";
 import { ConvexClient, ConvexHttpClient } from "convex/browser";
+import type { AuthTokenFetcher } from "convex/browser";
 import type { FunctionReference } from "convex/server";
 import { makeFunctionReference } from "convex/server";
 import { ConvexError } from "convex/values";
@@ -219,19 +220,78 @@ export const callByKind = (
   return client.action(reference("action", path), args);
 };
 
-const webSocketAdapter = (client: ConvexClient): ClientAdapter => ({
-  call: (kind, path, args) => callByKind(client, kind, path, args),
-  subscribe: (path, args, onValue, onError) =>
-    client.onUpdate(reference("query", path), args, onValue, (error) => {
-      onError(toError(error));
-    }),
-  setAuth: (source) => {
-    client.setAuth(async ({ forceRefreshToken }) =>
-      source === null ? null : source(forceRefreshToken),
-    );
-  },
-  close: () => client.close(),
-});
+const FIRST_REFETCH_DELAY_MS = 1000;
+
+const MAX_REFETCH_DELAY_MS = 30_000;
+
+const sleep = (millis: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, millis);
+  });
+
+/**
+ * Token fetchers for one Convex WebSocket client, which keeps its session by one rule: a fetch
+ * with `forceRefreshToken` returns a token other than the one it holds, or null to sign out.
+ * Handed the same token back, the client decides refreshing failed and never schedules another
+ * refresh; once that token expires, Convex closes every connection that presents it without the
+ * auth error that would make the client ask again, so the connection stays down.
+ *
+ * The same token comes back when a refresh fails for a while, since the session keeps its token,
+ * and when a refresh lands in the second the token was minted, since Convex Auth signs to the
+ * second. So a forced fetch asks again, waiting longer each time, until it gets a new token or
+ * none, or until a later fetcher or `retire` replaces it.
+ */
+export const clientTokenFetchers = () => {
+  let current = 0;
+
+  const fetcher = (source: AuthTokenSource): AuthTokenFetcher => {
+    current += 1;
+    const mine = current;
+    let held: string | null = null;
+
+    const renewed = async (delay: number): Promise<string | null> => {
+      if (delay > 0) await sleep(delay);
+      const token = await source(true);
+
+      if (token === null || token !== held || current !== mine) return token;
+
+      return renewed(Math.min(Math.max(delay * 2, FIRST_REFETCH_DELAY_MS), MAX_REFETCH_DELAY_MS));
+    };
+
+    return async ({ forceRefreshToken }) => {
+      held = forceRefreshToken ? await renewed(0) : await source(false);
+
+      return held;
+    };
+  };
+
+  return {
+    fetcher,
+    retire: () => {
+      current += 1;
+    },
+  };
+};
+
+const webSocketAdapter = (client: ConvexClient): ClientAdapter => {
+  const fetchers = clientTokenFetchers();
+
+  return {
+    call: (kind, path, args) => callByKind(client, kind, path, args),
+    subscribe: (path, args, onValue, onError) =>
+      client.onUpdate(reference("query", path), args, onValue, (error) => {
+        onError(toError(error));
+      }),
+    setAuth: (source) => {
+      client.setAuth(source === null ? async () => null : fetchers.fetcher(source));
+    },
+    close: () => {
+      fetchers.retire();
+
+      return client.close();
+    },
+  };
+};
 
 /** Options for the fetch-based transport. */
 export interface HttpOptions {

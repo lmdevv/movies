@@ -7,7 +7,8 @@
   "exports": {
     "./effect": "./src/effect.ts",
     "./react": "./src/react.tsx",
-    "./promise": "./src/promise.ts"
+    "./promise": "./src/promise.ts",
+    "./testing/fake-convex": "./src/testing/fake-convex.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
