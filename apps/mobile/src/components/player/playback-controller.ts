@@ -26,6 +26,8 @@ import {
 } from "@/lib/player/policy";
 import { lowerQuality, qualityCap } from "@/lib/player/quality";
 import type { QualityChoice } from "@/lib/player/quality";
+import { StallVerdict, checked, watching } from "@/lib/player/stall-watchdog";
+import type { StallWatch } from "@/lib/player/stall-watchdog";
 import { clampSubtitleDelay } from "@/lib/player/subtitle-delay";
 import { NATIVE_SEEKER, VideoPort, withinBuffer } from "@/lib/player/video-port";
 import type { StreamSeeker } from "@/lib/player/video-port";
@@ -59,6 +61,11 @@ export interface PlayerSnapshot {
   readonly subtitleDelayMs: number;
   readonly quality: QualityChoice;
   readonly rate: number;
+  /**
+   * Playback stood still while meant to play and the player started its stream again, until the
+   * new stream has played on.
+   */
+  readonly recovering: boolean;
 }
 
 interface SubtitleDelay {
@@ -71,6 +78,12 @@ const RENEW_BEFORE_MS = 5 * 60 * 1000;
 const RETIRE_AFTER_MS = 1_000;
 
 const TIME_UPDATE_SECONDS = 0.25;
+
+const STALL_CHECK_MS = 1_000;
+
+const STALLED_REASON = "Playback stood still while meant to play";
+
+const monotonicNow = (): number => performance.now();
 
 const STOPPED = PlaybackStop.Interrupted({ message: STOPPED_MESSAGE });
 
@@ -134,6 +147,8 @@ export class PlayerController {
   #negotiation = 0;
   #recoveries = 0;
   #renewTimer: ReturnType<typeof setTimeout> | undefined;
+  #stallTimer: ReturnType<typeof setInterval> | undefined;
+  #stallWatch: StallWatch = watching(0, monotonicNow());
   #burnIn: string | null = null;
   #delay: SubtitleDelay | null = null;
   #volume = 1;
@@ -152,6 +167,7 @@ export class PlayerController {
     subtitleDelayMs: 0,
     quality: "auto",
     rate: 1,
+    recovering: false,
   };
   readonly #listeners = new Set<() => void>();
   readonly #unsubscribePort: () => void;
@@ -212,6 +228,52 @@ export class PlayerController {
     this.#update({ phase: PlayerPhase.Preparing() });
     this.#load(playback, playback.stream.startSeconds * 1000);
     void this.port.play();
+    this.#watchForStalls();
+  }
+
+  /**
+   * Starts the stream again where it stood when playback stands still while meant to play, and
+   * stops with Retry when that does not help. AVPlayer raises no error when its stream vanishes.
+   */
+  #watchForStalls(): void {
+    this.#stallWatch = watching(this.port.positionMs(), monotonicNow());
+    clearInterval(this.#stallTimer);
+    this.#stallTimer = setInterval(() => {
+      this.#checkStall();
+    }, STALL_CHECK_MS);
+  }
+
+  #checkStall(): void {
+    const [watch, verdict] = checked(this.#stallWatch, {
+      atMs: monotonicNow(),
+      positionMs: this.port.positionMs(),
+      intended:
+        this.#playback !== null &&
+        this.port.wantsToPlay() &&
+        !this.port.getState().ended &&
+        !PlayerPhase.$is("Stopped")(this.#snapshot.phase),
+      loading: this.port.settling(),
+    });
+
+    this.#stallWatch = watch;
+
+    StallVerdict.$match(verdict, {
+      Wait: () => {
+        // Reconnecting shows until a recovered stream has played on, through any stall before.
+        if (watch.attempts === 0 && this.#snapshot.recovering) this.#update({ recovering: false });
+      },
+      Recover: () => {
+        this.#update({ recovering: true });
+        void this.#follow(
+          PlaybackStep.Renegotiate({ afterMs: 0 }),
+          this.port.positionMs(),
+          STALLED_REASON,
+        );
+      },
+      GiveUp: () => {
+        this.#stop(STOPPED);
+      },
+    });
   }
 
   #diagnose(): void {
@@ -305,11 +367,12 @@ export class PlayerController {
     this.#video = video;
     this.#playback = playback;
     this.#generationStart = positionMs / 1000;
-    this.port.attach(
-      video,
+    this.port.attach(video, {
       positionMs,
-      stream.mode === "direct" ? NATIVE_SEEKER : this.#hlsSeeker(),
-    );
+      durationMs:
+        playback.started.file.probe.durationMs > 0 ? playback.started.file.probe.durationMs : null,
+      seeker: stream.mode === "direct" ? NATIVE_SEEKER : this.#hlsSeeker(),
+    });
     this.#update({ video, playback, audioStreamIndex: stream.audio?.streamIndex ?? null });
     this.#observe(PlayerDiagnostics.attached(playback, "avplayer"));
     this.#scheduleRenewal(stream);
@@ -505,7 +568,7 @@ export class PlayerController {
     this.#negotiation += 1;
     clearTimeout(this.#renewTimer);
     this.port.pause();
-    this.#update({ phase: PlayerPhase.Stopped({ stop }) });
+    this.#update({ phase: PlayerPhase.Stopped({ stop }), recovering: false });
   }
 
   #choices(): Playback.StreamChoices {
@@ -667,9 +730,14 @@ export class PlayerController {
   /** Tries again from where playback stopped (F09 Retry, F13 Try Again). */
   retry(): void {
     this.#recoveries = 0;
-    this.#update({ phase: this.#frameShown ? PlayerPhase.Playing() : PlayerPhase.Preparing() });
+    this.#update({
+      phase: this.#frameShown ? PlayerPhase.Playing() : PlayerPhase.Preparing(),
+      recovering: false,
+    });
 
     const positionMs = this.port.positionMs();
+
+    this.#stallWatch = watching(positionMs, monotonicNow());
 
     if (this.#playback === null) {
       this.#options.onNewSession(positionMs, Date.now());
@@ -699,6 +767,7 @@ export class PlayerController {
     if (this.#disposed) return;
     this.#disposed = true;
     clearTimeout(this.#renewTimer);
+    clearInterval(this.#stallTimer);
     this.#unsubscribePort();
 
     this.#closeDiagnostics();
