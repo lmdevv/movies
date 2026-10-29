@@ -87,8 +87,10 @@ done < <(
   ' "$sandbox"
 )
 
+# The service finds ffmpeg and ffprobe on PATH unless FFMPEG_PATH and FFPROBE_PATH say otherwise,
+# and tests start it with their own settings, so the module's ffmpeg goes first on PATH too.
 environment=(
-  -E "PATH=$node_dir:$PATH"
+  -E "PATH=$node_dir:$ffmpeg_dir:$PATH"
   -E "HOME=$HOME"
   -E CI=1
   -E "FFMPEG_PATH=$ffmpeg_dir/ffmpeg"
@@ -116,11 +118,17 @@ status="$(sandboxed "$(command -v bash)" "$canary/chown.sh")"
 [[ "$status" == 159 ]] ||
   fail "a chown under the filter exited with $status, not SIGSYS (159), so the filter is not in force"
 
-# The ffmpeg suites skip without a working ffmpeg; that must fail the check, not pass it.
-sandboxed "$ffmpeg_dir/ffmpeg" -hide_banner -version >/dev/null ||
-  fail "ffmpeg does not run under the filter"
-sandboxed "$ffmpeg_dir/ffprobe" -hide_banner -version >/dev/null ||
-  fail "ffprobe does not run under the filter"
+# The ffmpeg suites skip without a working ffmpeg, and a service under test that finds none fails
+# every stream; either must fail the check here. Tools run by name, as the service runs them.
+cat >"$canary/tools.sh" <<'EOF'
+command -v node ffmpeg ffprobe
+ffmpeg -hide_banner -version >/dev/null && ffprobe -hide_banner -version >/dev/null
+EOF
+tools="$(sandboxed "$(command -v bash)" "$canary/tools.sh")" ||
+  fail "ffmpeg or ffprobe does not run under the filter"
+expected="$(printf '%s\n' "$node_dir/node" "$ffmpeg_dir/ffmpeg" "$ffmpeg_dir/ffprobe")"
+[[ "$tools" == "$expected" ]] ||
+  fail "the unit finds ${tools//$'\n'/ } on PATH, not the module's node and ffmpeg"
 
 if [[ $# -eq 0 ]]; then
   set -- apps/media/src
