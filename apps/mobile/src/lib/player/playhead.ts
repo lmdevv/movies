@@ -16,12 +16,18 @@ interface Sighting {
   readonly atMs: number;
 }
 
+/** Where a jump the player made on its own landed, and how far it has played on from there. */
+interface Jump {
+  readonly first: Sighting;
+  readonly last: Sighting;
+}
+
 /** What the tracker believes about the playhead. */
 export interface Playhead {
   /** The last position the player played to, or a seek the app asked for moved it to. */
   readonly believed: Sighting;
   /** A jump the player made on its own, believed once it has played on from there long enough. */
-  readonly jump: { readonly first: Sighting; readonly last: Sighting } | null;
+  readonly jump: Jump | null;
 }
 
 /**
@@ -86,10 +92,17 @@ export const explains = (
   rate: number,
 ): boolean =>
   believes(playhead, positionMs, atMs, rate) ||
-  (playhead.jump !== null && playsOnFrom(playhead.jump.last, positionMs, atMs, rate));
+  extendedJump(playhead, { positionMs, atMs }, rate) !== null;
+
+/** The jump the player made on its own, played on to `sighting`; null when it made none or did not. */
+const extendedJump = (playhead: Playhead, sighting: Sighting, rate: number): Jump | null =>
+  playhead.jump !== null &&
+  playsOnFrom(playhead.jump.last, sighting.positionMs, sighting.atMs, rate)
+    ? { first: playhead.jump.first, last: sighting }
+    : null;
 
 /** Whether a jump moved at least the slowest speed over its playing, so it is not stuck. */
-const playsOn = (jump: { readonly first: Sighting; readonly last: Sighting }): boolean =>
+const playsOn = (jump: Jump): boolean =>
   jump.last.positionMs - jump.first.positionMs >= (jump.last.atMs - jump.first.atMs) * SLOWEST_RATE;
 
 /** The playhead after the player reported `positionMs` at `atMs`, playing at `rate`. */
@@ -105,10 +118,7 @@ export const reported = (
     return { believed: sighting, jump: null };
   }
 
-  const jump =
-    playhead.jump !== null && playsOnFrom(playhead.jump.last, positionMs, atMs, rate)
-      ? { first: playhead.jump.first, last: sighting }
-      : { first: sighting, last: sighting };
+  const jump = extendedJump(playhead, sighting, rate) ?? { first: sighting, last: sighting };
 
   const playedMs = jump.last.atMs - jump.first.atMs;
 
@@ -128,13 +138,9 @@ export const playedOnFromJumpMs = (
   atMs: number,
   rate: number,
 ): number => {
-  const { jump } = playhead;
+  const jump = extendedJump(playhead, { positionMs, atMs }, rate);
 
-  if (jump === null || !playsOnFrom(jump.last, positionMs, atMs, rate)) return 0;
-
-  const played = { first: jump.first, last: { positionMs, atMs } };
-
-  return playsOn(played) ? played.last.atMs - played.first.atMs : 0;
+  return jump !== null && playsOn(jump) ? jump.last.atMs - jump.first.atMs : 0;
 };
 
 /**

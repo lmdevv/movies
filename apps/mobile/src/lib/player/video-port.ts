@@ -72,15 +72,16 @@ const STOPPED_FOR_END_MS = 1_000;
 
 /**
  * How long a jump AVPlayer made on its own must play on for its end to be the media's end, as
- * after a seek from the lock screen to the closing seconds.
+ * after a seek from the lock screen to the closing seconds: two of its time reports. A skip through
+ * a vanished stream lands at the end without playing on.
  */
-const JUMP_ENDS_AFTER_PLAYING_MS = 1_000;
+const JUMP_ENDS_AFTER_PLAYING_MS = 500;
 
 /**
  * How long AVPlayer may stand ready without playing after a stall before that counts as a pause
- * from outside the app. A stall that ends resumes at once.
+ * from outside the app. A stall that ends resumes at once; the watchdog waits far longer.
  */
-const READY_STOPPED_PAUSE_MS = 2_000;
+const READY_STOPPED_PAUSE_MS = 5_000;
 
 /** How far behind the playhead AVPlayer still holds an HLS stream's segments. */
 const KEPT_BEHIND_SECONDS = 30;
@@ -132,7 +133,7 @@ export class VideoPort implements PlayerPort {
   #playingSince: number | null = null;
   /** When AVPlayer last paused outside the app's controls. */
   #pausedOutsideAt: number | null = null;
-  /** When AVPlayer stood ready again after a stall without playing on. */
+  /** When AVPlayer stood ready again after a stall it was meant to play through, not playing on. */
   #readyStoppedAt: number | null = null;
   #final: number | null = null;
   #state: VideoState = { positionSeconds: 0, playing: false, buffering: false, ended: false };
@@ -280,11 +281,10 @@ export class VideoPort implements PlayerPort {
     if (video === null || this.settling()) return null;
 
     const nativeMs = video.currentTime * 1000;
-    const atMs = this.#played();
-    const rate = this.playbackRate();
 
-    return believes(this.#playhead, nativeMs, atMs, rate) ||
-      playedOnFromJumpMs(this.#playhead, nativeMs, atMs, rate) >= JUMP_ENDS_AFTER_PLAYING_MS
+    return this.#believable() ||
+      playedOnFromJumpMs(this.#playhead, nativeMs, this.#played(), this.playbackRate()) >=
+        JUMP_ENDS_AFTER_PLAYING_MS
       ? nativeMs
       : null;
   }
@@ -319,7 +319,9 @@ export class VideoPort implements PlayerPort {
     // expo-video reports no playing change for a pause from the lock screen during a stall, as
     // AVPlayer was not playing; it reports only that the stall ended, which a resume follows.
     this.#readyStoppedAt =
-      status === "readyToPlay" && stalled && this.#video?.playing === false ? this.#now() : null;
+      status === "readyToPlay" && stalled && this.#wantsPlay && this.#video?.playing === false
+        ? this.#now()
+        : null;
 
     if (status === "loading" && this.#wantsPlay && !this.settling()) this.#emit("waiting");
     this.#changed();
@@ -348,9 +350,10 @@ export class VideoPort implements PlayerPort {
       return;
     }
 
+    // The pause happened when AVPlayer stood ready, not when the port noticed it.
+    this.#pausedOutsideAt = this.#readyStoppedAt;
     this.#readyStoppedAt = null;
     this.#wantsPlay = false;
-    this.#pausedOutsideAt = this.#now();
     this.#emit("paused");
     this.#changed();
   };
@@ -415,6 +418,7 @@ export class VideoPort implements PlayerPort {
     this.#move = null;
     this.#ended = false;
     this.#lost = false;
+    this.#readyStoppedAt = null;
 
     if (this.#video !== null && this.#seeker.reaches(target)) {
       this.#pending = null;
@@ -447,6 +451,7 @@ export class VideoPort implements PlayerPort {
   readonly play = (): Promise<void> => {
     if (this.#final !== null) return Promise.resolve();
     this.#wantsPlay = true;
+    this.#readyStoppedAt = null;
 
     // At the end, playing starts over, as AVPlayer would not move on its own.
     if (this.#ended) this.seek(0);
@@ -459,6 +464,7 @@ export class VideoPort implements PlayerPort {
   readonly pause = (): void => {
     if (this.#final !== null) return;
     this.#wantsPlay = false;
+    this.#readyStoppedAt = null;
     this.#video?.pause();
     this.#changed();
   };

@@ -14,6 +14,8 @@ class TestVideo implements NativeVideo {
   status: NativeStatus = "idle";
   bufferedPosition = 0;
   released = false;
+  /** AVPlayer starts playing a moment after `play`, as its events reach JS later. */
+  startsLater = false;
   readonly #listeners: Listeners = {
     playingChange: new Set(),
     statusChange: new Set(),
@@ -26,7 +28,7 @@ class TestVideo implements NativeVideo {
   play(): void {
     this.#use();
 
-    if (this.status === "loading") {
+    if (this.status === "loading" || this.startsLater) {
       this.#waitingToPlay = true;
 
       return;
@@ -91,6 +93,14 @@ class TestVideo implements NativeVideo {
   }
 
   /** AVPlayer has data again: expo-video reports it ready, and AVPlayer plays if it was waiting to. */
+  /** AVPlayer starts playing as `play` asked, when `startsLater` held it back. */
+  start(): void {
+    if (this.#waitingToPlay) {
+      this.#waitingToPlay = false;
+      this.#setPlaying(true);
+    }
+  }
+
   ready(): void {
     this.status = "readyToPlay";
     this.fireStatus("readyToPlay");
@@ -504,6 +514,19 @@ describe("VideoPort with the lock screen and stalls", () => {
     expect(port.positionMs()).toBe(EPISODE_MS);
   });
 
+  it("ends after a seek from the lock screen to the last half second", () => {
+    const { clock, video, port, events } = playingAt(600);
+
+    clock.ms += 250;
+    video.fireTime(EPISODE_MS / 1000 - 0.5);
+    playFor(video, clock, 0.5);
+    video.pause();
+    video.fireEnd();
+
+    expect(events.at(-1)).toBe("ended");
+    expect(port.positionMs()).toBe(EPISODE_MS);
+  });
+
   it("counts no stalled time toward where AVPlayer could have played", () => {
     const { clock, video, port } = playingAt(600);
     const reached = port.positionMs();
@@ -538,7 +561,7 @@ describe("VideoPort with the lock screen and stalls", () => {
     // AVPlayer was not playing, so expo-video reports no playing change, only that it has data.
     video.pause();
     video.ready();
-    clock.ms += 1_000;
+    clock.ms += 4_000;
     port.noticeOutsidePause();
     expect(port.wantsToPlay()).toBe(true);
 
@@ -548,6 +571,23 @@ describe("VideoPort with the lock screen and stalls", () => {
     expect(port.wantsToPlay()).toBe(false);
     expect(port.isBuffering()).toBe(false);
     expect(recoversAfterFirstLimit(port, clock)).toBe(false);
+  });
+
+  it("takes no pause from a stall the viewer paused in the app, once they play again", () => {
+    const { clock, video, port, events } = playingAt(600);
+
+    video.stall();
+    port.pause();
+    video.ready();
+    clock.ms += 10_000;
+    video.startsLater = true;
+    void port.play();
+    port.noticeOutsidePause();
+    video.start();
+
+    expect(events.at(-1)).toBe("playing");
+    expect(events.filter((event) => event === "paused")).toStrictEqual([]);
+    expect(port.wantsToPlay()).toBe(true);
   });
 
   it("keeps playing intended when AVPlayer plays on after a stall", () => {
