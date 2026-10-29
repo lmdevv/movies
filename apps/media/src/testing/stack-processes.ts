@@ -58,9 +58,14 @@ export const findMediaStack = (): MediaStack | undefined => {
   return { convexUrl, mediaUrl, mediaServiceKey, mediaEnv: Object.fromEntries(media) };
 };
 
+/** Bundles the media service so a test runs the file that ships. */
+export const buildService = (): void => {
+  execFileSync(process.execPath, [join(mediaRoot, "scripts", "build.ts")]);
+};
+
 /** Bundles the media service and the CLI so the suite runs the files that ship. */
 export const buildServiceAndCli = (): void => {
-  execFileSync(process.execPath, [join(mediaRoot, "scripts", "build.ts")]);
+  buildService();
   execFileSync(process.execPath, [join(cliRoot, "scripts", "build.ts")]);
 };
 
