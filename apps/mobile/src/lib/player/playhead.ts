@@ -94,10 +94,13 @@ export const explains = (
   believes(playhead, positionMs, atMs, rate) ||
   extendedJump(playhead, { positionMs, atMs }, rate) !== null;
 
-/** The jump the player made on its own, played on to `sighting`; null when it made none or did not. */
+/**
+ * The jump the player made on its own, played on to `sighting`; null when it made none or did not.
+ * It must have played there from where it landed, so a skip in short steps is not one jump.
+ */
 const extendedJump = (playhead: Playhead, sighting: Sighting, rate: number): Jump | null =>
   playhead.jump !== null &&
-  playsOnFrom(playhead.jump.last, sighting.positionMs, sighting.atMs, rate)
+  playsOnFrom(playhead.jump.first, sighting.positionMs, sighting.atMs, rate)
     ? { first: playhead.jump.first, last: sighting }
     : null;
 
@@ -129,8 +132,8 @@ export const reported = (
 
 /**
  * How much media the player has played on from the jump it made on its own to `positionMs` at
- * `atMs`; 0 when it made none, or did not play on from it. A skip through a vanished stream lands
- * without playing on.
+ * `atMs`; 0 when it made none, or did not play on from it. It counts no more than the time played
+ * since the jump at `rate`: a skip through a vanished stream moves the position without playing.
  */
 export const playedOnFromJumpMs = (
   playhead: Playhead,
@@ -140,7 +143,12 @@ export const playedOnFromJumpMs = (
 ): number => {
   const jump = extendedJump(playhead, { positionMs, atMs }, rate);
 
-  return jump !== null && playsOn(jump) ? jump.last.positionMs - jump.first.positionMs : 0;
+  return jump !== null && playsOn(jump)
+    ? Math.min(
+        jump.last.positionMs - jump.first.positionMs,
+        (jump.last.atMs - jump.first.atMs) * rate,
+      )
+    : 0;
 };
 
 /**

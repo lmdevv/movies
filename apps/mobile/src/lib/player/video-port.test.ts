@@ -539,6 +539,77 @@ describe("VideoPort with the lock screen and stalls", () => {
     expect(events.at(-1)).toBe("ended");
   });
 
+  it("never ends at a skip to the end while AVPlayer is not playing", () => {
+    const { clock, video, port, events } = playingAt(600);
+    const reached = port.positionMs();
+
+    // The stream vanishes in a stall: AVPlayer skips the last failing segments without playing them.
+    video.stall();
+    clock.ms += 250;
+    video.fireTime(EPISODE_MS / 1000 - 1);
+    clock.ms += 250;
+    video.fireTime(EPISODE_MS / 1000);
+    video.fireEnd();
+
+    expect(events).not.toContain("ended");
+    expect(port.getState().ended).toBe(false);
+    expect(port.positionMs()).toBe(reached);
+    expect(port.wantsToPlay()).toBe(true);
+    expect(port.isBuffering()).toBe(true);
+  });
+
+  it("never ends at a short skip to the end at double speed", () => {
+    const { clock, video, port, events } = playingAt(600);
+
+    video.playbackRate = 2;
+    clock.ms += 10;
+    video.fireTime(EPISODE_MS / 1000 - 1);
+    clock.ms += 10;
+    video.fireTime(EPISODE_MS / 1000);
+    video.pause();
+    video.fireEnd();
+
+    expect(events).not.toContain("ended");
+    expect(port.positionMs()).toBeCloseTo(610_000, -3);
+  });
+
+  it("never ends at a skip that races to the end in short steps while AVPlayer plays", () => {
+    const { clock, video, port, events } = playingAt(600);
+
+    // Each failing segment moves AVPlayer a second and a half on in ten milliseconds.
+    for (let seconds = 2_700; seconds <= EPISODE_MS / 1000; seconds += 1.5) {
+      clock.ms += 10;
+      video.fireTime(seconds);
+    }
+
+    video.pause();
+    video.fireEnd();
+
+    expect(events).not.toContain("ended");
+    expect(port.positionMs()).toBeCloseTo(610_000, -3);
+  });
+
+  it.each([0.5, 0.75, 1, 1.25, 1.5, 2])(
+    "ends after a seek from the lock screen to the last second at %s times speed",
+    (rate) => {
+      const { clock, video, port } = playingAt(600);
+
+      video.playbackRate = rate;
+      clock.ms += 250;
+      video.fireTime(EPISODE_MS / 1000 - 1);
+
+      for (let report = 0; report < 4; report += 1) {
+        clock.ms += 250 / rate;
+        video.fireTime(video.currentTime + 0.25);
+      }
+
+      video.pause();
+      video.fireEnd();
+
+      expect(port.getState().ended).toBe(true);
+    },
+  );
+
   it("shows where AVPlayer paused, between its time reports", () => {
     const { clock, video, port } = playingAt(600);
 
@@ -576,23 +647,33 @@ describe("VideoPort with the lock screen and stalls", () => {
     expect(port.positionMs()).toBeCloseTo(643_000, -3);
   });
 
-  it("takes a pause from the lock screen during a stall as the viewer's", () => {
-    const { clock, video, port, events } = playingAt(600);
+  it("keeps recovering a stall that stands ready without AVPlayer playing on", () => {
+    const { clock, video, port } = playingAt(600);
+    let watch = watching(port.positionMs(), clock.ms);
+    let recovered = false;
 
+    // expo-video reports ready once AVPlayer is likely to keep up, whether or not it plays on. A
+    // pause from the lock screen during a stall reports the same, so the watchdog resumes it too.
     video.stall();
-    // AVPlayer was not playing, so expo-video reports no playing change, only that it has data.
-    video.pause();
-    video.ready();
-    clock.ms += 4_000;
-    port.noticeOutsidePause();
-    expect(port.wantsToPlay()).toBe(true);
+    video.status = "readyToPlay";
+    video.fireStatus("readyToPlay");
 
-    clock.ms += 1_000;
-    port.noticeOutsidePause();
-    expect(events.at(-1)).toBe("paused");
-    expect(port.wantsToPlay()).toBe(false);
-    expect(port.isBuffering()).toBe(false);
-    expect(recoversAfterFirstLimit(port, clock)).toBe(false);
+    for (let second = 1; second <= 15; second += 1) {
+      clock.ms += 1_000;
+
+      const [next, verdict] = checked(watch, {
+        atMs: clock.ms,
+        positionMs: port.positionMs(),
+        intended: port.wantsToPlay(),
+        loading: port.settling(),
+      });
+
+      watch = next;
+      recovered = StallVerdict.$is("Recover")(verdict);
+    }
+
+    expect(port.wantsToPlay()).toBe(true);
+    expect(recovered).toBe(true);
   });
 
   it("takes no pause from a stall the viewer paused in the app, once they play again", () => {
@@ -604,7 +685,6 @@ describe("VideoPort with the lock screen and stalls", () => {
     clock.ms += 10_000;
     video.startsLater = true;
     void port.play();
-    port.noticeOutsidePause();
     video.start();
 
     expect(events.at(-1)).toBe("playing");
@@ -619,7 +699,6 @@ describe("VideoPort with the lock screen and stalls", () => {
     clock.ms += 5_000;
     video.ready();
     clock.ms += 5_000;
-    port.noticeOutsidePause();
 
     expect(events).not.toContain("paused");
     expect(port.wantsToPlay()).toBe(true);
@@ -635,7 +714,6 @@ describe("VideoPort with the lock screen and stalls", () => {
     video.pause();
     video.ready();
     clock.ms += 5_000;
-    port.noticeOutsidePause();
 
     expect(port.wantsToPlay()).toBe(true);
     expect(recoversAfterFirstLimit(port, clock)).toBe(true);
@@ -650,7 +728,6 @@ describe("VideoPort with the lock screen and stalls", () => {
     video.pause();
     video.ready();
     clock.ms += 5_000;
-    port.noticeOutsidePause();
 
     expect(port.wantsToPlay()).toBe(true);
     expect(recoversAfterFirstLimit(port, clock)).toBe(true);

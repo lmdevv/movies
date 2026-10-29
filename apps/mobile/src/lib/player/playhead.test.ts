@@ -125,6 +125,35 @@ describe("playedOnFromJumpMs", () => {
     expect(playedOnFromJumpMs(playhead, 2_760_000, 3_000, 1)).toBe(0);
   });
 
+  it("counts no more media than the player could have played since its jump", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 2_000 }),
+        fc.integer({ min: 0, max: 2_000 }),
+        fc.constantFrom(0.5, 1, 2),
+        (aheadMs, elapsedMs, rate) => {
+          const landedMs = 2_000_000;
+          const playhead = reported(placed(600_000, 0), landedMs, 1_000, rate);
+
+          return (
+            playedOnFromJumpMs(playhead, landedMs + aheadMs, 1_000 + elapsedMs, rate) <=
+            elapsedMs * rate
+          );
+        },
+      ),
+    );
+  });
+
+  it("counts nothing for a skip that races on in short steps", () => {
+    let playhead = placed(600_000, 0);
+
+    for (let step = 1; step <= 80; step += 1) {
+      playhead = reported(playhead, 2_700_000 + step * 1_500, step * 10, 1);
+    }
+
+    expect(playedOnFromJumpMs(playhead, 2_820_000, 800, 1)).toBeLessThan(500);
+  });
+
   it("counts nothing without a jump", () => {
     expect(playedOnFromJumpMs(placed(600_000, 0), 601_000, 1_000, 1)).toBe(0);
   });

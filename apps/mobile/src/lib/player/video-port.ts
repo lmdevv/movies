@@ -77,12 +77,6 @@ const STOPPED_FOR_END_MS = 1_000;
  */
 const JUMP_ENDS_AFTER_PLAYING_MS = 500;
 
-/**
- * How long AVPlayer may stand ready without playing after a stall before that counts as a pause
- * from outside the app. A stall that ends resumes at once; the watchdog waits far longer.
- */
-const READY_STOPPED_PAUSE_MS = 5_000;
-
 /** How far behind the playhead AVPlayer still holds an HLS stream's segments. */
 const KEPT_BEHIND_SECONDS = 30;
 
@@ -133,8 +127,6 @@ export class VideoPort implements PlayerPort {
   #playingSince: number | null = null;
   /** When AVPlayer last paused outside the app's controls. */
   #pausedOutsideAt: number | null = null;
-  /** When AVPlayer stood ready again after a stall it was meant to play through, not playing on. */
-  #readyStoppedAt: number | null = null;
   #final: number | null = null;
   #state: VideoState = { positionSeconds: 0, playing: false, buffering: false, ended: false };
   readonly #listeners = new Set<(event: PlayerEvent) => void>();
@@ -163,7 +155,6 @@ export class VideoPort implements PlayerPort {
     this.#playhead = placed(start.positionMs, this.#played());
     this.#ended = false;
     this.#lost = false;
-    this.#readyStoppedAt = null;
     this.#video = video;
     this.#status = video.status;
     this.#subscriptions = [
@@ -253,7 +244,6 @@ export class VideoPort implements PlayerPort {
     // Where it started or stopped is a sighting too, so the controls show it until the next report.
     if (video !== null) this.#sight(video.currentTime);
     this.#nativePlaying(isPlaying);
-    this.#readyStoppedAt = null;
 
     if (isPlaying) {
       this.#loadingAt = null;
@@ -319,50 +309,11 @@ export class VideoPort implements PlayerPort {
   }
 
   #onStatusChange(status: NativeStatus): void {
-    const stalled = this.#status === "loading";
-
     this.#status = status;
-    // expo-video reports no playing change for a pause from the lock screen during a stall, as
-    // AVPlayer was not playing; it reports only that the stall ended, which a resume follows.
-    this.#readyStoppedAt =
-      status === "readyToPlay" && stalled && this.#wantsPlay && this.#video?.playing === false
-        ? this.#now()
-        : null;
 
     if (status === "loading" && this.#wantsPlay && !this.settling()) this.#emit("waiting");
     this.#changed();
   }
-
-  /**
-   * Takes AVPlayer standing ready without playing on after a stall, where it stalled, as a pause
-   * from outside the app's controls, such as the lock screen. Call it periodically: no event marks
-   * that pause.
-   */
-  readonly noticeOutsidePause = (): void => {
-    const video = this.#video;
-
-    if (
-      this.#final !== null ||
-      video === null ||
-      this.#readyStoppedAt === null ||
-      this.#now() - this.#readyStoppedAt < READY_STOPPED_PAUSE_MS ||
-      !this.#wantsPlay ||
-      video.playing ||
-      this.settling() ||
-      this.#ended ||
-      this.#lost ||
-      !this.#believable()
-    ) {
-      return;
-    }
-
-    // The pause happened when AVPlayer stood ready, not when the port noticed it.
-    this.#pausedOutsideAt = this.#readyStoppedAt;
-    this.#readyStoppedAt = null;
-    this.#wantsPlay = false;
-    this.#emit("paused");
-    this.#changed();
-  };
 
   #emit(event: PlayerEvent): void {
     for (const listener of this.#listeners) listener(event);
@@ -424,7 +375,6 @@ export class VideoPort implements PlayerPort {
     this.#move = null;
     this.#ended = false;
     this.#lost = false;
-    this.#readyStoppedAt = null;
 
     if (this.#video !== null && this.#seeker.reaches(target)) {
       this.#pending = null;
@@ -457,7 +407,6 @@ export class VideoPort implements PlayerPort {
   readonly play = (): Promise<void> => {
     if (this.#final !== null) return Promise.resolve();
     this.#wantsPlay = true;
-    this.#readyStoppedAt = null;
 
     // At the end, playing starts over, as AVPlayer would not move on its own.
     if (this.#ended) this.seek(0);
@@ -470,7 +419,6 @@ export class VideoPort implements PlayerPort {
   readonly pause = (): void => {
     if (this.#final !== null) return;
     this.#wantsPlay = false;
-    this.#readyStoppedAt = null;
     this.#video?.pause();
     this.#changed();
   };
