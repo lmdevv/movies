@@ -53,8 +53,9 @@ export class TokenRefused extends Data.TaggedError("TokenRefused")<{
 export interface Interface {
   /**
    * The grant of a valid token for one of `purposes`. Fails with `PlaybackSessionEnded` once its
-   * session ended, whatever else is wrong with an authentic token, and `PlaybackTokenInvalid` for
-   * a malformed, forged, expired, or misaddressed token or one for another purpose.
+   * session ended, whatever else is wrong with an authentic token, though an expired one only
+   * when the end is already known, and `PlaybackTokenInvalid` for a malformed, forged, expired, or
+   * misaddressed token or one for another purpose.
    */
   readonly verify: (
     token: Redacted.Redacted,

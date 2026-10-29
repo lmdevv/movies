@@ -1,5 +1,16 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Context, Duration, Effect, Fiber, Layer, Queue, Ref, Stream } from "effect";
+import {
+  Context,
+  Duration,
+  Effect,
+  Fiber,
+  Layer,
+  Logger,
+  Queue,
+  Ref,
+  References,
+  Stream,
+} from "effect";
 import { TestClock } from "effect/testing";
 
 import { PlaybackSessionId } from "@movies/contracts/ids";
@@ -102,51 +113,55 @@ describe("ended sessions", () => {
     }),
   );
 
-  it.effect("remembers an end after forgetting the session, while the owner is unreachable", () =>
-    Effect.gen(function* () {
-      const reachable = yield* Ref.make(true);
-      const asked: Array<string> = [];
+  it.effect(
+    "remembers an end after forgetting the session, while the owner is unreachable",
+    () =>
+      Effect.gen(function* () {
+        const reachable = yield* Ref.make(true);
+        const asked: Array<string> = [];
 
-      const reports = Layer.succeed(
-        SessionReports.Service,
-        SessionReports.Service.of({
-          follow: (followed) =>
-            Stream.unwrap(
-              Effect.gen(function* () {
-                asked.push(followed);
+        const reports = Layer.succeed(
+          SessionReports.Service,
+          SessionReports.Service.of({
+            follow: (followed) =>
+              Stream.unwrap(
+                Effect.gen(function* () {
+                  asked.push(followed);
 
-                if (!(yield* Ref.get(reachable))) return Stream.never;
+                  if (!(yield* Ref.get(reachable))) return Stream.never;
 
-                return Stream.make(
-                  followed === "revoked"
-                    ? SessionReport.Ended()
-                    : SessionReport.Active({ state: "playing", positionMs: 0 }),
-                ).pipe(Stream.concat(Stream.never));
-              }),
-            ),
-        }),
-      );
+                  return Stream.make(
+                    followed === "revoked"
+                      ? SessionReport.Ended()
+                      : SessionReport.Active({ state: "playing", positionMs: 0 }),
+                  ).pipe(Stream.concat(Stream.never));
+                }),
+              ),
+          }),
+        );
 
-      const context = yield* Layer.build(EndedSessions.layer.pipe(Layer.provide(reports)));
-      const ended = Context.get(context, EndedSessions.Service);
-      const revoked = sessionId("revoked");
+        const context = yield* Layer.build(EndedSessions.layer.pipe(Layer.provide(reports)));
+        const ended = Context.get(context, EndedSessions.Service);
+        const revoked = sessionId("revoked");
 
-      assert.isTrue(yield* ended.isEnded(revoked));
+        assert.isTrue(yield* ended.isEnded(revoked));
 
-      yield* Effect.forEach(
-        Array.from({ length: 4096 }, (_, index) => sessionId(`live-${index}`)),
-        ended.isEnded,
-        { discard: true },
-      );
-      yield* Ref.set(reachable, false);
+        yield* Effect.forEach(
+          Array.from({ length: 4096 }, (_, index) => sessionId(`live-${index}`)),
+          ended.isEnded,
+          { discard: true },
+        );
+        yield* Ref.set(reachable, false);
 
-      const answer = yield* Effect.forkChild(ended.isEnded(revoked));
+        const answer = yield* Effect.forkChild(ended.isEnded(revoked));
 
-      yield* TestClock.adjust(ANSWER_WAIT);
+        yield* TestClock.adjust(ANSWER_WAIT);
 
-      assert.isTrue(yield* Fiber.join(answer));
-      assert.strictEqual(asked.filter((followed) => followed === revoked).length, 1);
-    }),
+        assert.isTrue(yield* Fiber.join(answer));
+        assert.strictEqual(asked.filter((followed) => followed === revoked).length, 1);
+      }),
+    // Asks about 4096 sessions, which outlasts the default timeout on a loaded machine.
+    30_000,
   );
 
   it.effect("waits five seconds once, however far the clock steps back", () =>
@@ -174,6 +189,34 @@ describe("ended sessions", () => {
 
       assert.isDefined(second.pollUnsafe(), "answered without a second wait");
       assert.isFalse(yield* Fiber.join(second));
+    }),
+  );
+
+  it.effect("follows a session outside the request that first asked about it", () =>
+    Effect.gen(function* () {
+      const annotated: Array<ReadonlyArray<string>> = [];
+
+      const logger = Logger.make((options) => {
+        annotated.push(Object.keys(options.fiber.getRef(References.CurrentLogAnnotations)));
+      });
+
+      const context = yield* Layer.build(
+        EndedSessions.layer.pipe(
+          Layer.provide(SessionReports.layerNone),
+          Layer.provide(Logger.layer([logger])),
+        ),
+      );
+
+      const ended = Context.get(context, EndedSessions.Service);
+
+      const first = yield* Effect.forkChild(
+        ended.isEnded(sessionId("quiet")).pipe(Effect.annotateLogs({ requestId: "first" })),
+      );
+
+      yield* TestClock.adjust(ANSWER_WAIT);
+      yield* Fiber.join(first);
+
+      assert.deepStrictEqual(annotated, [["sessionId"]]);
     }),
   );
 });

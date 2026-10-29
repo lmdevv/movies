@@ -40,11 +40,11 @@ const ANSWER_WAIT = Duration.seconds(5);
 const CAPACITY = 4096;
 
 /**
- * Ends remembered at once. An end costs no subscription, so far more are kept than sessions are
- * followed, and a session forgotten to make room for others stays refused while the owner is
- * unreachable.
+ * Ends remembered at once, about 8 MB; past it, the end heard longest ago is forgotten. An end
+ * costs no subscription, so more are kept than sessions are followed, and a session forgotten to
+ * make room for others stays refused while the owner is unreachable.
  */
-const ENDS_CAPACITY = 65_536;
+const ENDS_CAPACITY = 16_384;
 
 /**
  * Follows each session it is asked about through the owner's report on that session alone, until
@@ -56,6 +56,7 @@ export const layer: Layer.Layer<Service, never, SessionReports.Service> = Layer.
   Service,
   Effect.gen(function* () {
     const reports = yield* SessionReports.Service;
+    const context = yield* Effect.context();
 
     // Filled as ends are heard, never looked up. An end is kept for as long as a token minted
     // before it could still be valid.
@@ -109,7 +110,11 @@ export const layer: Layer.Layer<Service, never, SessionReports.Service> = Layer.
       isEnded: Effect.fn("EndedSessions.isEnded")(function* (sessionId) {
         if (yield* isKnownEnded(sessionId)) return true;
 
-        const session = yield* ScopedCache.get(followed, sessionId);
+        // A follow forks from the fiber that asks first and outlives it, so it runs in this
+        // layer's context rather than keeping that request's span and annotations.
+        const session = yield* ScopedCache.get(followed, sessionId).pipe(
+          Effect.updateContext<never, never>(() => context),
+        );
 
         // Bounded here too: a session forgotten while asked about stops its own first wait.
         yield* Deferred.await(session.settled).pipe(Effect.timeoutOption(ANSWER_WAIT));

@@ -22,9 +22,9 @@ choices made while implementing them. Update it in the same PR that changes a de
 - A token whose playback session has ended is refused with `PlaybackSessionEnded` (410) even
   before it expires. The media service subscribes to `mediaService:sessionStatus` for each session
   whose unexpired token it sees, until the session ends, for the 4096 sessions asked about most
-  recently. It remembers each end for the six hours a token lives, apart from those subscriptions,
-  so a session forgotten to make room stays refused while Convex is unreachable; an expired token
-  opens no subscription. It waits up to five seconds, timed from the first question and not from
+  recently. It remembers up to 16,384 ends for the six hours a token lives, apart from those
+  subscriptions, so a session forgotten to make room stays refused while Convex is unreachable. An
+  expired token opens no subscription and answers 410 only for an end already known. It waits up to five seconds, timed from the first question and not from
   the wall clock, for the first answer before it serves that session. An HLS stream follows its own session and stops when it ends. A session Convex has no
   record of, such as one a restore erased, counts as ended. Following each session, rather than a
   feed of ends ordered by `endedAt`, sees an end that commits after a later-stamped one, or that a
