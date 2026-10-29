@@ -308,6 +308,9 @@ const PROBE_RESUME_MS = Milliseconds.make(10_500);
  */
 const EDGE_MARGIN_MS = 25;
 
+/** How far short of its buffered end a stalled element may stop: about two frames at 12 fps. */
+const STALLED_SHORT_OF_EDGE_SECONDS = 0.2;
+
 /** The widest gap between the resume target and the buffered end that still holds the seek. */
 const EDGE_WINDOW_SECONDS = 0.05;
 
@@ -764,6 +767,23 @@ test("a picture subtitle burns into a transcode and back out; a lower quality tr
 });
 
 test("pausing while a stream moves to where it resumes keeps the position", async () => {
+  const earlier = new Set((await owner.sdk.query("playback.active", {})).map(({ id }) => id));
+
+  // Leaves the player and waits for its session to end, which stops its stream and saves its
+  // position before the next resume is seeded.
+  const leavePlayer = async () => {
+    await leaveWithEscape(page);
+    await expect
+      .poll(async () => {
+        const sessions = await owner.sdk.query("playback.active", {});
+
+        return sessions.filter(
+          ({ id, titleId: playing }) => playing === titleId(MOVIES.pictures) && !earlier.has(id),
+        ).length;
+      })
+      .toBe(0);
+  };
+
   await playFromStart(MOVIES.pictures, "remux");
 
   const { menu, playback } = commandMenu(page);
@@ -780,6 +800,7 @@ test("pausing while a stream moves to where it resumes keeps the position", asyn
   await expect
     .poll(() => streams.slice(before).at(-1))
     .toMatchObject({ mode: "transcode-software", height: 480 });
+  await leavePlayer();
 
   const profile = await adultProfile(owner.sdk);
 
@@ -850,8 +871,13 @@ test("pausing while a stream moves to where it resumes keeps the position", asyn
     .poll(
       async () => {
         const state = await videoState(page);
+        const end = await bufferedEnd(page, probeAt);
 
-        return state.currentTime > probeAt && state.readyState <= HAVE_CURRENT_DATA;
+        return (
+          end !== null &&
+          state.currentTime > end - STALLED_SHORT_OF_EDGE_SECONDS &&
+          state.readyState <= HAVE_CURRENT_DATA
+        );
       },
       { timeout: 30_000 },
     )
@@ -864,7 +890,7 @@ test("pausing while a stream moves to where it resumes keeps the position", asyn
     probe.segment.start,
   );
 
-  await page.goto("about:blank");
+  await leavePlayer();
   await probe.release();
 
   // Then resume just short of that end. A quality switch starts its stream the same way, but from
