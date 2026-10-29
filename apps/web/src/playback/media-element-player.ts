@@ -132,6 +132,7 @@ export class MediaElementPlayer implements PlayerPort {
 
     if (!element.seeking || element.readyState >= HAVE_CURRENT_DATA) return;
 
+    // A seeking element reports its target; setting the same position starts the seek again.
     const target = element.currentTime;
 
     element.currentTime = target;
