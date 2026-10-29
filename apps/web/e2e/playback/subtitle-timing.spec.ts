@@ -12,6 +12,7 @@ import { buildMediaService, startMediaService } from "../stack/media-service";
 import type { MediaService } from "../stack/media-service";
 import { OWNER, createInvite } from "../stack/owner";
 import {
+  HAVE_CURRENT_DATA,
   capture,
   encodeClip,
   expectPlayingPast,
@@ -70,9 +71,6 @@ const VOBSUB = join(
   "fixtures",
   "vobsub.mkv",
 );
-
-/** `HTMLMediaElement.HAVE_CURRENT_DATA`: the element has the frame at its position. */
-const HAVE_CURRENT_DATA = 2;
 
 const TRACKS = "Audio, subtitles, and quality";
 

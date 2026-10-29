@@ -8,7 +8,7 @@ import type { LibraryId, TitleId } from "@movies/contracts/ids";
 import type { LibraryAccess, LibraryKind } from "@movies/contracts/models/catalog";
 import type { MoviesSdk } from "@movies/sdk/promise";
 import { expect } from "@playwright/test";
-import type { Locator, Page } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 
 import type { StackEnv } from "../stack/stack-env";
 
@@ -262,6 +262,43 @@ export const titlesByName = async (
   });
 
   return new Map(page.items.map((title) => [title.name, title.id]));
+};
+
+/** `HTMLMediaElement.HAVE_CURRENT_DATA`: the element has the frame at its position. */
+export const HAVE_CURRENT_DATA = 2;
+
+/** Every HLS segment the media service serves. */
+const SEGMENTS = /\/media\/hls\/[^/]+\/\d+\/\d+\.m4s/u;
+
+/**
+ * Holds the page's requests for `segments`, a pattern or a test of each URL, until the returned
+ * function lets them through, as a network that stops answering does.
+ */
+export const holdSegments = async (
+  page: Page,
+  segments: RegExp | ((url: URL) => boolean) = SEGMENTS,
+): Promise<() => Promise<void>> => {
+  const held: Array<Route> = [];
+  let holding = true;
+
+  const handler = async (route: Route): Promise<void> => {
+    if (holding) {
+      held.push(route);
+
+      return;
+    }
+
+    await route.continue();
+  };
+
+  await page.route(segments, handler);
+
+  return async () => {
+    holding = false;
+    await page.unroute(segments, handler);
+    // A request the player gave up on while held fails to continue; it is no longer wanted.
+    await Promise.all(held.map((route) => route.continue().catch(() => undefined)));
+  };
 };
 
 /** What the player's `<video>` element reports at one instant. */

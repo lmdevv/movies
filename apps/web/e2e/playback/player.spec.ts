@@ -2,11 +2,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { DeviceId } from "@movies/contracts/ids";
 import type { EpisodeId, TitleId } from "@movies/contracts/ids";
 import { MEDIA_ROUTES } from "@movies/contracts/media-playback";
 import type { PlaybackMode } from "@movies/contracts/models/playback";
+import { Milliseconds } from "@movies/contracts/units";
+import { formatTimecode } from "@movies/ui/lib/timecode";
 import { devices, expect, test } from "@playwright/test";
-import type { BrowserContext, Page, Request } from "@playwright/test";
+import type { BrowserContext, Page, Request, Route } from "@playwright/test";
 
 import { NO_STACK, ownedStack, signInOwner, useSession } from "../admin/session";
 import type { Client } from "../admin/session";
@@ -14,6 +17,7 @@ import { drawStill } from "../stack/fixture-library";
 import { buildMediaService, startMediaService } from "../stack/media-service";
 import type { MediaService } from "../stack/media-service";
 import {
+  HAVE_CURRENT_DATA,
   adultProfile,
   capture,
   clickScrubber,
@@ -24,6 +28,7 @@ import {
   expectPositionNear,
   firstFrameMs,
   holdKey,
+  holdSegments,
   leaveDialog,
   leaveWithEscape,
   movieNfo,
@@ -287,6 +292,66 @@ const showingSubtitle = () =>
   });
 
 const CONGESTED_SEGMENT_DELAY_MS = 4_000;
+
+/** A stream's HLS media playlist, by stream ID. */
+const HLS_PLAYLIST = /\/media\/hls\/([^/]+)\/\d+\/index\.m3u8/u;
+
+/** One HLS segment, by stream ID and segment index. */
+const HLS_SEGMENT = /\/media\/hls\/([^/]+)\/\d+\/(\d+)\.m4s/u;
+
+/** Where a resume first lands: early in a segment, with room to play before its end. */
+const PROBE_RESUME_MS = Milliseconds.make(10_500);
+
+/**
+ * How far short of a start segment's buffered end the stream resumes. Chrome finds the frame
+ * there but can't finish the seek without the next segment, which is where a pause lost it.
+ */
+const EDGE_MARGIN_MS = 25;
+
+/** How far short of its buffered end a stalled element may stop: about two frames at 12 fps. */
+const STALLED_SHORT_OF_EDGE_SECONDS = 0.2;
+
+/** The widest gap between the resume target and the buffered end that still holds the seek. */
+const EDGE_WINDOW_SECONDS = 0.05;
+
+/** One planned segment of an HLS stream, in seconds from the start of the film. */
+interface PlannedSegment {
+  readonly index: number;
+  readonly start: number;
+  readonly end: number;
+}
+
+/** The segment of a VOD media `playlist` that holds `seconds`. */
+const segmentHolding = (playlist: string, seconds: number): PlannedSegment | undefined => {
+  const durations = playlist
+    .split("\n")
+    .filter((line) => line.startsWith("#EXTINF:"))
+    .map((line) => Number.parseFloat(line.slice("#EXTINF:".length)));
+
+  let start = 0;
+
+  for (const [index, duration] of durations.entries()) {
+    const end = start + duration;
+
+    if (seconds < end) return { index, start, end };
+    start = end;
+  }
+
+  return undefined;
+};
+
+/** The end of the player's buffered range that holds `seconds`, or null outside every range. */
+const bufferedEnd = (target: Page, seconds: number) =>
+  target.getByTestId("player-video").evaluate((element, at) => {
+    if (!(element instanceof HTMLVideoElement)) throw new Error("The player is not a video");
+
+    const ranges = Array.from({ length: element.buffered.length }, (_, index) => ({
+      start: element.buffered.start(index),
+      end: element.buffered.end(index),
+    }));
+
+    return ranges.find((range) => range.start <= at && at < range.end)?.end ?? null;
+  }, seconds);
 
 const SEEK_FRACTION = 0.8;
 
@@ -698,6 +763,203 @@ test("a picture subtitle burns into a transcode and back out; a lower quality tr
 
   before = streams.length;
   await choose("Auto");
+  await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe("remux");
+});
+
+test("pausing while a stream moves to where it resumes keeps the position", async () => {
+  const earlier = new Set((await owner.sdk.query("playback.active", {})).map(({ id }) => id));
+
+  // Leaves the player and waits for its session to end, which stops its stream and saves its
+  // position before the next resume is seeded.
+  const leavePlayer = async () => {
+    await leaveWithEscape(page);
+    await expect
+      .poll(async () => {
+        const sessions = await owner.sdk.query("playback.active", {});
+
+        return sessions.filter(
+          ({ id, titleId: playing }) => playing === titleId(MOVIES.pictures) && !earlier.has(id),
+        ).length;
+      })
+      .toBe(0);
+  };
+
+  await playFromStart(MOVIES.pictures, "remux");
+
+  const { menu, playback } = commandMenu(page);
+
+  const chooseQuality = async (name: RegExp) => {
+    await page.keyboard.press("ControlOrMeta+k");
+    await playback.getByRole("option", { name: /^Quality/u }).click();
+    await menu.getByRole("listbox", { name: "Quality" }).getByRole("option", { name }).click();
+  };
+
+  let before = streams.length;
+
+  await chooseQuality(/^480p/u);
+  await expect
+    .poll(() => streams.slice(before).at(-1))
+    .toMatchObject({ mode: "transcode-software", height: 480 });
+  await leavePlayer();
+
+  const profile = await adultProfile(owner.sdk);
+
+  // Resumes the 480p stream at `positionMs` with every segment after the one it starts in held,
+  // so that segment is all the element has. The plan comes from the stream's own playlist, read
+  // before the page gets it, so no layout of the generated clip is assumed.
+  const resumeHeld = async (positionMs: Milliseconds) => {
+    const { sessionId } = await owner.sdk.mutate("playback.createSession", {
+      profileId: profile.id,
+      deviceId: DeviceId.make(`resume-seed-${run}-${String(positionMs)}`),
+      titleId: titleId(MOVIES.pictures),
+    });
+
+    await owner.sdk.mutate("playback.endSession", { sessionId, positionMs });
+
+    // The segment each stream starts in, by stream ID.
+    const planned = new Map<string, PlannedSegment>();
+
+    const readPlan = async (route: Route) => {
+      const response = await route.fetch();
+      const body = await response.text();
+      const streamId = HLS_PLAYLIST.exec(route.request().url())?.[1];
+      const segment = segmentHolding(body, positionMs / 1000);
+
+      if (streamId !== undefined && segment !== undefined) planned.set(streamId, segment);
+      await route.fulfill({ response, body });
+    };
+
+    await page.route(HLS_PLAYLIST, readPlan);
+
+    const release = await holdSegments(page, (url) => {
+      const [, streamId = "", index] = HLS_SEGMENT.exec(url.pathname) ?? [];
+      const segment = planned.get(streamId);
+
+      return index !== undefined && segment !== undefined && Number(index) > segment.index;
+    });
+
+    before = streams.length;
+    await page.goto(`/watch/${titleId(MOVIES.pictures)}`);
+    await page
+      .getByRole("button", {
+        name: `Resume from ${formatTimecode(positionMs / 1000)}`,
+        exact: true,
+      })
+      .click();
+    await expect
+      .poll(() => streams.slice(before).at(-1))
+      .toMatchObject({ mode: "transcode-software", height: 480 });
+
+    const streamId = streams.at(-1)?.streamId ?? "";
+
+    await expect.poll(() => planned.get(streamId)).toBeDefined();
+
+    return {
+      segment: planned.get(streamId),
+      release: async () => {
+        await release();
+        await page.unroute(HLS_PLAYLIST, readPlan);
+      },
+    };
+  };
+
+  // First resume early in a segment and let it play until it stalls where that segment ends.
+  const probeAt = PROBE_RESUME_MS / 1000;
+  const probe = await resumeHeld(PROBE_RESUME_MS);
+
+  await expect
+    .poll(
+      async () => {
+        const state = await videoState(page);
+        const end = await bufferedEnd(page, probeAt);
+
+        return (
+          end !== null &&
+          state.currentTime > end - STALLED_SHORT_OF_EDGE_SECONDS &&
+          state.readyState <= HAVE_CURRENT_DATA
+        );
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+
+  const edge = await bufferedEnd(page, probeAt);
+
+  if (edge === null || probe.segment === undefined) throw new Error("The probe never buffered");
+  expect(edge, `${probeAt}s resumed into ${JSON.stringify(probe.segment)}`).toBeGreaterThan(
+    probe.segment.start,
+  );
+
+  await leavePlayer();
+  await probe.release();
+
+  // Then resume just short of that end. A quality switch starts its stream the same way, but from
+  // wherever the old one had got to; resuming starts it at an exact position.
+  const target = Milliseconds.make(Math.round(edge * 1000) - EDGE_MARGIN_MS);
+  const start = target / 1000;
+  const resumed = await resumeHeld(target);
+  const video = page.getByTestId("player-video");
+
+  expect(resumed.segment, "the stream resumes into the probed segment").toEqual(probe.segment);
+  await expect.poll(() => bufferedEnd(page, start)).not.toBeNull();
+
+  const held = await bufferedEnd(page, start);
+
+  if (held === null) throw new Error(`The buffer dropped ${start}s`);
+
+  // What makes the pause land at 0 on its own: the element holds the target's frame but too little
+  // after it to finish the seek. A target with nothing buffered seeks correctly through a pause.
+  expect(held, `resumed at ${start}s, buffered to ${held}s, probed to ${edge}s`).toBeCloseTo(
+    edge,
+    2,
+  );
+  expect(held - start).toBeGreaterThan(0);
+  expect(held - start).toBeLessThanOrEqual(EDGE_WINDOW_SECONDS);
+  expect(
+    await video.evaluate((element) => element instanceof HTMLVideoElement && element.seeking),
+  ).toBe(true);
+  expect((await videoState(page)).currentTime).toBeCloseTo(start, 3);
+
+  // Notes what the element reports when its pause event arrives, after the player has heard it.
+  await video.evaluate((element) => {
+    element.addEventListener(
+      "pause",
+      () => {
+        if (!(element instanceof HTMLVideoElement)) return;
+        element.dataset["pausedSeeking"] = String(element.seeking);
+        element.dataset["pausedReadyState"] = String(element.readyState);
+      },
+      { once: true },
+    );
+  });
+  await page.getByTestId("player").press("k");
+
+  const pausedWith = () =>
+    video.evaluate((element) =>
+      element instanceof HTMLVideoElement
+        ? {
+            seeking: element.dataset["pausedSeeking"],
+            readyState: Number(element.dataset["pausedReadyState"]),
+          }
+        : null,
+    );
+
+  await expect.poll(async () => (await pausedWith())?.seeking).toBe("true");
+  expect((await pausedWith())?.readyState).toBeLessThan(HAVE_CURRENT_DATA);
+  await resumed.release();
+  await expect
+    .poll(async () => {
+      const state = await videoState(page);
+
+      return state.paused && state.readyState >= HAVE_CURRENT_DATA;
+    })
+    .toBe(true);
+  await expectPositionNear(page, start, 0.1);
+  await page.waitForTimeout(1_000);
+  expect(Math.abs((await videoState(page)).currentTime - start)).toBeLessThan(0.1);
+
+  before = streams.length;
+  await chooseQuality(/^Auto/u);
   await expect.poll(() => streams.slice(before).at(-1)?.mode).toBe("remux");
 });
 
