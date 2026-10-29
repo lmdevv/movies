@@ -86,6 +86,13 @@ export const explains = (
   extendedJump(playhead, { positionMs, atMs }, rate) !== null;
 
 /**
+ * How much media the player could have played from `jump.first` to `atMs`, playing at `rate` since
+ * its last report.
+ */
+const playableTo = (jump: Jump, atMs: number, rate: number): number =>
+  jump.playableMs + Math.max(0, atMs - jump.last.atMs) * rate;
+
+/**
  * The jump the player made on its own, played on to `sighting` at `rate`; null when it made none or
  * did not. It must have played there from where it landed, so a skip in short steps is not one
  * jump. Each stretch counts at the rate of the report ending it, so a rate change must be sighted.
@@ -95,7 +102,7 @@ const extendedJump = (playhead: Playhead, sighting: Sighting, rate: number): Jum
 
   if (jump === null) return null;
 
-  const playableMs = jump.playableMs + Math.max(0, sighting.atMs - jump.last.atMs) * rate;
+  const playableMs = playableTo(jump, sighting.atMs, rate);
   const reachMs = Math.max(playableMs, sighting.atMs - jump.first.atMs);
 
   return playsOnFrom(jump.first, sighting.positionMs, reachMs)
@@ -131,6 +138,25 @@ export const reported = (
   return playedMs >= JUMP_BELIEVED_AFTER_MS && playsOn(jump)
     ? { believed: sighting, jump: null }
     : { believed: playhead.believed, jump };
+};
+
+/**
+ * The playhead with the playing time until `atMs` counted at `rate`, the rate AVPlayer played at
+ * before it changes. It takes no position: a reading of AVPlayer then is no report of where it is.
+ */
+export const accrued = (playhead: Playhead, atMs: number, rate: number): Playhead => {
+  const jump = playhead.jump;
+
+  if (jump === null) return playhead;
+
+  return {
+    believed: playhead.believed,
+    jump: {
+      first: jump.first,
+      last: { positionMs: jump.last.positionMs, atMs },
+      playableMs: playableTo(jump, atMs, rate),
+    },
+  };
 };
 
 /**

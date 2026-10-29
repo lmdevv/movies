@@ -2,6 +2,7 @@ import type { PlayerEvent, PlayerPort } from "@movies/sdk/effect";
 import type { VideoPlayerEvents, VideoPlayerStatus } from "expo-video";
 
 import {
+  accrued,
   believedPosition,
   believes,
   explains,
@@ -94,6 +95,14 @@ export const withinBuffer = (
   bufferedSeconds > currentSeconds &&
   targetSeconds >= Math.max(generationStartSeconds, currentSeconds - KEPT_BEHIND_SECONDS) &&
   targetSeconds <= bufferedSeconds + 0.5;
+
+/**
+ * AVPlayer's `currentTime` in milliseconds, or null for an invalid time: expo-video's time report
+ * passes AVPlayer's NaN on, and its `currentTime` reads it as zero. A stream's start or a seek to
+ * zero places the playhead anyway.
+ */
+const reportedMs = (currentTime: number): number | null =>
+  Number.isFinite(currentTime) && currentTime > 0 ? currentTime * 1000 : null;
 
 /** The player's state as the controls draw it. */
 export interface VideoState {
@@ -196,14 +205,11 @@ export class VideoPort implements PlayerPort {
 
   /** Follows AVPlayer reporting `currentTime` in seconds, unless it is heading somewhere else. */
   #sight(currentTime: number): void {
-    if (this.settling()) return;
+    const positionMs = reportedMs(currentTime);
 
-    this.#playhead = reported(
-      this.#playhead,
-      currentTime * 1000,
-      this.#played(),
-      this.playbackRate(),
-    );
+    if (this.settling() || positionMs === null) return;
+
+    this.#playhead = reported(this.#playhead, positionMs, this.#played(), this.playbackRate());
   }
 
   /** Runs or stops the playhead's clock as AVPlayer plays or stops. */
@@ -367,9 +373,19 @@ export class VideoPort implements PlayerPort {
   readonly setPlaybackRate = (rate: number): void => {
     if (this.#final !== null || this.#video === null || this.#video.playbackRate === rate) return;
 
-    // A sighting at the old rate, so what AVPlayer played until now counts at the rate it played at.
-    this.#sight(this.#video.currentTime);
-    this.#video.playbackRate = rate;
+    const video = this.#video;
+    const positionMs = reportedMs(video.currentTime);
+    const atMs = this.#played();
+
+    // What AVPlayer played until now counts at the rate it played at. Its position is sighted only
+    // where playing explains it: reading it now is no report of where it is.
+    if (positionMs !== null && explains(this.#playhead, positionMs, atMs, video.playbackRate)) {
+      this.#sight(video.currentTime);
+    } else {
+      this.#playhead = accrued(this.#playhead, atMs, video.playbackRate);
+    }
+
+    video.playbackRate = rate;
     this.#changed();
   };
 

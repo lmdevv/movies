@@ -659,6 +659,60 @@ describe("VideoPort with the lock screen and stalls", () => {
     expect(port.getState().ended).toBe(true);
   });
 
+  it("keeps the media a lock-screen seek played when AVPlayer reads zero as the speed changes", () => {
+    const { clock, video, port } = playingAt(600);
+
+    port.setPlaybackRate(0.5);
+    video.fireTime(EPISODE_MS / 1000 - 1);
+    clock.ms += 1_200;
+    video.fireTime(EPISODE_MS / 1000 - 0.4);
+    // expo-video reads AVPlayer's NaN time as zero.
+    video.currentTime = 0;
+    port.setPlaybackRate(2);
+    clock.ms += 200;
+    video.currentTime = EPISODE_MS / 1000;
+    video.pause();
+    video.fireEnd();
+
+    expect(port.getState().ended).toBe(true);
+  });
+
+  it("keeps the media a lock-screen seek played when AVPlayer reports no valid time", () => {
+    const { clock, video, port } = playingAt(600);
+
+    port.setPlaybackRate(0.5);
+    video.fireTime(EPISODE_MS / 1000 - 1);
+    clock.ms += 1_200;
+    video.fireTime(EPISODE_MS / 1000 - 0.4);
+    clock.ms += 250;
+    video.fireTime(Number.NaN);
+    clock.ms += 550;
+    video.currentTime = EPISODE_MS / 1000;
+    video.pause();
+    video.fireEnd();
+
+    expect(port.getState().ended).toBe(true);
+  });
+
+  it("keeps the media a lock-screen seek played when AVPlayer reads zero as it stalls", () => {
+    const { clock, video, port } = playingAt(600);
+
+    port.setPlaybackRate(0.5);
+    video.fireTime(EPISODE_MS / 1000 - 1);
+    clock.ms += 1_200;
+    video.fireTime(EPISODE_MS / 1000 - 0.4);
+    video.currentTime = 0;
+    video.stall();
+    video.currentTime = EPISODE_MS / 1000 - 0.4;
+    video.ready();
+    clock.ms += 800;
+    video.currentTime = EPISODE_MS / 1000;
+    video.pause();
+    video.fireEnd();
+
+    expect(port.getState().ended).toBe(true);
+  });
+
   it("keeps the viewer's pause in the app when a vanished stream ends just after it", () => {
     const { clock, video, port } = playingAt(600);
 
