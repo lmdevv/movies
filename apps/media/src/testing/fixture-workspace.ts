@@ -1,5 +1,6 @@
 import { Context, Effect, FileSystem, Layer, Path, type PlatformError } from "effect";
 
+import { copyTree } from "./byte-copies.ts";
 import { type FixtureLibrary, generateFixtureLibrary } from "./fixture-library.ts";
 
 interface LibraryCopy {
@@ -40,7 +41,10 @@ export const layer: Layer.Layer<Service, never, FileSystem.FileSystem | Path.Pat
     const copy = Effect.gen(function* () {
       copies += 1;
       const target = path.join(root, `copy-${copies}`);
-      yield* fs.copy(pristine, target);
+      yield* copyTree(pristine, target).pipe(
+        Effect.provideService(FileSystem.FileSystem, fs),
+        Effect.provideService(Path.Path, path),
+      );
 
       return {
         root: target,

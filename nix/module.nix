@@ -653,6 +653,9 @@ in
           "@system-service"
           "~@privileged"
         ];
+        # A denied call fails that call rather than killing the service and every stream with it.
+        # scripts/check-sandbox.sh still kills on one, so the service is kept from needing any.
+        SystemCallErrorNumber = "EPERM";
       };
     };
 

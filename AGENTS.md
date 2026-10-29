@@ -170,7 +170,11 @@ The example identities must be replaced with the model and tool that actually co
 - `scripts/stack-e2e.sh` builds the image and smoke-tests the packaged stack;
   `scripts/nixos-module-e2e.sh` does the same for the NixOS module on a NixOS host, and
   `nix build .#checks.x86_64-linux.vm -L` boots the module in a NixOS VM (needs KVM).
-- CI runs `check`, both stack jobs, and the Nix job. PRs matching the `paths` in
+- `scripts/check-sandbox.sh` runs the media tests under the module's system call filter, on its
+  Node and ffmpeg, in a `systemd-run --user` unit that kills on any denied call. Run it after a
+  change to the media service's file or process handling, its dependencies, or the module's
+  sandbox. Copy test files with `testing/byte-copies.ts`: `copyFile` calls `fchown`.
+- CI runs `check`, both stack jobs, the sandbox job, and the Nix job. PRs matching the `paths` in
   `.github/workflows/image.yml` also run its `build and smoke-test`. `main` has no branch
   protection, so check every one yourself before merging. Never merge with admin bypass.
 - Every PR gets Codex automatic review on GitHub; address its findings before merging. Run
