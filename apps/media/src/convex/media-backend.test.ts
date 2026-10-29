@@ -249,4 +249,39 @@ describe("media service Convex connection", () => {
       }),
     40_000,
   );
+
+  it.live(
+    "holds one probe at a time while Convex takes sign-ins but answers no query",
+    () =>
+      Effect.gen(function* () {
+        const fake = yield* makeConvex;
+
+        const backend = yield* Layer.build(
+          MediaBackend.layer({
+            convexUrl: fake.url,
+            apiKey: Redacted.make("mk_service"),
+            callTimeout: Duration.millis(100),
+            probeEvery: Duration.millis(100),
+          }),
+        ).pipe(Effect.map((context) => Context.get(context, MediaBackend.Service)));
+
+        yield* awaitStatus(backend, "connected");
+
+        // Each probe cycle asks with a new `after`; the client sends every query it still holds
+        // each time it reconnects.
+        yield* fake.reply(ENDED_SESSIONS, Reply.Drop());
+        yield* Effect.sleep(Duration.seconds(5));
+
+        const asked = new Set(
+          (yield* fake.requestsTo(ENDED_SESSIONS)).map((request) => JSON.stringify(request.args)),
+        );
+
+        assert.isAbove(asked.size, 2);
+
+        yield* fake.reply(ENDED_SESSIONS, Reply.Success({ value: [] }));
+        yield* awaitStatus(backend, "connected");
+        assert.strictEqual(yield* fake.peakSubscriptions(ENDED_SESSIONS), 1);
+      }),
+    40_000,
+  );
 });

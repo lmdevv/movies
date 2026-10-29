@@ -189,6 +189,39 @@ describe.concurrent("layerWebSocket", () => {
     expect(answer).toBe("signed in");
   }, 20_000);
 
+  it("drops a query from the connection once its caller stops waiting", async () => {
+    const peak = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fake = yield* FakeConvex.make;
+
+          // The connection drops before any answer, so every query the client holds is sent again.
+          yield* fake.reply("account:viewer", Reply.Drop());
+          const context = yield* Layer.build(ConvexTransport.layerWebSocket(fake.url));
+          const connection = Context.get(context, ConvexTransport.ConvexTransport);
+
+          for (let ask = 0; ask < 5; ask += 1) {
+            yield* connection
+              .call("query", "account:viewer", { ask })
+              .pipe(Effect.timeoutOption(Duration.millis(300)));
+          }
+
+          yield* fake.reply("account:viewer", Reply.Success({ value: "answered" }));
+
+          expect(
+            yield* connection
+              .call("query", "account:viewer", { ask: "last" })
+              .pipe(Effect.timeout(Duration.seconds(10))),
+          ).toBe("answered");
+
+          return yield* fake.peakSubscriptions("account:viewer");
+        }),
+      ),
+    );
+
+    expect(peak).toBe(1);
+  }, 20_000);
+
   it("lets a public query through once the server keeps failing to renew a refused session", async () => {
     const { answer, status } = await Effect.runPromise(
       Effect.scoped(

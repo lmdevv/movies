@@ -47,7 +47,13 @@ export type Unsubscribe = () => void;
  * whatever the client threw; `ConvexTransport` translates it.
  */
 export interface ClientAdapter {
-  readonly call: (kind: FunctionKind, path: FunctionPath, args: WireArgs) => Promise<Schema.Json>;
+  /** Runs a function once; a query stops once `signal` aborts. */
+  readonly call: (
+    kind: FunctionKind,
+    path: FunctionPath,
+    args: WireArgs,
+    signal: AbortSignal,
+  ) => Promise<Schema.Json>;
   readonly subscribe: (
     path: FunctionPath,
     args: WireArgs,
@@ -156,7 +162,7 @@ export const make = (adapter: ClientAdapter): Effect.Effect<Interface> =>
     ConvexTransport.of({
       call: Effect.fn("ConvexTransport.call")(function* (kind, path, args) {
         return yield* Effect.tryPromise({
-          try: () => adapter.call(kind, path, args),
+          try: (signal) => adapter.call(kind, path, args, signal),
           catch: (cause) => translateFailure(path, cause),
         });
       }),
@@ -217,6 +223,56 @@ export const callByKind = (
 
   return client.action(reference("action", path), args);
 };
+
+/**
+ * The first result of the query at `path`, read through `subscribe`. A Convex WebSocket client
+ * keeps a query until it is answered or unsubscribed, and sends it again each time it reconnects,
+ * so the query is unsubscribed as soon as `signal` aborts, as when its caller stops waiting.
+ */
+export const queryOnce = (
+  subscribe: ClientAdapter["subscribe"],
+  path: FunctionPath,
+  args: WireArgs,
+  signal: AbortSignal,
+): Promise<Schema.Json> =>
+  new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(toError(signal.reason));
+
+      return;
+    }
+
+    const done = new AbortController();
+    let unsubscribe: Unsubscribe | undefined;
+
+    const settle = (finish: () => void): void => {
+      if (done.signal.aborted) return;
+      done.abort();
+      unsubscribe?.();
+      finish();
+    };
+
+    signal.addEventListener(
+      "abort",
+      () => {
+        settle(() => reject(toError(signal.reason)));
+      },
+      { signal: done.signal },
+    );
+    unsubscribe = subscribe(
+      path,
+      args,
+      (value) => {
+        settle(() => resolve(value));
+      },
+      (error) => {
+        settle(() => reject(error));
+      },
+    );
+
+    // A client holding the answer already may hand it over before `subscribe` returns.
+    if (done.signal.aborted) unsubscribe();
+  });
 
 const FIRST_REFETCH_DELAY_MS = 1000;
 
@@ -381,12 +437,17 @@ export const clientTokenFetchers = () => {
 const webSocketAdapter = (client: ConvexClient): ClientAdapter => {
   const fetchers = clientTokenFetchers();
 
+  const subscribe: ClientAdapter["subscribe"] = (path, args, onValue, onError) =>
+    client.onUpdate(reference("query", path), args, onValue, (error) => {
+      onError(toError(error));
+    });
+
   return {
-    call: (kind, path, args) => callByKind(client, kind, path, args),
-    subscribe: (path, args, onValue, onError) =>
-      client.onUpdate(reference("query", path), args, onValue, (error) => {
-        onError(toError(error));
-      }),
+    call: (kind, path, args, signal) =>
+      kind === "query"
+        ? queryOnce(subscribe, path, args, signal)
+        : callByKind(client, kind, path, args),
+    subscribe,
     setAuth: (source) =>
       fetchers.install(source, (fetcher) => {
         client.setAuth(fetcher ?? signedOut);

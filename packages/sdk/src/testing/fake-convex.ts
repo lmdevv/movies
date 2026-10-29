@@ -75,6 +75,8 @@ export interface FakeConvex {
    * presents one, as Convex does when a token stops verifying while its connection stays open.
    */
   readonly rejectAcceptedTokens: Effect.Effect<void>;
+  /** The most queries to `path` that one sync connection has subscribed to at once. */
+  readonly peakSubscriptions: (path: string) => Effect.Effect<number>;
 }
 
 const RequestBody = Schema.fromJsonString(
@@ -333,6 +335,7 @@ export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(fu
   const refused = new Set<string>();
   const syncSockets = new Set<Duplex>();
   const authErrorSenders = new Set<() => void>();
+  const peaks = new Map<string, number>();
 
   const answer = (request: RecordedRequest): Effect.Effect<Reply> =>
     Option.match(Option.fromNullishOr(handlers.get(request.path)), {
@@ -384,6 +387,7 @@ export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(fu
     let queue = Promise.resolve();
     let version = { querySet: 0, identity: 0, ts: 0 };
     let token: string | undefined;
+    const subscribed = new Map<number, string>();
 
     const sendAuthError = (): void => {
       if (token === undefined || accepts(token)) return;
@@ -447,6 +451,17 @@ export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(fu
       }
 
       const authorization = token === undefined ? undefined : `Bearer ${token}`;
+
+      for (const change of message.modifications) {
+        if (change.type === "Remove") subscribed.delete(change.queryId);
+        else subscribed.set(change.queryId, change.udfPath);
+      }
+
+      const counts = new Map<string, number>();
+
+      for (const path of subscribed.values()) counts.set(path, (counts.get(path) ?? 0) + 1);
+
+      for (const [path, count] of counts) peaks.set(path, Math.max(peaks.get(path) ?? 0, count));
 
       const modifications = await Promise.all(
         message.modifications.map(async (change): Promise<Option.Option<Schema.Json>> => {
@@ -586,5 +601,6 @@ export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(fu
 
       for (const sendAuthError of authErrorSenders) sendAuthError();
     }),
+    peakSubscriptions: (path) => Effect.sync(() => peaks.get(path) ?? 0),
   };
 });
