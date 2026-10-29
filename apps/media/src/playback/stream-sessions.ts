@@ -389,6 +389,12 @@ const make = Effect.gen(function* () {
       Effect.orElseSucceed(() => Option.none<VideoTiming>()),
     );
 
+    if (Option.isNone(read)) {
+      yield* Effect.logDebug("StreamSessions.init_timing_unreadable").pipe(
+        Effect.annotateLogs({ streamId: generation.streamId, generation: generation.number }),
+      );
+    }
+
     MutableRef.set(generation.videoTiming, read);
 
     return read;
@@ -424,10 +430,20 @@ const make = Effect.gen(function* () {
 
             const length = Math.min(fragmentHeadLength(head) ?? 0, Number(info.size));
 
-            const bytes =
+            const rest =
               length <= head.byteLength
-                ? head
-                : Option.getOrElse(yield* handle.readAlloc(length, { position: 0n }), () => head);
+                ? new Uint8Array(0)
+                : Option.getOrElse(
+                    yield* handle.readAlloc(length - head.byteLength, {
+                      position: BigInt(head.byteLength),
+                    }),
+                    () => new Uint8Array(0),
+                  );
+
+            const bytes = new Uint8Array(head.byteLength + rest.byteLength);
+
+            bytes.set(head);
+            bytes.set(rest, head.byteLength);
 
             const span = Option.flatMap(timing, (video) =>
               Option.fromNullishOr(fragmentSpan(video, bytes)),

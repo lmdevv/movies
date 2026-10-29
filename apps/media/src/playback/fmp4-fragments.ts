@@ -8,8 +8,11 @@
  * versions'.
  */
 
-/** Bytes worth reading from the head of a fragment to find where its `moof` ends. */
-export const FRAGMENT_HEAD_BYTES = 1024;
+/**
+ * Bytes worth reading from the head of a fragment: enough for the `moof` of a fragment of a few
+ * hundred samples, and always enough to find where a longer one ends.
+ */
+export const FRAGMENT_HEAD_BYTES = 16 * 1024;
 
 /** How the init segment times the video track's samples. */
 export interface VideoTiming {
@@ -34,6 +37,9 @@ export interface FragmentSpan {
   readonly end: number | undefined;
 }
 
+const viewOf = (bytes: Uint8Array): DataView =>
+  new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
 interface Box {
   readonly type: string;
   /** Offset of the box's payload, after its header. */
@@ -42,30 +48,37 @@ interface Box {
   readonly end: number;
 }
 
+/**
+ * The box whose header starts at `offset`, which may run past `limit`; `undefined` when the
+ * header does not fit before `limit` or names an impossible size. Size 0 runs to `limit`.
+ */
+const headerAt = (bytes: Uint8Array, offset: number, limit: number): Box | undefined => {
+  if (offset + 8 > limit) return undefined;
+
+  const view = viewOf(bytes);
+  const size32 = view.getUint32(offset);
+  const type = String.fromCodePoint(...bytes.subarray(offset + 4, offset + 8));
+
+  if (size32 === 1) {
+    if (offset + 16 > limit) return undefined;
+
+    const size = Number(view.getBigUint64(offset + 8));
+
+    return size < 16 ? undefined : { type, body: offset + 16, end: offset + size };
+  }
+
+  if (size32 === 0) return { type, body: offset + 8, end: limit };
+
+  return size32 < 8 ? undefined : { type, body: offset + 8, end: offset + size32 };
+};
+
 /** The whole boxes between `start` and `end`; a box running past `end` ends the list. */
 const boxesIn = (bytes: Uint8Array, start: number, end: number): ReadonlyArray<Box> => {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const boxes: Array<Box> = [];
-  let offset = start;
 
-  while (offset + 8 <= end) {
-    const size32 = view.getUint32(offset);
-    const type = String.fromCodePoint(...bytes.subarray(offset + 4, offset + 8));
-    const large = size32 === 1;
-
-    if (large && offset + 16 > end) break;
-
-    const size = large
-      ? Number(view.getBigUint64(offset + 8))
-      : size32 === 0
-        ? end - offset
-        : size32;
-
-    const body = offset + (large ? 16 : 8);
-
-    if (size < body - offset || offset + size > end) break;
-    boxes.push({ type, body, end: offset + size });
-    offset += size;
+  for (let box = headerAt(bytes, start, end); box !== undefined && box.end <= end;) {
+    boxes.push(box);
+    box = headerAt(bytes, box.end, end);
   }
 
   return boxes;
@@ -77,15 +90,19 @@ const childOf = (bytes: Uint8Array, parent: Box, type: string): Box | undefined 
 const childrenOf = (bytes: Uint8Array, parent: Box, type: string): ReadonlyArray<Box> =>
   boxesIn(bytes, parent.body, parent.end).filter((box) => box.type === type);
 
-const viewOf = (bytes: Uint8Array): DataView =>
-  new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+/**
+ * A full box's version and flags, and whether `length` payload bytes after them are present; a
+ * box too short for its version and flags reads as version 0, flags 0, and never fits.
+ */
+const fullBox = (bytes: Uint8Array, box: Box, length: number) => {
+  const whole = box.body + 4 <= box.end;
 
-/** A full box's version and flags, and whether `length` payload bytes after them are present. */
-const fullBox = (bytes: Uint8Array, box: Box, length: number) => ({
-  version: bytes[box.body] ?? 0,
-  flags: viewOf(bytes).getUint32(box.body) & 0xff_ff_ff,
-  fits: box.body + 4 + length <= box.end,
-});
+  return {
+    version: whole ? (bytes[box.body] ?? 0) : 0,
+    flags: whole ? viewOf(bytes).getUint32(box.body) & 0xff_ff_ff : 0,
+    fits: box.body + 4 + length <= box.end,
+  };
+};
 
 const uint64 = (view: DataView, offset: number): number => Number(view.getBigUint64(offset));
 
@@ -199,17 +216,11 @@ export const videoTiming = (init: Uint8Array): VideoTiming | undefined => {
  * from the box headers in `head`. `undefined` when `head` does not reach the `moof`'s header.
  */
 export const fragmentHeadLength = (head: Uint8Array): number | undefined => {
-  const view = viewOf(head);
-  let offset = 0;
+  for (let box = headerAt(head, 0, head.byteLength); box !== undefined;) {
+    if (box.type === "moof") return box.end;
 
-  while (offset + 8 <= head.byteLength) {
-    const size = view.getUint32(offset);
-    const type = String.fromCodePoint(...head.subarray(offset + 4, offset + 8));
-
-    if (type === "moof") return size < 8 ? undefined : offset + size;
-
-    if (size < 8 || type === "mdat") return undefined;
-    offset += size;
+    if (box.type === "mdat") return undefined;
+    box = headerAt(head, box.end, head.byteLength);
   }
 
   return undefined;
@@ -303,7 +314,11 @@ export const fragmentSpan = (
 
     if (offset + count * fields.length * 4 > trun.end) return undefined;
 
-    for (let index = 0; index < count; index += 1) {
+    // Samples without fields of their own are alike, so one stands for all of them.
+    const read = fields.length === 0 ? Math.min(count, 1) : count;
+    const repeats = fields.length === 0 ? count : 1;
+
+    for (let index = 0; index < read; index += 1) {
       const duration =
         durationAt === -1 ? defaultDuration : view.getUint32(offset + durationAt * 4);
 
@@ -315,8 +330,8 @@ export const fragmentSpan = (
       first ??= presented;
 
       if (duration === undefined) durationsKnown = false;
-      total += duration ?? 0;
-      decode += duration ?? 0;
+      total += (duration ?? 0) * repeats;
+      decode += (duration ?? 0) * repeats;
       offset += fields.length * 4;
     }
   }

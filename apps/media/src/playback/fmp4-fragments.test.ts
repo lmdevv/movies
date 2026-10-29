@@ -300,6 +300,33 @@ describe("fragmentSpan", () => {
     });
   });
 
+  it("spans samples that share the defaults without stepping through each one", () => {
+    const shared = fragment(
+      [],
+      [
+        box("traf", [
+          ...fullBox("tfhd", 0, 0x08, [...uint32(1), ...uint32(500)]),
+          ...fullBox("tfdt", 1, 0, uint64(16_000)),
+          ...fullBox("trun", 0, 0, uint32(0xff_ff_ff_ff)),
+        ]),
+      ],
+    );
+
+    expect(fragmentSpan({ ...VIDEO, presentationOffset: 0 }, shared)).toEqual({
+      start: 1,
+      end: 1 + (0xff_ff_ff_ff * 500) / 16_000,
+    });
+  });
+
+  it("finds no span in boxes too short for their version and flags", () => {
+    const short = fragment(
+      [],
+      [box("traf", [...fullBox("tfhd", 0, 0, uint32(1)), ...box("tfdt", [])])],
+    );
+
+    expect(fragmentSpan(VIDEO, short)).toBe(undefined);
+  });
+
   it("finds no span without the video track's samples, or with the moof cut off", () => {
     const audio = fragment([], [traf({ trackId: 2, decodeTime: 0, samples: [{ duration: 1 }] })]);
     const video = fragment([], [traf({ trackId: 1, decodeTime: 0, samples: gop(4) })]);
@@ -314,7 +341,7 @@ describe("fragmentSpan", () => {
 describe("fragmentHeadLength", () => {
   it("names the bytes through the moof, past the head when the moof is long", () => {
     const video = fragment(sidx(16_000, 0, 1), [
-      traf({ trackId: 1, decodeTime: 0, samples: gop(240) }),
+      traf({ trackId: 1, decodeTime: 0, samples: gop(2000) }),
     ]);
 
     const length = fragmentHeadLength(video.subarray(0, FRAGMENT_HEAD_BYTES));
@@ -323,6 +350,14 @@ describe("fragmentHeadLength", () => {
     expect(String.fromCodePoint(...video.subarray((length ?? 0) + 4, (length ?? 0) + 8))).toBe(
       "mdat",
     );
+  });
+
+  it("reads a 64-bit box size", () => {
+    const styp = box("styp", ascii("msdh"));
+    const mfhd = fullBox("mfhd", 0, 0, uint32(1));
+    const moof = [...uint32(1), ...ascii("moof"), ...uint64(16 + mfhd.length), ...mfhd];
+
+    expect(fragmentHeadLength(new Uint8Array([...styp, ...moof]))).toBe(styp.length + moof.length);
   });
 
   it("finds no moof after an mdat, or before the head reaches its header", () => {
