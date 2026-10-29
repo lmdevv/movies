@@ -1215,19 +1215,15 @@ const make = Effect.gen(function* () {
     );
   }, Effect.uninterruptible);
 
-  const markRegistered = (streamId: StreamId) =>
-    Effect.forEach(
-      [transcodes, copies],
-      (slots) =>
-        Ref.update(slots, (holders) => {
-          const claim = holders.get(streamId);
+  const markRegistered = Effect.fnUntraced(function* (session: Session) {
+    yield* Ref.update(isEncode(yield* Ref.get(session.video)) ? transcodes : copies, (holders) => {
+      const claim = holders.get(session.streamId);
 
-          return claim === undefined
-            ? holders
-            : new Map(holders).set(streamId, { ...claim, registered: true });
-        }),
-      { discard: true },
-    );
+      return claim === undefined
+        ? holders
+        : new Map(holders).set(session.streamId, { ...claim, registered: true });
+    });
+  });
 
   /**
    * Unless a newer negotiation of the session began, takes the session's streams out of the
@@ -1264,7 +1260,7 @@ const make = Effect.gen(function* () {
 
         if (Option.isSome(next)) {
           yield* owners.opened(next.value.streamId, sessionId);
-          yield* markRegistered(next.value.streamId);
+          yield* markRegistered(next.value);
         }
 
         return Option.some(previous);

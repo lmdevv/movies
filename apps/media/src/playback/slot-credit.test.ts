@@ -12,6 +12,7 @@ import { resolveInsideRoots } from "./file-resolver.ts";
 import * as KeyframeIndex from "./keyframe-index.ts";
 import { decidePlayback, PlaybackPlan } from "./playback-decision.ts";
 import * as PlaybackToken from "./playback-token.ts";
+import * as StreamOwners from "./stream-owners.ts";
 import * as StreamSessions from "./stream-sessions.ts";
 import * as TranscodeSpace from "./transcode-space.ts";
 
@@ -55,6 +56,8 @@ const encoders = {
   peak: 0,
   holding: Promise.withResolvers<void>(),
   held: Promise.withResolvers<void>(),
+  registered: 0,
+  thirdRegistered: Promise.withResolvers<void>(),
 };
 
 const watchEncoders = () => {
@@ -64,7 +67,29 @@ const watchEncoders = () => {
   encoders.peak = 0;
   encoders.holding = Promise.withResolvers<void>();
   encoders.held = Promise.withResolvers<void>();
+  encoders.registered = 0;
+  encoders.thirdRegistered = Promise.withResolvers<void>();
 };
+
+const owners = Layer.effect(
+  StreamOwners.Service,
+  Effect.map(StreamOwners.Service, (real) =>
+    StreamOwners.Service.of({
+      ...real,
+      opened: (streamId, sessionId) =>
+        real.opened(streamId, sessionId).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              if (!encoders.watching) return;
+              encoders.registered += 1;
+
+              if (encoders.registered === 3) encoders.thirdRegistered.resolve();
+            }),
+          ),
+        ),
+    }),
+  ),
+);
 
 const tools = Layer.effect(
   MediaTools.Service,
@@ -113,6 +138,7 @@ const tools = Layer.effect(
 
 const subject = Layer.fresh(StreamSessions.layer).pipe(
   Layer.provideMerge(tools),
+  Layer.provideMerge(owners),
   Layer.provideMerge(space),
   Layer.provideMerge(MediaTestServer.layer({ MAX_CONCURRENT_REMUXES: "1" })),
 );
@@ -252,7 +278,10 @@ describe.skipIf(!hasFfmpeg)("slot credit", () => {
 
           // The third credits both older slots and replaces the second, which has no encoder.
           const third = yield* Effect.forkChild(start);
-          yield* Fiber.await(third).pipe(Effect.timeoutOption("3 seconds"));
+          yield* Effect.promise(() => encoders.thirdRegistered.promise);
+
+          // Registered, it would start its encoder at once without the wait.
+          yield* Fiber.await(third).pipe(Effect.timeoutOption("1 second"));
           const whileStopping = encoders.peak;
 
           encoders.held.resolve();
