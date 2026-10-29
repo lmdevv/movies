@@ -1,5 +1,5 @@
 import { assert, describe, layer } from "@effect/vitest";
-import { Duration, Effect, FileSystem, Option, Path, Schema } from "effect";
+import { Duration, Effect, FileSystem, Option, Path, Schema, Stream } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import { LibraryId } from "@movies/contracts/ids";
@@ -118,7 +118,10 @@ const makeLibrary = Effect.gen(function* () {
 
     if (kept !== output) {
       yield* fs.makeDirectory(path.dirname(output), { recursive: true });
-      yield* fs.link(kept, output).pipe(Effect.catch(() => fs.copyFile(kept, output)));
+      // Not copyFile, whose fchown the NixOS unit's system call filter denies.
+      yield* fs
+        .link(kept, output)
+        .pipe(Effect.catch(() => Stream.run(fs.stream(kept), fs.sink(output))));
     }
   }
 
