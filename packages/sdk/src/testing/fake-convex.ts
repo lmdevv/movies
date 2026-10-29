@@ -10,7 +10,8 @@
  * It also speaks enough of the WebSocket sync protocol for `ConvexClient` queries: it accepts a
  * `User` token while its `exp` lies ahead, answers `ModifyQuerySet` additions through the same
  * handlers, and treats a token Convex would no longer accept the way Convex does, by closing the
- * connection without a close frame or an `AuthError`. Mutations and actions are HTTP-only here.
+ * connection without a close frame or an `AuthError`; `rejectAcceptedTokens` sends the `AuthError`
+ * instead. Mutations and actions are HTTP-only here.
  */
 import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -69,6 +70,11 @@ export interface FakeConvex {
    * token expires: the client reconnects presenting the same token and is cut off again.
    */
   readonly refuseAcceptedTokens: Effect.Effect<void>;
+  /**
+   * Refuses every token accepted so far and sends an `AuthError` on each sync connection that
+   * presents one, as Convex does when a token stops verifying while its connection stays open.
+   */
+  readonly rejectAcceptedTokens: Effect.Effect<void>;
 }
 
 const RequestBody = Schema.fromJsonString(
@@ -326,6 +332,7 @@ export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(fu
   const accepted: Array<string> = [];
   const refused = new Set<string>();
   const syncSockets = new Set<Duplex>();
+  const authErrorSenders = new Set<() => void>();
 
   const answer = (request: RecordedRequest): Effect.Effect<Reply> =>
     Option.match(Option.fromNullishOr(handlers.get(request.path)), {
@@ -378,8 +385,25 @@ export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(fu
     let version = { querySet: 0, identity: 0, ts: 0 };
     let token: string | undefined;
 
+    const sendAuthError = (): void => {
+      if (token === undefined || accepts(token)) return;
+
+      const error = {
+        type: "AuthError",
+        error: "Convex token identity expired",
+        baseVersion: version.identity,
+        authUpdateAttempted: false,
+      };
+
+      writeFrame(socket, OPCODE_TEXT, Buffer.from(JSON.stringify(error)));
+    };
+
     syncSockets.add(socket);
-    socket.on("close", () => syncSockets.delete(socket));
+    authErrorSenders.add(sendAuthError);
+    socket.on("close", () => {
+      syncSockets.delete(socket);
+      authErrorSenders.delete(sendAuthError);
+    });
     socket.on("error", () => socket.destroy());
 
     const transition = (
@@ -556,6 +580,11 @@ export const make: Effect.Effect<FakeConvex, never, Scope.Scope> = Effect.gen(fu
     refuseAcceptedTokens: Effect.sync(() => {
       for (const token of accepted) refused.add(token);
       closeSyncConnections();
+    }),
+    rejectAcceptedTokens: Effect.sync(() => {
+      for (const token of accepted) refused.add(token);
+
+      for (const sendAuthError of authErrorSenders) sendAuthError();
     }),
   };
 });

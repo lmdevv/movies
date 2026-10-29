@@ -254,34 +254,52 @@ const make = Effect.fn("MediaBackend.make")(function* (options: Options) {
       Stream.orDie,
     );
 
+  const markAnswered = Clock.currentTimeMillis.pipe(
+    Effect.flatMap((at) => Ref.set(answeredAt, Option.some(at))),
+  );
+
+  /** Asks Convex for ended sessions since `after`, noting when Convex answers. */
+  const ask = (after: EpochMillis) =>
+    call("mediaService.endedSessions", { after, limit: 1 }).pipe(
+      // Any other failure is Convex answering: the connection works, the function does not.
+      Effect.tapError((error) =>
+        Predicate.isTagged(error, "TransportError") || Predicate.isTagged(error, "Unauthenticated")
+          ? Effect.void
+          : markAnswered,
+      ),
+      Effect.andThen(markAnswered),
+    );
+
   /**
-   * Asks Convex something it must answer itself: the arguments are new each time, so the client
+   * Asks Convex something it must answer itself: `after` is new for each probe, so the client
    * cannot answer from a subscription's cache. A connection can stop answering while it looks
    * connected, as when the Convex client holds a token Convex no longer accepts and never asks
    * for another, so an unanswered probe signs in again, which hands the client a fresh token and
    * resets its auth state. During a Convex outage that sign-in waits, retrying, until Convex is
-   * back.
+   * back. The connection may still be waiting out its own reconnect backoff then, so the probe
+   * asks again each second until the next probe is due; asking with the same `after` shares one
+   * pending query rather than queueing another.
    */
-  const ask = Effect.gen(function* () {
-    const now = yield* Clock.currentTimeMillis;
+  const probe = Effect.gen(function* () {
+    const seen = yield* Ref.get(generation);
+    const after = EpochMillis.make(yield* Clock.currentTimeMillis);
 
-    yield* call("mediaService.endedSessions", { after: EpochMillis.make(now), limit: 1 });
-    yield* Ref.set(answeredAt, Option.some(yield* Clock.currentTimeMillis));
-  });
-
-  const probe = Ref.get(generation).pipe(
-    Effect.flatMap((seen) =>
-      ask.pipe(
-        Effect.catchTag("TransportError", (error) =>
-          Effect.logWarning("MediaBackend.unanswered", error).pipe(
-            Effect.andThen(signIn(seen)),
-            Effect.andThen(ask),
+    yield* ask(after).pipe(
+      Effect.catchTag("TransportError", (error) =>
+        Effect.logWarning("MediaBackend.unanswered", error).pipe(
+          Effect.andThen(signIn(seen)),
+          Effect.andThen(
+            ask(after).pipe(
+              Effect.retry({
+                while: (failure) => Predicate.isTagged(failure, "TransportError"),
+                schedule: Schedule.spaced("1 second").pipe(Schedule.upTo({ duration: probeEvery })),
+              }),
+            ),
           ),
         ),
       ),
-    ),
-    Effect.catch((error) => Effect.logWarning("MediaBackend.probe_failed", error)),
-  );
+    );
+  }).pipe(Effect.catch((error) => Effect.logWarning("MediaBackend.probe_failed", error)));
 
   yield* Deferred.await(ready).pipe(
     Effect.andThen(probe.pipe(Effect.repeat(Schedule.spaced(probeEvery)))),

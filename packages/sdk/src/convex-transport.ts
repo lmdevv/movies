@@ -54,7 +54,8 @@ export interface ClientAdapter {
     onValue: (value: Schema.Json) => void,
     onError: (error: Error) => void,
   ) => Unsubscribe;
-  readonly setAuth: (source: AuthTokenSource | null) => void;
+  /** Resolves once the client uses `source`, or no source when null. */
+  readonly setAuth: (source: AuthTokenSource | null) => Promise<void>;
   readonly close: () => Promise<void>;
 }
 
@@ -177,10 +178,7 @@ export const make = (adapter: ClientAdapter): Effect.Effect<Interface> =>
             (unsubscribe) => Effect.sync(unsubscribe),
           ),
         ),
-      setAuth: (source) =>
-        Effect.sync(() => {
-          adapter.setAuth(source);
-        }),
+      setAuth: (source) => Effect.promise(() => adapter.setAuth(source)),
     }),
   );
 
@@ -238,6 +236,27 @@ const sleep = (millis: number, signal: AbortSignal): Promise<void> =>
     signal.addEventListener("abort", wake);
   });
 
+/** What `promise` resolves to, or null as soon as `signal` aborts. */
+const unlessAborted = <A>(promise: Promise<A>, signal: AbortSignal): Promise<A | null> =>
+  new Promise<A | null>((resolve, reject) => {
+    const abort = (): void => {
+      resolve(null);
+    };
+
+    signal.addEventListener("abort", abort);
+    promise
+      .finally(() => {
+        signal.removeEventListener("abort", abort);
+      })
+      .then(resolve, reject);
+  });
+
+/** Resolves once every callback already queued, timers and promise reactions alike, has run. */
+const nextTask = (): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+
 const signedOut: AuthTokenFetcher = () => Promise.resolve(null);
 
 /**
@@ -250,36 +269,32 @@ const signedOut: AuthTokenFetcher = () => Promise.resolve(null);
  * The same token comes back when a refresh fails for a while, since the session keeps its token,
  * and when a refresh lands in the second the token was minted, since Convex Auth signs to the
  * second. So a forced fetch asks again, waiting longer each time, until it gets a new token or
- * none. `replace` and `retire` end every earlier fetcher's asking at once, so a source is never
- * asked again once the connection signs out, moves to another source, or closes.
+ * none. `install` and `retire` end every earlier fetcher at once: its fetches answer null and its
+ * source is never asked again.
  */
 export const clientTokenFetchers = () => {
   let generation = new AbortController();
+  const fetching = new Set<Promise<string | null>>();
+  let installing = Promise.resolve();
 
   const retire = (): void => {
     generation.abort();
     generation = new AbortController();
   };
 
-  /** The fetcher for `source`, or none to sign out; either way, every earlier one retires. */
-  const replace = (source: AuthTokenSource | null): AuthTokenFetcher | null => {
-    retire();
-
-    if (source === null) return null;
-    const { signal } = generation;
+  const fetcherFor = (source: AuthTokenSource, signal: AbortSignal): AuthTokenFetcher => {
     // The client keeps only the answer of the fetch it started last, so that answer is the token
     // it holds, and an older fetch still asking can stop: its answer will be discarded.
     let held: string | null = null;
     let latest = 0;
-    const stale = (fetch: number): boolean => signal.aborted || fetch !== latest;
 
     const renewed = async (fetch: number, delay: number): Promise<string | null> => {
       if (delay > 0) await sleep(delay, signal);
 
-      if (stale(fetch)) return null;
-      const token = await source(true);
+      if (signal.aborted || fetch !== latest) return null;
+      const token = await unlessAborted(source(true), signal);
 
-      if (token === null || token !== held || stale(fetch)) return token;
+      if (token === null || token !== held || fetch !== latest) return token;
 
       return renewed(
         fetch,
@@ -287,10 +302,13 @@ export const clientTokenFetchers = () => {
       );
     };
 
-    return async ({ forceRefreshToken }) => {
+    const fetchToken = async (forceRefreshToken: boolean): Promise<string | null> => {
       latest += 1;
       const fetch = latest;
-      const token = forceRefreshToken ? await renewed(fetch, 0) : await source(false);
+
+      const token = forceRefreshToken
+        ? await renewed(fetch, 0)
+        : await unlessAborted(source(false), signal);
 
       // Clearing auth leaves the client's scheduled refresh in place, so a retired fetcher can
       // still be asked after a sign-out, and must not hand the old session back.
@@ -300,9 +318,45 @@ export const clientTokenFetchers = () => {
 
       return token;
     };
+
+    return ({ forceRefreshToken }) => {
+      const answer = fetchToken(forceRefreshToken);
+
+      fetching.add(answer);
+      void answer.finally(() => fetching.delete(answer)).catch(() => undefined);
+
+      return answer;
+    };
   };
 
-  return { replace, retire };
+  /**
+   * Retires every earlier fetcher, then hands `apply` the fetcher for `source`, or null to sign
+   * out, once the client has had the answers the retired fetchers owed it. An answer that lands
+   * after the client gets a new fetcher is ignored, and when the client stopped its connection to
+   * wait for that answer, it never restarts the connection.
+   */
+  const install = (
+    source: AuthTokenSource | null,
+    apply: (fetcher: AuthTokenFetcher | null) => void,
+  ): Promise<void> => {
+    retire();
+    const { signal } = generation;
+    const fetcher = source === null ? null : fetcherFor(source, signal);
+    const owed = [...fetching];
+    const previous = installing;
+
+    installing = (async () => {
+      await previous;
+      await Promise.allSettled(owed);
+      await nextTask();
+
+      if (!signal.aborted) apply(fetcher);
+    })();
+
+    return installing;
+  };
+
+  return { install, retire };
 };
 
 const webSocketAdapter = (client: ConvexClient): ClientAdapter => {
@@ -314,9 +368,10 @@ const webSocketAdapter = (client: ConvexClient): ClientAdapter => {
       client.onUpdate(reference("query", path), args, onValue, (error) => {
         onError(toError(error));
       }),
-    setAuth: (source) => {
-      client.setAuth(fetchers.replace(source) ?? signedOut);
-    },
+    setAuth: (source) =>
+      fetchers.install(source, (fetcher) => {
+        client.setAuth(fetcher ?? signedOut);
+      }),
     close: () => {
       fetchers.retire();
 
@@ -406,6 +461,8 @@ const httpAdapter = (client: ConvexHttpClient, options: HttpOptions): ClientAdap
     subscribe,
     setAuth: (next) => {
       source = next;
+
+      return Promise.resolve();
     },
     close: () => Promise.resolve(),
   };

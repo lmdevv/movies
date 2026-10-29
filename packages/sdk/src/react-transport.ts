@@ -33,12 +33,11 @@ const reactAdapter = (client: ConvexReactClient): ClientAdapter => {
 
       return unsubscribe;
     },
-    setAuth: (source: AuthTokenSource | null) => {
-      const fetcher = fetchers.replace(source);
-
-      if (fetcher === null) client.clearAuth();
-      else client.setAuth(fetcher);
-    },
+    setAuth: (source: AuthTokenSource | null) =>
+      fetchers.install(source, (fetcher) => {
+        if (fetcher === null) client.clearAuth();
+        else client.setAuth(fetcher);
+      }),
     close: () => {
       fetchers.retire();
 

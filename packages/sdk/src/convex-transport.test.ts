@@ -1,3 +1,4 @@
+import type { AuthTokenFetcher } from "convex/browser";
 import { ConvexError } from "convex/values";
 import {
   Context,
@@ -147,6 +148,47 @@ describe.concurrent("layerWebSocket", () => {
     expect(later).toBe(stopped);
   }, 15_000);
 
+  it("comes back when a new token source arrives while Convex waits to reauthenticate", async () => {
+    const answer = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fake = yield* FakeConvex.make;
+
+          yield* fake.reply("account:viewer", Reply.Success({ value: "signed in" }));
+          const context = yield* Layer.build(ConvexTransport.layerWebSocket(fake.url));
+          const connection = Context.get(context, ConvexTransport.ConvexTransport);
+          const signedIn = jwtIssuedAt(Date.now(), 3600, "user|session-1");
+          const refreshed = jwtIssuedAt(Date.now(), 3600, "user|session-1-refreshed");
+          let asked = 0;
+
+          // The first refresh works; later ones keep failing, handing back the token they have.
+          yield* connection.setAuth(() => {
+            asked += 1;
+
+            return Promise.resolve(asked === 1 ? signedIn : refreshed);
+          });
+          yield* connection.call("query", "account:viewer", { ask: 1 });
+          yield* Effect.sleep(Duration.millis(300));
+
+          // Convex stops the socket and asks for a new token, which does not come.
+          yield* fake.rejectAcceptedTokens;
+          yield* Effect.sleep(Duration.millis(300));
+
+          // Signing in again, as the media service's probe does.
+          const second = jwtIssuedAt(Date.now(), 3600, "user|session-2");
+
+          yield* connection.setAuth(() => Promise.resolve(second));
+
+          return yield* connection
+            .call("query", "account:viewer", { ask: 2 })
+            .pipe(Effect.timeout(Duration.seconds(5)));
+        }),
+      ),
+    );
+
+    expect(answer).toBe("signed in");
+  }, 20_000);
+
   it("stops asking for a token once closed", async () => {
     const { stopped, later } = await asksAround((_, scope) => Scope.close(scope, Exit.void));
 
@@ -161,15 +203,24 @@ describe("clientTokenFetchers", () => {
     const answers: Array<(token: string) => void> = [];
     let asked = 0;
 
-    const fetcher = clientTokenFetchers().replace(() => {
-      asked += 1;
+    const installed: Array<AuthTokenFetcher> = [];
 
-      return new Promise((resolve) => {
-        answers.push(resolve);
-      });
-    });
+    await clientTokenFetchers().install(
+      () => {
+        asked += 1;
 
-    if (fetcher === null) throw new Error("A source gives a fetcher");
+        return new Promise((resolve) => {
+          answers.push(resolve);
+        });
+      },
+      (given) => {
+        if (given !== null) installed.push(given);
+      },
+    );
+
+    const [fetcher] = installed;
+
+    if (fetcher === undefined) throw new Error("A source gives a fetcher");
     const discarded = fetcher({ forceRefreshToken: true });
     const kept = fetcher({ forceRefreshToken: true });
 

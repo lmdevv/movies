@@ -38,6 +38,13 @@ const RENEWED = jwtExpiringAt(START + 3_600_000, "alex-renewed");
 
 const ROTATED = "refresh-2";
 
+/** A JWT whose `sub` is a number, which Convex Auth never signs but another issuer might. */
+const numericSubject = (expiresAt: number): string =>
+  [{ alg: "none" }, { exp: Math.floor(expiresAt / 1000), sub: 7 }]
+    .map((part) => Buffer.from(JSON.stringify(part)).toString("base64url"))
+    .concat("fake")
+    .join(".");
+
 /** Convex Auth's `sub` claim names the user and the session: `userId|sessionId`. */
 const KEY_SUBJECT = "service|key-session";
 
@@ -193,6 +200,15 @@ describe("Auth", () => {
         expect(yield* auth.currentStatus).toBe("signedIn");
         expect(reveal(yield* auth.accessToken(false))).toBe(FRESH);
         expect(yield* fake.requests).toStrictEqual([]);
+      }),
+    ));
+
+  it("refreshes a token about to expire whatever its subject claim holds", () =>
+    withAuth(signedInWith(numericSubject(START + 30_000)), ({ fake, auth }) =>
+      Effect.gen(function* () {
+        yield* fake.reply("auth:signIn", tokens(RENEWED, ROTATED));
+
+        expect(reveal(yield* auth.accessToken(false))).toBe(RENEWED);
       }),
     ));
 

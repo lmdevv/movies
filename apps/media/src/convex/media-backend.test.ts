@@ -129,7 +129,45 @@ describe("media service Convex connection", () => {
   );
 
   it.live(
-    "says why when Convex answers a probe with a failure",
+    "reports connected soon after Convex answers again, not a probe interval later",
+    () =>
+      Effect.gen(function* () {
+        const fake = yield* makeConvex;
+        const answering = yield* Deferred.make<void>();
+
+        // Convex takes the sign-in but answers no query yet, as while the connection is still
+        // waiting out its reconnect backoff after an outage.
+        yield* fake.handle(ENDED_SESSIONS, () =>
+          Deferred.await(answering).pipe(Effect.as(Reply.Success({ value: [] }))),
+        );
+
+        const backend = yield* Layer.build(
+          MediaBackend.layer({
+            convexUrl: fake.url,
+            apiKey: Redacted.make("mk_service"),
+            callTimeout: Duration.seconds(1),
+            probeEvery: Duration.seconds(30),
+          }),
+        ).pipe(Effect.map((context) => Context.get(context, MediaBackend.Service)));
+
+        yield* fake.requestsTo("auth:signIn").pipe(
+          Effect.repeat({
+            until: (requests) => requests.filter((r) => !isRefresh(r)).length >= 2,
+            schedule: Schedule.spaced("100 millis"),
+          }),
+          Effect.timeout(Duration.seconds(10)),
+        );
+        yield* Effect.sleep(Duration.seconds(2));
+        assert.strictEqual(yield* backend.status, "connecting");
+
+        yield* Deferred.succeed(answering, undefined);
+        yield* awaitStatus(backend, "connected").pipe(Effect.timeout(Duration.seconds(5)));
+      }),
+    40_000,
+  );
+
+  it.live(
+    "stays connected and says why when Convex answers a probe with a failure",
     () => {
       const logged: Array<unknown> = [];
 
@@ -144,7 +182,7 @@ describe("media service Convex connection", () => {
           const fake = yield* makeConvex;
 
           yield* fake.reply(ENDED_SESSIONS, Reply.Crash({ message: "endedSessions broke" }));
-          yield* connect(fake);
+          const backend = yield* connect(fake);
 
           yield* Effect.sync(() => JSON.stringify(logged)).pipe(
             Effect.repeat({
@@ -153,6 +191,9 @@ describe("media service Convex connection", () => {
             }),
             Effect.timeout(Duration.seconds(10)),
           );
+
+          // Convex answered, so the connection works; the failure is the function's.
+          assert.strictEqual(yield* backend.status, "connected");
         }).pipe(Effect.provideContext(loggers));
       });
     },

@@ -114,28 +114,33 @@ const SignInResult = Schema.Struct({ tokens: Schema.optionalKey(Schema.NullOr(To
 
 const decodeSignInResult = Schema.decodeUnknownEffect(SignInResult);
 
-/** Convex Auth signs `sub` as `userId|sessionId`, so equal subjects name one session. */
-const JwtClaims = Schema.Struct({ exp: Schema.Finite, sub: Schema.optionalKey(Schema.String) });
+const ExpiryClaims = Schema.Struct({ exp: Schema.Finite });
 
-const decodeClaims = Schema.decodeUnknownOption(Schema.fromJsonString(JwtClaims));
+/** Convex Auth signs `sub` as `userId|sessionId`, so equal subjects name one session. */
+const SubjectClaims = Schema.Struct({ sub: Schema.String });
+
+const decodeExpiry = Schema.decodeUnknownOption(Schema.fromJsonString(ExpiryClaims));
+
+const decodeSubject = Schema.decodeUnknownOption(Schema.fromJsonString(SubjectClaims));
 
 const EXPIRY_MARGIN_MS = 60_000;
 
-const tokenClaims = (token: string): Option.Option<typeof JwtClaims.Type> => {
+const tokenPayload = (token: string): Option.Option<string> => {
   const [, payload] = token.split(".");
 
   if (payload === undefined) return Option.none();
   const text = Base64Url.decodeString(payload);
 
-  return Result.isSuccess(text) ? decodeClaims(text.success) : Option.none();
+  return Result.isSuccess(text) ? Option.some(text.success) : Option.none();
 };
 
 const tokenExpiry = (token: string): Option.Option<number> =>
-  Option.map(tokenClaims(token), (claims) => claims.exp * 1000);
+  Option.map(Option.flatMap(tokenPayload(token), decodeExpiry), (claims) => claims.exp * 1000);
 
 const sessionOf = (session: StoredSession): Option.Option<string> =>
-  Option.flatMap(tokenClaims(Redacted.value(session.token)), (claims) =>
-    Option.fromNullishOr(claims.sub),
+  Option.map(
+    Option.flatMap(tokenPayload(Redacted.value(session.token)), decodeSubject),
+    (claims) => claims.sub,
   );
 
 const isSameSession = (a: StoredSession, b: StoredSession): boolean => {
