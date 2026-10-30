@@ -11,6 +11,7 @@ import type {
 } from "@movies/contracts/models/catalog";
 
 import { episodeCode, facts, formatRuntime, progressFraction } from "./format";
+import type { WidthClass } from "./layout";
 import { watchHref } from "./routes";
 
 /** `1 movie`, `8 movies`. */
@@ -311,24 +312,66 @@ export const ofKind = (
 ): ReadonlyArray<TitleCard> =>
   kind === "all" ? titles : titles.filter((title) => title.kind === kind);
 
-const GRID_COLUMNS = 3;
+/** The space around a grid's posters, in points: the page's side gutter and the gap between them. */
+export interface GridSpacing {
+  readonly gutter: number;
+  readonly gap: number;
+}
 
-/** A grid cell: a title, or a blank that keeps the last row's posters at a third of the width. */
-export type GridCell =
+/** Paper's grid spacing for each width class, the same as `px-5 gap-2`, `px-8 gap-3`, `px-12 gap-3`. */
+export const GRID_SPACING: Readonly<Record<WidthClass, GridSpacing>> = {
+  compact: { gutter: 20, gap: 8 },
+  regular: { gutter: 32, gap: 12 },
+  wide: { gutter: 48, gap: 12 },
+};
+
+/** The narrowest an iPad grid lets a poster get before it drops a column, in points. */
+const GRID_POSTER_MIN = 150;
+
+/**
+ * How many columns of posters fit a window `width` points wide: as many as stay 150 points wide,
+ * and never fewer than an iPhone's three.
+ */
+export const gridColumns = (width: number, spacing: GridSpacing): number =>
+  Math.max(
+    3,
+    Math.floor((width - 2 * spacing.gutter + spacing.gap) / (GRID_POSTER_MIN + spacing.gap)),
+  );
+
+/** A grid cell: a title, or a blank that keeps the last row's posters as wide as the rest. */
+type GridCell =
   | { readonly kind: "title"; readonly title: TitleCard }
   | { readonly kind: "blank"; readonly key: string };
 
-/** The cells of a three-column grid of `titles`, padded with blanks to whole rows. */
-export const gridCells = (titles: ReadonlyArray<TitleCard>): ReadonlyArray<GridCell> => {
-  const blanks = (GRID_COLUMNS - (titles.length % GRID_COLUMNS)) % GRID_COLUMNS;
+/** One row of a grid and the key that names it. */
+export interface GridRow {
+  readonly key: string;
+  readonly cells: ReadonlyArray<GridCell>;
+}
 
-  return [
+/** The rows of a grid of `titles` in `columns` columns, the last padded with blanks to a whole row. */
+export const gridRows = (
+  titles: ReadonlyArray<TitleCard>,
+  columns: number,
+): ReadonlyArray<GridRow> => {
+  const blanks = (columns - (titles.length % columns)) % columns;
+
+  const cells = [
     ...titles.map((title): GridCell => ({ kind: "title", title })),
     ...Array.from({ length: blanks }, (_, index): GridCell => ({
       kind: "blank",
       key: `blank-${index}`,
     })),
   ];
+
+  return Array.from({ length: cells.length / columns }, (_, row) => {
+    const slice = cells.slice(row * columns, (row + 1) * columns);
+
+    return {
+      key: slice.map((cell) => (cell.kind === "title" ? cell.title.id : cell.key)).join(),
+      cells: slice,
+    };
+  });
 };
 
 /** The titles a person is credited on, once each, in the order the server lists them. */

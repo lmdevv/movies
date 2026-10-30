@@ -5,8 +5,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
-import { gridCells } from "@/lib/browse";
+import { gridRows } from "@/lib/browse";
 import { describeFailure } from "@/lib/failure";
+import { useGridLayout } from "@/lib/use-width-class";
 
 import { TitlePoster } from "../title-poster";
 import type { TitlePages } from "./title-pages";
@@ -20,27 +21,37 @@ export interface PosterGridProps {
   readonly onEndReached?: (() => void) | undefined;
 }
 
-/** A scrolling grid of posters. */
+/** A scrolling grid of posters, with as many columns as the window's width holds. */
 export function PosterGrid({ titles, header, footer, empty, onEndReached }: PosterGridProps) {
   const insets = useSafeAreaInsets();
+  const { columns, spacing } = useGridLayout();
 
   return (
+    // One item per row, so a new column count reflows the rows without remounting the list and
+    // losing its place when the window turns.
     <FlatList
-      data={gridCells(titles)}
-      numColumns={3}
-      keyExtractor={(cell) => (cell.kind === "title" ? cell.title.id : cell.key)}
-      renderItem={({ item }) =>
-        item.kind === "title" ? (
-          <TitlePoster title={item.title} caption="grid" widthClassName="flex-1" />
-        ) : (
-          <View className="flex-1" />
-        )
-      }
+      data={gridRows(titles, columns)}
+      keyExtractor={(row) => row.key}
+      renderItem={({ item }) => (
+        <View className="flex-row" style={{ gap: spacing.gap, paddingHorizontal: spacing.gutter }}>
+          {item.cells.map((cell) =>
+            cell.kind === "title" ? (
+              <TitlePoster
+                key={cell.title.id}
+                title={cell.title}
+                caption="grid"
+                widthClassName="flex-1"
+              />
+            ) : (
+              <View key={cell.key} className="flex-1" />
+            ),
+          )}
+        </View>
+      )}
       ListHeaderComponent={header}
       ListFooterComponent={footer}
       ListEmptyComponent={empty}
       ListFooterComponentClassName="pb-6"
-      columnWrapperClassName="gap-2 px-5"
       contentContainerClassName="gap-5 pt-2"
       contentContainerStyle={{ paddingBottom: insets.bottom }}
       contentInsetAdjustmentBehavior="automatic"
@@ -57,7 +68,7 @@ export function PosterGrid({ titles, header, footer, empty, onEndReached }: Post
 export function PagingFooter({ pages }: { readonly pages: TitlePages }) {
   if (pages.failure !== null && pages.titles.length > 0) {
     return (
-      <View className="items-center gap-3 px-5 pt-4">
+      <View className="items-center gap-3 px-5 pt-4 regular:px-8 wide:px-12">
         <Text variant="meta" tone="danger" className="text-center">
           {describeFailure(pages.failure.cause)}
         </Text>

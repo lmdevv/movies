@@ -38,7 +38,7 @@ export default function GenrePage() {
           genre={genre}
           kind={kind}
           chips={
-            <View className="px-5 pt-4 pb-1">
+            <View className="px-5 pt-4 pb-1 regular:px-8 wide:px-12">
               <KindChips kind={kind} onChange={setKind} />
             </View>
           }

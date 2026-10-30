@@ -15,9 +15,10 @@ import { TitlePoster } from "@/components/title-poster";
 import { Button } from "@/components/ui/button";
 import { CalmState } from "@/components/ui/calm-state";
 import { Text } from "@/components/ui/text";
-import { gridCells, popularTitles } from "@/lib/browse";
+import { gridRows, popularTitles } from "@/lib/browse";
 import type { KindFilter } from "@/lib/browse";
 import { describeFailure } from "@/lib/failure";
+import { useGridLayout } from "@/lib/use-width-class";
 import { useThemeColor } from "@/lib/theme-color";
 import { useActiveProfile } from "@/session/active-profile";
 
@@ -89,7 +90,7 @@ export default function Search() {
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         className="flex-1 bg-bg"
-        contentContainerClassName="gap-6 px-5 pt-2"
+        contentContainerClassName="gap-6 px-5 pt-2 regular:px-8 wide:px-12"
       >
         {query === "" ? (
           <Explore />
@@ -118,8 +119,8 @@ function Explore() {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            className="-mx-5"
-            contentContainerClassName="gap-2 px-5"
+            className="-mx-5 regular:-mx-8 wide:-mx-12"
+            contentContainerClassName="gap-2 px-5 regular:px-8 wide:px-12"
           >
             {genres.data.slice(0, EXPLORE_GENRES).map((genre, index) => (
               <Chip
@@ -241,25 +242,18 @@ function ResultGrid({
   readonly title: string;
   readonly titles: ReadonlyArray<TitleCard>;
 }) {
+  const { columns, spacing } = useGridLayout();
+
   if (titles.length === 0) return null;
-
-  const cells = gridCells(titles);
-
-  const rows = Array.from({ length: cells.length / 3 }, (_, row) =>
-    cells.slice(row * 3, row * 3 + 3),
-  );
 
   return (
     <View className="gap-4">
       <Text variant="heading" accessibilityRole="header">
         {title}
       </Text>
-      {rows.map((row) => (
-        <View
-          key={row.map((cell) => (cell.kind === "title" ? cell.title.id : cell.key)).join()}
-          className="flex-row gap-2"
-        >
-          {row.map((cell) =>
+      {gridRows(titles, columns).map((row) => (
+        <View key={row.key} className="flex-row" style={{ gap: spacing.gap }}>
+          {row.cells.map((cell) =>
             cell.kind === "title" ? (
               <TitlePoster
                 key={cell.title.id}
