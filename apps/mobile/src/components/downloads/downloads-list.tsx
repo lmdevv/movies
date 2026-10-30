@@ -57,7 +57,7 @@ function DownloadsBody({
   }
 
   return (
-    <View className="gap-4 px-5 py-4">
+    <View className="gap-4 px-5 py-4 regular:w-full regular:max-w-readable regular:self-center regular:px-0">
       <ListRow icon={Download} title={summary.items} detail={summary.size} onPress={openSettings} />
       {downloads.map((download) => (
         <DownloadRow key={download.id} engine={engine} download={download} />

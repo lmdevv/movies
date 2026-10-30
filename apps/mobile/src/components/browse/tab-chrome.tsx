@@ -45,7 +45,7 @@ export function LargeTitle({
 
   return (
     <View style={{ paddingTop: insets.top }}>
-      <View className="h-16 flex-row items-center pr-16 pl-5">
+      <View className="h-16 flex-row items-center pr-16 pl-5 regular:pl-8 wide:pl-12">
         <Text
           variant="largeTitle"
           tone={overMedia ? "onMedia" : "default"}
@@ -105,7 +105,10 @@ export function CompactBar({
           </View>
         </Animated.View>
       ) : null}
-      <View className="h-16 flex-row items-center gap-3 px-5" pointerEvents="box-none">
+      <View
+        className="h-16 flex-row items-center gap-3 px-5 regular:px-8 wide:px-12"
+        pointerEvents="box-none"
+      >
         <View className="flex-1" pointerEvents="none">
           {collapsed ? (
             <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)}>

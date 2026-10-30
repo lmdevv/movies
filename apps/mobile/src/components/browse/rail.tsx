@@ -24,7 +24,7 @@ export function Rail<Item>({ title, items, keyOf, render, note, onSeeAll }: Rail
   return (
     <View className="gap-4">
       {onSeeAll === undefined ? (
-        <View className="flex-row items-baseline gap-2 px-5">
+        <View className="flex-row items-baseline gap-2 px-5 regular:px-8 wide:px-12">
           <Text variant="heading" accessibilityRole="header" numberOfLines={1}>
             {title}
           </Text>
@@ -39,7 +39,7 @@ export function Rail<Item>({ title, items, keyOf, render, note, onSeeAll }: Rail
           accessibilityRole="button"
           accessibilityLabel={`All ${title}`}
           onPress={onSeeAll}
-          className="flex-row items-center gap-1 self-start px-5 active:opacity-60"
+          className="flex-row items-center gap-1 self-start px-5 active:opacity-60 regular:px-8 wide:px-12"
         >
           <Text variant="heading" numberOfLines={1}>
             {title}
@@ -53,7 +53,7 @@ export function Rail<Item>({ title, items, keyOf, render, note, onSeeAll }: Rail
         keyExtractor={keyOf}
         renderItem={({ item }) => render(item)}
         showsHorizontalScrollIndicator={false}
-        contentContainerClassName="gap-3 px-5"
+        contentContainerClassName="gap-3 px-5 regular:gap-4 regular:px-8 wide:px-12"
       />
     </View>
   );

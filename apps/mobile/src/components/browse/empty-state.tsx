@@ -18,7 +18,7 @@ export interface EmptyStateProps {
   readonly placement?: "page" | "results";
 }
 
-/** A centered empty state. */
+/** A centered empty state, in the readable column on an iPad. */
 export function EmptyState({
   icon,
   title,
@@ -27,7 +27,9 @@ export function EmptyState({
   placement = "page",
 }: EmptyStateProps) {
   return (
-    <View className={placement === "page" ? "gap-4 px-5 pt-30" : "gap-4 pt-14"}>
+    <View
+      className={`${placement === "page" ? "gap-4 px-5 pt-30 regular:px-0" : "gap-4 pt-14"} regular:w-full regular:max-w-readable regular:self-center`}
+    >
       <View className="items-center gap-4 py-6">
         <View className="size-18 items-center justify-center rounded-pill bg-surface">
           <Icon icon={icon} size="badge" />

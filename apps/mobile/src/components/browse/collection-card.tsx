@@ -31,24 +31,36 @@ export function CollectionCard({
       accessibilityRole="button"
       accessibilityLabel={`${collection.name}, ${count}`}
       onPress={() => router.push(`/collection/${collection.id}`)}
-      className={`${rail ? "w-66 gap-1.5" : "w-full gap-2"} active:opacity-80`}
+      className={`${rail ? "w-66 gap-1.5 regular:w-80 regular:gap-2 wide:w-90" : "w-full gap-2"} active:opacity-80`}
     >
       <View
         className={`overflow-hidden bg-surface-raised ${
-          rail ? "h-37 rounded-control" : "h-45 rounded-card"
+          rail ? "h-37 rounded-control regular:h-45 wide:h-50.75" : "h-45 rounded-card"
         }`}
       >
         {uri === undefined ? null : (
           <Image source={{ uri }} contentFit="cover" transition={150} className="size-full" />
         )}
       </View>
-      <Text variant={rail ? "label" : "title"} numberOfLines={rail ? 1 : 2}>
-        {collection.name}
-      </Text>
-      {rail ? null : (
-        <Text variant="secondary" tone="muted">
-          {count}
-        </Text>
+      {rail ? (
+        <View className="gap-0.5">
+          <Text variant="railCardName" numberOfLines={1}>
+            {collection.name}
+          </Text>
+          {/* An iPad's rail cards carry the count under the name, as the wide cards do. */}
+          <Text variant="meta" tone="muted" className="hidden regular:flex">
+            {count}
+          </Text>
+        </View>
+      ) : (
+        <>
+          <Text variant="title" numberOfLines={2}>
+            {collection.name}
+          </Text>
+          <Text variant="secondary" tone="muted">
+            {count}
+          </Text>
+        </>
       )}
     </Pressable>
   );

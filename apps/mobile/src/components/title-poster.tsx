@@ -14,13 +14,18 @@ import { Text } from "./ui/text";
 export interface TitlePosterProps {
   readonly title: TitleCard;
   /**
-   * The name under the artwork: 15pt in rails (`rail`), 13pt in grids (`grid`), or
-   * none.
+   * The name under the artwork: 15pt in rails (`rail`), 13pt in an iPhone's grids and 15pt in an
+   * iPad's (`grid`), or none.
    */
   readonly caption?: "rail" | "grid" | "none";
+  /** A muted line under the name, such as `Movie · 2012`. */
+  readonly detail?: string | undefined;
   /** The 2:3 poster, or the title's wide still. */
   readonly artwork?: "poster" | "still";
-  /** Tailwind width class; `w-28` for posters and `w-66` (264pt) for stills, and grids pass `flex-1`. */
+  /**
+   * Tailwind width classes; Paper's rail widths for posters (112, 144 and 168pt by width class) and
+   * stills (264, 320 and 360pt), and grids pass `flex-1`.
+   */
   readonly widthClassName?: string;
 }
 
@@ -28,8 +33,11 @@ export interface TitlePosterProps {
 export function TitlePoster({
   title,
   caption = "rail",
+  detail,
   artwork = "poster",
-  widthClassName = artwork === "still" ? "w-66" : "w-28",
+  widthClassName = artwork === "still"
+    ? "w-66 regular:w-80 wide:w-90"
+    : "w-28 regular:w-36 wide:w-42",
 }: TitlePosterProps) {
   const { mediaUrl } = useServer();
   const still = artwork === "still";
@@ -50,10 +58,10 @@ export function TitlePoster({
             accessibilityRole="button"
             accessibilityLabel={title.name}
             accessibilityHint="Opens the title. Touch and hold for actions."
-            className="w-full gap-1.5 active:opacity-80"
+            className="w-full gap-1.5 active:opacity-80 regular:gap-2"
           >
             <View
-              className={`${still ? "h-37" : "aspect-2/3"} w-full overflow-hidden rounded-control bg-surface-raised`}
+              className={`${still ? "h-37 regular:h-45 wide:h-50.75" : "aspect-2/3"} w-full overflow-hidden rounded-control bg-surface-raised`}
             >
               {uri === undefined ? (
                 <View className="flex-1 items-center justify-center p-2">
@@ -66,9 +74,16 @@ export function TitlePoster({
               )}
             </View>
             {caption === "none" ? null : (
-              <Text variant={caption === "rail" ? "label" : "metaStrong"} numberOfLines={2}>
-                {title.name}
-              </Text>
+              <View className="gap-0.5">
+                <Text variant={caption === "rail" ? "label" : "posterCaption"} numberOfLines={2}>
+                  {title.name}
+                </Text>
+                {detail === undefined ? null : (
+                  <Text variant="meta" tone="muted" numberOfLines={1}>
+                    {detail}
+                  </Text>
+                )}
+              </View>
             )}
           </Pressable>
         </Link.Trigger>
