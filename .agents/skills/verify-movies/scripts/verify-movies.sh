@@ -681,6 +681,8 @@ ios_sign_in() {
       tapped=1
     # A phone's tab bar is a Tab Bar; an iPad's sits at the top as a toolbar of radio buttons.
     elif grep -qE 'Tab Bar|^ *Home = 1 \| RadioButton' <<<"$tree"; then
+      # The Save Password card can land after Home does, over the next screenshot.
+      sleep 3; ios_dismiss_save_password || true
       return 0
     fi
     sleep 1
@@ -747,36 +749,59 @@ cmd_ios() {
   esac
 }
 
-# Turns the simulator. simctl has no rotation, so this goes through agent-device, which T3's device
-# hub keeps on the Mac. The app's layout follows the window, so give it a moment to settle.
+# Runs an agent-device command in this side's session on the simulator. agent-device, which T3's
+# device hub keeps on the Mac, acts within a session, and opening the running app in one only
+# brings it forward. Its runner turns commands away while a slow capture finishes, so a failure gets
+# two more tries a few seconds apart.
+ios_agent() {
+  local try
+  for try in 1 2 3; do
+    on_mac "ad=\$(ls -d ~/.t3/device/tools/agent-device@*/node_modules/.bin/agent-device | tail -1); session=movies-verify-$run-$side \
+      && \$ad open dev.lmdevv.movies --udid $(udid) --platform ios --session \$session >/dev/null \
+      && \$ad $* --session \$session" && return 0
+    ((try < 3)) && sleep 4
+  done
+  return 1
+}
+
+# Turns the simulator, which simctl can't. The app's layout follows the window, so give it a moment.
 ios_orientation() {
   local to="$1"
   [[ "$to" == landscape ]] && to=landscape-left
   [[ "$to" == portrait || "$to" == landscape-left ]] || die "ios orientation portrait|landscape"
-  # agent-device acts within a session, and opening the running app in one only brings it forward.
-  on_mac "ad=\$(ls -d ~/.t3/device/tools/agent-device@*/node_modules/.bin/agent-device | tail -1); session=movies-verify-$run-$side \
-    && \$ad open dev.lmdevv.movies --udid $(udid) --platform ios --session \$session >/dev/null \
-    && \$ad orientation $to --session \$session >/dev/null"
+  ios_turned "$to" && return 0
+  ios_agent orientation "$to" >/dev/null
   sleep 2
+  ios_turned "$to" || die "the simulator did not turn $1 (the app is $(ios_tree | sed -n '1s/.* //p'))"
+}
+
+ios_turned() {
   local size
   size="$(ios_tree | sed -n '1s/.* \([0-9]*\)x\([0-9]*\)$/\1 \2/p')"
-  if [[ "$to" == portrait ]]; then ((${size% *} < ${size#* })); else ((${size% *} > ${size#* })); fi \
-    || die "the simulator did not turn $1 (the app is ${size/ /x})"
+  if [[ "$1" == portrait ]]; then ((${size% *} < ${size#* })); else ((${size% *} > ${size#* })); fi
 }
 
 # Opens an app path, such as /title/<id>, as a link to the app's own scheme. Expo Router routes it.
+# iOS often asks "Open in [movies]?" first; agent-device reads the system's alert and accepts it.
 ios_open() {
   on_mac "xcrun simctl openurl $(udid) $(printf %q "movies://$1")"
-  # iOS often asks before a link from outside opens the app. The alert is the system's, so it isn't in
-  # the app's tree; its Open button sits just right of and below the screen's centre. AXe taps in
-  # the screen's current points but describes a point in portrait ones, so landscape swaps them.
-  local size x y probe
-  size="$(ios_tree | sed -n '1s/.* \([0-9]*\)x\([0-9]*\)$/\1 \2/p')"
-  x=$(( ${size% *} / 2 + 74 )) y=$(( ${size#* } / 2 + 10 )) probe="$x,$y"
-  (( ${size% *} > ${size#* } )) && probe="$y,$x"
-  on_mac "for _ in \$(seq 1 8); do
-      if $axe describe-ui --point $probe --udid $(udid) 2>/dev/null | grep -E '^  \"AXLabel\" : \"Open\"' >/dev/null; then
-        $axe touch -x $x -y $y --down --up --delay 0.15 --udid $(udid) >/dev/null; exit 0; fi; sleep 0.5; done"
+  local _
+  for _ in 1 2 3 4; do
+    ios_agent alert wait 3000 >/dev/null 2>&1 || return 0
+    [[ "$(ios_alert)" == "Open in"* ]] || return 0
+    ios_agent alert accept >/dev/null 2>&1 || true
+    sleep 1
+  done
+}
+
+# Prints the message of the iOS alert on screen, nothing when there is none, or `?` when
+# agent-device could not tell.
+ios_alert() {
+  ios_agent alert get --json 2>/dev/null | node -e '
+    const replies = require("node:fs").readFileSync(0, "utf8").split(/\n(?=\{)/u);
+    const reply = JSON.parse(replies.at(-1) || "{}");
+    if (reply.success) console.log(reply.data.message);
+    else if (reply.error?.details?.runnerErrorCode !== "ALERT_NOT_FOUND") console.log("?");' || echo "?"
 }
 
 # Screenshots each screen in ios_matrix_screens in each orientation, named
@@ -793,7 +818,7 @@ ios_matrix() {
   done
   [[ -n "$out" ]] || die "ios matrix needs --out DIR"
   mkdir -p "$out"
-  local device orientation screen name path screens
+  local device orientation screen name path screens alert
   device="$(slug "$(read_state ios_device)")"
   # Read up front: ssh in the loop would take the rest of the list as its input.
   mapfile -t screens < <(ios_matrix_screens)
@@ -804,6 +829,12 @@ ios_matrix() {
       [[ -z "$only" || "$only" == *",$name,"* ]] || continue
       ios_open "$path"
       sleep 4
+      # A screenshot under a system prompt shows the prompt, not the screen, and passes for one.
+      # agent-device also reports the app's own sheets, such as Seasons; iOS's prompts ask a
+      # question ("Open in …?", "Save Password?") or for permission.
+      alert="$(ios_alert)"
+      [[ "$alert" != "?" ]] || say "could not check $name for an iOS prompt; look at it"
+      [[ "$alert" == "?" || ! "$alert" =~ \?$|"Would Like" ]] || die "an iOS prompt covers $name: $alert"
       on_mac "xcrun simctl io $(udid) screenshot --type=png /tmp/movies-verify-$run-$side.png >/dev/null 2>&1"
       scp -q "$mac:/tmp/movies-verify-$run-$side.png" "$out/$device-$orientation-$name.png"
       echo "$out/$device-$orientation-$name.png"
