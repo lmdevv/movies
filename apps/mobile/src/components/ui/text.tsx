@@ -9,6 +9,7 @@ import type { TextProps as NativeTextProps } from "react-native";
 
 const VARIANTS = {
   hero: "font-sans-heavy text-display leading-display tracking-display",
+  displayName: "font-sans-bold text-display leading-display tracking-display",
   display: "font-sans-bold text-ios-40 leading-ios-46 tracking-display",
   heroTitle: "font-sans-bold text-ios-48 leading-ios-54 tracking-display",
   wordmark: "font-sans-heavy text-ios-48 leading-ios-54",

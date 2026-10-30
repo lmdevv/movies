@@ -22,7 +22,7 @@ const breakpoint = (name: string, value: CssValue): number => {
  * variants, so code and classes switch at the same width. An iPhone is always compact: turned for
  * the player it is as wide as an iPad mini, with a phone's height.
  */
-const useWidthClass = (): WidthClass => {
+export const useWidthClass = (): WidthClass => {
   const { width } = useWindowDimensions();
   const [regular, wide] = useCSSVariable(["--breakpoint-regular", "--breakpoint-wide"]);
 

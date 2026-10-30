@@ -3,6 +3,7 @@ import { Ellipsis, Play, RotateCw, Trash2 } from "lucide-react-native";
 import { ScrollView, View } from "react-native";
 
 import { DownloadRow, useDownloadPicture } from "@/components/downloads/download-row";
+import { CENTERED_COLUMN } from "@/components/ui/page-layout";
 import { Button } from "@/components/ui/button";
 import { CalmState } from "@/components/ui/calm-state";
 import { IconButton } from "@/components/ui/icon-button";
@@ -44,7 +45,7 @@ function KeptDownload({
         />
       }
     >
-      <ScrollView contentContainerClassName="gap-4 px-5 py-4">
+      <ScrollView contentContainerClassName={`gap-4 px-5 py-4 ${CENTERED_COLUMN}`}>
         <View className="aspect-video w-full overflow-hidden rounded-card bg-surface-raised">
           {picture === undefined ? null : (
             <Image source={{ uri: picture }} contentFit="cover" className="size-full" />

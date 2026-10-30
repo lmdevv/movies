@@ -14,6 +14,7 @@ import { Text } from "@/components/ui/text";
 import { artworkUrl } from "@/lib/artwork";
 import { useServer } from "@/session/connection";
 
+import { CENTERED_COLUMN } from "@/components/ui/page-layout";
 import { AboutRow } from "./title-sections";
 import { useRunner } from "./use-title-actions";
 
@@ -35,6 +36,7 @@ export function FileUnavailable({ title }: { readonly title: TitleDetail }) {
     <Screen
       scroll
       edges={["top"]}
+      contentClassName={CENTERED_COLUMN}
       header={
         <NavHeader
           title={title.name}
