@@ -6,7 +6,7 @@
 #   verify-movies.sh browser [--side S] <command> [flags]
 #   verify-movies.sh cli [--side S] [--as PERSON] -- <movies args>
 #   verify-movies.sh logs [--side S] [--service movies|convex] [lines]
-#   verify-movies.sh ios <up|doctor|describe|find|tap|type|swipe|wait|shot|record|appearance|sign-in|down> [--side S] ...
+#   verify-movies.sh ios <up|doctor|describe|find|tap|type|swipe|wait|shot|record|appearance|orientation|open|matrix|sign-in|down> [--side S] ...
 #   verify-movies.sh evidence <add|list|clear|publish> ...
 #   verify-movies.sh status
 #   verify-movies.sh down [--side S] [--purge]
@@ -524,7 +524,13 @@ before_source() {
 
 # The dev client, built on the Mac from this checkout: the checkout syncs to ~/movies-ios/verify-<run>
 # there, `expo prebuild` runs only when the native inputs changed, and xcodebuild builds into
-# ~/movies-ios/dd-verify-<run>. Later runs reuse the build; JavaScript always comes from Metro.
+# ~/movies-ios/dd-verify-<run>. The app then moves to ~/movies-ios/dev-client-<hash>, named for the
+# native inputs, and the derived data goes, so every run and worktree with the same inputs installs
+# one build. JavaScript always comes from Metro.
+native_hash() {
+  (cd "${1:-$root}/apps/mobile" && (cat app.json package.json ../../pnpm-lock.yaml; find assets -type f | sort) | sha1sum | cut -d' ' -f1)
+}
+
 ios_build() {
   local id="$1" remote="$mac_dir/verify-$run"
   local app="$remote/apps/mobile"
@@ -538,14 +544,20 @@ ios_build() {
          CI=1 npx expo prebuild -p ios --clean >/dev/null && echo \"\$hash\" > ios/.native-hash; fi"
   on_mac "cd $app/ios && xcodebuild -workspace movies.xcworkspace -scheme movies -configuration Debug \
       -sdk iphonesimulator -destination id=$id -derivedDataPath ~/$mac_dir/dd-verify-$run build -quiet"
+  # Copy, then rename: two runs finishing the same build at once each leave a whole app.
+  local shared="$mac_dir/dev-client-$(native_hash)"
+  on_mac "rm -rf ~/$shared.tmp-$run && mkdir -p ~/$shared.tmp-$run \
+    && cp -R ~/$mac_dir/dd-verify-$run/Build/Products/Debug-iphonesimulator/movies.app ~/$shared.tmp-$run/ \
+    && { [ -d ~/$shared ] || mv ~/$shared.tmp-$run ~/$shared; } && rm -rf ~/$shared.tmp-$run ~/$mac_dir/dd-verify-$run"
 }
 
 cmd_ios_up() {
-  local sim_type="iPhone 17 Pro" dark=1
+  local sim_type="iPhone 17 Pro" dark=1 source=""
   set -- "${args[@]:1}"
   while (($#)); do
     case "$1" in
       --device) sim_type="$2"; shift 2 ;;
+      --source) source="$(cd "$2" && pwd)"; shift 2 ;;
       --light) dark=0; shift ;;
       *) die "ios up: unknown flag $1" ;;
     esac
@@ -556,10 +568,10 @@ cmd_ios_up() {
   # The Mac's disk runs nearly full, and a full disk fails a build or a boot halfway with errors
   # that don't say why. A simulator needs about 2 GB; a first build also needs about 7 GB for the
   # synced checkout and its derived data.
-  local app="\$HOME/$mac_dir/dd-verify-$run/Build/Products/Debug-iphonesimulator/movies.app" free need=3
+  local app="\$HOME/$mac_dir/dev-client-$(native_hash)/movies.app" free need=3
   on_mac "test -d $app" || need=10
   free="$(on_mac "df -g \$HOME | awk 'NR == 2 { print \$4 }'")"
-  ((free >= need)) || die "$mac has ${free} GB free and ios up needs ${need} GB; free space there (\`down --purge\` removes only this run's build)"
+  ((free >= need)) || die "$mac has ${free} GB free and ios up needs ${need} GB; free space there (\`down --purge\` removes this run's checkout there and the dev client for its native inputs, which other runs with the same inputs share)"
 
   local port convex_port metro src
   port="$(read_state port)"
@@ -577,6 +589,13 @@ cmd_ios_up() {
 
   src="$root"
   [[ "$side" == before ]] && src="$(before_source)"
+  if [[ -n "$source" ]]; then
+    # The dev client is built from this checkout, so another checkout's JavaScript only runs on it
+    # when both ask for the same native code.
+    [[ "$(native_hash "$source")" == "$(native_hash)" ]] \
+      || die "$source changes the app's native inputs; run verify-movies from that checkout instead"
+    src="$source"
+  fi
   say "starting Metro for $src on port $metro"
   # Not CI=1: that turns off file watching and the app keeps serving the first bundle.
   # Its own session, so `ios down` stops pnpm, Expo, and Metro's workers as one process group. The
@@ -593,6 +612,7 @@ cmd_ios_up() {
   local id
   id="$(on_mac "xcrun simctl create movies-verify-$run-$side $(printf %q "$sim_type")")"
   write_state ios_udid "$id"
+  write_state ios_device "$sim_type"
   on_mac "xcrun simctl boot $id && xcrun simctl bootstatus $id -b >/dev/null"
   ((dark)) && on_mac "xcrun simctl ui $id appearance dark"
 
@@ -627,14 +647,15 @@ cmd_ios_up() {
 
 # A first password sign-in on a new simulator brings up iOS's own "Save Password?" sheet over the
 # app. It isn't in the app's tree, so `ios_tree` can't see it, but AXe describes the element at a
-# point. The sheet sits centred with "Not Now" on its left, so look down a third of the way across
-# the screen for it and tap it. Only a top-level match counts: above the button, the point is on
+# point. The sheet sits centred with "Not Now" on its left, on an iPhone as a wide sheet and on an
+# iPad as a 300-point card, so look down the line 76 points left of centre, which crosses the
+# button on both, and tap it. Only a top-level match counts: above the button, the point is on
 # the sheet itself, whose children include the button. Returns 1 when no such sheet shows.
 ios_dismiss_save_password() {
   local size
   size="$(ios_tree | sed -n '1s/.* \([0-9]*\)x\([0-9]*\)$/\1 \2/p')"
   [[ -n "$size" ]] || return 1
-  on_mac "x=$(( ${size% *} / 3 )); for y in \$(seq $(( ${size#* } / 3 )) 12 $(( ${size#* } * 9 / 10 ))); do
+  on_mac "x=$(( ${size% *} / 2 - 76 )); for y in \$(seq $(( ${size#* } / 3 )) 12 $(( ${size#* } * 9 / 10 ))); do
       if $axe describe-ui --point \$x,\$y --udid $(udid) 2>/dev/null | grep -E '^  \"AXLabel\" : \"Not Now\"' >/dev/null; then
         $axe touch -x \$x -y \$y --down --up --delay 0.15 --udid $(udid) >/dev/null; exit 0; fi; done; exit 1"
 }
@@ -642,6 +663,7 @@ ios_dismiss_save_password() {
 ios_sign_in() {
   local tree
   tree="$(ios_tree)"
+  local typed=0
   # Already signed in, on the profile picker: only the pick is left.
   if ! grep -q 'Manage Profiles' <<<"$tree"; then
     if ! grep -q 'Sign In with a Code' <<<"$tree"; then
@@ -657,6 +679,7 @@ ios_sign_in() {
     ios_tap_label "Password"
     ios_type "$password"
     ios_tap_label "Sign In"
+    typed=1
   fi
   local tapped=0
   for _ in $(seq 1 60); do
@@ -666,7 +689,10 @@ ios_sign_in() {
       ((tapped)) && { ios_dismiss_save_password || true; }
       ios_tap_label "Lucía"
       tapped=1
-    elif grep -q 'Tab Bar' <<<"$tree"; then
+    # A phone's tab bar is a Tab Bar; an iPad's sits at the top as a toolbar of radio buttons.
+    elif grep -qE 'Tab Bar|^ *Home = 1 \| RadioButton' <<<"$tree"; then
+      # After a password, the Save Password card can land after Home does, over the next screenshot.
+      ((typed)) && { sleep 3; ios_dismiss_save_password || true; }
       return 0
     fi
     sleep 1
@@ -725,9 +751,151 @@ cmd_ios() {
         *) die "ios record start <path.mp4> | stop" ;;
       esac ;;
     appearance) on_mac "xcrun simctl ui $(udid) appearance ${args[1]:?ios appearance light|dark}" ;;
+    orientation) ios_orientation "${args[1]:?ios orientation portrait|landscape}" ;;
+    open) ios_open "${args[1]:?ios open <path>}" ;;
+    matrix) ios_matrix "${args[@]:1}" ;;
     down) ios_down ;;
     *) die "ios: unknown command ${sub:-<none>}" ;;
   esac
+}
+
+# Runs an agent-device command in this side's session on the simulator. agent-device, which T3's
+# device hub keeps on the Mac, acts within a session, and opening the running app in one only
+# brings it forward. Its runner turns commands away while a slow capture finishes, so a failure gets
+# two more tries a few seconds apart.
+ios_agent() {
+  local try
+  for try in 1 2 3; do
+    ios_agent_once "$@" && return 0
+    ((try < 3)) && sleep 4
+  done
+  return 1
+}
+
+# One try, for a probe whose failure is an answer, such as no alert on screen.
+ios_agent_once() {
+  on_mac "ad=\$(ls -d ~/.t3/device/tools/agent-device@*/node_modules/.bin/agent-device | tail -1); session=movies-verify-$run-$side \
+    && \$ad open dev.lmdevv.movies --udid $(udid) --platform ios --session \$session >/dev/null \
+    && \$ad $* --session \$session"
+}
+
+# Turns the simulator, which simctl can't. The app's layout follows the window, so give it a moment.
+ios_orientation() {
+  local to="$1"
+  [[ "$to" == landscape ]] && to=landscape-left
+  [[ "$to" == portrait || "$to" == landscape-left ]] || die "ios orientation portrait|landscape"
+  ios_turned "$to" && return 0
+  ios_agent orientation "$to" >/dev/null
+  sleep 2
+  ios_turned "$to" || die "the simulator did not turn $1 (the app is $(ios_tree | sed -n '1s/.* //p'))"
+}
+
+ios_turned() {
+  local size
+  size="$(ios_tree | sed -n '1s/.* \([0-9]*\)x\([0-9]*\)$/\1 \2/p')"
+  if [[ "$1" == portrait ]]; then ((${size% *} < ${size#* })); else ((${size% *} > ${size#* })); fi
+}
+
+# Opens an app path, such as /title/<id>, as a link to the app's own scheme. Expo Router routes it.
+# iOS often asks "Open in [movies]?" first; agent-device reads the system's alert and accepts it.
+ios_open() {
+  on_mac "xcrun simctl openurl $(udid) $(printf %q "movies://$1")"
+  local _
+  for _ in 1 2 3 4; do
+    ios_agent_once alert wait 3000 >/dev/null 2>&1 || return 0
+    [[ "$(ios_alert)" == "Open in"* ]] || return 0
+    ios_agent alert accept >/dev/null 2>&1 || true
+    sleep 1
+  done
+}
+
+# Prints the message of the iOS alert on screen, nothing when there is none, or `?` when
+# agent-device could not tell.
+ios_alert() {
+  { ios_agent_once alert get --json 2>/dev/null || true; } | node -e '
+    const replies = require("node:fs").readFileSync(0, "utf8").split(/\n(?=\{)/u);
+    const reply = JSON.parse(replies.at(-1) || "{}");
+    if (reply.success) console.log(reply.data.message);
+    else if (reply.error?.details?.runnerErrorCode !== "ALERT_NOT_FOUND") console.log("?");' || echo "?"
+}
+
+# Screenshots each screen in ios_matrix_screens in each orientation, named
+# <device>-<orientation>-<screen>.png, so two runs on the same devices compare file by file.
+ios_matrix() {
+  local out="" orientations="portrait landscape" only=""
+  while (($#)); do
+    case "$1" in
+      --out) out="$2"; shift 2 ;;
+      --orientations) orientations="${2//,/ }"; shift 2 ;;
+      --screens) only=",$2,"; shift 2 ;;
+      *) die "ios matrix --out DIR [--orientations portrait,landscape] [--screens a,b]" ;;
+    esac
+  done
+  [[ -n "$out" ]] || die "ios matrix needs --out DIR"
+  mkdir -p "$out"
+  local device orientation screen name path screens alert
+  device="$(slug "$(read_state ios_device)")"
+  # Looked up here rather than in the list's subshell, where a failed lookup would go unnoticed.
+  local movie show
+  movie="$(title_id Sintel)" || die "no Sintel on the $side side for the matrix"
+  show="$(title_id "Pioneer One")" || die "no Pioneer One on the $side side for the matrix"
+  # Read up front: ssh in the loop would take the rest of the list as its input.
+  mapfile -t screens < <(ios_matrix_screens "$movie" "$show")
+  for orientation in $orientations; do
+    ios_orientation "$orientation"
+    for screen in "${screens[@]}"; do
+      name="${screen%%|*}" path="${screen#*|}"
+      [[ -z "$only" || "$only" == *",$name,"* ]] || continue
+      ios_open "$path"
+      sleep 4
+      # A screenshot under a system prompt shows the prompt, not the screen, and passes for one.
+      # agent-device also reports the app's own sheets, such as Seasons; iOS's prompts ask a
+      # question ("Open in …?", "Save Password?") or for permission.
+      alert="$(ios_alert)"
+      [[ "$alert" != "?" ]] || say "could not check $name for an iOS prompt; look at it"
+      [[ "$alert" == "?" || ! "$alert" =~ \?$|"Would Like" ]] || die "an iOS prompt covers $name: $alert"
+      on_mac "xcrun simctl io $(udid) screenshot --type=png /tmp/movies-verify-$run-$side.png >/dev/null 2>&1"
+      scp -q "$mac:/tmp/movies-verify-$run-$side.png" "$out/$device-$orientation-$name.png"
+      echo "$out/$device-$orientation-$name.png"
+    done
+  done
+  ios_orientation portrait
+}
+
+# The screens a layout change can reach, as name|path. Titles are looked up by name, since their
+# ids differ on every side.
+ios_matrix_screens() {
+  local movie="$1" show="$2"
+  cat <<SCREENS
+home|/
+movie|/title/$movie
+show|/title/$show
+seasons|/title/$show/seasons
+about|/title/$movie/about
+genre|/genre/Animation
+my-list|/my-list
+collections|/collections
+search|/search
+downloads|/downloads
+you|/you
+history|/history
+settings|/settings
+appearance|/settings/appearance
+profiles|/switch-profile
+manage-profiles|/manage-profiles
+account|/account
+owner|/owner
+libraries|/owner/libraries
+users|/owner/users
+home-again|/
+SCREENS
+}
+
+title_id() {
+  "$0" cli --side "$side" -- search "$1" --limit 1 | node -e '
+    const [title] = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+    if (title === undefined) process.exit(1);
+    console.log(title.id);'
 }
 
 ios_down() {
@@ -735,6 +903,8 @@ ios_down() {
   id="$(read_state ios_udid)"
   if [[ -n "$id" ]]; then
     on_mac "pkill -INT -f 'recordVideo.*movies-verify-$run-$side' || true; xcrun simctl shutdown $id 2>/dev/null || true; xcrun simctl delete $id" || true
+    on_mac "ad=\$(ls -d ~/.t3/device/tools/agent-device@*/node_modules/.bin/agent-device 2>/dev/null | tail -1); \
+      [ -z \"\$ad\" ] || \$ad close --session movies-verify-$run-$side >/dev/null 2>&1 || true" || true
     # `ios shot` and `ios record` stage their files here before copying them back.
     on_mac "rm -f /tmp/movies-verify-$run-$side.png /tmp/movies-verify-$run-$side.mp4 /tmp/movies-verify-$run-$side.rec.log" || true
   fi
@@ -747,7 +917,7 @@ ios_down() {
   fi
   pid="$(read_state forward_pid)"
   [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
-  rm -f "$state/ios_udid" "$state/metro_pid" "$state/metro_port" "$state/forward_pid" "$state/ios_record"
+  rm -f "$state/ios_udid" "$state/ios_device" "$state/metro_pid" "$state/metro_port" "$state/forward_pid" "$state/ios_record"
 }
 
 # ----------------------------------------------------------------------------------------- evidence
@@ -792,23 +962,28 @@ cmd_down() {
   done
   if [[ -n "$only" ]]; then side_down "$only"; else side_down after; side_down before; fi
   if ((purge)); then
-    on_mac "rm -rf ~/$mac_dir/verify-$run ~/$mac_dir/dd-verify-$run" || true
+    on_mac "rm -rf ~/$mac_dir/verify-$run ~/$mac_dir/dd-verify-$run ~/$mac_dir/dev-client-$(native_hash)" || true
     say "removed the iOS build cache on $mac"
   fi
   [[ -z "$only" ]] && rmdir "$state_root" 2>/dev/null || true
 }
 
-cmd="${1:-}"
-[[ $# -gt 0 ]] && shift
-case "$cmd" in
-  up) cmd_up "$@" ;;
-  doctor) cmd_doctor "$@" ;;
-  browser) cmd_browser "$@" ;;
-  cli) cmd_cli "$@" ;;
-  logs) cmd_logs "$@" ;;
-  ios) cmd_ios "$@" ;;
-  evidence) cmd_evidence "$@" ;;
-  status) cmd_status ;;
-  down) cmd_down "$@" ;;
-  *) sed -n '2,16p' "$0" >&2; exit 2 ;;
-esac
+# Bash reads a script as it runs, so an edit made during a long `up` or `ios up` would run whatever
+# lands at the old offset. Reading all of main before any of it runs, then exiting, avoids that.
+main() {
+  local cmd="${1:-}"
+  [[ $# -gt 0 ]] && shift
+  case "$cmd" in
+    up) cmd_up "$@" ;;
+    doctor) cmd_doctor "$@" ;;
+    browser) cmd_browser "$@" ;;
+    cli) cmd_cli "$@" ;;
+    logs) cmd_logs "$@" ;;
+    ios) cmd_ios "$@" ;;
+    evidence) cmd_evidence "$@" ;;
+    status) cmd_status ;;
+    down) cmd_down "$@" ;;
+    *) sed -n '2,16p' "$0" >&2; exit 2 ;;
+  esac
+}
+main "$@"; exit
