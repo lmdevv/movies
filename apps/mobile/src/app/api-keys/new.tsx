@@ -36,7 +36,7 @@ function Created({ created }: { readonly created: CreatedApiKey }) {
   };
 
   return (
-    <Screen scroll header={<NavHeader title="API Key Created" onBack={leave} />}>
+    <Screen readable scroll header={<NavHeader title="API Key Created" onBack={leave} />}>
       <View className="h-6" />
       <Text variant="title" accessibilityRole="header">
         {created.apiKey.name}
@@ -108,6 +108,7 @@ export default function CreateApiKey() {
 
   return (
     <Screen
+      readable
       scroll
       header={
         <NavHeader

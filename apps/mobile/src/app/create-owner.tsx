@@ -59,7 +59,7 @@ export default function CreateOwnerAccount() {
   };
 
   return (
-    <Screen scroll header={<NavHeader title="Create Owner Account" onBack={disconnect} />}>
+    <Screen readable scroll header={<NavHeader title="Create Owner Account" onBack={disconnect} />}>
       <TextField
         label="Name"
         placeholder="Alex"

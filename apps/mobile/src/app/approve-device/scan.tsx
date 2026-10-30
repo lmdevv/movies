@@ -44,7 +44,7 @@ export default function ScanDeviceCode() {
 
   if (permission !== null && !permission.granted && !permission.canAskAgain) {
     return (
-      <Screen header={header}>
+      <Screen readable header={header}>
         <CalmState
           placement="top"
           icon={Camera}
@@ -62,7 +62,7 @@ export default function ScanDeviceCode() {
   }
 
   return (
-    <Screen scroll header={header}>
+    <Screen readable scroll header={header}>
       <View className="h-12" />
       <View
         className="h-75 items-center justify-center overflow-hidden rounded-card bg-surface"

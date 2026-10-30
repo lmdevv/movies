@@ -23,7 +23,7 @@ export default function ApproveDevice() {
   };
 
   return (
-    <Screen scroll header={<NavHeader title="Approve a Device" fallback="/you" />}>
+    <Screen readable scroll header={<NavHeader title="Approve a Device" fallback="/you" />}>
       <View className="h-12" />
       <TextField
         label="Device code"

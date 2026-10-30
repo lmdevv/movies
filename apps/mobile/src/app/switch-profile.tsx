@@ -32,7 +32,7 @@ export default function SwitchProfile() {
   };
 
   return (
-    <View className="gap-4 bg-surface-raised px-5 pt-6 pb-8">
+    <View className="gap-4 bg-surface-raised px-5 pt-6 pb-8 regular:px-6 regular:pb-6">
       <View className="flex-row items-center gap-3">
         <Text variant="heading" className="flex-1" accessibilityRole="header">
           Switch Profile

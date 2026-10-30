@@ -86,9 +86,9 @@ export function UnlockProfile({ profile, onUnlocked, onSwitchProfile }: UnlockPr
   };
 
   return (
-    <Screen header={<NavHeader title={lockedOut ? "Profile Locked" : "Enter PIN"} />}>
-      <View className="gap-4 px-5 py-4">
-        <View className="h-12" />
+    <Screen readable header={<NavHeader title={lockedOut ? "Profile Locked" : "Enter PIN"} />}>
+      <View className="gap-4 px-5 py-4 regular:flex-1 regular:justify-center regular:px-0 regular:pb-24">
+        <View className="h-12 regular:hidden" />
         <View className="items-center gap-4">
           <ProfileAvatar profile={profile} size="row" />
           <Text variant="subheading">{profile.name}</Text>

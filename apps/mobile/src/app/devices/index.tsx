@@ -25,7 +25,7 @@ export default function Devices() {
 
   if (sessions.status === "error") {
     return (
-      <Screen header={<NavHeader title="Devices" fallback="/you" />}>
+      <Screen readable header={<NavHeader title="Devices" fallback="/you" />}>
         <CalmState
           title="Couldn’t Load Devices"
           description={describeFailure(sessions.error)}
@@ -36,7 +36,7 @@ export default function Devices() {
   }
 
   return (
-    <Screen scroll header={<NavHeader title="Devices" fallback="/you" />}>
+    <Screen readable scroll header={<NavHeader title="Devices" fallback="/you" />}>
       {sessions.status === "loading" ? (
         <ActivityIndicator className="py-6" colorClassName="accent-text-muted" />
       ) : (

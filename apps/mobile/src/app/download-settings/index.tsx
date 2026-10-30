@@ -20,6 +20,7 @@ export default function DownloadSettings() {
 
   return (
     <Screen
+      readable
       header={<NavHeader title="Download Settings" fallback={DOWNLOADS_HREF} />}
       contentClassName="gap-4 px-5 py-4"
     >

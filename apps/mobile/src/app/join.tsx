@@ -30,7 +30,7 @@ function EndedInvite({ title }: { readonly title: string }) {
   const { setInvite } = usePendingInvite();
 
   return (
-    <Screen header={<NavHeader onBack={() => setInvite(null)} />}>
+    <Screen readable header={<NavHeader onBack={() => setInvite(null)} />}>
       <CalmState
         placement="top"
         icon={Link}
@@ -91,7 +91,11 @@ function AcceptInvite({ code, invite }: { readonly code: string; readonly invite
   };
 
   return (
-    <Screen scroll header={<NavHeader title="Join Household" onBack={() => setInvite(null)} />}>
+    <Screen
+      readable
+      scroll
+      header={<NavHeader title="Join Household" onBack={() => setInvite(null)} />}
+    >
       <Text variant="title" className="mt-12">
         {`${invite.inviterName} invited you to\n${displayHost(server.mediaUrl)}.`}
       </Text>
@@ -152,7 +156,7 @@ export default function Join() {
 
   if (code === null || lookup.status === "loading") {
     return (
-      <Screen header={<NavHeader title="Join Household" onBack={() => setInvite(null)} />}>
+      <Screen readable header={<NavHeader title="Join Household" onBack={() => setInvite(null)} />}>
         {null}
       </Screen>
     );
@@ -160,7 +164,7 @@ export default function Join() {
 
   if (lookup.status === "error") {
     return (
-      <Screen header={<NavHeader onBack={() => setInvite(null)} />}>
+      <Screen readable header={<NavHeader onBack={() => setInvite(null)} />}>
         <CalmState
           placement="top"
           icon={Link}

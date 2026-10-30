@@ -12,8 +12,8 @@ export default function SetProfilePin() {
   const [pin, setPin] = useState("");
 
   return (
-    <Screen header={<NavHeader title="Set Profile PIN" />}>
-      <View className="gap-4 px-5 py-4">
+    <Screen readable header={<NavHeader title="Set Profile PIN" />}>
+      <View className="gap-4 px-5 py-4 regular:px-0">
         <View className="h-12" />
         <Text variant="subheading">Choose a four-digit PIN.</Text>
         <PinPad

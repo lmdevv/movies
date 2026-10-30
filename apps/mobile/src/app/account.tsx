@@ -22,7 +22,7 @@ export default function Account() {
 
   if (viewer.status === "error") {
     return (
-      <Screen header={<NavHeader title="Account" fallback="/you" />}>
+      <Screen readable header={<NavHeader title="Account" fallback="/you" />}>
         <CalmState
           title="Couldn’t Load Your Account"
           description={describeFailure(viewer.error)}
@@ -33,7 +33,7 @@ export default function Account() {
   }
 
   return (
-    <Screen scroll header={<NavHeader title="Account" fallback="/you" />}>
+    <Screen readable scroll header={<NavHeader title="Account" fallback="/you" />}>
       {viewer.status === "loading" ? (
         <ActivityIndicator className="py-6" colorClassName="accent-text-muted" />
       ) : (

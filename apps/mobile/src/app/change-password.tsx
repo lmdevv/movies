@@ -68,6 +68,7 @@ export default function ChangePassword() {
 
   return (
     <Screen
+      readable
       scroll
       header={
         <NavHeader

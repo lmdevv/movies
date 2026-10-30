@@ -10,7 +10,7 @@ export default function AudioAndSubtitles() {
   const preferences = usePreferences();
 
   return (
-    <Screen scroll header={<NavHeader title="Audio & Subtitles" fallback="/settings" />}>
+    <Screen readable scroll header={<NavHeader title="Audio & Subtitles" fallback="/settings" />}>
       <ListRow
         title="Preferred Audio"
         detail={audioLabel(preferences)}

@@ -14,8 +14,8 @@ export default function ConfirmProfilePin() {
   const [mismatch, setMismatch] = useState(false);
 
   return (
-    <Screen header={<NavHeader title="Confirm PIN" />}>
-      <View className="gap-4 px-5 py-4">
+    <Screen readable header={<NavHeader title="Confirm PIN" />}>
+      <View className="gap-4 px-5 py-4 regular:px-0">
         <View className="h-12" />
         <Text variant="subheading">Enter your PIN again.</Text>
         <PinPad
