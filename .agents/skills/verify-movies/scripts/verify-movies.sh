@@ -552,11 +552,12 @@ ios_build() {
 }
 
 cmd_ios_up() {
-  local sim_type="iPhone 17 Pro" dark=1
+  local sim_type="iPhone 17 Pro" dark=1 source=""
   set -- "${args[@]:1}"
   while (($#)); do
     case "$1" in
       --device) sim_type="$2"; shift 2 ;;
+      --source) source="$(cd "$2" && pwd)"; shift 2 ;;
       --light) dark=0; shift ;;
       *) die "ios up: unknown flag $1" ;;
     esac
@@ -588,6 +589,7 @@ cmd_ios_up() {
 
   src="$root"
   [[ "$side" == before ]] && src="$(before_source)"
+  [[ -n "$source" ]] && src="$source"
   say "starting Metro for $src on port $metro"
   # Not CI=1: that turns off file watching and the app keeps serving the first bundle.
   # Its own session, so `ios down` stops pnpm, Expo, and Metro's workers as one process group. The

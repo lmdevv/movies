@@ -240,8 +240,11 @@ makes with `git worktree` under the side's state. The simulator reaches the side
 matches the side's public URLs.
 
 ```sh
-$S ios up [--side S] [--device "iPhone 17 Pro"] [--light]
+$S ios up [--side S] [--device "iPhone 17 Pro"] [--light] [--source DIR]
 ```
+
+`--source DIR` has Metro serve another checkout's JavaScript, such as a PR's worktree, against
+this side's server, so one stack verifies several app branches with this checkout's tooling.
 
 `ios up` needs the side to be up with setup, and it stops before anything else when the Mac has
 less than 3 GB free, or 10 GB when it must build the dev client. It does these steps in order:
