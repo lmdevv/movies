@@ -7,7 +7,9 @@ import {
   DEFAULT_FILTERS,
   ofKind,
   creditedTitles,
+  GRID_SPACING,
   gridCells,
+  gridColumns,
   heroFacts,
   heroTitles,
   homeLayout,
@@ -245,10 +247,19 @@ describe("browse", () => {
     expect(partway.get(severance)).toBe("started");
   });
 
-  it("pads a grid to whole rows of three", () => {
-    expect(gridCells([]).length).toBe(0);
-    expect(gridCells([card("a")]).map((cell) => cell.kind)).toEqual(["title", "blank", "blank"]);
-    expect(gridCells([card("a"), card("b"), card("c")]).length).toBe(3);
+  it("pads a grid to whole rows", () => {
+    expect(gridCells([], 3).length).toBe(0);
+    expect(gridCells([card("a")], 3).map((cell) => cell.kind)).toEqual(["title", "blank", "blank"]);
+    expect(gridCells([card("a"), card("b"), card("c")], 3).length).toBe(3);
+    expect(gridCells([card("a"), card("b"), card("c")], 7).length).toBe(7);
+  });
+
+  it("keeps an iPhone's three grid columns and fills an iPad's width", () => {
+    expect(gridColumns(375, GRID_SPACING.compact)).toBe(3);
+    expect(gridColumns(440, GRID_SPACING.compact)).toBe(3);
+    expect(gridColumns(744, GRID_SPACING.regular)).toBe(4);
+    expect(gridColumns(1032, GRID_SPACING.regular)).toBe(6);
+    expect(gridColumns(1376, GRID_SPACING.wide)).toBe(7);
   });
 
   it("lists each credited title once", () => {

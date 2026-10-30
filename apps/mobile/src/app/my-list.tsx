@@ -53,7 +53,7 @@ export default function MyList() {
           titles={shown}
           header={
             empty ? undefined : (
-              <View className="gap-4 px-5 pb-1">
+              <View className="gap-4 px-5 pb-1 regular:px-8 wide:px-12">
                 <KindChips kind={kind} onChange={setKind} />
                 <Text variant="secondary" tone="muted">
                   {plural(shown.length, "Title", "Titles")}

@@ -1,12 +1,13 @@
 import type { TitleCard } from "@movies/contracts/models/catalog";
 import type { ReactElement } from "react";
-import { ActivityIndicator, FlatList, View } from "react-native";
+import { ActivityIndicator, FlatList, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
-import { gridCells } from "@/lib/browse";
+import { GRID_SPACING, gridCells, gridColumns } from "@/lib/browse";
 import { describeFailure } from "@/lib/failure";
+import { useWidthClass } from "@/lib/use-width-class";
 
 import { TitlePoster } from "../title-poster";
 import type { TitlePages } from "./title-pages";
@@ -20,14 +21,19 @@ export interface PosterGridProps {
   readonly onEndReached?: (() => void) | undefined;
 }
 
-/** A scrolling grid of posters. */
+/** A scrolling grid of posters, with as many columns as the window's width holds. */
 export function PosterGrid({ titles, header, footer, empty, onEndReached }: PosterGridProps) {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const spacing = GRID_SPACING[useWidthClass()];
+  const columns = gridColumns(width, spacing);
 
   return (
     <FlatList
-      data={gridCells(titles)}
-      numColumns={3}
+      // FlatList can't change its column count in place, so a new count makes a new list.
+      key={columns}
+      data={gridCells(titles, columns)}
+      numColumns={columns}
       keyExtractor={(cell) => (cell.kind === "title" ? cell.title.id : cell.key)}
       renderItem={({ item }) =>
         item.kind === "title" ? (
@@ -40,7 +46,7 @@ export function PosterGrid({ titles, header, footer, empty, onEndReached }: Post
       ListFooterComponent={footer}
       ListEmptyComponent={empty}
       ListFooterComponentClassName="pb-6"
-      columnWrapperClassName="gap-2 px-5"
+      columnWrapperStyle={{ gap: spacing.gap, paddingHorizontal: spacing.gutter }}
       contentContainerClassName="gap-5 pt-2"
       contentContainerStyle={{ paddingBottom: insets.bottom }}
       contentInsetAdjustmentBehavior="automatic"

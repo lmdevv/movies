@@ -3,7 +3,7 @@ import { useCommandQuery } from "@movies/sdk/react";
 import { Stack, router, useFocusEffect, useNavigation } from "expo-router";
 import { Search as SearchIcon } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, View } from "react-native";
+import { ActivityIndicator, ScrollView, useWindowDimensions, View } from "react-native";
 import type { SearchBarCommands } from "react-native-screens";
 
 import { Chip, KindChips } from "@/components/browse/chip";
@@ -15,9 +15,10 @@ import { TitlePoster } from "@/components/title-poster";
 import { Button } from "@/components/ui/button";
 import { CalmState } from "@/components/ui/calm-state";
 import { Text } from "@/components/ui/text";
-import { gridCells, popularTitles } from "@/lib/browse";
+import { GRID_SPACING, gridCells, gridColumns, popularTitles } from "@/lib/browse";
 import type { KindFilter } from "@/lib/browse";
 import { describeFailure } from "@/lib/failure";
+import { useWidthClass } from "@/lib/use-width-class";
 import { useThemeColor } from "@/lib/theme-color";
 import { useActiveProfile } from "@/session/active-profile";
 
@@ -89,7 +90,7 @@ export default function Search() {
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         className="flex-1 bg-bg"
-        contentContainerClassName="gap-6 px-5 pt-2"
+        contentContainerClassName="gap-6 px-5 pt-2 regular:px-8 wide:px-12"
       >
         {query === "" ? (
           <Explore />
@@ -118,8 +119,8 @@ function Explore() {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            className="-mx-5"
-            contentContainerClassName="gap-2 px-5"
+            className="-mx-5 regular:-mx-8 wide:-mx-12"
+            contentContainerClassName="gap-2 px-5 regular:px-8 wide:px-12"
           >
             {genres.data.slice(0, EXPLORE_GENRES).map((genre, index) => (
               <Chip
@@ -241,12 +242,16 @@ function ResultGrid({
   readonly title: string;
   readonly titles: ReadonlyArray<TitleCard>;
 }) {
+  const { width } = useWindowDimensions();
+  const spacing = GRID_SPACING[useWidthClass()];
+
   if (titles.length === 0) return null;
 
-  const cells = gridCells(titles);
+  const columns = gridColumns(width, spacing);
+  const cells = gridCells(titles, columns);
 
-  const rows = Array.from({ length: cells.length / 3 }, (_, row) =>
-    cells.slice(row * 3, row * 3 + 3),
+  const rows = Array.from({ length: cells.length / columns }, (_, row) =>
+    cells.slice(row * columns, (row + 1) * columns),
   );
 
   return (
@@ -257,7 +262,8 @@ function ResultGrid({
       {rows.map((row) => (
         <View
           key={row.map((cell) => (cell.kind === "title" ? cell.title.id : cell.key)).join()}
-          className="flex-row gap-2"
+          className="flex-row"
+          style={{ gap: spacing.gap }}
         >
           {row.map((cell) =>
             cell.kind === "title" ? (

@@ -72,6 +72,15 @@
   --radius-pill: 999px;
 }
 
+/* Paper's iPad width classes. Layout follows the window, not the device, so rotation and Split View
+   land on the right one: under `regular` is the iPhone layout, `regular:` starts at iPad portrait,
+   and `wide:` at iPad landscape. `useWidthClass` reads the same values, so `static` keeps them. */
+@theme static {
+  --breakpoint-regular: 700px;
+  --breakpoint-wide: 1100px;
+  --container-readable: 600px;
+}
+
 @theme {
   --color-glass: rgb(44 44 46 / 62%);
   --color-video-track: rgb(255 255 255 / 30%);

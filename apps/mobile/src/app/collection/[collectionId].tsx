@@ -75,7 +75,7 @@ function CollectionScreen({ collectionId }: { readonly collectionId: CollectionI
       <PosterGrid
         titles={data.titles}
         header={
-          <View className="gap-4 px-5 pt-4 pb-1">
+          <View className="gap-4 px-5 pt-4 pb-1 regular:px-8 wide:px-12">
             <Text variant="secondary" tone="muted">
               {titleCount(data.titles)}
             </Text>

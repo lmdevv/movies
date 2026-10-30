@@ -90,7 +90,7 @@ function PersonScreen({ personId }: { readonly personId: PersonId }) {
       <PosterGrid
         titles={titles}
         header={
-          <View className="gap-4 px-5 pt-4 pb-1">
+          <View className="gap-4 px-5 pt-4 pb-1 regular:px-8 wide:px-12">
             <View className="items-center">
               <View className="size-40 items-center justify-center overflow-hidden rounded-pill bg-surface-raised">
                 {photo === undefined ? (
