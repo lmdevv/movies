@@ -351,6 +351,9 @@ never kills by process name. The demo library image stays for the next run. Evid
 - `scripts/evidence.mjs` keeps the manifest and publishes it. `$S evidence` calls it.
 - `scripts/contact-sheet.sh OUT.png COLUMNS WIDTH FILE...` tiles screenshots, such as an `ios
   matrix`, into one captioned image for a review or a PR.
+- `scripts/compare-shots.sh BEFORE_DIR AFTER_DIR [GLOB]` compares same-named screenshots below the
+  status bar and prints `same` or the PSNR, exiting 1 when any differ: the check that a change
+  left the iPhone alone.
 - `scripts/seed.mjs` creates the [demo data](#demo-data) after setup and checks what each person
   sees. `up` calls it.
 
