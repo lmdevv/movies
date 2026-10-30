@@ -339,24 +339,39 @@ export const gridColumns = (width: number, spacing: GridSpacing): number =>
   );
 
 /** A grid cell: a title, or a blank that keeps the last row's posters as wide as the rest. */
-export type GridCell =
+type GridCell =
   | { readonly kind: "title"; readonly title: TitleCard }
   | { readonly kind: "blank"; readonly key: string };
 
-/** The cells of a grid of `titles` in `columns` columns, padded with blanks to whole rows. */
-export const gridCells = (
+/** One row of a grid and the key that names it. */
+export interface GridRow {
+  readonly key: string;
+  readonly cells: ReadonlyArray<GridCell>;
+}
+
+/** The rows of a grid of `titles` in `columns` columns, the last padded with blanks to a whole row. */
+export const gridRows = (
   titles: ReadonlyArray<TitleCard>,
   columns: number,
-): ReadonlyArray<GridCell> => {
+): ReadonlyArray<GridRow> => {
   const blanks = (columns - (titles.length % columns)) % columns;
 
-  return [
+  const cells = [
     ...titles.map((title): GridCell => ({ kind: "title", title })),
     ...Array.from({ length: blanks }, (_, index): GridCell => ({
       kind: "blank",
       key: `blank-${index}`,
     })),
   ];
+
+  return Array.from({ length: cells.length / columns }, (_, row) => {
+    const slice = cells.slice(row * columns, (row + 1) * columns);
+
+    return {
+      key: slice.map((cell) => (cell.kind === "title" ? cell.title.id : cell.key)).join(),
+      cells: slice,
+    };
+  });
 };
 
 /** The titles a person is credited on, once each, in the order the server lists them. */

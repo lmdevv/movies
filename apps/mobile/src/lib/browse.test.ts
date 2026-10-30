@@ -8,7 +8,7 @@ import {
   ofKind,
   creditedTitles,
   GRID_SPACING,
-  gridCells,
+  gridRows,
   gridColumns,
   heroFacts,
   heroTitles,
@@ -90,6 +90,9 @@ const decodeTitleId = Schema.decodeSync(TitleId);
 const decodeProfileId = Schema.decodeSync(ProfileId);
 
 const severance = decodeTitleId("severance");
+
+const kinds = (rows: ReturnType<typeof gridRows>) =>
+  rows.map((row) => row.cells.map((cell) => cell.kind));
 
 describe("browse", () => {
   it("pages the hero through the featured title, then new arrivals with wide artwork", () => {
@@ -247,11 +250,14 @@ describe("browse", () => {
     expect(partway.get(severance)).toBe("started");
   });
 
-  it("pads a grid to whole rows", () => {
-    expect(gridCells([], 3).length).toBe(0);
-    expect(gridCells([card("a")], 3).map((cell) => cell.kind)).toEqual(["title", "blank", "blank"]);
-    expect(gridCells([card("a"), card("b"), card("c")], 3).length).toBe(3);
-    expect(gridCells([card("a"), card("b"), card("c")], 7).length).toBe(7);
+  it("splits a grid into whole rows", () => {
+    expect(gridRows([], 3)).toEqual([]);
+    expect(kinds(gridRows([card("a")], 3))).toEqual([["title", "blank", "blank"]]);
+    expect(kinds(gridRows([card("a"), card("b"), card("c"), card("d")], 3))).toEqual([
+      ["title", "title", "title"],
+      ["title", "blank", "blank"],
+    ]);
+    expect(gridRows([card("a"), card("b")], 7)[0]?.cells.length).toBe(7);
   });
 
   it("keeps an iPhone's three grid columns and fills an iPad's width", () => {

@@ -3,7 +3,7 @@ import { useCommandQuery } from "@movies/sdk/react";
 import { Stack, router, useFocusEffect, useNavigation } from "expo-router";
 import { Search as SearchIcon } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, ScrollView, View } from "react-native";
 import type { SearchBarCommands } from "react-native-screens";
 
 import { Chip, KindChips } from "@/components/browse/chip";
@@ -15,10 +15,10 @@ import { TitlePoster } from "@/components/title-poster";
 import { Button } from "@/components/ui/button";
 import { CalmState } from "@/components/ui/calm-state";
 import { Text } from "@/components/ui/text";
-import { GRID_SPACING, gridCells, gridColumns, popularTitles } from "@/lib/browse";
+import { gridRows, popularTitles } from "@/lib/browse";
 import type { KindFilter } from "@/lib/browse";
 import { describeFailure } from "@/lib/failure";
-import { useWidthClass } from "@/lib/use-width-class";
+import { useGridLayout } from "@/lib/use-width-class";
 import { useThemeColor } from "@/lib/theme-color";
 import { useActiveProfile } from "@/session/active-profile";
 
@@ -242,30 +242,18 @@ function ResultGrid({
   readonly title: string;
   readonly titles: ReadonlyArray<TitleCard>;
 }) {
-  const { width } = useWindowDimensions();
-  const spacing = GRID_SPACING[useWidthClass()];
+  const { columns, spacing } = useGridLayout();
 
   if (titles.length === 0) return null;
-
-  const columns = gridColumns(width, spacing);
-  const cells = gridCells(titles, columns);
-
-  const rows = Array.from({ length: cells.length / columns }, (_, row) =>
-    cells.slice(row * columns, (row + 1) * columns),
-  );
 
   return (
     <View className="gap-4">
       <Text variant="heading" accessibilityRole="header">
         {title}
       </Text>
-      {rows.map((row) => (
-        <View
-          key={row.map((cell) => (cell.kind === "title" ? cell.title.id : cell.key)).join()}
-          className="flex-row"
-          style={{ gap: spacing.gap }}
-        >
-          {row.map((cell) =>
+      {gridRows(titles, columns).map((row) => (
+        <View key={row.key} className="flex-row" style={{ gap: spacing.gap }}>
+          {row.cells.map((cell) =>
             cell.kind === "title" ? (
               <TitlePoster
                 key={cell.title.id}

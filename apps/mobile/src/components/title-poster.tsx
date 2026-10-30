@@ -14,7 +14,7 @@ import { Text } from "./ui/text";
 export interface TitlePosterProps {
   readonly title: TitleCard;
   /**
-   * The name under the artwork: 15pt in rails (`rail`), 13pt in three-column grids (`grid`), or
+   * The name under the artwork: 15pt in rails (`rail`), 13pt in grids (`grid`), or
    * none.
    */
   readonly caption?: "rail" | "grid" | "none";
