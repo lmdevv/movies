@@ -13,6 +13,7 @@ import { Text } from "@/components/ui/text";
 import { artworkUrl } from "@/lib/artwork";
 import { useServer } from "@/session/connection";
 
+import { GUTTER } from "@/components/ui/page-layout";
 import { castAndCrew, defaultVersion } from "./title-model";
 import type { PersonLine } from "./title-model";
 
@@ -90,11 +91,13 @@ export function CastAndCrew({ title }: { readonly title: TitleDetail }) {
   if (people.length === 0) return null;
 
   return (
-    <View className="gap-4">
+    <View className="gap-4 regular:gap-2">
       <SectionHeading>Cast & Crew</SectionHeading>
-      {people.map((person) => (
-        <PersonRow key={person.personId} person={person} />
-      ))}
+      <View className="gap-4 regular:gap-0">
+        {people.map((person) => (
+          <PersonRow key={person.personId} person={person} />
+        ))}
+      </View>
     </View>
   );
 }
@@ -130,9 +133,9 @@ function SimilarTitle({ title }: { readonly title: TitleCard }) {
       accessibilityRole="button"
       accessibilityLabel={title.name}
       onPress={() => router.push(`/title/${title.id}`)}
-      className="w-28 gap-1.5 active:opacity-80"
+      className="w-28 gap-1.5 active:opacity-80 regular:w-36 wide:w-42"
     >
-      <View className="h-42 w-28 overflow-hidden rounded-control bg-surface-raised">
+      <View className="h-42 w-28 overflow-hidden rounded-control bg-surface-raised regular:h-54 regular:w-36 wide:h-63 wide:w-42">
         {poster === undefined ? null : (
           <Image
             source={{ uri: poster }}
@@ -166,8 +169,8 @@ export function MoreLikeThis({
   if (similar.status !== "success" || similar.data.length === 0) return null;
 
   return (
-    <View className="gap-4">
-      <View className="px-5">
+    <View className="gap-4 regular:gap-3">
+      <View className={GUTTER}>
         <SectionHeading>More Like This</SectionHeading>
       </View>
       <FlatList
@@ -176,7 +179,7 @@ export function MoreLikeThis({
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => <SimilarTitle title={item} />}
         showsHorizontalScrollIndicator={false}
-        contentContainerClassName="gap-3 px-5"
+        contentContainerClassName={`gap-3 regular:gap-4 ${GUTTER}`}
       />
     </View>
   );

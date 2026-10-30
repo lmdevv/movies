@@ -19,6 +19,7 @@ import { ActionSheetIOS, ActivityIndicator, ScrollView, View } from "react-nativ
 import { goBack, useJoinRoom, useServerClock } from "@/components/rooms/room-actions";
 import { RoomArtwork, RoomMemberRow, RoomStage, useNow } from "@/components/rooms/room-parts";
 import { roomIdParam } from "@/components/title/route-params";
+import { CENTERED_COLUMN } from "@/components/ui/page-layout";
 import { Button } from "@/components/ui/button";
 import { CalmState } from "@/components/ui/calm-state";
 import { IconButton } from "@/components/ui/icon-button";
@@ -66,7 +67,7 @@ function JoinRoom({ room }: { readonly room: Room }) {
 
   return (
     <Screen header={<NavHeader title={`Join ${room.hostProfileName}`} />}>
-      <ScrollView contentContainerClassName="gap-4 px-5 py-4">
+      <ScrollView contentContainerClassName={`gap-4 px-5 py-4 ${CENTERED_COLUMN}`}>
         <RoomArtwork uri={artworkUrl(mediaUrl, artworkKey(room), "backdrop")} />
         <View className="gap-1">
           <Text variant="title" accessibilityRole="header">
@@ -159,7 +160,7 @@ function InRoom({ room, role }: { readonly room: Room; readonly role: RoomRole }
         />
       }
     >
-      <ScrollView contentContainerClassName="gap-4 px-5 py-4">
+      <ScrollView contentContainerClassName={`gap-4 px-5 py-4 ${CENTERED_COLUMN}`}>
         <RoomStage
           uri={artworkUrl(mediaUrl, artworkKey(room), "backdrop")}
           status={room.clock.status}

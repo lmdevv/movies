@@ -13,7 +13,8 @@ import { useServer } from "@/session/connection";
 
 import { episodeLine } from "./title-model";
 
-const actionsHref = (episode: Episode): string =>
+/** Where an episode's More button and long press open its actions. */
+export const episodeActionsHref = (episode: Episode): string =>
   `/title/${episode.titleId}/episode/${episode.id}?season=${episode.seasonNumber}`;
 
 /** One episode row. */
@@ -21,7 +22,7 @@ export function EpisodeRow({ episode }: { readonly episode: Episode }) {
   const { mediaUrl } = useServer();
   const still = artworkUrl(mediaUrl, episode.still, "card");
   const line = episodeLine(episode);
-  const openActions = () => router.push(actionsHref(episode));
+  const openActions = () => router.push(episodeActionsHref(episode));
 
   return (
     <View className="flex-row items-center gap-3 px-5">

@@ -5,6 +5,7 @@ import { CircleAlert } from "lucide-react-native";
 import { ActivityIndicator, View } from "react-native";
 
 import { titleIdParam } from "@/components/title/route-params";
+import { CENTERED_COLUMN } from "@/components/ui/page-layout";
 import { aboutRows } from "@/components/title/title-model";
 import { Button } from "@/components/ui/button";
 import { CalmState } from "@/components/ui/calm-state";
@@ -99,7 +100,12 @@ export default function AboutTitle() {
   }
 
   return (
-    <Screen scroll edges={["top"]} header={<NavHeader title={heading} />} contentClassName="pb-12">
+    <Screen
+      scroll
+      edges={["top"]}
+      header={<NavHeader title={heading} />}
+      contentClassName={`pb-12 ${CENTERED_COLUMN}`}
+    >
       {title.status === "loading" ? (
         <ActivityIndicator className="py-12" colorClassName="accent-text-muted" />
       ) : (

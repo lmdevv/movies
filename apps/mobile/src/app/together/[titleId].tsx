@@ -10,6 +10,7 @@ import { ActivityIndicator, ScrollView, View } from "react-native";
 
 import { RoomArtwork } from "@/components/rooms/room-parts";
 import { episodeIdParam, seasonParam, titleIdParam } from "@/components/title/route-params";
+import { CENTERED_COLUMN } from "@/components/ui/page-layout";
 import { useSeasonEpisode } from "@/components/title/use-season-episode";
 import { Button } from "@/components/ui/button";
 import { CalmState } from "@/components/ui/calm-state";
@@ -64,7 +65,7 @@ function StartRoom({
   };
 
   return (
-    <ScrollView contentContainerClassName="gap-4 px-5 py-4">
+    <ScrollView contentContainerClassName={`gap-4 px-5 py-4 ${CENTERED_COLUMN}`}>
       <RoomArtwork
         uri={artworkUrl(
           mediaUrl,
