@@ -17,7 +17,7 @@ import { ProfileAvatar } from "@/components/profile-avatar";
 import { Icon } from "@/components/ui/icon";
 import { IconButton } from "@/components/ui/icon-button";
 import { ListRow } from "@/components/ui/list-row";
-import { Screen } from "@/components/ui/screen";
+import { READABLE_COLUMN, Screen } from "@/components/ui/screen";
 import { Text } from "@/components/ui/text";
 import { plural } from "@/lib/browse";
 import { useActiveProfile } from "@/session/active-profile";
@@ -34,7 +34,7 @@ export default function You() {
     <Screen
       edges={["top"]}
       header={
-        <View className="h-16 flex-row items-center gap-3 px-5">
+        <View className={`h-16 flex-row items-center gap-3 ${READABLE_COLUMN}`}>
           <Text
             variant="largeTitle"
             className="flex-1"
@@ -52,7 +52,7 @@ export default function You() {
       }
     >
       <ScrollView
-        contentContainerClassName="gap-2 px-5 py-4"
+        contentContainerClassName={`gap-2 px-5 py-4 ${READABLE_COLUMN}`}
         contentInsetAdjustmentBehavior="never"
       >
         <Pressable

@@ -12,7 +12,7 @@ import { Icon } from "./ui/icon";
 
 const SIZES = {
   tile: {
-    box: "size-28",
+    box: "size-28 regular:size-36",
     radius: "rounded-card",
     text: "text-display leading-ios-62",
     glyph: "tile",

@@ -1,7 +1,7 @@
 import { router } from "expo-router";
 import { Check } from "lucide-react-native";
 import { useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, View } from "react-native";
 
 import { useProfileEditor } from "@/components/profile-editor";
 import { ProfileAvatar } from "@/components/profile-avatar";
@@ -22,6 +22,8 @@ export default function ChooseAvatar() {
 
   return (
     <Screen
+      readable
+      scroll
       header={
         <NavHeader
           title="Choose Avatar"
@@ -38,37 +40,35 @@ export default function ChooseAvatar() {
         />
       }
     >
-      <ScrollView contentContainerClassName="gap-4 px-5 py-4">
-        <View className="h-12" />
-        {ROWS.map((row, index) => (
-          <View key={index} className="flex-row justify-between gap-3">
-            {row.map((key, column) =>
-              key === null ? (
-                <View key={`blank-${column}`} className="size-26" />
-              ) : (
-                <Pressable
-                  key={key}
-                  accessibilityRole="button"
-                  accessibilityLabel={avatarLabel(key)}
-                  accessibilityState={{ selected: key === avatar }}
-                  onPress={() => setAvatar(key)}
-                  className="active:opacity-70"
-                >
-                  <ProfileAvatar
-                    profile={{
-                      name: draft.name,
-                      kids: draft.kids,
-                      avatar: key,
-                    }}
-                    size="picker"
-                    selected={key === avatar}
-                  />
-                </Pressable>
-              ),
-            )}
-          </View>
-        ))}
-      </ScrollView>
+      <View className="h-12" />
+      {ROWS.map((row, index) => (
+        <View key={index} className="flex-row justify-between gap-3">
+          {row.map((key, column) =>
+            key === null ? (
+              <View key={`blank-${column}`} className="size-26" />
+            ) : (
+              <Pressable
+                key={key}
+                accessibilityRole="button"
+                accessibilityLabel={avatarLabel(key)}
+                accessibilityState={{ selected: key === avatar }}
+                onPress={() => setAvatar(key)}
+                className="active:opacity-70"
+              >
+                <ProfileAvatar
+                  profile={{
+                    name: draft.name,
+                    kids: draft.kids,
+                    avatar: key,
+                  }}
+                  size="picker"
+                  selected={key === avatar}
+                />
+              </Pressable>
+            ),
+          )}
+        </View>
+      ))}
     </Screen>
   );
 }

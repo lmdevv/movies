@@ -14,11 +14,16 @@ export default function OwnerLayout() {
 
   const sheet = useSheetOptions();
 
-  if (viewer.status === "loading") return <Screen header={<NavHeader />}>{null}</Screen>;
+  if (viewer.status === "loading")
+    return (
+      <Screen readable header={<NavHeader />}>
+        {null}
+      </Screen>
+    );
 
   if (viewer.status === "error") {
     return (
-      <Screen header={<NavHeader />}>
+      <Screen readable header={<NavHeader />}>
         <LoadFailure error={viewer.error} retry={viewer.retry} />
       </Screen>
     );
@@ -26,7 +31,7 @@ export default function OwnerLayout() {
 
   if (!mayOpenOwnerSettings(viewer.data)) {
     return (
-      <Screen header={<NavHeader />}>
+      <Screen readable header={<NavHeader />}>
         <CalmState placement="top" icon={Lock} title="Only Admins Can Open This" />
       </Screen>
     );

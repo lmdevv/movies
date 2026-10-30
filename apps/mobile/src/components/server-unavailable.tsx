@@ -29,7 +29,7 @@ export function ServerUnavailable({
   extra,
 }: ServerUnavailableProps) {
   return (
-    <Screen header={onBack === undefined ? undefined : <NavHeader onBack={onBack} />}>
+    <Screen readable header={onBack === undefined ? undefined : <NavHeader onBack={onBack} />}>
       <CalmState
         placement="top"
         icon={Wifi}

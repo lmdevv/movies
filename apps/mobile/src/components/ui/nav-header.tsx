@@ -22,7 +22,7 @@ export interface NavHeaderProps {
   readonly trailing?: ReactNode;
 }
 
-/** A back button and a title. */
+/** A back button and a title, inset by the `Screen` it heads. */
 export function NavHeader({
   title,
   onBack,
@@ -31,7 +31,7 @@ export function NavHeader({
   trailing,
 }: NavHeaderProps) {
   return (
-    <View className="h-16 flex-row items-center gap-3 px-5">
+    <View className="h-16 flex-row items-center gap-3">
       {back ? (
         <IconButton
           icon={ChevronLeft}

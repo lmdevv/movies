@@ -23,7 +23,7 @@ const SWITCH_OPTIONS: ReadonlyArray<PreferenceOption<boolean>> = [
 
 function Picker({ title, children }: { readonly title: string; readonly children: ReactNode }) {
   return (
-    <Screen scroll header={<NavHeader title={title} fallback="/settings" />}>
+    <Screen readable scroll header={<NavHeader title={title} fallback="/settings" />}>
       {children}
     </Screen>
   );
@@ -98,7 +98,7 @@ export default function PreferencePicker() {
       );
     default:
       return (
-        <Screen header={<NavHeader fallback="/settings" />}>
+        <Screen readable header={<NavHeader fallback="/settings" />}>
           <CalmState placement="top" title="Not Found" />
         </Screen>
       );

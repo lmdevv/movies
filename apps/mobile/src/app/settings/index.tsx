@@ -20,7 +20,7 @@ export default function AppSettings() {
   const preferences = usePreferences();
 
   return (
-    <Screen scroll header={<NavHeader title="App Settings" fallback="/you" />}>
+    <Screen readable scroll header={<NavHeader title="App Settings" fallback="/you" />}>
       <ListRow
         icon={Sun}
         title="Appearance"

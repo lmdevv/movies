@@ -2,7 +2,7 @@ import type { Profile } from "@movies/contracts/models/profiles";
 import { router } from "expo-router";
 import { Lock, Pencil, Plus } from "lucide-react-native";
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, View } from "react-native";
+import { Alert, Pressable, View } from "react-native";
 
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,7 @@ function ProfileTile({
       className="items-center gap-3 active:opacity-70"
     >
       <ProfileAvatar profile={profile} />
-      <Text variant="navTitle" numberOfLines={1} className="max-w-28">
+      <Text variant="navTitle" numberOfLines={1} className="max-w-28 regular:max-w-36">
         {profile.name}
       </Text>
       {profile.hasPin ? (
@@ -67,25 +67,41 @@ export default function Profiles() {
   };
 
   return (
-    <Screen>
-      <View className="h-16 flex-row items-center gap-3 px-5">
-        <Text variant="largeTitle" accessibilityRole="header" className="flex-1">
-          Who’s Watching?
-        </Text>
-        <IconButton
-          icon={Pencil}
-          label="Manage Profiles"
-          onPress={() => router.push("/manage-profiles")}
-        />
-      </View>
-      <ScrollView contentContainerClassName="gap-4 px-5 py-4">
-        <View className="h-24" />
-        <View className="flex-row flex-wrap justify-center gap-8">
-          {profiles.map((profile) => (
-            <ProfileTile key={profile.id} profile={profile} onPress={() => pick(profile)} />
-          ))}
+    <Screen
+      readable
+      scroll
+      header={
+        <View className="h-16 flex-row items-center gap-3 regular:hidden">
+          <Text variant="largeTitle" accessibilityRole="header" className="flex-1">
+            Who’s Watching?
+          </Text>
+          <IconButton
+            icon={Pencil}
+            label="Manage Profiles"
+            onPress={() => router.push("/manage-profiles")}
+          />
         </View>
-        <View className="h-8" />
+      }
+      contentClassName="regular:items-center regular:justify-center regular:gap-12 regular:pb-8"
+    >
+      <Text variant="largeTitle" accessibilityRole="header" className="hidden regular:flex">
+        Who’s Watching?
+      </Text>
+      <View className="h-24 regular:hidden" />
+      <View className="flex-row flex-wrap justify-center gap-8 regular:gap-10">
+        {profiles.map((profile) => (
+          <ProfileTile key={profile.id} profile={profile} onPress={() => pick(profile)} />
+        ))}
+      </View>
+      <View className="h-8 regular:hidden" />
+      <View className="gap-4">
+        <Button
+          label="Manage Profiles"
+          variant="secondary"
+          icon={Pencil}
+          onPress={() => router.push("/manage-profiles")}
+          className="hidden regular:flex regular:min-w-50"
+        />
         {canAddProfile(profiles.length) ? (
           <Button
             label="Add Profile"
@@ -94,6 +110,7 @@ export default function Profiles() {
             onPress={() =>
               router.push({ pathname: "/profile/[profileId]", params: { profileId: "new" } })
             }
+            className="regular:min-w-50"
           />
         ) : null}
         <Button
@@ -104,8 +121,9 @@ export default function Profiles() {
             setBusy(true);
             void signOut().catch(() => setBusy(false));
           }}
+          className="regular:min-w-50"
         />
-      </ScrollView>
+      </View>
     </Screen>
   );
 }

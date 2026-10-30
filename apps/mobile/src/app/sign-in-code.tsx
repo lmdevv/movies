@@ -109,7 +109,7 @@ export default function SignInWithCode() {
 
   if (attempt.kind === "expired" || attempt.kind === "failed") {
     return (
-      <Screen header={<NavHeader />}>
+      <Screen readable header={<NavHeader />}>
         <CalmState
           placement="top"
           icon={Lock}
@@ -124,8 +124,8 @@ export default function SignInWithCode() {
   }
 
   return (
-    <Screen header={<NavHeader title="Sign In with a Code" />}>
-      <View className="gap-4 px-5 py-4">
+    <Screen readable header={<NavHeader title="Sign In with a Code" />}>
+      <View className="gap-4 px-5 py-4 regular:px-0">
         <View className="h-12" />
         <Text variant="subheading">Enter this code on a signed-in device.</Text>
         <View className="h-4" />

@@ -25,7 +25,7 @@ export default function Connect() {
   };
 
   return (
-    <Screen scroll header={<NavHeader title="Connect to Server" fallback="/welcome" />}>
+    <Screen readable scroll header={<NavHeader title="Connect to Server" fallback="/welcome" />}>
       <TextField
         label="Server address"
         placeholder="https://cinema.home"

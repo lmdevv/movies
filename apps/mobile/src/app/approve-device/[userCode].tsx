@@ -31,7 +31,7 @@ function Ending(props: {
   readonly onAction: () => void;
 }) {
   return (
-    <Screen header={<NavHeader fallback="/approve-device" />}>
+    <Screen readable header={<NavHeader fallback="/approve-device" />}>
       <CalmState
         placement="top"
         icon={props.icon}
@@ -81,7 +81,11 @@ function Decide({
   };
 
   return (
-    <Screen scroll header={<NavHeader title="Approve Sign-In" fallback="/approve-device" />}>
+    <Screen
+      readable
+      scroll
+      header={<NavHeader title="Approve Sign-In" fallback="/approve-device" />}
+    >
       <View className="h-12" />
       <View className="items-center gap-4">
         <Icon icon={Airplay} size="tile" />
@@ -174,7 +178,7 @@ export default function ApproveSignIn() {
 
   if (lookup.status === "loading") {
     return (
-      <Screen header={<NavHeader title="Approve Sign-In" fallback="/approve-device" />}>
+      <Screen readable header={<NavHeader title="Approve Sign-In" fallback="/approve-device" />}>
         <ActivityIndicator className="py-6" colorClassName="accent-text-muted" />
       </Screen>
     );

@@ -29,7 +29,7 @@ export default function ApiKeys() {
 
   if (keys.status === "error") {
     return (
-      <Screen header={header}>
+      <Screen readable header={header}>
         <CalmState
           title="Couldn’t Load API Keys"
           description={describeFailure(keys.error)}
@@ -40,7 +40,7 @@ export default function ApiKeys() {
   }
 
   return (
-    <Screen scroll header={header}>
+    <Screen readable scroll header={header}>
       {keys.status === "loading" ? (
         <ActivityIndicator className="py-6" colorClassName="accent-text-muted" />
       ) : (

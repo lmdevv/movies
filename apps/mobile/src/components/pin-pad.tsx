@@ -123,7 +123,10 @@ export function PinPad({
         </Text>
       )}
       {KEYPAD_ROWS.map((row, rowIndex) => (
-        <View key={rowIndex} className="w-full flex-row justify-around">
+        <View
+          key={rowIndex}
+          className="w-full flex-row justify-around regular:w-75 regular:self-center regular:justify-between"
+        >
           {row.map((pinKey, keyIndex) => (
             <Key
               key={pinKey ?? `blank-${keyIndex}`}

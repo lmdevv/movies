@@ -38,6 +38,7 @@ export function OwnerScreen({
 }: OwnerScreenProps) {
   return (
     <Screen
+      readable
       scroll
       edges={["top"]}
       header={

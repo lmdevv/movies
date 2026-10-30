@@ -31,7 +31,7 @@ export default function Unreachable() {
 
   if (isLocalNetworkUrl(url)) {
     return (
-      <Screen header={<NavHeader title="Local Network Access" onBack={back} />}>
+      <Screen readable header={<NavHeader title="Local Network Access" onBack={back} />}>
         <CalmState
           placement="top"
           icon={Wifi}

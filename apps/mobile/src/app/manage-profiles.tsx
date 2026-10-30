@@ -1,7 +1,7 @@
 import type { Profile } from "@movies/contracts/models/profiles";
 import { router } from "expo-router";
 import { Check, Pencil, Plus } from "lucide-react-native";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, View } from "react-native";
 
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,8 @@ export default function ManageProfiles() {
 
   return (
     <Screen
+      readable
+      scroll
       header={
         <NavHeader
           title="Manage Profiles"
@@ -52,15 +54,13 @@ export default function ManageProfiles() {
         />
       }
     >
-      <ScrollView contentContainerClassName="gap-4 px-5 py-4">
-        <View className="h-16" />
-        {profiles.map((profile) => (
-          <ProfileRow key={profile.id} profile={profile} />
-        ))}
-        {canAddProfile(profiles.length) ? (
-          <Button label="Add Profile" variant="secondary" icon={Plus} onPress={() => edit("new")} />
-        ) : null}
-      </ScrollView>
+      <View className="h-16" />
+      {profiles.map((profile) => (
+        <ProfileRow key={profile.id} profile={profile} />
+      ))}
+      {canAddProfile(profiles.length) ? (
+        <Button label="Add Profile" variant="secondary" icon={Plus} onPress={() => edit("new")} />
+      ) : null}
     </Screen>
   );
 }

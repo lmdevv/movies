@@ -64,6 +64,7 @@ export default function ProfileForm() {
 
   return (
     <Screen
+      readable
       scroll
       header={
         <NavHeader

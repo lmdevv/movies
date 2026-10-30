@@ -43,7 +43,12 @@ export default function SignIn() {
   };
 
   return (
-    <Screen scroll header={<NavHeader title="Sign In" onBack={disconnect} />}>
+    <Screen
+      readable
+      scroll
+      header={<NavHeader title="Sign In" onBack={disconnect} />}
+      contentClassName="regular:justify-center regular:pb-24"
+    >
       <ListRow
         icon={Server}
         title={new URL(server.mediaUrl).host}

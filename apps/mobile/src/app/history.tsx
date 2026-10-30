@@ -11,7 +11,7 @@ import { CalmState } from "@/components/ui/calm-state";
 import { Icon } from "@/components/ui/icon";
 import { Image } from "@/components/ui/image";
 import { NavHeader } from "@/components/ui/nav-header";
-import { Screen } from "@/components/ui/screen";
+import { READABLE_COLUMN, Screen } from "@/components/ui/screen";
 import { Text } from "@/components/ui/text";
 import { artworkUrl } from "@/lib/artwork";
 import { describeFailure } from "@/lib/failure";
@@ -198,7 +198,7 @@ export default function WatchHistory() {
 
   if (first.status === "loading") {
     return (
-      <Screen header={header}>
+      <Screen readable header={header}>
         <ActivityIndicator className="py-6" colorClassName="accent-text-muted" />
       </Screen>
     );
@@ -206,7 +206,7 @@ export default function WatchHistory() {
 
   if (first.status === "error") {
     return (
-      <Screen header={header}>
+      <Screen readable header={header}>
         <CalmState
           title="Couldn’t Load Watch History"
           description={describeFailure(first.error)}
@@ -218,7 +218,7 @@ export default function WatchHistory() {
 
   if (items.length === 0) {
     return (
-      <Screen header={header}>
+      <Screen readable header={header}>
         <CalmState
           placement="top"
           icon={HistoryIcon}
@@ -230,11 +230,11 @@ export default function WatchHistory() {
   }
 
   return (
-    <Screen header={header} edges={["top"]}>
+    <Screen header={<View className={READABLE_COLUMN}>{header}</View>} edges={["top"]}>
       <FlatList
         data={items}
         keyExtractor={(item) => item.key}
-        contentContainerClassName="gap-4 px-5 pt-4 pb-10"
+        contentContainerClassName={`gap-4 px-5 pt-4 pb-10 ${READABLE_COLUMN}`}
         onEndReached={() => void older.loadMore()}
         onEndReachedThreshold={1}
         ListFooterComponent={

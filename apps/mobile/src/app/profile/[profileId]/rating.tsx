@@ -16,6 +16,7 @@ export default function MaximumRating() {
 
   return (
     <Screen
+      readable
       scroll
       header={
         <NavHeader

@@ -17,7 +17,11 @@ const LICENSES: ReadonlyArray<{ readonly name: string; readonly license: string 
 
 export default function Licenses() {
   return (
-    <Screen scroll header={<NavHeader title="Open Source Licenses" fallback="/settings/about" />}>
+    <Screen
+      readable
+      scroll
+      header={<NavHeader title="Open Source Licenses" fallback="/settings/about" />}
+    >
       {LICENSES.map((entry) => (
         <View key={entry.name} accessible className="min-h-14 justify-center gap-0.5">
           <Text>{entry.name}</Text>

@@ -15,7 +15,7 @@ export default function About() {
   const version = Constants.expoConfig?.version;
 
   return (
-    <Screen scroll header={<NavHeader title="About [movies]" fallback="/settings" />}>
+    <Screen readable scroll header={<NavHeader title="About [movies]" fallback="/settings" />}>
       <View className="h-12" />
       <Text variant="wordmark" tone="accent" accessibilityRole="header">
         [movies]
