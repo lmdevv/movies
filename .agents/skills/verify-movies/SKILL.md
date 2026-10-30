@@ -249,9 +249,11 @@ less than 3 GB free, or 10 GB when it must build the dev client. It does these s
 1. It forwards the web app, Convex, and Metro ports to the Mac.
 2. It starts Metro.
 3. It creates and boots the simulator `movies-verify-<run>-<side>`, in dark mode unless `--light`.
-4. It installs the dev client. The first run syncs this checkout to `~/movies-ios/verify-<run>`
-   on the Mac, runs `expo prebuild` there, and builds it into `~/movies-ios/dd-verify-<run>`,
-   which takes several minutes. Later runs reuse that build.
+4. It installs the dev client. The build is named for the app's native inputs (`app.json`, its
+   `package.json`, the lockfile, and the asset names) and lives at `~/movies-ios/dev-client-<hash>`
+   on the Mac, so every run and worktree with the same inputs installs the same build. When none
+   matches, it syncs this checkout to `~/movies-ios/verify-<run>`, runs `expo prebuild` there,
+   and builds, which takes several minutes.
 5. It turns off the dev client's own UI (its first-launch introduction, its floating button, and
    the gestures that open its menu), so screenshots show only the app.
 6. It opens the app on Metro, connects to the side's server, signs in as Lucía, and picks her
@@ -273,6 +275,9 @@ It prints `ready: ios <side> on simulator <udid>` when the app shows Home. Then:
 | `ios record start <path.mp4>`, `ios record stop` | Records the screen to an H.264 MP4                      |
 | `ios appearance light\|dark`                     | Switches the system appearance                          |
 | `ios doctor`                                     | Checks the forwards, Metro, the simulator, and that the Mac reaches the web app and Convex |
+| `ios orientation portrait\|landscape`            | Turns the simulator and checks the app's window turned  |
+| `ios open <path>`                                | Opens an app path, such as `/title/<id>`, and accepts iOS's `Open in` prompt |
+| `ios matrix --out DIR [--orientations portrait,landscape] [--screens a,b]` | Screenshots each screen a layout change reaches, in each orientation, as `<device>-<orientation>-<screen>.png` |
 | `ios down`                                       | Removes this side's simulator, Metro, and forwards      |
 
 Read labels from `ios describe` before you tap; never guess coordinates. A label is the whole
@@ -329,7 +334,7 @@ an invite link.
 ```sh
 $S down                 # both sides: simulators, Metro, forwards, browser hosts, projects, volumes, the built image
 $S down --side before   # one side
-$S down --purge         # also remove the iOS build cache on the Mac (~/movies-ios/verify-<run>, dd-verify-<run>)
+$S down --purge         # also remove the iOS build cache on the Mac (~/movies-ios/verify-<run>, and dev-client-<hash> for this checkout)
 ```
 
 `down` stops only what this run started: processes by the pids it recorded, and Docker resources
@@ -344,6 +349,8 @@ never kills by process name. The demo library image stays for the next run. Evid
 - `scripts/browser.mjs` is the browser host that `up` starts and `browser` talks to. Run it
   directly only to debug the host. Its log is `${TMPDIR:-/tmp}/movies-verify/<run>/<side>/browser.log`.
 - `scripts/evidence.mjs` keeps the manifest and publishes it. `$S evidence` calls it.
+- `scripts/contact-sheet.sh OUT.png COLUMNS WIDTH FILE...` tiles screenshots, such as an `ios
+  matrix`, into one captioned image for a review or a PR.
 - `scripts/seed.mjs` creates the [demo data](#demo-data) after setup and checks what each person
   sees. `up` calls it.
 
@@ -379,6 +386,14 @@ feature's file before you drive it, and add to the map when a change adds a feat
 - `ios record` captures the whole screen at device resolution. `evidence publish` shrinks a clip
   over 10 MB to 720 pixels wide; keep iOS clips under a minute.
 - The Mac's disk is nearly full. A dev client build takes about 7 GB there (3 for the synced
-  checkout, 4 for the build); `down --purge` frees it, and touches no other run's build.
+  checkout, 4 for the build, deleted once the app is copied out). `down --purge` frees the
+  checkout and this checkout's dev client, which other runs with the same native inputs share.
+- On an iPad the tab bar sits at the top as a toolbar of radio buttons (`Home = 1 | RadioButton`),
+  so look for those, not `Tab Bar`. Pick a size with `ios up --device`, such as `"iPad mini (A17
+  Pro)"` or `"iPad Pro 13-inch (M5)"`, and run `ios matrix` once per device: one side holds one
+  simulator, so `ios down` and `ios up --device` again for the next size. The shared dev client
+  makes that about a minute.
+- AXe describes a point in portrait coordinates but taps in the screen's current ones; `ios
+  open` allows for it in landscape.
 - iOS's own sheets, such as `Save Password?`, aren't in `ios describe`, which lists the app's
   elements only. When taps stop doing anything, take an `ios shot` and look.
