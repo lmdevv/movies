@@ -399,7 +399,11 @@ feature's file before you drive it, and add to the map when a change adds a feat
   Pro)"` or `"iPad Pro 13-inch (M5)"`, and run `ios matrix` once per device: one side holds one
   simulator, so `ios down` and `ios up --device` again for the next size. The shared dev client
   makes that about a minute.
-- AXe describes a point in portrait coordinates but taps in the screen's current ones; `ios
-  open` allows for it in landscape.
+- AXe describes a point in portrait coordinates but taps in the screen's current ones, so in
+  landscape a point from `ios describe` is not where `describe-ui --point` looks.
+- `ios open` answers iOS's prompts through agent-device's `alert` command, which also reports the
+  app's own sheets (such as Seasons). `ios matrix` therefore stops only on system prompts, which
+  end in a question or ask for permission. Compare two matrices only when both ran the same
+  `--screens` list: a screen opened after a sheet can open inside it.
 - iOS's own sheets, such as `Save Password?`, aren't in `ios describe`, which lists the app's
   elements only. When taps stop doing anything, take an `ios shot` and look.

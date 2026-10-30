@@ -528,7 +528,7 @@ before_source() {
 # native inputs, and the derived data goes, so every run and worktree with the same inputs installs
 # one build. JavaScript always comes from Metro.
 native_hash() {
-  (cd "$root/apps/mobile" && (cat app.json package.json ../../pnpm-lock.yaml; find assets -type f | sort) | sha1sum | cut -d' ' -f1)
+  (cd "${1:-$root}/apps/mobile" && (cat app.json package.json ../../pnpm-lock.yaml; find assets -type f | sort) | sha1sum | cut -d' ' -f1)
 }
 
 ios_build() {
@@ -548,7 +548,7 @@ ios_build() {
   local shared="$mac_dir/dev-client-$(native_hash)"
   on_mac "rm -rf ~/$shared.tmp-$run && mkdir -p ~/$shared.tmp-$run \
     && cp -R ~/$mac_dir/dd-verify-$run/Build/Products/Debug-iphonesimulator/movies.app ~/$shared.tmp-$run/ \
-    && { mv -n ~/$shared.tmp-$run ~/$shared 2>/dev/null || true; } && rm -rf ~/$shared.tmp-$run ~/$mac_dir/dd-verify-$run"
+    && { [ -d ~/$shared ] || mv ~/$shared.tmp-$run ~/$shared; } && rm -rf ~/$shared.tmp-$run ~/$mac_dir/dd-verify-$run"
 }
 
 cmd_ios_up() {
@@ -571,7 +571,7 @@ cmd_ios_up() {
   local app="\$HOME/$mac_dir/dev-client-$(native_hash)/movies.app" free need=3
   on_mac "test -d $app" || need=10
   free="$(on_mac "df -g \$HOME | awk 'NR == 2 { print \$4 }'")"
-  ((free >= need)) || die "$mac has ${free} GB free and ios up needs ${need} GB; free space there (\`down --purge\` removes only this run's build)"
+  ((free >= need)) || die "$mac has ${free} GB free and ios up needs ${need} GB; free space there (\`down --purge\` removes this run's checkout there and the dev client for its native inputs, which other runs with the same inputs share)"
 
   local port convex_port metro src
   port="$(read_state port)"
@@ -589,7 +589,13 @@ cmd_ios_up() {
 
   src="$root"
   [[ "$side" == before ]] && src="$(before_source)"
-  [[ -n "$source" ]] && src="$source"
+  if [[ -n "$source" ]]; then
+    # The dev client is built from this checkout, so another checkout's JavaScript only runs on it
+    # when both ask for the same native code.
+    [[ "$(native_hash "$source")" == "$(native_hash)" ]] \
+      || die "$source changes the app's native inputs; run verify-movies from that checkout instead"
+    src="$source"
+  fi
   say "starting Metro for $src on port $metro"
   # Not CI=1: that turns off file watching and the app keeps serving the first bundle.
   # Its own session, so `ios down` stops pnpm, Expo, and Metro's workers as one process group. The
@@ -657,6 +663,7 @@ ios_dismiss_save_password() {
 ios_sign_in() {
   local tree
   tree="$(ios_tree)"
+  local typed=0
   # Already signed in, on the profile picker: only the pick is left.
   if ! grep -q 'Manage Profiles' <<<"$tree"; then
     if ! grep -q 'Sign In with a Code' <<<"$tree"; then
@@ -672,6 +679,7 @@ ios_sign_in() {
     ios_tap_label "Password"
     ios_type "$password"
     ios_tap_label "Sign In"
+    typed=1
   fi
   local tapped=0
   for _ in $(seq 1 60); do
@@ -683,8 +691,8 @@ ios_sign_in() {
       tapped=1
     # A phone's tab bar is a Tab Bar; an iPad's sits at the top as a toolbar of radio buttons.
     elif grep -qE 'Tab Bar|^ *Home = 1 \| RadioButton' <<<"$tree"; then
-      # The Save Password card can land after Home does, over the next screenshot.
-      sleep 3; ios_dismiss_save_password || true
+      # After a password, the Save Password card can land after Home does, over the next screenshot.
+      ((typed)) && { sleep 3; ios_dismiss_save_password || true; }
       return 0
     fi
     sleep 1
@@ -758,12 +766,17 @@ cmd_ios() {
 ios_agent() {
   local try
   for try in 1 2 3; do
-    on_mac "ad=\$(ls -d ~/.t3/device/tools/agent-device@*/node_modules/.bin/agent-device | tail -1); session=movies-verify-$run-$side \
-      && \$ad open dev.lmdevv.movies --udid $(udid) --platform ios --session \$session >/dev/null \
-      && \$ad $* --session \$session" && return 0
+    ios_agent_once "$@" && return 0
     ((try < 3)) && sleep 4
   done
   return 1
+}
+
+# One try, for a probe whose failure is an answer, such as no alert on screen.
+ios_agent_once() {
+  on_mac "ad=\$(ls -d ~/.t3/device/tools/agent-device@*/node_modules/.bin/agent-device | tail -1); session=movies-verify-$run-$side \
+    && \$ad open dev.lmdevv.movies --udid $(udid) --platform ios --session \$session >/dev/null \
+    && \$ad $* --session \$session"
 }
 
 # Turns the simulator, which simctl can't. The app's layout follows the window, so give it a moment.
@@ -789,7 +802,7 @@ ios_open() {
   on_mac "xcrun simctl openurl $(udid) $(printf %q "movies://$1")"
   local _
   for _ in 1 2 3 4; do
-    ios_agent alert wait 3000 >/dev/null 2>&1 || return 0
+    ios_agent_once alert wait 3000 >/dev/null 2>&1 || return 0
     [[ "$(ios_alert)" == "Open in"* ]] || return 0
     ios_agent alert accept >/dev/null 2>&1 || true
     sleep 1
@@ -799,7 +812,7 @@ ios_open() {
 # Prints the message of the iOS alert on screen, nothing when there is none, or `?` when
 # agent-device could not tell.
 ios_alert() {
-  ios_agent alert get --json 2>/dev/null | node -e '
+  { ios_agent_once alert get --json 2>/dev/null || true; } | node -e '
     const replies = require("node:fs").readFileSync(0, "utf8").split(/\n(?=\{)/u);
     const reply = JSON.parse(replies.at(-1) || "{}");
     if (reply.success) console.log(reply.data.message);
@@ -822,8 +835,12 @@ ios_matrix() {
   mkdir -p "$out"
   local device orientation screen name path screens alert
   device="$(slug "$(read_state ios_device)")"
+  # Looked up here rather than in the list's subshell, where a failed lookup would go unnoticed.
+  local movie show
+  movie="$(title_id Sintel)" || die "no Sintel on the $side side for the matrix"
+  show="$(title_id "Pioneer One")" || die "no Pioneer One on the $side side for the matrix"
   # Read up front: ssh in the loop would take the rest of the list as its input.
-  mapfile -t screens < <(ios_matrix_screens)
+  mapfile -t screens < <(ios_matrix_screens "$movie" "$show")
   for orientation in $orientations; do
     ios_orientation "$orientation"
     for screen in "${screens[@]}"; do
@@ -848,9 +865,7 @@ ios_matrix() {
 # The screens a layout change can reach, as name|path. Titles are looked up by name, since their
 # ids differ on every side.
 ios_matrix_screens() {
-  local movie show
-  movie="$(title_id Sintel)"
-  show="$(title_id "Pioneer One")"
+  local movie="$1" show="$2"
   cat <<SCREENS
 home|/
 movie|/title/$movie

@@ -14,12 +14,17 @@ for i in "${!files[@]}"; do
   args+=(-i "${files[$i]}")
   filter+="[$i:v]scale=$width:-1,pad=$width:ih+28:0:28:color=0x333333,drawtext=fontfile=$font:text=$label:x=6:y=5:fontsize=18:fontcolor=white[v$i];"
   inputs+="[v$i]"
-  # xstack places each tile after the widths left of it and the heights above it in its column.
+  # xstack places each tile after the widths left of it and the heights of the tiles above it.
   col=$((i % cols)) row=$((i / cols)) x=0 y=0
   ((col > 0)) && x="$(for _ in $(seq 1 "$col"); do printf 'w0+'; done | sed 's/+$//')"
-  ((row > 0)) && y="$(for k in $(seq 0 $((row - 1))); do printf 'h%d+' $((k * cols)); done | sed 's/+$//')"
+  ((row > 0)) && y="$(for k in $(seq 0 $((row - 1))); do printf 'h%d+' $((k * cols + col)); done | sed 's/+$//')"
   layout+="${x}_${y}|"
 done
-ffmpeg -loglevel error -y "${args[@]}" \
-  -filter_complex "${filter}${inputs}xstack=inputs=${#files[@]}:layout=${layout%|}:fill=black" -frames:v 1 "$out"
+# xstack takes two inputs or more; one file is only scaled and captioned.
+if ((${#files[@]} == 1)); then
+  ffmpeg -loglevel error -y "${args[@]}" -filter_complex "${filter%;}" -map "[v0]" -frames:v 1 "$out"
+else
+  ffmpeg -loglevel error -y "${args[@]}" \
+    -filter_complex "${filter}${inputs}xstack=inputs=${#files[@]}:layout=${layout%|}:fill=black" -frames:v 1 "$out"
+fi
 echo "$out"
