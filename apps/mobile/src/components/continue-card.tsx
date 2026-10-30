@@ -31,9 +31,9 @@ export function ContinueCard({ item }: { readonly item: ContinueWatchingItem }) 
       accessibilityRole="button"
       accessibilityLabel={facts(label, progressLabel(item.progress))}
       onPress={() => router.push(target)}
-      className="w-58 gap-2 active:opacity-80"
+      className="w-58 gap-2 active:opacity-80 regular:w-80 wide:w-90"
     >
-      <View className="h-32.5 w-full overflow-hidden rounded-control bg-surface-raised">
+      <View className="h-32.5 w-full overflow-hidden rounded-control bg-surface-raised regular:h-45 wide:h-50.75">
         {uri === undefined ? null : (
           <Image source={{ uri }} contentFit="cover" transition={150} className="size-full" />
         )}

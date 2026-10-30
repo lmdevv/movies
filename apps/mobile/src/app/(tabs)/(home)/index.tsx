@@ -22,6 +22,7 @@ import { CalmState } from "@/components/ui/calm-state";
 import { homeScreen } from "@/lib/browse";
 import type { HomeScreen } from "@/lib/browse";
 import { describeFailure } from "@/lib/failure";
+import { useWidthClass } from "@/lib/use-width-class";
 import { useActiveProfile } from "@/session/active-profile";
 
 const STICKY_BAR = [0];
@@ -34,6 +35,7 @@ export default function Home() {
   const libraries = useCommandQuery("libraries.list", {});
   const collapse = useCollapse();
   const insets = useSafeAreaInsets();
+  const clearance = TAB_BAR_CLEARANCE[useWidthClass()];
   const [barHeight, setBarHeight] = useState(0);
 
   const loaded =
@@ -57,7 +59,7 @@ export default function Home() {
       contentInsetAdjustmentBehavior="never"
       stickyHeaderIndices={STICKY_BAR}
       className="flex-1 bg-bg"
-      contentContainerStyle={{ flexGrow: 1, paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }}
+      contentContainerStyle={{ flexGrow: 1, paddingBottom: insets.bottom + clearance }}
     >
       <CompactBar
         title="Home"
@@ -145,7 +147,7 @@ function HomeBody({
 
   if (layout === "scanning") {
     return (
-      <View className="gap-8 pt-4">
+      <View className="gap-8 pt-4 regular:gap-10 regular:pt-2 regular:pb-16">
         <ScanStatus libraries={libraries} />
         <Rail
           title="Recently Added"
@@ -158,7 +160,7 @@ function HomeBody({
   }
 
   return (
-    <View className="gap-8 pt-4">
+    <View className="gap-8 pt-4 regular:gap-10 regular:pt-2 regular:pb-16">
       {kids && home.featured !== null ? <KidsHero title={home.featured} /> : null}
       <Rail
         title="Continue Watching"

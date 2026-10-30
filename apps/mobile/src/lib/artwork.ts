@@ -1,12 +1,14 @@
 import { artworkUrl as mediaArtworkUrl } from "@movies/contracts/artwork";
 import type { ArtworkWidth } from "@movies/contracts/artwork";
 
+// An iPad's billboard is up to 2752 pixels wide, past the largest resize, so it takes the original.
 const WIDTHS = {
   thumb: 185,
   poster: 342,
   card: 780,
   backdrop: 1280,
-} as const satisfies Record<string, ArtworkWidth>;
+  billboard: undefined,
+} as const satisfies Record<string, ArtworkWidth | undefined>;
 
 /** Where an image is drawn, which decides the width it is fetched at. */
 export type ArtworkUse = keyof typeof WIDTHS;

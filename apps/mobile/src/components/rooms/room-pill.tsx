@@ -15,7 +15,7 @@ export function ReturnToRoom() {
   const label = `Return to Room · ${String(room.members)}`;
 
   return (
-    <View className="flex-row px-5 pt-4" pointerEvents="box-none">
+    <View className="flex-row px-5 pt-4 regular:px-8 wide:px-12" pointerEvents="box-none">
       <Pressable
         onPress={() => router.push(`/room/${room.id}`)}
         accessibilityRole="button"

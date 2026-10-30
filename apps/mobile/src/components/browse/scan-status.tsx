@@ -30,7 +30,7 @@ export function ScanStatus({ libraries }: { readonly libraries: ReadonlyArray<Li
     jobs.status === "success" ? jobs.data.filter((job) => job.status === "running") : [];
 
   return (
-    <View className="gap-4 px-5">
+    <View className="gap-4 px-5 regular:px-8 wide:px-12">
       {libraries
         .filter((library) => library.scanning)
         .map((library) => {

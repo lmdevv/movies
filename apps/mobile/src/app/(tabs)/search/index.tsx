@@ -15,10 +15,10 @@ import { TitlePoster } from "@/components/title-poster";
 import { Button } from "@/components/ui/button";
 import { CalmState } from "@/components/ui/calm-state";
 import { Text } from "@/components/ui/text";
-import { gridRows, popularTitles } from "@/lib/browse";
+import { gridRows, kindFacts, popularTitles } from "@/lib/browse";
 import type { KindFilter } from "@/lib/browse";
 import { describeFailure } from "@/lib/failure";
-import { useGridLayout } from "@/lib/use-width-class";
+import { useGridLayout, useWidthClass } from "@/lib/use-width-class";
 import { useThemeColor } from "@/lib/theme-color";
 import { useActiveProfile } from "@/session/active-profile";
 
@@ -106,6 +106,7 @@ function Explore() {
   const { profile } = useActiveProfile();
   const genres = useCommandQuery("titles.genres", { profileId: profile.id });
   const home = useCommandQuery("titles.home", { profileId: profile.id });
+  const compact = useWidthClass() === "compact";
 
   const popular = home.status === "success" ? popularTitles(home.data, EXPLORE_TITLES) : [];
 
@@ -133,7 +134,7 @@ function Explore() {
           </ScrollView>
         </View>
       ) : null}
-      {popular.length > 0 ? (
+      {popular.length === 0 ? null : compact ? (
         <View className="gap-4">
           <Text variant="heading" accessibilityRole="header">
             Popular in Your Library
@@ -142,7 +143,9 @@ function Explore() {
             <WideRow key={title.id} title={title} />
           ))}
         </View>
-      ) : null}
+      ) : (
+        <ResultGrid title="Popular in Your Library" titles={popular} details wholeRows />
+      )}
     </>
   );
 }
@@ -238,35 +241,48 @@ function Results({
 function ResultGrid({
   title,
   titles,
+  details = false,
+  wholeRows = false,
 }: {
   readonly title: string;
   readonly titles: ReadonlyArray<TitleCard>;
+  /** Puts each title's kind and year under its name. */
+  readonly details?: boolean;
+  /** Drops the titles past the last full row, for a sample rather than every result. */
+  readonly wholeRows?: boolean;
 }) {
   const { columns, spacing } = useGridLayout();
 
   if (titles.length === 0) return null;
+
+  const full = titles.length - (titles.length % columns);
+
+  const rows = gridRows(wholeRows && full > 0 ? titles.slice(0, full) : titles, columns);
 
   return (
     <View className="gap-4">
       <Text variant="heading" accessibilityRole="header">
         {title}
       </Text>
-      {gridRows(titles, columns).map((row) => (
-        <View key={row.key} className="flex-row" style={{ gap: spacing.gap }}>
-          {row.cells.map((cell) =>
-            cell.kind === "title" ? (
-              <TitlePoster
-                key={cell.title.id}
-                title={cell.title}
-                caption="grid"
-                widthClassName="flex-1"
-              />
-            ) : (
-              <View key={cell.key} className="flex-1" />
-            ),
-          )}
-        </View>
-      ))}
+      <View className="gap-4 regular:gap-6">
+        {rows.map((row) => (
+          <View key={row.key} className="flex-row" style={{ gap: spacing.gap }}>
+            {row.cells.map((cell) =>
+              cell.kind === "title" ? (
+                <TitlePoster
+                  key={cell.title.id}
+                  title={cell.title}
+                  caption="grid"
+                  detail={details ? kindFacts(cell.title) : undefined}
+                  widthClassName="flex-1"
+                />
+              ) : (
+                <View key={cell.key} className="flex-1" />
+              ),
+            )}
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
