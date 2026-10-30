@@ -639,14 +639,15 @@ cmd_ios_up() {
 
 # A first password sign-in on a new simulator brings up iOS's own "Save Password?" sheet over the
 # app. It isn't in the app's tree, so `ios_tree` can't see it, but AXe describes the element at a
-# point. The sheet sits centred with "Not Now" on its left, so look down a third of the way across
-# the screen for it and tap it. Only a top-level match counts: above the button, the point is on
+# point. The sheet sits centred with "Not Now" on its left, on an iPhone as a wide sheet and on an
+# iPad as a 300-point card, so look down the line 76 points left of centre, which crosses the
+# button on both, and tap it. Only a top-level match counts: above the button, the point is on
 # the sheet itself, whose children include the button. Returns 1 when no such sheet shows.
 ios_dismiss_save_password() {
   local size
   size="$(ios_tree | sed -n '1s/.* \([0-9]*\)x\([0-9]*\)$/\1 \2/p')"
   [[ -n "$size" ]] || return 1
-  on_mac "x=$(( ${size% *} / 3 )); for y in \$(seq $(( ${size#* } / 3 )) 12 $(( ${size#* } * 9 / 10 ))); do
+  on_mac "x=$(( ${size% *} / 2 - 76 )); for y in \$(seq $(( ${size#* } / 3 )) 12 $(( ${size#* } * 9 / 10 ))); do
       if $axe describe-ui --point \$x,\$y --udid $(udid) 2>/dev/null | grep -E '^  \"AXLabel\" : \"Not Now\"' >/dev/null; then
         $axe touch -x \$x -y \$y --down --up --delay 0.15 --udid $(udid) >/dev/null; exit 0; fi; done; exit 1"
 }
